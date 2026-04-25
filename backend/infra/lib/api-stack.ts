@@ -38,6 +38,12 @@ export class ApiStack extends Stack {
       environment: commonEnv,
     })
 
+    // DB SG already permits VPC CIDR ingress on 5432 (see data-stack.ts).
+    // We do NOT call props.dbCluster.connections.allowDefaultPortFrom(...) here
+    // because doing so creates a cross-stack SG ref Data -> Api that conflicts
+    // with the IAM cross-stack ref Api -> Data on dbSecret/appSecret, producing
+    // a CDK dependency cycle. Lambdas attached to the VPC will reach the DB
+    // via the existing CIDR ingress rule.
     const authGoogle = new NodejsFunction(this, 'AuthGoogleFn', {
       entry: path.join(__dirname, '../../src/handlers/auth-google.ts'),
       runtime: Runtime.NODEJS_20_X,
@@ -47,7 +53,6 @@ export class ApiStack extends Stack {
     })
     props.dbSecret.grantRead(authGoogle)
     props.appSecret.grantRead(authGoogle)
-    props.dbCluster.connections.allowDefaultPortFrom(authGoogle)
 
     const authMe = new NodejsFunction(this, 'AuthMeFn', {
       entry: path.join(__dirname, '../../src/handlers/auth-me.ts'),
@@ -58,7 +63,6 @@ export class ApiStack extends Stack {
     })
     props.dbSecret.grantRead(authMe)
     props.appSecret.grantRead(authMe)
-    props.dbCluster.connections.allowDefaultPortFrom(authMe)
 
     const api = new HttpApi(this, 'HttpApi', {
       corsPreflight: {
