@@ -19,6 +19,7 @@ interface Props extends StackProps {
   bucket: Bucket
   dbCluster: DatabaseCluster
   appSecret: Secret
+  wsEndpoint: string
 }
 
 export class ApiStack extends Stack {
@@ -30,6 +31,7 @@ export class ApiStack extends Stack {
       DB_SECRET_ARN: props.dbSecret.secretArn,
       APP_SECRET_ARN: props.appSecret.secretArn,
     }
+    const wsEndpoint = props.wsEndpoint
 
     const health = new NodejsFunction(this, 'HealthFn', {
       entry: path.join(__dirname, '../../src/handlers/health.ts'),
@@ -88,6 +90,42 @@ export class ApiStack extends Stack {
       path: '/v1/auth/me',
       methods: [HttpMethod.GET],
       integration: new HttpLambdaIntegration('AuthMeInt', authMe),
+    })
+
+    // ---- T9: stream handlers (audio + slide) ----
+    const streamAudio = new NodejsFunction(this, 'StreamAudioFn', {
+      entry: path.join(__dirname, '../../src/handlers/stream-audio.ts'),
+      runtime: Runtime.NODEJS_20_X,
+      timeout: Duration.seconds(60),
+      memorySize: 1024,
+      environment: { ...commonEnv, WS_ENDPOINT: wsEndpoint },
+      vpc: props.vpc,
+    })
+    props.dbSecret.grantRead(streamAudio)
+    props.appSecret.grantRead(streamAudio)
+    props.bucket.grantReadWrite(streamAudio)
+
+    const streamSlide = new NodejsFunction(this, 'StreamSlideFn', {
+      entry: path.join(__dirname, '../../src/handlers/stream-slide.ts'),
+      runtime: Runtime.NODEJS_20_X,
+      timeout: Duration.seconds(15),
+      memorySize: 512,
+      environment: { ...commonEnv, WS_ENDPOINT: wsEndpoint },
+      vpc: props.vpc,
+    })
+    props.dbSecret.grantRead(streamSlide)
+    props.appSecret.grantRead(streamSlide)
+    props.bucket.grantReadWrite(streamSlide)
+
+    api.addRoutes({
+      path: '/v1/stream/audio',
+      methods: [HttpMethod.POST],
+      integration: new HttpLambdaIntegration('SAInt', streamAudio),
+    })
+    api.addRoutes({
+      path: '/v1/stream/slide',
+      methods: [HttpMethod.POST],
+      integration: new HttpLambdaIntegration('SSInt', streamSlide),
     })
 
     new CfnOutput(this, 'ApiUrl', { value: api.apiEndpoint })
