@@ -177,6 +177,38 @@ export class ApiStack extends Stack {
       integration: new HttpLambdaIntegration('SDInt', sessionDelete),
     })
 
+    // ---- T11: Stripe checkout + webhook ----
+    const stripeCheckout = new NodejsFunction(this, 'StripeCheckoutFn', {
+      entry: path.join(__dirname, '../../src/handlers/stripe-checkout.ts'),
+      runtime: Runtime.NODEJS_20_X,
+      timeout: Duration.seconds(15),
+      environment: commonEnv,
+      vpc: props.vpc,
+    })
+    props.dbSecret.grantRead(stripeCheckout)
+    props.appSecret.grantRead(stripeCheckout)
+
+    const stripeWebhook = new NodejsFunction(this, 'StripeWebhookFn', {
+      entry: path.join(__dirname, '../../src/handlers/stripe-webhook.ts'),
+      runtime: Runtime.NODEJS_20_X,
+      timeout: Duration.seconds(15),
+      environment: commonEnv,
+      vpc: props.vpc,
+    })
+    props.dbSecret.grantRead(stripeWebhook)
+    props.appSecret.grantRead(stripeWebhook)
+
+    api.addRoutes({
+      path: '/v1/billing/checkout',
+      methods: [HttpMethod.POST],
+      integration: new HttpLambdaIntegration('SCInt', stripeCheckout),
+    })
+    api.addRoutes({
+      path: '/v1/billing/webhook',
+      methods: [HttpMethod.POST],
+      integration: new HttpLambdaIntegration('SWInt', stripeWebhook),
+    })
+
     new CfnOutput(this, 'ApiUrl', { value: api.apiEndpoint })
   }
 }
