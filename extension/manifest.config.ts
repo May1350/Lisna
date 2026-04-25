@@ -11,6 +11,7 @@ export default defineManifest({
   host_permissions: ['<all_urls>'],
   action: { default_title: 'Study-Helper' },
   side_panel: { default_path: 'src/side-panel/index.html' },
+  options_ui: { page: 'src/options/index.html', open_in_tab: true },
   background: {
     service_worker: 'src/service-worker/index.ts',
     type: 'module',
