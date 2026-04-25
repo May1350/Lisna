@@ -18,6 +18,7 @@ interface Props extends StackProps {
   dbSecret: Secret
   bucket: Bucket
   dbCluster: DatabaseCluster
+  appSecret: Secret
 }
 
 export class ApiStack extends Stack {
@@ -27,6 +28,7 @@ export class ApiStack extends Stack {
     const commonEnv = {
       S3_BUCKET: props.bucket.bucketName,
       DB_SECRET_ARN: props.dbSecret.secretArn,
+      APP_SECRET_ARN: props.appSecret.secretArn,
     }
 
     const health = new NodejsFunction(this, 'HealthFn', {
@@ -35,6 +37,28 @@ export class ApiStack extends Stack {
       timeout: Duration.seconds(5),
       environment: commonEnv,
     })
+
+    const authGoogle = new NodejsFunction(this, 'AuthGoogleFn', {
+      entry: path.join(__dirname, '../../src/handlers/auth-google.ts'),
+      runtime: Runtime.NODEJS_20_X,
+      timeout: Duration.seconds(10),
+      environment: commonEnv,
+      vpc: props.vpc,
+    })
+    props.dbSecret.grantRead(authGoogle)
+    props.appSecret.grantRead(authGoogle)
+    props.dbCluster.connections.allowDefaultPortFrom(authGoogle)
+
+    const authMe = new NodejsFunction(this, 'AuthMeFn', {
+      entry: path.join(__dirname, '../../src/handlers/auth-me.ts'),
+      runtime: Runtime.NODEJS_20_X,
+      timeout: Duration.seconds(5),
+      environment: commonEnv,
+      vpc: props.vpc,
+    })
+    props.dbSecret.grantRead(authMe)
+    props.appSecret.grantRead(authMe)
+    props.dbCluster.connections.allowDefaultPortFrom(authMe)
 
     const api = new HttpApi(this, 'HttpApi', {
       corsPreflight: {
@@ -48,6 +72,18 @@ export class ApiStack extends Stack {
       path: '/v1/health',
       methods: [HttpMethod.GET],
       integration: new HttpLambdaIntegration('HealthInt', health),
+    })
+
+    api.addRoutes({
+      path: '/v1/auth/google',
+      methods: [HttpMethod.POST],
+      integration: new HttpLambdaIntegration('AuthGoogleInt', authGoogle),
+    })
+
+    api.addRoutes({
+      path: '/v1/auth/me',
+      methods: [HttpMethod.GET],
+      integration: new HttpLambdaIntegration('AuthMeInt', authMe),
     })
 
     new CfnOutput(this, 'ApiUrl', { value: api.apiEndpoint })

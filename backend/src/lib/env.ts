@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager'
 
 const Env = z.object({
   DATABASE_URL: z.string().min(1),
@@ -19,4 +20,20 @@ export type AppEnv = z.infer<typeof Env>
 
 export function loadEnv(): AppEnv {
   return Env.parse(process.env)
+}
+
+let cachedSecrets: Record<string, string> | undefined
+
+export async function loadAppSecrets(): Promise<Record<string, string>> {
+  if (cachedSecrets) return cachedSecrets
+  const arn = process.env.APP_SECRET_ARN
+  if (!arn) {
+    cachedSecrets = process.env as Record<string, string>
+    return cachedSecrets
+  }
+  const sm = new SecretsManagerClient({})
+  const out = await sm.send(new GetSecretValueCommand({ SecretId: arn }))
+  cachedSecrets = JSON.parse(out.SecretString!)
+  for (const [k, v] of Object.entries(cachedSecrets!)) process.env[k] = v
+  return cachedSecrets!
 }
