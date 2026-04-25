@@ -128,6 +128,55 @@ export class ApiStack extends Stack {
       integration: new HttpLambdaIntegration('SSInt', streamSlide),
     })
 
+    // ---- T10: session finalize / get / delete ----
+    const sessionFinalize = new NodejsFunction(this, 'SessFinFn', {
+      entry: path.join(__dirname, '../../src/handlers/session-finalize.ts'),
+      runtime: Runtime.NODEJS_20_X,
+      timeout: Duration.seconds(60),
+      memorySize: 1024,
+      environment: commonEnv,
+      vpc: props.vpc,
+    })
+    props.dbSecret.grantRead(sessionFinalize)
+    props.appSecret.grantRead(sessionFinalize)
+    props.bucket.grantReadWrite(sessionFinalize)
+
+    const sessionGet = new NodejsFunction(this, 'SessGetFn', {
+      entry: path.join(__dirname, '../../src/handlers/session-get.ts'),
+      runtime: Runtime.NODEJS_20_X,
+      timeout: Duration.seconds(10),
+      environment: commonEnv,
+      vpc: props.vpc,
+    })
+    props.dbSecret.grantRead(sessionGet)
+    props.appSecret.grantRead(sessionGet)
+
+    const sessionDelete = new NodejsFunction(this, 'SessDelFn', {
+      entry: path.join(__dirname, '../../src/handlers/session-delete.ts'),
+      runtime: Runtime.NODEJS_20_X,
+      timeout: Duration.seconds(10),
+      environment: commonEnv,
+      vpc: props.vpc,
+    })
+    props.dbSecret.grantRead(sessionDelete)
+    props.appSecret.grantRead(sessionDelete)
+
+    api.addRoutes({
+      path: '/v1/session/finalize',
+      methods: [HttpMethod.POST],
+      integration: new HttpLambdaIntegration('SFInt', sessionFinalize),
+    })
+    api.addRoutes({
+      path: '/v1/session',
+      methods: [HttpMethod.GET],
+      integration: new HttpLambdaIntegration('SGInt', sessionGet),
+    })
+    api.addRoutes({
+      path: '/v1/session/{id}',
+      methods: [HttpMethod.DELETE],
+      integration: new HttpLambdaIntegration('SDInt', sessionDelete),
+    })
+
     new CfnOutput(this, 'ApiUrl', { value: api.apiEndpoint })
   }
 }
