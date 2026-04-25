@@ -4,6 +4,7 @@ import { DataStack } from '../lib/data-stack.js'
 import { ApiStack } from '../lib/api-stack.js'
 import { SecretsStack } from '../lib/secrets-stack.js'
 import { WsStack } from '../lib/ws-stack.js'
+import { MigrateStack } from '../lib/migrate-stack.js'
 
 const app = new App()
 const env = { region: 'ap-northeast-1' }
@@ -26,4 +27,10 @@ new ApiStack(app, 'StudyHelperApi', {
   dbCluster: data.cluster,
   appSecret: secrets.appSecret,
   wsEndpoint: ws.wsEndpoint,
+})
+new MigrateStack(app, 'StudyHelperMigrate', {
+  env,
+  vpc: network.vpc,
+  dbSecret: data.dbSecret,
+  dbCluster: data.cluster,
 })

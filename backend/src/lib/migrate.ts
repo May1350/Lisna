@@ -3,8 +3,14 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { getPool } from './db.js'
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
-const MIGRATIONS_DIR = join(__dirname, '..', 'migrations')
+function resolveMigrationsDir(): string {
+  if (process.env.LAMBDA_TASK_ROOT) {
+    return join(process.env.LAMBDA_TASK_ROOT, 'migrations')
+  }
+  const __dirname = dirname(fileURLToPath(import.meta.url))
+  return join(__dirname, '..', 'migrations')
+}
+const MIGRATIONS_DIR = resolveMigrationsDir()
 
 export async function migrate(): Promise<void> {
   const pool = await getPool()
@@ -34,4 +40,9 @@ export async function migrate(): Promise<void> {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   migrate().then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1) })
+}
+
+export const handler = async () => {
+  await migrate()
+  return { ok: true }
 }
