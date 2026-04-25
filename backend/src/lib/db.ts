@@ -16,7 +16,12 @@ async function resolveConnectionString(): Promise<string> {
 export async function getPool(): Promise<Pool> {
   if (!pool) {
     const url = await resolveConnectionString()
-    pool = new Pool({ connectionString: url, max: 2, ssl: { rejectUnauthorized: false } })
+    pool = new Pool({
+      connectionString: url,
+      max: 5,
+      idleTimeoutMillis: 30_000,
+      ssl: { rejectUnauthorized: false },
+    })
   }
   return pool
 }

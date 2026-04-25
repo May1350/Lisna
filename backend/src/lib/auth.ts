@@ -43,6 +43,9 @@ export async function verifyGoogleIdToken(idToken: string): Promise<{
   if (data.aud !== process.env.GOOGLE_OAUTH_CLIENT_ID) {
     throw new Error('Token aud mismatch')
   }
+  if (data.email_verified !== 'true') {
+    throw new Error('Google email not verified')
+  }
   return {
     sub: data.sub,
     email: data.email,
