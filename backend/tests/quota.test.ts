@@ -1,7 +1,9 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const mockQuery = vi.fn()
+const { mockQuery } = vi.hoisted(() => ({ mockQuery: vi.fn() }))
 vi.mock('../src/lib/db.js', () => ({ query: mockQuery }))
+
+beforeEach(() => mockQuery.mockReset())
 
 import { checkQuota, recordUsage, FREE_LIMIT_SECS, PRO_LIMIT_SECS, currentPeriod } from '../src/lib/quota.js'
 
