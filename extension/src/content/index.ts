@@ -1,5 +1,6 @@
 import { showToast } from './toast'
 import { AudioCapture, blobToBase64 } from './audio-capture'
+import { SlideDetector, type Slide } from './slide-detector'
 
 let detected = false
 let activeVideo: HTMLVideoElement | null = null
@@ -98,6 +99,21 @@ async function startCapture(url: string): Promise<void> {
     })
   })
   capture.start()
+
+  const detector = new SlideDetector(activeVideo, async (slide: Slide) => {
+    const buf = await slide.blob.arrayBuffer()
+    let s = ''; const bytes = new Uint8Array(buf)
+    for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i])
+    const b64 = btoa(s)
+    await chrome.runtime.sendMessage({
+      type: 'API_FETCH',
+      method: 'POST',
+      path: '/v1/stream/slide',
+      body: { session_id: currentSessionId, ts: slide.ts, image_b64: b64, mime: 'image/jpeg' },
+    })
+  })
+  detector.start()
+  activeVideo.addEventListener('ended', () => detector.stop())
 
   // notify side panel
   chrome.runtime.sendMessage({ type: 'SP_BROADCAST', payload: { type: 'session_started', sessionId: currentSessionId, url } })
