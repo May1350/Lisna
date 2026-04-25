@@ -10,6 +10,15 @@ export const handler: APIGatewayProxyHandler = async (event) => {
   if (!token || !sessionId) return { statusCode: 400, body: 'missing params' }
   try {
     const payload = await verifyJwt(token)
+    // Verify session ownership: a user can only subscribe to their own sessions.
+    // Without this check, anyone with a valid JWT could subscribe by guessing/leaking session IDs.
+    const owned = await query<{ id: string }>(
+      `SELECT id FROM sessions WHERE id = $1 AND user_id = $2`,
+      [sessionId, payload.sub]
+    )
+    if (owned.length === 0) {
+      return { statusCode: 403, body: 'forbidden' }
+    }
     await query(
       `INSERT INTO ws_connections (connection_id, user_id, session_id) VALUES ($1, $2, $3)
        ON CONFLICT (connection_id) DO UPDATE SET session_id = EXCLUDED.session_id`,
