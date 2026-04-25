@@ -1,0 +1,13 @@
+{
+  "name": "study-helper",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@9.0.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev:extension": "pnpm --filter extension dev",
+    "dev:backend": "pnpm --filter backend dev",
+    "dev:web": "pnpm --filter web dev",
+    "deploy:backend": "pnpm --filter backend deploy"
+  }
+}
