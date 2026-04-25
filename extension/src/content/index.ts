@@ -31,9 +31,16 @@ function checkAndOffer(): void {
   })
 }
 
-// initial check + observe DOM mutations
+// initial check + observe DOM mutations (debounced)
 checkAndOffer()
-const obs = new MutationObserver(() => checkAndOffer())
+let mutationDebounce = 0
+const obs = new MutationObserver(() => {
+  if (detected) { obs.disconnect(); return }
+  const now = Date.now()
+  if (now - mutationDebounce < 500) return
+  mutationDebounce = now
+  checkAndOffer()
+})
 obs.observe(document.documentElement, { childList: true, subtree: true })
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
@@ -64,13 +71,7 @@ chrome.runtime.onMessage.addListener((msg, _s, sendResponse) => {
 })
 
 async function startCapture(url: string): Promise<void> {
-  if (!activeVideo) return
-
-  // apply playback speed setting
-  const settingResp = await chrome.runtime.sendMessage({
-    type: 'API_FETCH', path: '/v1/__noop__', method: 'GET'  // placeholder; speed handled below
-  }).catch(() => null)
-  void settingResp
+  if (!activeVideo || activeVideo.readyState < 2) return
 
   // get configured speed (or auto-detect max)
   const stored = await chrome.storage.local.get('sh.playback')

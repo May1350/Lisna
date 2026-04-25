@@ -53,13 +53,18 @@ export default function App() {
   // connect WS when sessionId arrives
   useEffect(() => {
     if (!sessionId) return
+    let mounted = true
     let ws: WebSocket | null = null
-    void connectWs(sessionId, {
-      onNote: (newNotes) => setNotes(prev => [...prev, ...newNotes]),
-      onSlide: (s) => setSlides(prev => [...prev, s]),
-      onClose: () => {},
-    }).then(w => { ws = w })
-    return () => { ws?.close() }
+    void (async () => {
+      const w = await connectWs(sessionId, {
+        onNote: (newNotes) => setNotes(prev => [...prev, ...newNotes]),
+        onSlide: (s) => setSlides(prev => [...prev, s]),
+        onClose: () => {},
+      })
+      if (mounted) ws = w
+      else w.close()
+    })()
+    return () => { mounted = false; ws?.close() }
   }, [sessionId])
 
   const onUpgrade = useCallback(async () => {

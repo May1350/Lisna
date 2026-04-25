@@ -6,8 +6,8 @@ export function NoteList({ notes, slides }: { notes: N[]; slides: SlideItem[] })
   return (
     <div className="space-y-1">
       {notes.length === 0 && <p className="text-sm text-gray-500 p-3">処理中... 講義を再生してください。</p>}
-      {notes.map((n, i) => (
-        <NoteItem key={i} n={n} slideUrl={slideByTs.get(Math.round(n.ts))} />
+      {notes.map((n) => (
+        <NoteItem key={`${n.ts}-${n.text.slice(0, 20)}`} n={n} slideUrl={slideByTs.get(Math.round(n.ts))} />
       ))}
     </div>
   )
