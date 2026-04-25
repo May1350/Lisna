@@ -49,7 +49,7 @@ export class SlideDetector {
   }
 }
 
-function pixelDiff(a: ImageData, b: ImageData): number {
+export function pixelDiff(a: ImageData, b: ImageData): number {
   const A = a.data, B = b.data
   let diffPixels = 0
   const total = A.length / 4
