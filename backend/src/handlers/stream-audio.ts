@@ -48,17 +48,19 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
 
   const urlHash = createHash('sha256').update(normalizeUrl(body.url)).digest('hex')
 
-  // upsert session row
-  await query(
+  // upsert session row; capture canonical id (whether INSERT or ON CONFLICT UPDATE)
+  const upserted = await query<{ id: string }>(
     `INSERT INTO sessions (id, user_id, url_hash, url_original)
      VALUES ($1, $2, $3, $4)
-     ON CONFLICT (user_id, url_hash) DO UPDATE SET updated_at = NOW()`,
+     ON CONFLICT (user_id, url_hash) DO UPDATE SET updated_at = NOW()
+     RETURNING id`,
     [body.session_id, payload.sub, urlHash, body.url]
   )
+  const sessionId = upserted[0].id
 
   // gather prior context: last 5 notes
   const sessRow = await query<{ notes: { text: string; ts: number }[] }>(
-    `SELECT notes FROM sessions WHERE id = $1`, [body.session_id]
+    `SELECT notes FROM sessions WHERE id = $1`, [sessionId]
   )
   const priorNotes = sessRow[0]?.notes ?? []
   const priorContext = priorNotes.slice(-5).map(n => `[${n.ts}s] ${n.text}`).join('\n')
@@ -72,13 +74,13 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   if (summary.notes.length > 0) {
     await query(
       `UPDATE sessions SET notes = notes || $1::jsonb, updated_at = NOW() WHERE id = $2`,
-      [JSON.stringify(summary.notes), body.session_id]
+      [JSON.stringify(summary.notes), sessionId]
     )
   }
 
   await recordUsage(payload.sub, Math.ceil(body.duration_sec))
 
-  await sendToSession(body.session_id, {
+  await sendToSession(sessionId, {
     type: 'note_chunk',
     notes: summary.notes,
   })
@@ -86,6 +88,10 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   return {
     statusCode: 200,
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ added: summary.notes.length, transcript_preview: transcript.text.slice(0, 80) }),
+    body: JSON.stringify({
+      session_id: sessionId,
+      added: summary.notes.length,
+      transcript_preview: transcript.text.slice(0, 80),
+    }),
   }
 }

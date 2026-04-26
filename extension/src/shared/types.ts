@@ -15,6 +15,7 @@ export interface NoteItem {
 export interface SlideItem {
   ts: number
   key: string
+  url: string
 }
 
 export interface SessionState {

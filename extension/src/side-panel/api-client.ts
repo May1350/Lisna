@@ -36,8 +36,11 @@ export async function connectWs(sessionId: string, listeners: WsListeners): Prom
   ws.onmessage = (e) => {
     try {
       const msg = JSON.parse(e.data)
-      if (msg.type === 'note_chunk') listeners.onNote(msg.notes)
-      else if (msg.type === 'slide_chunk') listeners.onSlide(msg.slide)
+      if (msg.type === 'note_chunk') listeners.onNote(msg.notes as NoteItem[])
+      else if (msg.type === 'slide_chunk') {
+        const s = msg.slide as { ts: number; key: string; url: string }
+        listeners.onSlide({ ts: s.ts, key: s.key, url: s.url })
+      }
     } catch { /* ignore */ }
   }
   ws.onclose = () => listeners.onClose()

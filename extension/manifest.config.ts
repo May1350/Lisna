@@ -7,7 +7,7 @@ export default defineManifest({
   description: '日本の大学生のための、ダウンロード不可な講義動画専用のリアルタイム学習アシスタント',
   version: pkg.version,
   default_locale: 'ja',
-  permissions: ['storage', 'sidePanel', 'identity', 'tabs', 'scripting'],
+  permissions: ['storage', 'sidePanel', 'identity', 'tabs'],
   host_permissions: ['<all_urls>'],
   action: { default_title: 'Study-Helper' },
   side_panel: { default_path: 'src/side-panel/index.html' },

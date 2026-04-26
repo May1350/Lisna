@@ -82,10 +82,16 @@ async function startCapture(url: string): Promise<void> {
     activeVideo.playbackRate = speed
   }
 
+  // Tentative client-generated id; the backend MAY return a different canonical id
+  // on the first /v1/stream/audio response (e.g. if a session for this user+url already exists).
+  // We adopt that canonical id and only THEN broadcast session_started so the side panel
+  // connects WS to the correct session.
   currentSessionId = crypto.randomUUID()
+  let canonicalAdopted = false
+
   capture = new AudioCapture(activeVideo, async (chunk) => {
     const b64 = await blobToBase64(chunk.blob)
-    await chrome.runtime.sendMessage({
+    const r = await chrome.runtime.sendMessage({
       type: 'API_FETCH',
       method: 'POST',
       path: '/v1/stream/audio',
@@ -97,11 +103,25 @@ async function startCapture(url: string): Promise<void> {
         audio_b64: b64,
         mime: chunk.mime,
       },
-    })
+    }) as { ok: true; data: { added: number; transcript_preview: string; session_id: string } } | { ok: false; error: string }
+
+    if (r && r.ok && !canonicalAdopted) {
+      const canonical = r.data?.session_id
+      if (canonical) {
+        currentSessionId = canonical
+        canonicalAdopted = true
+        // notify side panel only after we have the canonical id
+        chrome.runtime.sendMessage({
+          type: 'SP_BROADCAST',
+          payload: { type: 'session_started', sessionId: currentSessionId, url },
+        })
+      }
+    }
   })
   capture.start()
 
   const detector = new SlideDetector(activeVideo, async (slide: Slide) => {
+    if (!canonicalAdopted) return // wait until canonical id is known
     const buf = await slide.blob.arrayBuffer()
     let s = ''; const bytes = new Uint8Array(buf)
     for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i])
@@ -115,9 +135,6 @@ async function startCapture(url: string): Promise<void> {
   })
   detector.start()
   activeVideo.addEventListener('ended', () => detector.stop())
-
-  // notify side panel
-  chrome.runtime.sendMessage({ type: 'SP_BROADCAST', payload: { type: 'session_started', sessionId: currentSessionId, url } })
 }
 
 function detectMaxSpeed(_v: HTMLVideoElement): number | null {
