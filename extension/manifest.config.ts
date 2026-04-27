@@ -6,7 +6,9 @@ export default defineManifest({
   name: 'Study-Helper',
   description: '日本の大学生のための、ダウンロード不可な講義動画専用のリアルタイム学習アシスタント',
   version: pkg.version,
-  default_locale: 'ja',
+  // No `default_locale` — we don't use chrome.i18n / __MSG_*__ message references
+  // (all UI strings are inline plain Japanese). Setting default_locale without a
+  // matching `_locales/<lang>/messages.json` makes Chrome reject the extension.
   permissions: ['storage', 'sidePanel', 'identity', 'tabs'],
   host_permissions: ['<all_urls>'],
   action: { default_title: 'Study-Helper' },
