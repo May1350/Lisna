@@ -15,7 +15,11 @@ export default defineManifest({
   side_panel: { default_path: 'src/side-panel/index.html' },
   options_ui: { page: 'src/options/index.html', open_in_tab: true },
   background: {
-    service_worker: 'src/service-worker/index.ts',
+    // NOTE: file is `main.ts` not `index.ts` to disambiguate from
+    // src/content/index.ts. CRX plugin had a hash collision when both
+    // entries were named index.ts, causing the content-script loader
+    // to import the SW bundle (chrome.windows undefined → crash).
+    service_worker: 'src/service-worker/main.ts',
     type: 'module',
   },
   content_scripts: [
