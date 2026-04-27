@@ -67,7 +67,9 @@ export class DataStack extends Stack {
       securityGroups: [dbSg],
       allocatedStorage: 20,           // GB — within Free Tier
       maxAllocatedStorage: 100,       // auto-grow up to 100GB if needed (still cheap)
-      backupRetention: Duration.days(7),
+      // Free Tier caps backup retention at 1 day. Bump to 7 once on a paid plan
+      // or after migrating to Aurora (which gets 35-day PITR included).
+      backupRetention: Duration.days(1),
       deleteAutomatedBackups: true,
       removalPolicy: RemovalPolicy.DESTROY,
       publiclyAccessible: false,
