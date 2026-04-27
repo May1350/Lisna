@@ -37,11 +37,16 @@ export class DataStack extends Stack {
     const dbSg = new SecurityGroup(this, 'DbSg', { vpc: props.vpc, allowAllOutbound: true })
     dbSg.addIngressRule(Peer.ipv4(props.vpc.vpcCidrBlock), Port.tcp(5432))
 
+    // Scale-to-zero: when idle for ~5 minutes the writer auto-pauses to 0 ACU
+    // (no compute charge while paused). First request after pause incurs ~10-15s
+    // cold start. Storage is always charged (~$0.10/GB/month, negligible at MVP scale).
+    // Switch back to MinCapacity: 0.5 once production traffic is steady.
     this.cluster = new DatabaseCluster(this, 'Db', {
-      engine: DatabaseClusterEngine.auroraPostgres({ version: AuroraPostgresEngineVersion.VER_16_2 }),
+      engine: DatabaseClusterEngine.auroraPostgres({ version: AuroraPostgresEngineVersion.VER_16_6 }),
       writer: ClusterInstance.serverlessV2('writer'),
-      serverlessV2MinCapacity: 0.5,
+      serverlessV2MinCapacity: 0,
       serverlessV2MaxCapacity: 2,
+      serverlessV2AutoPauseDuration: Duration.minutes(5),
       vpc: props.vpc,
       vpcSubnets: { subnetType: SubnetType.PRIVATE_WITH_EGRESS },
       credentials: Credentials.fromSecret(this.dbSecret),
