@@ -7,10 +7,7 @@ const KEYS = {
   PLAYBACK: 'sh.playback',
   SESSION_INDEX: 'sh.sessionIndex',
   ENABLED: 'sh.enabled',
-  DISPLAY_MODE: 'sh.displayMode',
 } as const
-
-export type DisplayMode = 'side-panel' | 'popout'
 
 export async function getToken(): Promise<string | null> {
   const r = await chrome.storage.local.get(KEYS.TOKEN)
@@ -65,12 +62,22 @@ export async function setEnabled(v: boolean): Promise<void> {
   await chrome.storage.local.set({ [KEYS.ENABLED]: v })
 }
 
-export async function getDisplayMode(): Promise<DisplayMode> {
-  const r = await chrome.storage.local.get(KEYS.DISPLAY_MODE)
-  return (r[KEYS.DISPLAY_MODE] as DisplayMode | undefined) ?? 'side-panel'
-}
-export async function setDisplayMode(v: DisplayMode): Promise<void> {
-  await chrome.storage.local.set({ [KEYS.DISPLAY_MODE]: v })
+/**
+ * Subscribe to changes of the `sh.enabled` flag (any source: this script,
+ * the side panel, the options page, etc). Returns an unsubscribe function.
+ */
+export function onEnabledChange(callback: (enabled: boolean) => void): () => void {
+  const listener = (
+    changes: { [key: string]: chrome.storage.StorageChange },
+    area: chrome.storage.AreaName,
+  ) => {
+    if (area !== 'local') return
+    const c = changes[KEYS.ENABLED]
+    if (!c) return
+    callback(c.newValue !== false)
+  }
+  chrome.storage.onChanged.addListener(listener)
+  return () => chrome.storage.onChanged.removeListener(listener)
 }
 
 export const STORAGE_KEYS = KEYS

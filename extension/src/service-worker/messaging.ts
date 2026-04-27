@@ -1,17 +1,13 @@
 import type { SwRequest, SwResponse } from '../shared/types'
 import { loginWithGoogle, logout, authedFetch } from './auth'
-import { getUser, getDisplayMode, setDisplayMode } from '../shared/storage'
+import { getUser, setEnabled } from '../shared/storage'
+import { updateBadge, broadcastEnabledChange } from './notify'
 
 const POPOUT_WIDTH = 380
 const POPOUT_HEIGHT = 800
 
-// Track popout window IDs per source-tab so we can close/refocus them.
+// Track popout window IDs per source-tab so we can refocus instead of double-opening.
 const popoutsByTab = new Map<number, number>()
-
-async function openSidePanel(tabId: number): Promise<void> {
-  await chrome.sidePanel.setOptions({ tabId, path: 'src/side-panel/index.html', enabled: true })
-  await chrome.sidePanel.open({ tabId })
-}
 
 async function openPopout(tabId: number): Promise<void> {
   // If we already have a popout for this tab, focus it instead of creating a new one.
@@ -35,25 +31,12 @@ async function openPopout(tabId: number): Promise<void> {
   if (win?.id !== undefined) popoutsByTab.set(tabId, win.id)
 }
 
-async function closePopoutForTab(tabId: number): Promise<void> {
-  const winId = popoutsByTab.get(tabId)
-  if (winId === undefined) return
-  popoutsByTab.delete(tabId)
-  try { await chrome.windows.remove(winId) } catch { /* already gone */ }
-}
-
 // Keep popout map in sync if the user closes the popout window manually.
 chrome.windows?.onRemoved.addListener((winId) => {
   for (const [tabId, id] of popoutsByTab.entries()) {
     if (id === winId) popoutsByTab.delete(tabId)
   }
 })
-
-export async function openViewForTab(tabId: number): Promise<void> {
-  const mode = await getDisplayMode()
-  if (mode === 'popout') await openPopout(tabId)
-  else await openSidePanel(tabId)
-}
 
 export async function handle(req: SwRequest, sender?: chrome.runtime.MessageSender): Promise<SwResponse> {
   try {
@@ -82,45 +65,30 @@ export async function handle(req: SwRequest, sender?: chrome.runtime.MessageSend
         return { ok: true, data: parsed }
       }
       case 'TOAST_SHOW': {
-        await chrome.tabs.sendMessage(req.tabId, { type: 'TOAST_SHOW' })
+        // Toast is no longer used in the UI flow but the handler is kept so any
+        // stale message in flight does not crash the SW.
+        try { await chrome.tabs.sendMessage(req.tabId, { type: 'TOAST_SHOW' }) } catch { /* ignore */ }
         return { ok: true, data: null }
       }
       case 'SESSION_START': {
-        await openViewForTab(req.tabId)
-        await chrome.tabs.sendMessage(req.tabId, { type: 'SESSION_START', url: req.url })
+        // Sessions always live in a popout window (chrome.windows.create works
+        // without a user gesture; chrome.sidePanel.open does NOT).
+        await openPopout(req.tabId)
+        try { await chrome.tabs.sendMessage(req.tabId, { type: 'SESSION_START', url: req.url }) } catch { /* ignore */ }
         return { ok: true, data: null }
       }
       case 'OPEN_VIEW': {
+        // Triggered by the inline 📚 button on a video. Always popout.
         const tabId = req.tabId ?? sender?.tab?.id
         if (tabId === undefined) return { ok: false, error: 'no tabId' }
-        await openViewForTab(tabId)
+        await openPopout(tabId)
         return { ok: true, data: null }
       }
-      case 'CLOSE_VIEW': {
-        // Side panel closes itself via window.close(); for popouts, look up by sender window.
-        const winId = sender?.tab?.windowId
-        if (winId !== undefined) {
-          for (const [tabId, id] of popoutsByTab.entries()) {
-            if (id === winId) {
-              popoutsByTab.delete(tabId)
-              try { await chrome.windows.remove(id) } catch { /* ignore */ }
-              break
-            }
-          }
-        }
-        return { ok: true, data: null }
-      }
-      case 'SWITCH_MODE': {
-        await setDisplayMode(req.mode)
-        // Close current view, open new one.
-        if (req.mode === 'side-panel') {
-          // Switching to side-panel: close popout (if any), open side panel for the original tab.
-          await closePopoutForTab(req.tabId)
-          await openSidePanel(req.tabId)
-        } else {
-          // Switching to popout: open popout. Side panel closes itself via window.close() in the caller.
-          await openPopout(req.tabId)
-        }
+      case 'TOGGLE_ENABLED': {
+        // Sent from the side-panel ON/OFF switch.
+        await setEnabled(req.enabled)
+        await updateBadge(req.enabled)
+        await broadcastEnabledChange(req.enabled)
         return { ok: true, data: null }
       }
       case 'STOP_SESSION': {

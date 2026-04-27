@@ -33,9 +33,10 @@ export type SwRequest =
   | { type: 'API_FETCH'; path: string; method: string; body?: unknown }
   | { type: 'TOAST_SHOW'; tabId: number }
   | { type: 'SESSION_START'; tabId: number; url: string }
+  // Inline 📚 button on a video → SW always opens a popout window for the session.
   | { type: 'OPEN_VIEW'; tabId?: number }
-  | { type: 'CLOSE_VIEW' }
-  | { type: 'SWITCH_MODE'; mode: 'side-panel' | 'popout'; tabId: number }
+  // Side-panel ON/OFF switch flips global enable state, badge, and content scripts.
+  | { type: 'TOGGLE_ENABLED'; enabled: boolean }
   | { type: 'STOP_SESSION'; tabId: number }
 
 export type SwResponse =

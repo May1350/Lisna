@@ -1,20 +1,25 @@
 import type { User } from '../../shared/types'
-import type { DisplayMode } from '../../shared/storage'
 
 interface Props {
   user: User | null
-  mode: DisplayMode
   isPopout: boolean
-  onSwitchMode: () => void
+  /** Only used when !isPopout (side-panel account view). */
+  enabled?: boolean
+  /** Only used when !isPopout (side-panel account view). */
+  onToggleEnabled?: (next: boolean) => void
   onClose: () => void
   onLogout: () => void
 }
 
-export function PanelHeader({ user, isPopout, onSwitchMode, onClose, onLogout }: Props) {
-  const switchLabel = isPopout ? '↩ サイドパネル' : '⤴ ポップアップ'
-  const switchTitle = isPopout
-    ? 'サイドパネルに戻す'
-    : 'ポップアップウィンドウに切り替え'
+export function PanelHeader({
+  user,
+  isPopout,
+  enabled,
+  onToggleEnabled,
+  onClose,
+  onLogout,
+}: Props) {
+  const showToggle = !isPopout && typeof enabled === 'boolean' && typeof onToggleEnabled === 'function'
 
   return (
     <header className="flex items-center justify-between gap-2 px-3 py-2 border-b border-gray-200 bg-white">
@@ -37,15 +42,35 @@ export function PanelHeader({ user, isPopout, onSwitchMode, onClose, onLogout }:
           <span className="text-xs text-gray-500">未ログイン</span>
         )}
       </div>
-      <div className="flex items-center gap-1 shrink-0">
-        <button
-          type="button"
-          onClick={onSwitchMode}
-          title={switchTitle}
-          className="text-[11px] px-2 py-1 rounded border border-gray-300 hover:bg-gray-100"
-        >
-          {switchLabel}
-        </button>
+      <div className="flex items-center gap-2 shrink-0">
+        {showToggle && (
+          <label
+            className="flex items-center gap-1.5 text-[11px] text-gray-700 cursor-pointer select-none"
+            title={enabled ? 'OFF にする' : 'ON にする'}
+          >
+            <span className="font-medium">{enabled ? 'ON' : 'OFF'}</span>
+            <input
+              type="checkbox"
+              role="switch"
+              aria-label="拡張機能の有効/無効"
+              checked={enabled}
+              onChange={(e) => onToggleEnabled?.(e.target.checked)}
+              className="sr-only peer"
+            />
+            <span
+              aria-hidden="true"
+              className={`relative inline-block w-8 h-[18px] rounded-full transition-colors ${
+                enabled ? 'bg-emerald-500' : 'bg-gray-300'
+              }`}
+            >
+              <span
+                className={`absolute top-[2px] left-[2px] w-[14px] h-[14px] bg-white rounded-full shadow transition-transform ${
+                  enabled ? 'translate-x-[14px]' : 'translate-x-0'
+                }`}
+              />
+            </span>
+          </label>
+        )}
         <button
           type="button"
           onClick={onClose}
