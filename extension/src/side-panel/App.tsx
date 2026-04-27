@@ -20,23 +20,16 @@ export default function App() {
   const [enabled, setEnabledState] = useState<boolean>(true)
 
   // Two contexts share this app:
-  //   - popout:     standalone window opened by SW (?tabId=N) → session view
-  //   - side-panel: Chrome's built-in side panel (no params) → account view
-  // The auth gate lives in the content script, so a popout is only ever
-  // opened for a logged-in user.
+  //   - embed:      iframe modal injected into the page (?embed=1&parentUrl=…)
+  //                 → session view + in-modal login if not authed.
+  //   - side-panel: Chrome's built-in side panel (no params) → account view.
   const ctx = useMemo(() => {
     const params = new URLSearchParams(location.search)
-    const popoutTabIdRaw = params.get('tabId')
-    const popoutTabId =
-      popoutTabIdRaw !== null && Number.isFinite(Number(popoutTabIdRaw))
-        ? Number(popoutTabIdRaw)
-        : null
-    return {
-      isPopout: popoutTabId !== null,
-      popoutTabId,
-    }
+    const isEmbed = params.has('embed')
+    const parentUrl = params.get('parentUrl')
+    return { isEmbed, parentUrl }
   }, [])
-  const { isPopout, popoutTabId } = ctx
+  const { isEmbed, parentUrl } = ctx
 
   useEffect(() => { void hasConsent().then(setConsented) }, [])
   useEffect(() => { void getCurrentUser().then(setUser) }, [consented])
@@ -49,9 +42,9 @@ export default function App() {
     return off
   }, [])
 
-  // Listen for SP_BROADCAST from content via SW — popout only.
+  // Listen for SP_BROADCAST from content via SW — embed only.
   useEffect(() => {
-    if (!isPopout) return
+    if (!isEmbed) return
     const listener = (msg: { type: string; payload?: { type: string; sessionId?: string; url?: string } }) => {
       if (msg.type === 'SP_BROADCAST' && msg.payload?.type === 'session_started' && msg.payload.sessionId) {
         setSessionId(msg.payload.sessionId)
@@ -60,24 +53,16 @@ export default function App() {
     }
     chrome.runtime.onMessage.addListener(listener)
     return () => chrome.runtime.onMessage.removeListener(listener)
-  }, [isPopout])
+  }, [isEmbed])
 
-  // Popout: load the existing session (if any) for the originating tab's URL.
+  // Embed: load the existing session (if any) for the parent page's URL.
   useEffect(() => {
-    if (!isPopout || !user || popoutTabId === null) return
+    if (!isEmbed || !user || !parentUrl) return
     void (async () => {
-      let url: string | undefined
-      let pageTitle = '講義ノート'
-      try {
-        const tab = await chrome.tabs.get(popoutTabId)
-        url = tab.url
-        pageTitle = tab.title || pageTitle
-      } catch { /* tab gone */ }
-      if (!url) return
-      setTitle(pageTitle)
+      setTitle('講義ノート')
       try {
         const r = await callApi<{ session: { id: string; notes: N[]; slides: SlideItem[] } | null }>(
-          `/v1/session?url=${encodeURIComponent(url)}`, 'GET'
+          `/v1/session?url=${encodeURIComponent(parentUrl)}`, 'GET'
         )
         if (r.session) {
           setSessionId(r.session.id)
@@ -86,9 +71,9 @@ export default function App() {
         }
       } catch { /* ignore */ }
     })()
-  }, [user, isPopout, popoutTabId])
+  }, [user, isEmbed, parentUrl])
 
-  // connect WS when sessionId arrives (popout only).
+  // connect WS when sessionId arrives (embed only).
   useEffect(() => {
     if (!sessionId) return
     let mounted = true
@@ -111,9 +96,12 @@ export default function App() {
   }, [])
 
   const onClose = useCallback(() => {
-    // Works for both the popout window and the Chrome side panel context.
-    window.close()
-  }, [])
+    if (isEmbed) {
+      window.parent.postMessage({ type: 'SH_CLOSE_MODAL' }, '*')
+    } else {
+      window.close()
+    }
+  }, [isEmbed])
 
   const onLogout = useCallback(async () => {
     await logout()
@@ -130,26 +118,32 @@ export default function App() {
   }, [])
 
   const onStop = useCallback(async () => {
-    if (isPopout && popoutTabId !== null) {
-      await chrome.runtime.sendMessage({ type: 'STOP_SESSION', tabId: popoutTabId })
+    // Stop the active capture in whichever tab the modal is hosted in.
+    // Embed runs inside the page, so we don't have a direct tabId; the SW
+    // forwards STOP_SESSION to the active tab via tabs.sendMessage.
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+    if (tab?.id !== undefined) {
+      await chrome.runtime.sendMessage({ type: 'STOP_SESSION', tabId: tab.id })
     }
     // Keep notes; clear sessionId so the WS disconnects and the StopButton hides.
     setSessionId(null)
-  }, [isPopout, popoutTabId])
+  }, [])
 
   if (consented === null) return null
 
-  // Popout (session view). The content-script auth gate ensures we only land
-  // here when the user is authed; a transient null user can occur on first
-  // mount before getCurrentUser() resolves — render nothing rather than
-  // flashing a login prompt.
-  if (isPopout) {
-    if (!user) return null
+  // Embed (in-page modal) — handles its own auth flow.
+  if (isEmbed) {
+    if (!consented) {
+      return <ConsentModal onAccept={async () => { await setConsent(); setConsented(true) }} />
+    }
+    if (!user) {
+      return <LoginScreen onSuccess={() => getCurrentUser().then(setUser)} />
+    }
     return (
       <div className="min-h-screen flex flex-col bg-gray-50">
         <PanelHeader
           user={user}
-          isPopout
+          isEmbed
           onClose={onClose}
           onLogout={onLogout}
         />
@@ -170,7 +164,7 @@ export default function App() {
     <div className="min-h-screen flex flex-col bg-gray-50">
       <PanelHeader
         user={user}
-        isPopout={false}
+        isEmbed={false}
         enabled={enabled}
         onToggleEnabled={onToggleEnabled}
         onClose={onClose}

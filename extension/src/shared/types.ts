@@ -30,9 +30,6 @@ export type SwRequest =
   | { type: 'AUTH_LOGOUT' }
   | { type: 'AUTH_GET_USER' }
   | { type: 'API_FETCH'; path: string; method: string; body?: unknown }
-  | { type: 'SESSION_START'; tabId: number; url: string }
-  // Inline 📚 button on a video → SW always opens a popout window for the session.
-  | { type: 'OPEN_VIEW'; tabId?: number }
   // Side-panel ON/OFF switch flips global enable state, badge, and content scripts.
   | { type: 'TOGGLE_ENABLED'; enabled: boolean }
   | { type: 'STOP_SESSION'; tabId: number }

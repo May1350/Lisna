@@ -1,4 +1,5 @@
 import { mountInlineButton, type InlineButtonHandle } from './inline-button'
+import { mountModal } from './in-page-modal'
 import { AudioCapture, blobToBase64 } from './audio-capture'
 import { SlideDetector, type Slide } from './slide-detector'
 import { getEnabled } from '../shared/storage'
@@ -27,17 +28,14 @@ function findBestVideo(): HTMLVideoElement | null {
   return best
 }
 
-async function handleActivate(): Promise<void> {
-  // Auth gate: if not logged in, show a brief tooltip on the inline button and
-  // abort. Avoids opening a popup that just shows "please log in".
-  const userResp = await chrome.runtime.sendMessage({ type: 'AUTH_GET_USER' })
-  const authed = !!(userResp?.ok && userResp.data)
-  if (!authed) {
-    button?.showTooltip('ログインしてください', 3000)
-    return
-  }
-  // Start the session: open popup AND begin capture.
-  chrome.runtime.sendMessage({ type: 'OPEN_VIEW' })
+function handleActivate(): void {
+  // The modal handles its own auth state — if the user is not logged in, it
+  // renders LoginScreen inline. We optimistically kick off capture in
+  // parallel; the first audio chunk fires ~15s in, so the user has a window
+  // to authenticate before any /v1/stream/audio request lands. If they're
+  // still not logged in by then, the SW returns 401 and we lose the first
+  // chunk — acceptable trade-off vs. blocking on auth here.
+  mountModal()
   void startCapture(location.href)
   button?.setStatus('processing')
 }
@@ -48,7 +46,7 @@ function tryMountButton(): void {
   if (!v) return
   detected = true
   activeVideo = v
-  button = mountInlineButton(v, () => { void handleActivate() }, () => stopCaptureLocal())
+  button = mountInlineButton(v, () => { handleActivate() }, () => stopCaptureLocal())
 }
 
 function unmountButton(): void {
@@ -108,12 +106,6 @@ chrome.storage?.onChanged.addListener((changes, area) => {
 })
 
 chrome.runtime.onMessage.addListener((msg, _s, sendResponse) => {
-  if (msg?.type === 'SESSION_START') {
-    void startCapture(msg.url)
-    button?.setStatus('processing')
-    sendResponse({ ok: true })
-    return true
-  }
   if (msg?.type === 'JUMP_TO') {
     if (activeVideo) { activeVideo.currentTime = msg.ts; activeVideo.playbackRate = 1.0 }
     sendResponse({ ok: true })

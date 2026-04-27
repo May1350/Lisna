@@ -5,7 +5,6 @@
 
 const STYLE_ID = '__sh_inline_button_style__'
 const ROOT_ID = '__sh_inline_button_root__'
-const TOOLTIP_ID = '__sh_inline_button_tooltip__'
 
 const SPARKLE_SVG = `
 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -28,14 +27,6 @@ function ensureStyle(): void {
 @keyframes __sh_pulse__ {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }
-}
-@keyframes __sh_tip_in__ {
-  from { opacity: 0; transform: translateY(-4px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-@keyframes __sh_tip_out__ {
-  from { opacity: 1; transform: translateY(0); }
-  to   { opacity: 0; transform: translateY(-4px); }
 }
 .__sh_btn__ {
   position: absolute;
@@ -137,34 +128,6 @@ function ensureStyle(): void {
   outline: 2px solid #fca5a5;
   outline-offset: 2px;
 }
-.__sh_tip__ {
-  position: absolute;
-  z-index: 999999;
-  background: rgba(15, 23, 42, 0.96);
-  color: #ffffff;
-  font: 500 12px/1.3 system-ui, -apple-system, "Hiragino Sans", "Apple SD Gothic Neo", sans-serif;
-  padding: 6px 10px;
-  border-radius: 8px;
-  box-shadow: 0 6px 20px rgba(0,0,0,0.25);
-  white-space: nowrap;
-  pointer-events: none;
-  user-select: none;
-  animation: __sh_tip_in__ 160ms ease forwards;
-}
-.__sh_tip__::before {
-  content: '';
-  position: absolute;
-  top: -5px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 0; height: 0;
-  border-left: 5px solid transparent;
-  border-right: 5px solid transparent;
-  border-bottom: 6px solid rgba(15, 23, 42, 0.96);
-}
-.__sh_tip__.__sh_tip_out__ {
-  animation: __sh_tip_out__ 160ms ease forwards;
-}
 `
   document.documentElement.appendChild(style)
 }
@@ -173,7 +136,6 @@ export type InlineButtonState = 'idle' | 'processing' | 'hidden'
 
 export interface InlineButtonHandle {
   setStatus(state: InlineButtonState): void
-  showTooltip(text: string, durationMs: number): void
   unmount(): void
 }
 
@@ -189,7 +151,6 @@ export function mountInlineButton(
 
   // Remove any prior instance.
   document.getElementById(ROOT_ID)?.remove()
-  document.getElementById(TOOLTIP_ID)?.remove()
 
   const btn = document.createElement('button')
   btn.id = ROOT_ID
@@ -210,7 +171,6 @@ export function mountInlineButton(
   document.body.appendChild(btn)
 
   let state: InlineButtonState = 'idle'
-  let tooltipTimer: number | null = null
 
   const handleClick = (e: MouseEvent) => {
     e.preventDefault()
@@ -240,7 +200,6 @@ export function mountInlineButton(
     const top = window.scrollY + Math.max(0, rect.top) + inset
     btn.style.top = `${top}px`
     btn.style.left = `${left}px`
-    repositionTooltip()
   }
 
   const schedule = (): void => {
@@ -270,18 +229,6 @@ export function mountInlineButton(
   // Re-position on hover transitions (width changes).
   btn.addEventListener('mouseenter', () => window.setTimeout(updatePosition, 220))
   btn.addEventListener('mouseleave', () => window.setTimeout(updatePosition, 220))
-
-  function repositionTooltip(): void {
-    const tip = document.getElementById(TOOLTIP_ID) as HTMLElement | null
-    if (!tip) return
-    const btnRect = btn.getBoundingClientRect()
-    const tipWidth = tip.offsetWidth || 0
-    const left =
-      window.scrollX + btnRect.left + btnRect.width / 2 - tipWidth / 2
-    const top = window.scrollY + btnRect.bottom + 10
-    tip.style.left = `${Math.max(8, left)}px`
-    tip.style.top = `${top}px`
-  }
 
   const setStatus: InlineButtonHandle['setStatus'] = (s) => {
     state = s
@@ -332,26 +279,6 @@ export function mountInlineButton(
     window.setTimeout(updatePosition, 0)
   }
 
-  const showTooltip: InlineButtonHandle['showTooltip'] = (text, durationMs) => {
-    // Replace any prior tooltip immediately.
-    document.getElementById(TOOLTIP_ID)?.remove()
-    if (tooltipTimer !== null) {
-      window.clearTimeout(tooltipTimer)
-      tooltipTimer = null
-    }
-    const tip = document.createElement('div')
-    tip.id = TOOLTIP_ID
-    tip.className = '__sh_tip__'
-    tip.textContent = text
-    document.body.appendChild(tip)
-    repositionTooltip()
-    tooltipTimer = window.setTimeout(() => {
-      tip.classList.add('__sh_tip_out__')
-      window.setTimeout(() => tip.remove(), 180)
-      tooltipTimer = null
-    }, durationMs)
-  }
-
   const unmount = () => {
     state = 'hidden'
     window.removeEventListener('scroll', onScroll, true)
@@ -359,12 +286,7 @@ export function mountInlineButton(
     resizeObs?.disconnect()
     btn.removeEventListener('click', handleClick)
     btn.remove()
-    if (tooltipTimer !== null) {
-      window.clearTimeout(tooltipTimer)
-      tooltipTimer = null
-    }
-    document.getElementById(TOOLTIP_ID)?.remove()
   }
 
-  return { setStatus, showTooltip, unmount }
+  return { setStatus, unmount }
 }
