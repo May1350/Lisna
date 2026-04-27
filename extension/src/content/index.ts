@@ -1,13 +1,22 @@
-import { showToast } from './toast'
+import { mountInlineButton, type InlineButtonHandle } from './inline-button'
 import { AudioCapture, blobToBase64 } from './audio-capture'
 import { SlideDetector, type Slide } from './slide-detector'
+import { getEnabled } from '../shared/storage'
+
+// Top-frame guard: inline button + session orchestration only run in the top frame.
+// (iframe-embedded videos are out of scope for this iteration — Phase 2.)
+const isTopFrame = window.top === window.self
 
 let detected = false
 let activeVideo: HTMLVideoElement | null = null
+let button: InlineButtonHandle | null = null
+let capture: AudioCapture | null = null
+let detector: SlideDetector | null = null
+let currentSessionId: string | null = null
+let onEndedHandler: (() => void) | null = null
 
 function findBestVideo(): HTMLVideoElement | null {
   const all = Array.from(document.querySelectorAll<HTMLVideoElement>('video'))
-  // pick the largest by area
   let best: HTMLVideoElement | null = null
   let bestArea = 0
   for (const v of all) {
@@ -18,30 +27,77 @@ function findBestVideo(): HTMLVideoElement | null {
   return best
 }
 
-function checkAndOffer(): void {
-  if (detected) return
+function handleActivate(): void {
+  // Open the user's chosen view (side-panel or popout) AND start the capture flow.
+  chrome.runtime.sendMessage({ type: 'OPEN_VIEW' })
+  void startCapture(location.href)
+  button?.setStatus('processing')
+}
+
+function tryMountButton(): void {
+  if (!isTopFrame || detected) return
   const v = findBestVideo()
   if (!v) return
   detected = true
   activeVideo = v
-  showToast({
-    onActivate: () => {
-      chrome.runtime.sendMessage({ type: 'SESSION_START', tabId: -1, url: location.href })
-    },
-  })
+  button = mountInlineButton(v, handleActivate)
 }
 
-// initial check + observe DOM mutations (debounced)
-checkAndOffer()
-let mutationDebounce = 0
-const obs = new MutationObserver(() => {
-  if (detected) { obs.disconnect(); return }
-  const now = Date.now()
-  if (now - mutationDebounce < 500) return
-  mutationDebounce = now
-  checkAndOffer()
+function unmountButton(): void {
+  button?.unmount()
+  button = null
+  detected = false
+}
+
+function init(): void {
+  if (!isTopFrame) return
+  void (async () => {
+    const enabled = await getEnabled()
+    if (!enabled) return
+    tryMountButton()
+
+    // Watch for late-loading video elements (debounced).
+    let mutationDebounce = 0
+    const obs = new MutationObserver(() => {
+      if (detected) { obs.disconnect(); return }
+      const now = Date.now()
+      if (now - mutationDebounce < 500) return
+      mutationDebounce = now
+      tryMountButton()
+    })
+    obs.observe(document.documentElement, { childList: true, subtree: true })
+  })()
+}
+
+init()
+
+// React to ON/OFF changes broadcast by the SW.
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (!isTopFrame) return false
+  if (msg?.type === 'SH_ENABLED_CHANGED') {
+    if (msg.enabled) {
+      tryMountButton()
+    } else {
+      unmountButton()
+      // Do NOT stop an in-flight session here; the OFF toggle just hides the
+      // affordance. Stop is an explicit user action via the side panel.
+    }
+    sendResponse({ ok: true })
+    return true
+  }
+  return false
 })
-obs.observe(document.documentElement, { childList: true, subtree: true })
+
+// Also react to direct storage changes (e.g. options page toggling state).
+chrome.storage?.onChanged.addListener((changes, area) => {
+  if (!isTopFrame) return
+  if (area !== 'local') return
+  const c = changes['sh.enabled']
+  if (!c) return
+  const enabled = c.newValue !== false
+  if (enabled) tryMountButton()
+  else unmountButton()
+})
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === 'GET_VIDEO_INFO') {
@@ -53,12 +109,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   return false
 })
 
-let capture: AudioCapture | null = null
-let currentSessionId: string | null = null
-
 chrome.runtime.onMessage.addListener((msg, _s, sendResponse) => {
   if (msg?.type === 'SESSION_START') {
     void startCapture(msg.url)
+    button?.setStatus('processing')
     sendResponse({ ok: true })
     return true
   }
@@ -67,11 +121,32 @@ chrome.runtime.onMessage.addListener((msg, _s, sendResponse) => {
     sendResponse({ ok: true })
     return true
   }
+  if (msg?.type === 'STOP_SESSION') {
+    stopCaptureLocal()
+    sendResponse({ ok: true })
+    return true
+  }
   return false
 })
 
+function stopCaptureLocal(): void {
+  try { capture?.stop() } catch { /* ignore */ }
+  try { detector?.stop() } catch { /* ignore */ }
+  capture = null
+  detector = null
+  if (activeVideo && onEndedHandler) {
+    activeVideo.removeEventListener('ended', onEndedHandler)
+    onEndedHandler = null
+  }
+  // Notes preserved server-side; revert button so the user can re-engage.
+  button?.setStatus('idle')
+  currentSessionId = null
+}
+
 async function startCapture(url: string): Promise<void> {
   if (!activeVideo || activeVideo.readyState < 2) return
+  // Already capturing? Skip.
+  if (capture) return
 
   // get configured speed (or auto-detect max)
   const stored = await chrome.storage.local.get('sh.playback')
@@ -82,10 +157,9 @@ async function startCapture(url: string): Promise<void> {
     activeVideo.playbackRate = speed
   }
 
-  // Tentative client-generated id; the backend MAY return a different canonical id
-  // on the first /v1/stream/audio response (e.g. if a session for this user+url already exists).
-  // We adopt that canonical id and only THEN broadcast session_started so the side panel
-  // connects WS to the correct session.
+  // Tentative client-generated id; backend MAY return a different canonical id
+  // on the first /v1/stream/audio response. Adopt that canonical id and only THEN
+  // broadcast session_started so the side panel connects WS to the correct session.
   currentSessionId = crypto.randomUUID()
   let canonicalAdopted = false
 
@@ -110,7 +184,6 @@ async function startCapture(url: string): Promise<void> {
       if (canonical) {
         currentSessionId = canonical
         canonicalAdopted = true
-        // notify side panel only after we have the canonical id
         chrome.runtime.sendMessage({
           type: 'SP_BROADCAST',
           payload: { type: 'session_started', sessionId: currentSessionId, url },
@@ -120,8 +193,8 @@ async function startCapture(url: string): Promise<void> {
   })
   capture.start()
 
-  const detector = new SlideDetector(activeVideo, async (slide: Slide) => {
-    if (!canonicalAdopted) return // wait until canonical id is known
+  detector = new SlideDetector(activeVideo, async (slide: Slide) => {
+    if (!canonicalAdopted) return
     const buf = await slide.blob.arrayBuffer()
     let s = ''; const bytes = new Uint8Array(buf)
     for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i])
@@ -134,24 +207,25 @@ async function startCapture(url: string): Promise<void> {
     })
   })
   detector.start()
-  activeVideo.addEventListener('ended', () => detector.stop())
+
+  onEndedHandler = () => {
+    detector?.stop()
+    capture?.stop()
+    if (currentSessionId) {
+      chrome.runtime.sendMessage({
+        type: 'API_FETCH',
+        method: 'POST',
+        path: '/v1/session/finalize',
+        body: { session_id: currentSessionId, title: document.title },
+      })
+    }
+    button?.setStatus('idle')
+  }
+  activeVideo.addEventListener('ended', onEndedHandler)
 }
 
 function detectMaxSpeed(_v: HTMLVideoElement): number | null {
-  // best effort: try common max values; players differ. Default to 2.
   return 2
 }
-
-activeVideo?.addEventListener('ended', () => {
-  capture?.stop()
-  if (currentSessionId) {
-    chrome.runtime.sendMessage({
-      type: 'API_FETCH',
-      method: 'POST',
-      path: '/v1/session/finalize',
-      body: { session_id: currentSessionId, title: document.title },
-    })
-  }
-})
 
 export {}  // module marker

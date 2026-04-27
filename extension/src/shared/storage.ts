@@ -6,7 +6,11 @@ const KEYS = {
   CONSENT: 'sh.consent.v1',
   PLAYBACK: 'sh.playback',
   SESSION_INDEX: 'sh.sessionIndex',
+  ENABLED: 'sh.enabled',
+  DISPLAY_MODE: 'sh.displayMode',
 } as const
+
+export type DisplayMode = 'side-panel' | 'popout'
 
 export async function getToken(): Promise<string | null> {
   const r = await chrome.storage.local.get(KEYS.TOKEN)
@@ -52,3 +56,21 @@ export async function lookupSession(url: string): Promise<string | null> {
   const r = await chrome.storage.local.get(KEYS.SESSION_INDEX)
   return r[KEYS.SESSION_INDEX]?.[url] ?? null
 }
+
+export async function getEnabled(): Promise<boolean> {
+  const r = await chrome.storage.local.get(KEYS.ENABLED)
+  return r[KEYS.ENABLED] !== false   // default true
+}
+export async function setEnabled(v: boolean): Promise<void> {
+  await chrome.storage.local.set({ [KEYS.ENABLED]: v })
+}
+
+export async function getDisplayMode(): Promise<DisplayMode> {
+  const r = await chrome.storage.local.get(KEYS.DISPLAY_MODE)
+  return (r[KEYS.DISPLAY_MODE] as DisplayMode | undefined) ?? 'side-panel'
+}
+export async function setDisplayMode(v: DisplayMode): Promise<void> {
+  await chrome.storage.local.set({ [KEYS.DISPLAY_MODE]: v })
+}
+
+export const STORAGE_KEYS = KEYS

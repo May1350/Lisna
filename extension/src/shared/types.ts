@@ -33,6 +33,10 @@ export type SwRequest =
   | { type: 'API_FETCH'; path: string; method: string; body?: unknown }
   | { type: 'TOAST_SHOW'; tabId: number }
   | { type: 'SESSION_START'; tabId: number; url: string }
+  | { type: 'OPEN_VIEW'; tabId?: number }
+  | { type: 'CLOSE_VIEW' }
+  | { type: 'SWITCH_MODE'; mode: 'side-panel' | 'popout'; tabId: number }
+  | { type: 'STOP_SESSION'; tabId: number }
 
 export type SwResponse =
   | { ok: true; data: unknown }
