@@ -1,18 +1,38 @@
 import { Stack, type StackProps, Duration, RemovalPolicy } from 'aws-cdk-lib'
 import { Bucket, BlockPublicAccess } from 'aws-cdk-lib/aws-s3'
-import { Vpc, SubnetType, SecurityGroup, Port, Peer } from 'aws-cdk-lib/aws-ec2'
 import {
-  DatabaseCluster, DatabaseClusterEngine, AuroraPostgresEngineVersion,
-  ClusterInstance, Credentials,
+  Vpc, SubnetType, SecurityGroup, Port, Peer,
+  InstanceType, InstanceClass, InstanceSize,
+} from 'aws-cdk-lib/aws-ec2'
+import {
+  DatabaseInstance, DatabaseInstanceEngine, PostgresEngineVersion,
+  Credentials,
 } from 'aws-cdk-lib/aws-rds'
 import { Secret } from 'aws-cdk-lib/aws-secretsmanager'
 import type { Construct } from 'constructs'
 
 interface Props extends StackProps { vpc: Vpc }
 
+/**
+ * MVP DB layer: single-AZ RDS PostgreSQL on db.t3.micro (AWS Free Tier eligible
+ * for the first 12 months of the account: 750 instance-hours + 20GB storage + 20GB backup).
+ *
+ * Why not Aurora Serverless v2 (the PRD's eventual choice):
+ *  - Aurora has no Free Tier; idle ACU + storage = ~$43/month from day 1.
+ *  - With db.t3.micro we get 12 months at $0 + ~$32/mo NAT only.
+ *  - Migration path to Aurora is well-trodden (read-replica promotion, ~30s downtime,
+ *    no schema or app code changes). See docs/superpowers/specs/...migration-aurora.md
+ *    when the time comes.
+ *
+ * Trade-offs accepted at this stage:
+ *  - Single-AZ: data center outage will pause the service (acceptable for closed beta).
+ *  - Fixed instance size: cannot auto-scale to bursts; ~50–100 concurrent users ceiling
+ *    on db.t3.micro. Switch to db.t3.small (~$30/mo) or migrate to Aurora before public launch.
+ *  - 7-day automated backups (vs Aurora's 35-day PITR).
+ */
 export class DataStack extends Stack {
   readonly bucket: Bucket
-  readonly cluster: DatabaseCluster
+  readonly db: DatabaseInstance
   readonly dbSecret: Secret
 
   constructor(scope: Construct, id: string, props: Props) {
@@ -37,22 +57,21 @@ export class DataStack extends Stack {
     const dbSg = new SecurityGroup(this, 'DbSg', { vpc: props.vpc, allowAllOutbound: true })
     dbSg.addIngressRule(Peer.ipv4(props.vpc.vpcCidrBlock), Port.tcp(5432))
 
-    // Scale-to-zero: when idle for ~5 minutes the writer auto-pauses to 0 ACU
-    // (no compute charge while paused). First request after pause incurs ~10-15s
-    // cold start. Storage is always charged (~$0.10/GB/month, negligible at MVP scale).
-    // Switch back to MinCapacity: 0.5 once production traffic is steady.
-    this.cluster = new DatabaseCluster(this, 'Db', {
-      engine: DatabaseClusterEngine.auroraPostgres({ version: AuroraPostgresEngineVersion.VER_16_6 }),
-      writer: ClusterInstance.serverlessV2('writer'),
-      serverlessV2MinCapacity: 0,
-      serverlessV2MaxCapacity: 2,
-      serverlessV2AutoPauseDuration: Duration.minutes(5),
+    this.db = new DatabaseInstance(this, 'Db', {
+      engine: DatabaseInstanceEngine.postgres({ version: PostgresEngineVersion.VER_16_4 }),
+      instanceType: InstanceType.of(InstanceClass.T3, InstanceSize.MICRO),
       vpc: props.vpc,
       vpcSubnets: { subnetType: SubnetType.PRIVATE_WITH_EGRESS },
       credentials: Credentials.fromSecret(this.dbSecret),
-      defaultDatabaseName: 'studyhelper',
+      databaseName: 'studyhelper',
       securityGroups: [dbSg],
+      allocatedStorage: 20,           // GB — within Free Tier
+      maxAllocatedStorage: 100,       // auto-grow up to 100GB if needed (still cheap)
+      backupRetention: Duration.days(7),
+      deleteAutomatedBackups: true,
       removalPolicy: RemovalPolicy.DESTROY,
+      publiclyAccessible: false,
+      multiAz: false,                 // single-AZ for cost; flip to true before public launch
     })
   }
 }

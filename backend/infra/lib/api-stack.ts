@@ -4,7 +4,7 @@ import { Runtime } from 'aws-cdk-lib/aws-lambda'
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs'
 import { HttpApi, HttpMethod, CorsHttpMethod } from 'aws-cdk-lib/aws-apigatewayv2'
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations'
-import type { DatabaseCluster } from 'aws-cdk-lib/aws-rds'
+import type { DatabaseInstance } from 'aws-cdk-lib/aws-rds'
 import type { Bucket } from 'aws-cdk-lib/aws-s3'
 import type { Secret } from 'aws-cdk-lib/aws-secretsmanager'
 import type { Construct } from 'constructs'
@@ -17,7 +17,7 @@ interface Props extends StackProps {
   vpc: Vpc
   dbSecret: Secret
   bucket: Bucket
-  dbCluster: DatabaseCluster
+  db: DatabaseInstance
   appSecret: Secret
   wsEndpoint: string
 }
@@ -41,11 +41,12 @@ export class ApiStack extends Stack {
     })
 
     // DB SG already permits VPC CIDR ingress on 5432 (see data-stack.ts).
-    // We do NOT call props.dbCluster.connections.allowDefaultPortFrom(...) here
+    // We do NOT call props.db.connections.allowDefaultPortFrom(...) here
     // because doing so creates a cross-stack SG ref Data -> Api that conflicts
     // with the IAM cross-stack ref Api -> Data on dbSecret/appSecret, producing
     // a CDK dependency cycle. Lambdas attached to the VPC will reach the DB
     // via the existing CIDR ingress rule.
+    void props.db
     const authGoogle = new NodejsFunction(this, 'AuthGoogleFn', {
       entry: path.join(__dirname, '../../src/handlers/auth-google.ts'),
       runtime: Runtime.NODEJS_20_X,

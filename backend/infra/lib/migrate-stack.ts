@@ -2,7 +2,7 @@ import { Stack, type StackProps, Duration } from 'aws-cdk-lib'
 import { Vpc, SubnetType } from 'aws-cdk-lib/aws-ec2'
 import { Runtime } from 'aws-cdk-lib/aws-lambda'
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs'
-import type { DatabaseCluster } from 'aws-cdk-lib/aws-rds'
+import type { DatabaseInstance } from 'aws-cdk-lib/aws-rds'
 import type { Secret } from 'aws-cdk-lib/aws-secretsmanager'
 import type { Construct } from 'constructs'
 import * as path from 'path'
@@ -13,7 +13,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 interface Props extends StackProps {
   vpc: Vpc
   dbSecret: Secret
-  dbCluster: DatabaseCluster
+  db: DatabaseInstance
 }
 
 export class MigrateStack extends Stack {
@@ -40,9 +40,9 @@ export class MigrateStack extends Stack {
       },
     })
     props.dbSecret.grantRead(fn)
-    // NOTE: do NOT call dbCluster.connections.allowDefaultPortFrom(fn) — that
+    // NOTE: do NOT call db.connections.allowDefaultPortFrom(fn) — that
     // would re-introduce the api↔data dependency cycle fixed in 462f573.
     // Lambda reaches DB via the existing VPC CIDR ingress on the DB SG.
-    void props.dbCluster
+    void props.db
   }
 }

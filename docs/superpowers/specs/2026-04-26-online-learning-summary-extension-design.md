@@ -225,7 +225,7 @@
 │                         │          └──────────────────────┘ │
 │  ┌──────────────────────────────────────────────────────┐   │
 │  │ Storage                                              │   │
-│  │ - RDS Postgres: 사용자, quota, 메타                  │   │
+│  │ - RDS Postgres (db.t3.micro, MVP) → Aurora SLv2 후   │   │
 │  │ - S3: 슬라이드 이미지, PDF 산출물                     │   │
 │  │ - DynamoDB / ElastiCache: 노트 JSON 캐시             │   │
 │  └──────────────────────────────────────────────────────┘   │
@@ -270,6 +270,27 @@
 | 무료 사용자 비용 폭주 | quota 클라이언트 + 서버 양쪽 enforce, IP/디바이스 fingerprint로 다중 계정 방지 |
 | WebSocket 끊김 | 자동 재연결 + 청크 재전송 + idempotency key |
 | Manifest V3 service worker 휴면 | keepalive ping 또는 offscreen document |
+
+### 4.5 데이터베이스 선택 — 단계적 접근
+
+**MVP / Closed Beta**: **RDS PostgreSQL `db.t3.micro` (single-AZ)**
+- AWS Free Tier로 첫 12개월 무료 (인스턴스 750h + 20GB 스토리지)
+- ~50–100 동시 사용자까지 충분
+- 단일 AZ — 데이터센터 장애 시 짧은 다운타임 가능 (closed beta 단계엔 acceptable)
+- 7일 자동 백업
+
+**Public Launch 직전 또는 트래픽 급증 신호 시**: **Aurora Serverless v2 + Multi-AZ**
+- 자동 ACU 확장 (0~2+ ACU)
+- Multi-AZ 가용성 + 35일 PITR
+- scale-to-zero (5분 idle 시 0 ACU) 적용 가능
+
+**마이그레이션 트리거 (이 중 하나라도 만족 시 Aurora로 이전)**:
+- 동시 사용자 50명 초과
+- DB CPU 평균 60% 초과 (1주 지속)
+- 가용성 SLO < 99.5% 필요
+- 피크 트래픽 ↑ 200% (시험 기간 등)
+
+**마이그레이션 절차**: `docs/superpowers/specs/2026-04-26-aurora-migration-runbook.md` 참조 (read-replica promotion 방식, 다운타임 ~30초, 코드 변경 0).
 
 ---
 
@@ -457,6 +478,7 @@
 | 자체 호스팅 STT 마이그레이션 시점 | 월 처리량 10K 시간 도달 시 | - |
 | Pro 플랜 30시간 cap의 적정성 | Closed Beta 1개월 후 | P95 사용량 기준 |
 | 다중 모델 라우팅 도입 시점 | Phase 2 진입 시 | "Pro → Haiku 4.5" 구현 시 |
+| RDS db.t3.micro → Aurora Serverless v2 마이그레이션 시점 | §4.5 트리거 도달 시 | runbook 별도 문서 |
 | Marketplace / GTM 전략 | 별도 PRD | 본 문서 범위 외 |
 
 ---

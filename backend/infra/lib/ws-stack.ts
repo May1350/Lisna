@@ -4,7 +4,7 @@ import { Runtime } from 'aws-cdk-lib/aws-lambda'
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs'
 import { WebSocketApi, WebSocketStage } from 'aws-cdk-lib/aws-apigatewayv2'
 import { WebSocketLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations'
-import type { DatabaseCluster } from 'aws-cdk-lib/aws-rds'
+import type { DatabaseInstance } from 'aws-cdk-lib/aws-rds'
 import type { Secret } from 'aws-cdk-lib/aws-secretsmanager'
 import type { Construct } from 'constructs'
 import * as path from 'path'
@@ -15,7 +15,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 interface Props extends StackProps {
   vpc: Vpc
   dbSecret: Secret
-  dbCluster: DatabaseCluster
+  db: DatabaseInstance
   appSecret: Secret
 }
 
@@ -46,6 +46,7 @@ export class WsStack extends Stack {
     }
     const connectFn = mk('WsConnectFn', 'ws-connect.ts')
     const disconnectFn = mk('WsDisconnectFn', 'ws-disconnect.ts')
+    void props.db
 
     const wsApi = new WebSocketApi(this, 'WsApi', {
       connectRouteOptions: { integration: new WebSocketLambdaIntegration('Conn', connectFn) },

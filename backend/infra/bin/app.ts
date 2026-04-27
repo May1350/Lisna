@@ -16,7 +16,7 @@ const ws = new WsStack(app, 'StudyHelperWs', {
   env,
   vpc: network.vpc,
   dbSecret: data.dbSecret,
-  dbCluster: data.cluster,
+  db: data.db,
   appSecret: secrets.appSecret,
 })
 new ApiStack(app, 'StudyHelperApi', {
@@ -24,7 +24,7 @@ new ApiStack(app, 'StudyHelperApi', {
   vpc: network.vpc,
   dbSecret: data.dbSecret,
   bucket: data.bucket,
-  dbCluster: data.cluster,
+  db: data.db,
   appSecret: secrets.appSecret,
   wsEndpoint: ws.wsEndpoint,
 })
@@ -32,5 +32,5 @@ new MigrateStack(app, 'StudyHelperMigrate', {
   env,
   vpc: network.vpc,
   dbSecret: data.dbSecret,
-  dbCluster: data.cluster,
+  db: data.db,
 })
