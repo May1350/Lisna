@@ -5,7 +5,6 @@ const KEYS = {
   USER: 'sh.user',
   CONSENT: 'sh.consent.v1',
   PLAYBACK: 'sh.playback',
-  SESSION_INDEX: 'sh.sessionIndex',
   ENABLED: 'sh.enabled',
 } as const
 
@@ -41,17 +40,6 @@ export async function getPlaybackSpeed(): Promise<'auto' | number> {
 }
 export async function setPlaybackSpeed(v: 'auto' | number): Promise<void> {
   await chrome.storage.local.set({ [KEYS.PLAYBACK]: v })
-}
-
-export async function rememberSession(url: string, sessionId: string): Promise<void> {
-  const r = await chrome.storage.local.get(KEYS.SESSION_INDEX)
-  const idx: Record<string, string> = r[KEYS.SESSION_INDEX] ?? {}
-  idx[url] = sessionId
-  await chrome.storage.local.set({ [KEYS.SESSION_INDEX]: idx })
-}
-export async function lookupSession(url: string): Promise<string | null> {
-  const r = await chrome.storage.local.get(KEYS.SESSION_INDEX)
-  return r[KEYS.SESSION_INDEX]?.[url] ?? null
 }
 
 export async function getEnabled(): Promise<boolean> {

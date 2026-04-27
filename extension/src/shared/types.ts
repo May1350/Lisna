@@ -9,7 +9,6 @@ export interface NoteItem {
   ts: number
   text: string
   important: boolean
-  slideKey?: string
 }
 
 export interface SlideItem {
@@ -31,7 +30,6 @@ export type SwRequest =
   | { type: 'AUTH_LOGOUT' }
   | { type: 'AUTH_GET_USER' }
   | { type: 'API_FETCH'; path: string; method: string; body?: unknown }
-  | { type: 'TOAST_SHOW'; tabId: number }
   | { type: 'SESSION_START'; tabId: number; url: string }
   // Inline 📚 button on a video → SW always opens a popout window for the session.
   | { type: 'OPEN_VIEW'; tabId?: number }

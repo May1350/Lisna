@@ -1,5 +1,4 @@
 import { mountInlineButton, type InlineButtonHandle } from './inline-button'
-import { mountSidebar } from './in-page-sidebar'
 import { AudioCapture, blobToBase64 } from './audio-capture'
 import { SlideDetector, type Slide } from './slide-detector'
 import { getEnabled } from '../shared/storage'
@@ -28,11 +27,17 @@ function findBestVideo(): HTMLVideoElement | null {
   return best
 }
 
-function handleActivate(): void {
-  // Open the in-page sidebar AND start the capture pipeline.
-  // The sidebar is a normal HTML iframe, which sidesteps Chrome's
-  // sidePanel.open() user-gesture restriction.
-  mountSidebar()
+async function handleActivate(): Promise<void> {
+  // Auth gate: if not logged in, show a brief tooltip on the inline button and
+  // abort. Avoids opening a popup that just shows "please log in".
+  const userResp = await chrome.runtime.sendMessage({ type: 'AUTH_GET_USER' })
+  const authed = !!(userResp?.ok && userResp.data)
+  if (!authed) {
+    button?.showTooltip('ログインしてください', 3000)
+    return
+  }
+  // Start the session: open popup AND begin capture.
+  chrome.runtime.sendMessage({ type: 'OPEN_VIEW' })
   void startCapture(location.href)
   button?.setStatus('processing')
 }
@@ -43,7 +48,7 @@ function tryMountButton(): void {
   if (!v) return
   detected = true
   activeVideo = v
-  button = mountInlineButton(v, handleActivate)
+  button = mountInlineButton(v, () => { void handleActivate() }, () => stopCaptureLocal())
 }
 
 function unmountButton(): void {
@@ -100,16 +105,6 @@ chrome.storage?.onChanged.addListener((changes, area) => {
   const enabled = c.newValue !== false
   if (enabled) tryMountButton()
   else unmountButton()
-})
-
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg?.type === 'GET_VIDEO_INFO') {
-    if (activeVideo) {
-      sendResponse({ ok: true, info: { duration: activeVideo.duration, paused: activeVideo.paused } })
-    } else sendResponse({ ok: false })
-    return true
-  }
-  return false
 })
 
 chrome.runtime.onMessage.addListener((msg, _s, sendResponse) => {

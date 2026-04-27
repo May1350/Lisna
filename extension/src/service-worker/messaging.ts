@@ -21,9 +21,11 @@ async function openPopout(tabId: number): Promise<void> {
     }
   }
   const url = chrome.runtime.getURL(`src/side-panel/index.html?tabId=${tabId}`)
+  // type:'popup' is more predictable cross-platform (especially macOS) than
+  // 'panel', which falls back unpredictably on some platforms.
   const win = await chrome.windows.create({
     url,
-    type: 'panel',
+    type: 'popup',
     width: POPOUT_WIDTH,
     height: POPOUT_HEIGHT,
     focused: true,
@@ -63,12 +65,6 @@ export async function handle(req: SwRequest, sender?: chrome.runtime.MessageSend
         try { parsed = JSON.parse(text) } catch { parsed = text }
         if (!r.ok) return { ok: false, error: `HTTP ${r.status}: ${text}` }
         return { ok: true, data: parsed }
-      }
-      case 'TOAST_SHOW': {
-        // Toast is no longer used in the UI flow but the handler is kept so any
-        // stale message in flight does not crash the SW.
-        try { await chrome.tabs.sendMessage(req.tabId, { type: 'TOAST_SHOW' }) } catch { /* ignore */ }
-        return { ok: true, data: null }
       }
       case 'SESSION_START': {
         // Sessions always live in a popout window (chrome.windows.create works
