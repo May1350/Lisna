@@ -146,13 +146,16 @@ export function mountInlineButton(
     }
     btn.style.display = ''
     const inset = 8
-    const top = rect.top + window.scrollY + inset
-    const right = window.scrollX + rect.right - inset
-    btn.style.top = `${top}px`
-    // Position by right edge: compute left from current button width.
-    // Use measured width so the pill expansion stays anchored to the right corner.
     const w = btn.offsetWidth || 32
-    btn.style.left = `${right - w}px`
+    // Clamp the visible right edge to BOTH the video bounding box AND the
+    // viewport. Some sites (e.g. YouTube on certain widths) render the player
+    // wider than window.innerWidth — without clamping the button ends up
+    // partially cut off at the right edge of the viewport.
+    const rightEdge = Math.min(rect.right, window.innerWidth)
+    const left = window.scrollX + Math.max(0, rightEdge - inset - w)
+    const top = window.scrollY + Math.max(0, rect.top) + inset
+    btn.style.top = `${top}px`
+    btn.style.left = `${left}px`
   }
 
   const schedule = (): void => {
