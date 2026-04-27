@@ -2,24 +2,34 @@ import type { User } from '../../shared/types'
 
 interface Props {
   user: User | null
+  /** True when this app is rendering inside the in-page iframe sidebar. */
+  isEmbed: boolean
+  /** True when this app is rendering inside the popout window. */
   isPopout: boolean
-  /** Only used when !isPopout (side-panel account view). */
+  /** Only used in side-panel (account) view. */
   enabled?: boolean
-  /** Only used when !isPopout (side-panel account view). */
+  /** Only used in side-panel (account) view. */
   onToggleEnabled?: (next: boolean) => void
   onClose: () => void
   onLogout: () => void
+  /** Only used in embed view — opens the popout window. */
+  onSwitchToPopout?: () => void
 }
 
 export function PanelHeader({
   user,
+  isEmbed,
   isPopout,
   enabled,
   onToggleEnabled,
   onClose,
   onLogout,
+  onSwitchToPopout,
 }: Props) {
-  const showToggle = !isPopout && typeof enabled === 'boolean' && typeof onToggleEnabled === 'function'
+  const isAccountView = !isEmbed && !isPopout
+  const showToggle =
+    isAccountView && typeof enabled === 'boolean' && typeof onToggleEnabled === 'function'
+  const showSwitchToPopout = isEmbed && typeof onSwitchToPopout === 'function'
 
   return (
     <header className="flex items-center justify-between gap-2 px-3 py-2 border-b border-gray-200 bg-white">
@@ -70,6 +80,17 @@ export function PanelHeader({
               />
             </span>
           </label>
+        )}
+        {showSwitchToPopout && (
+          <button
+            type="button"
+            onClick={onSwitchToPopout}
+            title="ポップアップで開く"
+            aria-label="ポップアップで開く"
+            className="w-7 h-7 flex items-center justify-center rounded hover:bg-gray-100 text-gray-600"
+          >
+            ⤴
+          </button>
         )}
         <button
           type="button"

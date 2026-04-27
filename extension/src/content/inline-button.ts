@@ -1,10 +1,17 @@
 // Inline button anchored to the top-right of the video element.
-// - 'idle': round 32x32 with 📚 emoji; expands to a pill on hover.
+// - 'idle': round 36x36 with sparkle SVG icon; expands to a pill on hover.
 // - 'processing': non-interactive pill with red pulsing dot.
 // - 'hidden': removed from DOM.
 
 const STYLE_ID = '__sh_inline_button_style__'
 const ROOT_ID = '__sh_inline_button_root__'
+
+const SPARKLE_SVG = `
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <path d="M12 3l1.8 5.4L19 10l-5.2 1.6L12 17l-1.8-5.4L5 10l5.2-1.6L12 3z"/>
+  <path d="M19 14l0.7 2.1L22 17l-2.3 0.7L19 20l-0.7-2.3L16 17l2.3-0.7L19 14z"/>
+</svg>
+`.trim()
 
 function ensureStyle(): void {
   if (document.getElementById(STYLE_ID)) return
@@ -21,17 +28,21 @@ function ensureStyle(): void {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 32px;
-  width: 32px;
+  height: 36px;
+  width: 36px;
   padding: 0;
-  border: 0;
+  border: 1px solid rgba(255,255,255,0.08);
   border-radius: 9999px;
-  background: #1f2937;
+  background: rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
   color: #ffffff;
   font: 600 13px/1 system-ui, -apple-system, "Hiragino Sans", "Apple SD Gothic Neo", sans-serif;
-  box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.28), 0 2px 6px rgba(0,0,0,0.12);
   cursor: pointer;
-  transition: width 160ms ease, padding 160ms ease, background-color 160ms ease;
+  transition: width 200ms cubic-bezier(0.16, 1, 0.3, 1),
+              padding 200ms cubic-bezier(0.16, 1, 0.3, 1),
+              background-color 200ms cubic-bezier(0.16, 1, 0.3, 1);
   overflow: hidden;
   white-space: nowrap;
   user-select: none;
@@ -40,21 +51,25 @@ function ensureStyle(): void {
 .__sh_btn__:hover, .__sh_btn__.__sh_open__ {
   width: auto;
   padding: 0 14px 0 10px;
-  background: #111827;
+  background: rgba(15, 23, 42, 1);
 }
 .__sh_btn_icon__ {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  flex: 0 0 32px;
-  font-size: 16px;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  color: #ffffff;
+}
+.__sh_btn_icon__ svg {
+  display: block;
 }
 .__sh_btn_label__ {
   opacity: 0;
   max-width: 0;
-  transition: opacity 160ms ease, max-width 160ms ease;
+  transition: opacity 200ms cubic-bezier(0.16, 1, 0.3, 1),
+              max-width 200ms cubic-bezier(0.16, 1, 0.3, 1);
   pointer-events: none;
 }
 .__sh_btn__:hover .__sh_btn_label__,
@@ -66,7 +81,7 @@ function ensureStyle(): void {
 .__sh_btn__.__sh_processing__ {
   width: auto;
   padding: 0 14px 0 10px;
-  background: #1f2937;
+  background: rgba(15, 23, 42, 1);
   cursor: default;
 }
 .__sh_btn__.__sh_processing__ .__sh_btn_label__ {
@@ -116,7 +131,7 @@ export function mountInlineButton(
 
   const icon = document.createElement('span')
   icon.className = '__sh_btn_icon__'
-  icon.textContent = '📚'
+  icon.innerHTML = SPARKLE_SVG
 
   const label = document.createElement('span')
   label.className = '__sh_btn_label__'
@@ -146,7 +161,7 @@ export function mountInlineButton(
     }
     btn.style.display = ''
     const inset = 8
-    const w = btn.offsetWidth || 32
+    const w = btn.offsetWidth || 36
     // Clamp the visible right edge to BOTH the video bounding box AND the
     // viewport. Some sites (e.g. YouTube on certain widths) render the player
     // wider than window.innerWidth — without clamping the button ends up
@@ -183,8 +198,8 @@ export function mountInlineButton(
   }
 
   // Re-position on hover transitions (width changes).
-  btn.addEventListener('mouseenter', () => window.setTimeout(updatePosition, 180))
-  btn.addEventListener('mouseleave', () => window.setTimeout(updatePosition, 180))
+  btn.addEventListener('mouseenter', () => window.setTimeout(updatePosition, 220))
+  btn.addEventListener('mouseleave', () => window.setTimeout(updatePosition, 220))
 
   const setStatus: InlineButtonHandle['setStatus'] = (s) => {
     state = s

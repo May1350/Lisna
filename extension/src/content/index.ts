@@ -1,4 +1,5 @@
 import { mountInlineButton, type InlineButtonHandle } from './inline-button'
+import { mountSidebar } from './in-page-sidebar'
 import { AudioCapture, blobToBase64 } from './audio-capture'
 import { SlideDetector, type Slide } from './slide-detector'
 import { getEnabled } from '../shared/storage'
@@ -28,8 +29,10 @@ function findBestVideo(): HTMLVideoElement | null {
 }
 
 function handleActivate(): void {
-  // Open the user's chosen view (side-panel or popout) AND start the capture flow.
-  chrome.runtime.sendMessage({ type: 'OPEN_VIEW' })
+  // Open the in-page sidebar AND start the capture pipeline.
+  // The sidebar is a normal HTML iframe, which sidesteps Chrome's
+  // sidePanel.open() user-gesture restriction.
+  mountSidebar()
   void startCapture(location.href)
   button?.setStatus('processing')
 }
