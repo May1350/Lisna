@@ -58,7 +58,7 @@ export class DataStack extends Stack {
     dbSg.addIngressRule(Peer.ipv4(props.vpc.vpcCidrBlock), Port.tcp(5432))
 
     this.db = new DatabaseInstance(this, 'Db', {
-      engine: DatabaseInstanceEngine.postgres({ version: PostgresEngineVersion.VER_16_4 }),
+      engine: DatabaseInstanceEngine.postgres({ version: PostgresEngineVersion.VER_16_6 }),
       instanceType: InstanceType.of(InstanceClass.T3, InstanceSize.MICRO),
       vpc: props.vpc,
       vpcSubnets: { subnetType: SubnetType.PRIVATE_WITH_EGRESS },
