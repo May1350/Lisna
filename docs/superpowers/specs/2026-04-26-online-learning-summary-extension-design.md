@@ -90,10 +90,12 @@
   → 호버 시 「📚 この動画を要約」 텍스트 확장
   → 클릭 (수동 활성화)
   ↓
-[STEP 3] Popout 윈도우 (380×800) 자동 오픈 — 세션 view
-  - 드래그 가능, 화면 비율 보존 (브라우저 viewport 안 줄어듦)
+[STEP 3] In-page iframe 모달 자동 오픈 (400×600 floating, top-right 20px margin)
+  - 페이지 위에 떠있는 floating 모달 (별도 Chrome 윈도우 아님)
+  - 미인증 시: 모달 안에 LoginScreen → Google OAuth 로그인 가능 (모달 안에서 완결)
+  - 인증 시: 즉시 세션 view (노트/슬라이드/정지/다운로드)
   - 헤더: [✕ 닫기]  (닫아도 세션은 백그라운드 지속, 인라인 버튼 클릭 시 재오픈)
-  - Chrome 사이드 패널은 그대로 (계정 view) — 세션은 popup에서 별도로 진행
+  - Chrome 사이드 패널은 그대로 (계정 view) — 세션은 모달에서 별도로 진행
   ↓
 [STEP 4] 익스텐션이 미리 설정된 배속으로 자동 전환
   → 디폴트: "영상 플레이어 제공 최고 배속" (자동 감지)
@@ -186,9 +188,8 @@
 | **F8** | 사용자 계정 + 무료 quota | Google SSO. 무료 30분/月, 유료 30시간/月 |
 | **F9** | 일본어 우선 출력 | 자동 언어 감지, 출력은 항상 일본어 |
 | **F10** | 면책사항 + 약관 동의 | 첫 사용 시 모달, 동의 없이 진행 불가 |
-| **F11** | 글로벌 ON/OFF 토글 + 역할 분리된 2 view | **Chrome 네이티브 사이드 패널** = 계정 view 전용 (익스텐션 아이콘 클릭으로 자동 오픈; ON/OFF 스위치, 사용자 정보, 플랜, 로그아웃, 안내문). **Popup 윈도우 (380×800, `chrome.windows.create({type:'popup'})`)** = 세션 view 전용 (인라인 버튼 클릭으로 자동 오픈; 노트, 슬라이드, 정지, 다운로드). 두 view는 절대 같은 정보 안 보여줌 — 역할 분리 명확. 모드 전환 없음. (Chrome 116+ `sidePanel.open()` 사용자 제스처 제약 때문에 인라인 클릭이 사이드 패널을 열 수 없음 — 따라서 popup이 인라인 트리거 세션 view 단일 모드) |
-| **F12** | 세션 정지 (⏹) | **Popup 풋터의 정지 버튼** + **인라인 버튼 status pill의 ⏹ 정지 버튼** (popup 안 열고도 정지 가능). 캡처 즉시 정지, 노트 보존, 다운로드 가능. |
-| **F13** | 미인증 시 인라인 버튼 동작 | 미로그인 상태에서 인라인 버튼 클릭 → 작은 툴팁 「ログインしてください」 (3초 자동 사라짐). popup 안 열고 캡처 안 시작 — 무의미한 401 호출 방지. |
+| **F11** | 글로벌 ON/OFF 토글 + 역할 분리된 2 view | **Chrome 네이티브 사이드 패널** = 계정 view 전용 (익스텐션 아이콘 클릭으로 자동 오픈; ON/OFF 스위치, 사용자 정보, 플랜, 로그아웃, 안내문). **In-page iframe 모달 (400×600 floating, top-right 20px margin)** = 세션 view + 인앱 로그인 (인라인 버튼 클릭으로 자동 오픈; 미인증 시 LoginScreen, 인증 시 노트/슬라이드/정지/다운로드). 두 view는 절대 같은 정보 안 보여줌 — 역할 분리 명확. (별도 Chrome 윈도우 popup은 폐기 — macOS에서 fullscreen 렌더 + 사용자 의도 아님) |
+| **F12** | 세션 정지 (⏹) | **모달 풋터의 정지 버튼** + **인라인 버튼 status pill의 ⏹ 정지 버튼** (모달 안 열고도 정지 가능). 캡처 즉시 정지, 노트 보존, 다운로드 가능. |
 
 ### 3.2 Phase 2 — v1.5 ~ v2 (런칭 후 1~3개월)
 
@@ -509,8 +510,9 @@
 - DRM 우회 (확정 제외)
 - Safari / Firefox 버전 (Phase 후순위)
 - **Cross-origin iframe 안 video 지원**: MVP 현재 버전은 top frame의 `<video>` 엘리먼트만 처리. iframe(예: 일부 LMS의 외부 video player 임베드) 안 video는 inline 버튼이 안 뜸. Phase 2의 P7 호환성 확장 작업에서 다룰 예정 |
-- 페이지 내 floating modal (drag/resize 가능, shadow DOM 기반): MVP는 Chrome 사이드 패널(계정) + Popup 윈도우(세션)만. 진정한 in-page floating modal은 CSP/z-index/CSS 격리 비용이 커서 Phase 2+ 검토
-- **iframe in-page 사이드바**: 한 차례 시도했으나 ① Chrome 네이티브 사이드 패널과 동시 표시 시 정보 중복, ② 페이지 콘텐츠를 가림, ③ 인증 상태 동기화 race 등으로 폐기. Popup 윈도우가 더 안정적인 단일 세션 view로 채택됨.
+- 드래그 가능 / 리사이즈 가능 모달: MVP 모달은 고정 위치(top-right 20px margin, 400×600). 사용자가 자유 이동 가능한 모달은 Phase 2+ 검토.
+- **별도 Chrome 윈도우 popup (`chrome.windows.create`)**: 한 차례 시도했으나 macOS에서 fullscreen 렌더 + 사용자 의도와 다른 별도 윈도우라 폐기. In-page iframe 모달이 「브라우저 안 떠있는 모달」 사용자 의도와 일치하여 채택.
+- **iframe full-height 사이드바 (페이지 우측 edge에 도킹)**: 콘텐츠 가림 + Chrome 네이티브 사이드 패널과 정보 중복으로 폐기. Floating 모달 형태(현재 채택)가 정답.
 - **사이드 패널을 세션 view로 사용**: Chrome 116+ `chrome.sidePanel.open()` 은 직접적인 사용자 제스처(action 클릭/contextMenu 등)에서만 호출 가능. content-script-triggered 메시지 패스에서는 호출 불가. 따라서 사이드 패널은 계정 view 전용, popout 윈도우가 세션 view 전용이라는 역할 분리 적용 (Phase 2에서 Chrome 정책 완화되면 재검토)
 
 ---
