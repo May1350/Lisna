@@ -78,18 +78,18 @@ function isRetryableLLMError(e: unknown): boolean {
   )
 }
 
-// Primary: gemini-1.5-flash. The free-tier RPD allowance for the newer
-// gemini-2.5-flash is just **20 requests/day per project** for new free-tier
-// accounts, which is exhausted in a few minutes of streaming. 1.5-flash on
-// the same account gets 1500 RPD and 15 RPM, which comfortably covers a
-// single user's daily lecture watching. Quality drop for Japanese lecture
-// summarisation is small and acceptable.
+// Primary: gemini-2.0-flash. The 1.5-flash family was retired from the
+// public v1beta endpoint, so its name now 404s. The 2.5-flash family has a
+// painfully small free-tier RPD (20/day/project) that vanishes in a few
+// minutes of streaming. 2.0-flash sits between them — well-provisioned
+// (~1500 RPD on free tier), generally available, and quality good enough
+// for Japanese lecture summarisation.
 //
-// Fallback: gemini-2.5-flash. Once 1.5-flash hits its own quota / 503, we
-// can still try 2.5-flash (which has its own separate quota). Both burning
-// out in the same window is rare.
-const PRIMARY_MODEL = 'gemini-1.5-flash'
-const FALLBACK_MODEL = 'gemini-2.5-flash'
+// Fallback: gemini-2.0-flash-lite. Same family, smaller cost-per-call,
+// usually higher RPD ceiling — a useful safety net when the primary hits
+// either a transient 503 or its own daily quota.
+const PRIMARY_MODEL = 'gemini-2.0-flash'
+const FALLBACK_MODEL = 'gemini-2.0-flash-lite'
 
 async function generateWithModel(
   modelName: string,
