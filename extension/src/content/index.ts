@@ -1,4 +1,4 @@
-import { mountInlineButton, type InlineButtonHandle } from './inline-button'
+import { mountInlineButton, type InlineButtonHandle, type InlineButtonState } from './inline-button'
 import { mountModal } from './in-page-modal'
 import { AudioCapture, blobToBase64 } from './audio-capture'
 import { SlideDetector, type Slide } from './slide-detector'
@@ -15,6 +15,14 @@ let capture: AudioCapture | null = null
 let detector: SlideDetector | null = null
 let currentSessionId: string | null = null
 let onEndedHandler: (() => void) | null = null
+
+// Centralized status setter so callers don't reach into the button handle
+// directly. The inline button is hidden while the modal is mounted (to avoid
+// the visual overlap with the modal in the top-right of the viewport) and
+// restored when the modal closes — see handleActivate / mountModal.onClose.
+function setButtonStatus(s: InlineButtonState): void {
+  button?.setStatus(s)
+}
 
 function findBestVideo(): HTMLVideoElement | null {
   const all = Array.from(document.querySelectorAll<HTMLVideoElement>('video'))
@@ -35,9 +43,28 @@ function handleActivate(): void {
   // to authenticate before any /v1/stream/audio request lands. If they're
   // still not logged in by then, the SW returns 401 and we lose the first
   // chunk — acceptable trade-off vs. blocking on auth here.
-  mountModal()
+  //
+  // While the modal is mounted we hide the inline button to avoid the visual
+  // overlap with the modal in the top-right of the viewport. When the user
+  // closes the modal we restore the button to whatever state it was in at
+  // the moment of mount (which after activation is 'processing').
+  // Capture the pre-modal status BEFORE we hide the button. After activation
+  // the conceptual state is 'processing' (capture about to start), so that's
+  // what we should restore to when the user closes the modal — unless the
+  // session has already ended by then (e.g. user hit ⏹ from inside the
+  // modal), in which case we stay idle.
+  mountModal({
+    onClose: () => {
+      const restoreTo: InlineButtonState = capture ? 'processing' : 'idle'
+      setButtonStatus(restoreTo)
+    },
+  })
+  setButtonStatus('hidden')
   void startCapture(location.href)
-  button?.setStatus('processing')
+  // currentButtonStatus is now 'hidden'; the conceptual underlying state
+  // (i.e. what we'd show if the modal closed right now) is 'processing'.
+  // We don't need a separate variable for that — the onClose closure derives
+  // it from `capture` directly.
 }
 
 function tryMountButton(): void {
@@ -129,7 +156,7 @@ function stopCaptureLocal(): void {
     onEndedHandler = null
   }
   // Notes preserved server-side; revert button so the user can re-engage.
-  button?.setStatus('idle')
+  setButtonStatus('idle')
   currentSessionId = null
 }
 
@@ -209,7 +236,7 @@ async function startCapture(url: string): Promise<void> {
         body: { session_id: currentSessionId, title: document.title },
       })
     }
-    button?.setStatus('idle')
+    setButtonStatus('idle')
   }
   activeVideo.addEventListener('ended', onEndedHandler)
 }
