@@ -23,15 +23,28 @@ export interface LoginResult {
   currentSession: { id: string; notes: NoteItem[]; slides: SlideItem[] } | null
 }
 
-async function getGoogleAccessToken(): Promise<string> {
-  return await new Promise<string>((resolve, reject) => {
-    chrome.identity.getAuthToken({ interactive: true }, (token) => {
-      if (chrome.runtime.lastError || !token) {
-        return reject(new Error(chrome.runtime.lastError?.message ?? 'no access token'))
-      }
+function tryGetAuthToken(interactive: boolean): Promise<string | null> {
+  return new Promise<string | null>((resolve) => {
+    chrome.identity.getAuthToken({ interactive }, (token) => {
+      // Silent failure ≠ error; just means we need interactive.
+      if (chrome.runtime.lastError || !token) return resolve(null)
       resolve(typeof token === 'string' ? token : (token as { token: string }).token)
     })
   })
+}
+
+async function getGoogleAccessToken(): Promise<string> {
+  // Two-stage: silent first, then interactive only if needed. The silent
+  // call returns immediately when Chrome already has a cached, unexpired
+  // access token for our OAuth client — which is the common case once the
+  // user has consented at least once on this device. Skipping straight to
+  // interactive: true would force Chrome to repaint the consent UI even
+  // when the cached token would have worked.
+  const cached = await tryGetAuthToken(false)
+  if (cached) return cached
+  const fresh = await tryGetAuthToken(true)
+  if (!fresh) throw new Error('Google sign-in cancelled or failed')
+  return fresh
 }
 
 /** Optional: pass currentUrl so the backend hydrates an existing session in

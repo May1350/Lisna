@@ -53,7 +53,10 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       userId = inserted[0].id
     }
 
-    const token = await signJwt({ sub: userId, plan }, 60 * 60 * 24 * 7) // 7 days
+    // 90 days. Personal study tool — long TTL is fine; it just means the user
+    // re-authenticates with Google ~quarterly instead of weekly. Keeps the
+    // multi-account chooser out of the user's hair on the typical use cycle.
+    const token = await signJwt({ sub: userId, plan }, 60 * 60 * 24 * 90)
 
     // Optional eager-load: if the caller passed current_url, look up the
     // existing session for that (user, url) pair in the same Lambda invocation
