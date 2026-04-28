@@ -1,4 +1,5 @@
 import type { User } from '../../shared/types'
+import { SpeedSelector } from './SpeedSelector'
 
 interface Props {
   user: User | null
@@ -8,6 +9,10 @@ interface Props {
   enabled?: boolean
   /** Only used in side-panel (account) view. */
   onToggleEnabled?: (next: boolean) => void
+  /** Only used in embed (modal) view. */
+  playbackSpeed?: number
+  /** Only used in embed (modal) view. */
+  onSpeedChange?: (n: number) => void
   onClose: () => void
   onLogout: () => void
 }
@@ -17,6 +22,8 @@ export function PanelHeader({
   isEmbed,
   enabled,
   onToggleEnabled,
+  playbackSpeed,
+  onSpeedChange,
   onClose,
   onLogout,
 }: Props) {
@@ -59,6 +66,9 @@ export function PanelHeader({
         )}
       </div>
       <div className="flex items-center gap-2 shrink-0">
+        {isEmbed && typeof playbackSpeed === 'number' && typeof onSpeedChange === 'function' && (
+          <SpeedSelector current={playbackSpeed} onChange={onSpeedChange} />
+        )}
         {showToggle && (
           <label
             className="flex items-center gap-1.5 text-[11px] text-gray-700 cursor-pointer select-none"

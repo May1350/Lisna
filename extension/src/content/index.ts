@@ -58,6 +58,9 @@ function handleActivate(): void {
       const restoreTo: InlineButtonState = capture ? 'processing' : 'idle'
       setButtonStatus(restoreTo)
     },
+    onSetSpeed: (speed: number) => {
+      if (activeVideo) activeVideo.playbackRate = speed
+    },
   })
   setButtonStatus('hidden')
   void startCapture(location.href)

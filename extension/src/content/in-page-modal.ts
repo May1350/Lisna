@@ -150,14 +150,23 @@ interface ResizeState {
 
 export interface MountModalOptions {
   onClose: () => void
+  onSetSpeed?: (speed: number) => void
+}
+
+interface ModalContainerExtras {
+  _onClose?: () => void
+  _onSetSpeed?: (speed: number) => void
+  _cleanup?: () => void
 }
 
 export function mountModal(opts: MountModalOptions): void {
   const existing = document.getElementById(CONTAINER_ID) as HTMLDivElement | null
   if (existing) {
     existing.classList.add('__sh_visible__')
-    // Update the onClose closure if mountModal is called again.
-    ;(existing as unknown as { _onClose?: () => void })._onClose = opts.onClose
+    // Update closures if mountModal is called again.
+    const extras = existing as unknown as ModalContainerExtras
+    extras._onClose = opts.onClose
+    extras._onSetSpeed = opts.onSetSpeed
     return
   }
 
@@ -206,8 +215,9 @@ export function mountModal(opts: MountModalOptions): void {
     container.classList.add('__sh_visible__')
   })
 
-  // Store onClose so unmountModal can invoke it.
-  ;(container as unknown as { _onClose?: () => void })._onClose = opts.onClose
+  // Store callbacks so other handlers can invoke them.
+  ;(container as unknown as ModalContainerExtras)._onClose = opts.onClose
+  ;(container as unknown as ModalContainerExtras)._onSetSpeed = opts.onSetSpeed
 
   // --- Drag + resize wiring ----------------------------------------------
   let dragState: DragState | null = null
@@ -306,7 +316,7 @@ export function mountModal(opts: MountModalOptions): void {
   window.addEventListener('mouseup', onMouseUp)
   window.addEventListener('resize', onWindowResize)
 
-  ;(container as unknown as { _cleanup?: () => void })._cleanup = () => {
+  ;(container as unknown as ModalContainerExtras)._cleanup = () => {
     dragHandle.removeEventListener('mousedown', onDragMouseDown)
     resizeHandle.removeEventListener('mousedown', onResizeMouseDown)
     window.removeEventListener('mousemove', onMouseMove)
@@ -323,8 +333,9 @@ export function mountModal(opts: MountModalOptions): void {
 export function unmountModal(): void {
   const container = document.getElementById(CONTAINER_ID) as HTMLDivElement | null
   if (!container) return
-  const cleanup = (container as unknown as { _cleanup?: () => void })._cleanup
-  const onClose = (container as unknown as { _onClose?: () => void })._onClose
+  const extras = container as unknown as ModalContainerExtras
+  const cleanup = extras._cleanup
+  const onClose = extras._onClose
   cleanup?.()
   container.classList.remove('__sh_visible__')
   window.setTimeout(() => {
@@ -338,5 +349,12 @@ function handleMessage(e: MessageEvent): void {
   if (!data || typeof data !== 'object') return
   if (data.type === 'SH_CLOSE_MODAL') {
     unmountModal()
+    return
+  }
+  if (data.type === 'SH_SET_SPEED' && typeof data.speed === 'number') {
+    const container = document.getElementById(CONTAINER_ID) as HTMLDivElement | null
+    if (!container) return
+    const extras = container as unknown as ModalContainerExtras
+    extras._onSetSpeed?.(data.speed)
   }
 }

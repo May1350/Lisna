@@ -18,6 +18,7 @@ export default function App() {
   const [slides, setSlides] = useState<SlideItem[]>([])
   const [title, setTitle] = useState('講義ノート')
   const [enabled, setEnabledState] = useState<boolean>(true)
+  const [playbackSpeed, setPlaybackSpeed] = useState<number>(2)
 
   // Two contexts share this app:
   //   - embed:      iframe modal injected into the page (?embed=1&parentUrl=…)
@@ -40,6 +41,15 @@ export default function App() {
     void getEnabled().then(setEnabledState)
     const off = onEnabledChange(setEnabledState)
     return off
+  }, [])
+
+  // Initial playback speed from storage. Shared key with the options page.
+  useEffect(() => {
+    void chrome.storage.local.get('sh.playback').then(r => {
+      const stored = r['sh.playback']
+      if (typeof stored === 'number') setPlaybackSpeed(stored)
+      else if (stored === 'auto' || stored === undefined) setPlaybackSpeed(2)
+    })
   }, [])
 
   // Listen for SP_BROADCAST from content via SW — embed only.
@@ -117,6 +127,16 @@ export default function App() {
     await chrome.runtime.sendMessage({ type: 'TOGGLE_ENABLED', enabled: next })
   }, [])
 
+  const onSpeedChange = useCallback((speed: number) => {
+    setPlaybackSpeed(speed)
+    void chrome.storage.local.set({ 'sh.playback': speed })
+    // Inform the parent content script so it can apply to the active video
+    // immediately. Only meaningful in embed mode (modal inside the page).
+    if (isEmbed) {
+      window.parent.postMessage({ type: 'SH_SET_SPEED', speed }, '*')
+    }
+  }, [isEmbed])
+
   const onStop = useCallback(async () => {
     // Stop the active capture in whichever tab the modal is hosted in.
     // Embed runs inside the page, so we don't have a direct tabId; the SW
@@ -144,6 +164,8 @@ export default function App() {
         <PanelHeader
           user={user}
           isEmbed
+          playbackSpeed={playbackSpeed}
+          onSpeedChange={onSpeedChange}
           onClose={onClose}
           onLogout={onLogout}
         />

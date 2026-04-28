@@ -1,10 +1,13 @@
 // Inline button anchored to the top-right of the video element.
-// - 'idle': round 36x36 with sparkle SVG icon; expands to a pill on hover.
-// - 'processing': non-interactive pill with red pulsing dot + ⏹ stop button.
-// - 'hidden': removed from DOM.
+// - 'idle': round 36x36 button with sparkle SVG icon. No hover-expand.
+// - 'processing': two icon-only round buttons:
+//     - main button: red pulsing dot (click = re-open modal)
+//     - sibling stop button: ⏹ icon (click = stop session)
+// - 'hidden': hidden via display:none.
 
 const STYLE_ID = '__sh_inline_button_style__'
 const ROOT_ID = '__sh_inline_button_root__'
+const STOP_ID = '__sh_inline_button_stop__'
 
 const SPARKLE_SVG = `
 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -14,8 +17,8 @@ const SPARKLE_SVG = `
 `.trim()
 
 const STOP_SVG = `
-<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
-  <rect x="1" y="1" width="8" height="8" rx="1.5" fill="currentColor"/>
+<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+  <rect x="2" y="2" width="10" height="10" rx="2" fill="currentColor"/>
 </svg>
 `.trim()
 
@@ -24,18 +27,14 @@ function ensureStyle(): void {
   const style = document.createElement('style')
   style.id = STYLE_ID
   style.textContent = `
-@keyframes __sh_pulse__ {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
-}
 .__sh_btn__ {
   position: absolute;
   z-index: 999999;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  height: 36px;
+  justify-content: center;
   width: 36px;
+  height: 36px;
   padding: 0;
   border: 1px solid rgba(255,255,255,0.08);
   border-radius: 9999px;
@@ -43,90 +42,29 @@ function ensureStyle(): void {
   backdrop-filter: blur(12px) saturate(140%);
   -webkit-backdrop-filter: blur(12px) saturate(140%);
   color: #ffffff;
-  font: 600 13px/1 system-ui, -apple-system, "Hiragino Sans", "Apple SD Gothic Neo", sans-serif;
   box-shadow: 0 8px 32px rgba(0,0,0,0.28), 0 2px 6px rgba(0,0,0,0.12);
   cursor: pointer;
-  transition: width 200ms cubic-bezier(0.16, 1, 0.3, 1),
-              padding 200ms cubic-bezier(0.16, 1, 0.3, 1),
-              background-color 200ms cubic-bezier(0.16, 1, 0.3, 1);
-  overflow: hidden;
-  white-space: nowrap;
   user-select: none;
   box-sizing: border-box;
+  transition: transform 200ms cubic-bezier(0.16,1,0.3,1), background-color 200ms cubic-bezier(0.16,1,0.3,1);
 }
-.__sh_btn__:hover, .__sh_btn__.__sh_open__ {
-  width: auto;
-  padding: 0 14px 0 10px;
+.__sh_btn__:hover {
   background: rgba(15, 23, 42, 1);
+  transform: translateY(-1px);
 }
-.__sh_btn_icon__ {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 36px;
-  color: #ffffff;
-}
-.__sh_btn_icon__ svg {
-  display: block;
-}
-.__sh_btn_label__ {
-  opacity: 0;
-  max-width: 0;
-  transition: opacity 200ms cubic-bezier(0.16, 1, 0.3, 1),
-              max-width 200ms cubic-bezier(0.16, 1, 0.3, 1);
-  pointer-events: none;
-}
-.__sh_btn__:hover .__sh_btn_label__,
-.__sh_btn__.__sh_open__ .__sh_btn_label__ {
-  opacity: 1;
-  max-width: 240px;
-  pointer-events: auto;
-}
-.__sh_btn__.__sh_processing__ {
-  width: auto;
-  padding: 0 8px 0 10px;
-  background: rgba(15, 23, 42, 1);
-  cursor: pointer;  /* clickable to re-open modal */
-}
-.__sh_btn__.__sh_processing__ .__sh_btn_label__ {
-  opacity: 1;
-  max-width: 240px;
-}
-.__sh_btn__.__sh_processing__ .__sh_btn_icon__ {
-  display: none;
-}
-.__sh_dot__ {
+.__sh_btn__ svg { display: block; }
+.__sh_status_pulse__ {
   display: inline-block;
-  width: 8px;
-  height: 8px;
+  width: 14px;
+  height: 14px;
   border-radius: 9999px;
   background: #ef4444;
-  margin-left: 6px;
-  animation: __sh_pulse__ 1.2s ease-in-out infinite;
+  animation: __sh_pulse__ 1.4s ease-in-out infinite;
+  box-shadow: 0 0 0 0 rgba(239,68,68,0.6);
 }
-.__sh_stop__ {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  margin-left: 8px;
-  padding: 0;
-  border: 0;
-  border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.12);
-  color: #ffffff;
-  cursor: pointer;
-  transition: background-color 150ms ease;
-}
-.__sh_stop__:hover {
-  background: rgba(239, 68, 68, 0.85);
-}
-.__sh_stop__:focus-visible {
-  outline: 2px solid #fca5a5;
-  outline-offset: 2px;
+@keyframes __sh_pulse__ {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239,68,68,0.6); }
+  50% { transform: scale(1.15); box-shadow: 0 0 0 6px rgba(239,68,68,0); }
 }
 `
   document.documentElement.appendChild(style)
@@ -140,6 +78,7 @@ export interface InlineButtonHandle {
 }
 
 const POSITION_THROTTLE_MS = 250
+const GAP = 8
 
 export function mountInlineButton(
   video: HTMLVideoElement,
@@ -151,33 +90,25 @@ export function mountInlineButton(
 
   // Remove any prior instance.
   document.getElementById(ROOT_ID)?.remove()
+  document.getElementById(STOP_ID)?.remove()
 
   const btn = document.createElement('button')
   btn.id = ROOT_ID
   btn.className = '__sh_btn__'
   btn.type = 'button'
+  btn.title = 'この動画を要約'
   btn.setAttribute('aria-label', 'この動画を要約')
-
-  const icon = document.createElement('span')
-  icon.className = '__sh_btn_icon__'
-  icon.innerHTML = SPARKLE_SVG
-
-  const label = document.createElement('span')
-  label.className = '__sh_btn_label__'
-  label.textContent = 'この動画を要約'
-
-  btn.appendChild(icon)
-  btn.appendChild(label)
+  btn.innerHTML = SPARKLE_SVG
   document.body.appendChild(btn)
 
   let state: InlineButtonState = 'idle'
+  let stopBtn: HTMLButtonElement | null = null
 
   const handleClick = (e: MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
     // Both 'idle' (start session) and 'processing' (re-open modal for in-flight session)
-    // map to the same activation flow. The ⏹ stop button inside the pill stops
-    // propagation so it doesn't trigger this handler.
+    // map to the same activation flow.
     if (state === 'idle' || state === 'processing') onActivate()
   }
   btn.addEventListener('click', handleClick)
@@ -188,20 +119,35 @@ export function mountInlineButton(
     const rect = video.getBoundingClientRect()
     if (rect.width <= 0 || rect.height <= 0) {
       btn.style.display = 'none'
+      if (stopBtn) stopBtn.style.display = 'none'
       return
     }
     btn.style.display = ''
     const inset = 8
     const w = btn.offsetWidth || 36
+    const h = btn.offsetHeight || 36
     // Clamp the visible right edge to BOTH the video bounding box AND the
-    // viewport. Some sites (e.g. YouTube on certain widths) render the player
-    // wider than window.innerWidth — without clamping the button ends up
-    // partially cut off at the right edge of the viewport.
+    // viewport.
     const rightEdge = Math.min(rect.right, window.innerWidth)
-    const left = window.scrollX + Math.max(0, rightEdge - inset - w)
-    const top = window.scrollY + Math.max(0, rect.top) + inset
-    btn.style.top = `${top}px`
-    btn.style.left = `${left}px`
+    const mainLeft = window.scrollX + Math.max(0, rightEdge - inset - w)
+    const mainTop = window.scrollY + Math.max(0, rect.top) + inset
+    btn.style.top = `${mainTop}px`
+    btn.style.left = `${mainLeft}px`
+
+    if (stopBtn) {
+      stopBtn.style.display = ''
+      const stopW = stopBtn.offsetWidth || 36
+      // Place 8px to the LEFT of the main button.
+      const desiredStopLeft = mainLeft - GAP - stopW
+      if (desiredStopLeft >= 0) {
+        stopBtn.style.top = `${mainTop}px`
+        stopBtn.style.left = `${desiredStopLeft}px`
+      } else {
+        // No room on the left — stack BELOW the main button instead.
+        stopBtn.style.top = `${mainTop + h + GAP}px`
+        stopBtn.style.left = `${mainLeft}px`
+      }
+    }
   }
 
   const schedule = (): void => {
@@ -228,55 +174,54 @@ export function mountInlineButton(
     resizeObs.observe(video)
   }
 
-  // Re-position on hover transitions (width changes).
-  btn.addEventListener('mouseenter', () => window.setTimeout(updatePosition, 220))
-  btn.addEventListener('mouseleave', () => window.setTimeout(updatePosition, 220))
+  const removeStopBtn = () => {
+    if (stopBtn) {
+      stopBtn.remove()
+      stopBtn = null
+    }
+  }
+
+  const ensureStopBtn = () => {
+    if (stopBtn) return
+    const s = document.createElement('button')
+    s.id = STOP_ID
+    s.className = '__sh_btn__'
+    s.type = 'button'
+    s.title = '停止'
+    s.setAttribute('aria-label', '停止')
+    s.innerHTML = STOP_SVG
+    s.addEventListener('click', (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      onStop()
+    })
+    document.body.appendChild(s)
+    stopBtn = s
+  }
 
   const setStatus: InlineButtonHandle['setStatus'] = (s) => {
     state = s
     if (s === 'hidden') {
       btn.style.display = 'none'
+      if (stopBtn) stopBtn.style.display = 'none'
       return
     }
     btn.style.display = ''
-    btn.classList.remove('__sh_processing__', '__sh_open__')
     if (s === 'processing') {
-      btn.classList.add('__sh_processing__')
-      label.textContent = '処理中…'
-      // Add a pulsing dot if not already there.
-      let dot = btn.querySelector('.__sh_dot__') as HTMLElement | null
-      if (!dot) {
-        dot = document.createElement('span')
-        dot.className = '__sh_dot__'
-        btn.appendChild(dot)
-      }
-      // Add a stop button to the right of the dot.
-      let stop = btn.querySelector('.__sh_stop__') as HTMLButtonElement | null
-      if (!stop) {
-        stop = document.createElement('button')
-        stop.type = 'button'
-        stop.className = '__sh_stop__'
-        stop.setAttribute('aria-label', '停止')
-        stop.title = '停止'
-        stop.innerHTML = STOP_SVG
-        stop.addEventListener('click', (e) => {
-          e.preventDefault()
-          e.stopPropagation()
-          onStop()
-        })
-        btn.appendChild(stop)
-      }
-      btn.disabled = false
-      btn.style.cursor = 'pointer'  // clickable: re-opens the modal
+      // Replace inner content with a red pulsing dot.
+      btn.innerHTML = ''
+      const pulse = document.createElement('span')
+      pulse.className = '__sh_status_pulse__'
+      btn.appendChild(pulse)
+      btn.title = '処理中 — クリックでモーダルを再表示'
       btn.setAttribute('aria-label', '処理中 — クリックでモーダルを再表示')
+      ensureStopBtn()
     } else {
-      // idle
-      label.textContent = 'この動画を要約'
-      btn.querySelector('.__sh_dot__')?.remove()
-      btn.querySelector('.__sh_stop__')?.remove()
-      btn.disabled = false
-      btn.style.cursor = 'pointer'
+      // idle: restore sparkle SVG and remove the stop sibling.
+      btn.innerHTML = SPARKLE_SVG
+      btn.title = 'この動画を要約'
       btn.setAttribute('aria-label', 'この動画を要約')
+      removeStopBtn()
     }
     window.setTimeout(updatePosition, 0)
   }
@@ -288,6 +233,7 @@ export function mountInlineButton(
     resizeObs?.disconnect()
     btn.removeEventListener('click', handleClick)
     btn.remove()
+    removeStopBtn()
   }
 
   return { setStatus, unmount }
