@@ -25,8 +25,8 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   if (!url) return { statusCode: 400, body: 'missing url' }
   const urlHash = createHash('sha256').update(normalizeUrl(url)).digest('hex')
 
-  const rows = await query<{ id: string; notes: unknown; slides: SlideRow[]; status: string; created_at: string }>(
-    `SELECT id, notes, slides, status, created_at FROM sessions
+  const rows = await query<{ id: string; notes: unknown; slides: SlideRow[]; outline: unknown; status: string; created_at: string }>(
+    `SELECT id, notes, slides, outline, status, created_at FROM sessions
      WHERE user_id = $1 AND url_hash = $2 AND status != 'deleted'`,
     [payload.sub, urlHash]
   )

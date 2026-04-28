@@ -3,19 +3,26 @@ import type { NoteItem as N, SlideItem, User } from '../shared/types'
 import { hasConsent, setConsent, getEnabled, onEnabledChange } from '../shared/storage'
 import { ConsentModal } from './components/ConsentModal'
 import { LoginScreen } from './components/LoginScreen'
-import { NoteList } from './components/NoteList'
+import { OutlineView } from './components/OutlineView'
 import { LiveTranscript } from './components/LiveTranscript'
 import { DownloadButton } from './components/DownloadButton'
 import { QuotaBanner } from './components/QuotaBanner'
 import { PanelHeader } from './components/PanelHeader'
 import { StopButton } from './components/StopButton'
 import { callApi, connectWs, getCurrentUser, logout } from './api-client'
-import type { LiveTranscriptItem } from './api-client'
+import type { LiveTranscriptItem, Outline } from './api-client'
 
 export default function App() {
   const [consented, setConsented] = useState<boolean | null>(null)
   const [user, setUser] = useState<User | null>(null)
   const [sessionId, setSessionId] = useState<string | null>(null)
+  // Curated, hierarchical outline produced by the backend curator. Replaced
+  // wholesale on every curator run (every ~30 s of lecture); the UI thus
+  // evolves as the lecture progresses.
+  const [outline, setOutline] = useState<Outline | null>(null)
+  // Legacy per-chunk note bullets — still used by older sessions that haven't
+  // been re-curated, and as a fallback when /v1/session loads. New sessions
+  // populate `outline` instead.
   const [notes, setNotes] = useState<N[]>([])
   const [slides, setSlides] = useState<SlideItem[]>([])
   // Live transcript items (streamed from /v1/stream/audio's STT step before
@@ -64,7 +71,7 @@ export default function App() {
     const listener = (msg: { type: string; payload?: { type: string; sessionId?: string; url?: string } }) => {
       if (msg.type === 'SP_BROADCAST' && msg.payload?.type === 'session_started' && msg.payload.sessionId) {
         setSessionId(msg.payload.sessionId)
-        setNotes([]); setSlides([]); setTranscripts([])
+        setNotes([]); setSlides([]); setTranscripts([]); setOutline(null)
       }
     }
     chrome.runtime.onMessage.addListener(listener)
@@ -77,13 +84,16 @@ export default function App() {
     void (async () => {
       setTitle('講義ノート')
       try {
-        const r = await callApi<{ session: { id: string; notes: N[]; slides: SlideItem[] } | null }>(
+        const r = await callApi<{
+          session: { id: string; notes: N[]; slides: SlideItem[]; outline: Outline | null } | null
+        }>(
           `/v1/session?url=${encodeURIComponent(parentUrl)}`, 'GET'
         )
         if (r.session) {
           setSessionId(r.session.id)
           setNotes(r.session.notes || [])
           setSlides(r.session.slides || [])
+          setOutline(r.session.outline ?? null)
         }
       } catch { /* ignore */ }
     })()
@@ -107,6 +117,7 @@ export default function App() {
             return next.length > 30 ? next.slice(next.length - 30) : next
           })
         },
+        onOutline: (newOutline) => setOutline(newOutline),
         onClose: () => {},
       })
       if (mounted) ws = w
@@ -185,11 +196,17 @@ export default function App() {
               setSessionId(result.currentSession.id)
               setNotes(result.currentSession.notes ?? [])
               setSlides(result.currentSession.slides ?? [])
+              setOutline((result.currentSession as { outline?: Outline | null }).outline ?? null)
             }
           }}
         />
       )
     }
+    const onJump = (ts: number) => {
+      // Same channel that NoteItem uses to jump the underlying video.
+      void chrome.runtime.sendMessage({ type: 'JUMP_TO', ts })
+    }
+    const hasContent = !!outline?.sections.length || notes.length > 0
     return (
       <div className="min-h-screen flex flex-col bg-gray-50">
         <PanelHeader
@@ -200,11 +217,11 @@ export default function App() {
           onClose={onClose}
           onLogout={onLogout}
         />
-        <NoteList notes={notes} slides={slides} />
+        <OutlineView outline={outline} onJump={onJump} />
         {sessionId && <LiveTranscript items={transcripts} />}
         <div className="px-3 pb-3 space-y-2">
           {sessionId && <StopButton onStop={onStop} />}
-          {sessionId && notes.length > 0 && <DownloadButton sessionId={sessionId} title={title} />}
+          {sessionId && hasContent && <DownloadButton sessionId={sessionId} title={title} />}
         </div>
       </div>
     )

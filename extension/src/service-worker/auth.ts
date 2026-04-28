@@ -2,6 +2,20 @@ import { setToken, setUser, getToken } from '../shared/storage'
 import type { User, NoteItem, SlideItem } from '../shared/types'
 import { API_BASE_URL } from '../shared/config'
 
+// Outline shape mirrors backend/src/lib/curator.ts. Inline rather than imported
+// because the extension build doesn't pull from the backend tree.
+interface OutlineShape {
+  title: string
+  sections: Array<{
+    heading: string
+    ts: number
+    summary: string
+    key_terms: Array<{ term: string; definition: string; ts: number }>
+    examples: Array<{ text: string; ts: number }>
+    points: Array<{ text: string; ts: number; important: boolean }>
+  }>
+}
+
 // chrome.identity.getAuthToken returns an OAuth ACCESS token (not an ID token).
 // We need an ID token for the backend's verifyGoogleIdToken (Google's tokeninfo
 // only verifies ID tokens with proper aud/exp/sig). Path:
@@ -20,7 +34,12 @@ import { API_BASE_URL } from '../shared/config'
 
 export interface LoginResult {
   user: User
-  currentSession: { id: string; notes: NoteItem[]; slides: SlideItem[] } | null
+  currentSession: {
+    id: string
+    notes: NoteItem[]
+    slides: SlideItem[]
+    outline: OutlineShape | null
+  } | null
 }
 
 function tryGetAuthToken(interactive: boolean): Promise<string | null> {
@@ -64,7 +83,12 @@ export async function loginWithGoogle(currentUrl?: string): Promise<LoginResult>
   const data = await r.json() as {
     token: string
     user: User
-    currentSession: { id: string; notes: NoteItem[]; slides: SlideItem[] } | null
+    currentSession: {
+      id: string
+      notes: NoteItem[]
+      slides: SlideItem[]
+      outline: OutlineShape | null
+    } | null
   }
   await setToken(data.token)
   await setUser(data.user)

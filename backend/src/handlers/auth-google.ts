@@ -21,6 +21,7 @@ const Body = z.object({
 
 interface NoteRow { ts: number; text: string; important: boolean }
 interface SlideRow { ts: number; ocr_text?: string; image_key?: string }
+interface OutlineRow { title: string; sections: unknown[] }
 
 function normalizeUrl(u: string): string {
   const url = new URL(u)
@@ -61,12 +62,12 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     // Optional eager-load: if the caller passed current_url, look up the
     // existing session for that (user, url) pair in the same Lambda invocation
     // so the modal can render notes immediately without GET /v1/session.
-    let currentSession: { id: string; notes: NoteRow[]; slides: SlideRow[] } | null = null
+    let currentSession: { id: string; notes: NoteRow[]; slides: SlideRow[]; outline: OutlineRow | null } | null = null
     if (current_url) {
       try {
         const urlHash = createHash('sha256').update(normalizeUrl(current_url)).digest('hex')
-        const sessRow = await query<{ id: string; notes: NoteRow[]; slides: SlideRow[] }>(
-          `SELECT id, notes, slides FROM sessions WHERE user_id = $1 AND url_hash = $2`,
+        const sessRow = await query<{ id: string; notes: NoteRow[]; slides: SlideRow[]; outline: OutlineRow | null }>(
+          `SELECT id, notes, slides, outline FROM sessions WHERE user_id = $1 AND url_hash = $2`,
           [userId, urlHash],
         )
         if (sessRow.length > 0) currentSession = sessRow[0]

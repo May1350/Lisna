@@ -10,7 +10,12 @@ export async function callApi<T = unknown>(path: string, method: string, body?: 
 
 export interface LoginResult {
   user: User
-  currentSession: { id: string; notes: NoteItem[]; slides: SlideItem[] } | null
+  currentSession: {
+    id: string
+    notes: NoteItem[]
+    slides: SlideItem[]
+    outline: Outline | null
+  } | null
 }
 
 /**
@@ -39,10 +44,30 @@ export interface LiveTranscriptItem {
   text: string
 }
 
+// Outline shape mirrors backend/src/lib/curator.ts. Kept inline here rather
+// than imported because the extension build doesn't share the backend's
+// tsconfig path mappings.
+export interface OutlineKeyTerm { term: string; definition: string; ts: number }
+export interface OutlineExample { text: string; ts: number }
+export interface OutlinePoint { text: string; ts: number; important: boolean }
+export interface OutlineSection {
+  heading: string
+  ts: number
+  summary: string
+  key_terms: OutlineKeyTerm[]
+  examples: OutlineExample[]
+  points: OutlinePoint[]
+}
+export interface Outline {
+  title: string
+  sections: OutlineSection[]
+}
+
 export interface WsListeners {
   onNote: (notes: NoteItem[]) => void
   onSlide: (slide: SlideItem) => void
   onTranscript: (item: LiveTranscriptItem) => void
+  onOutline: (outline: Outline) => void
   onClose: () => void
 }
 
@@ -56,6 +81,8 @@ export async function connectWs(sessionId: string, listeners: WsListeners): Prom
       if (msg.type === 'note_chunk') listeners.onNote(msg.notes as NoteItem[])
       else if (msg.type === 'transcript_chunk') {
         listeners.onTranscript({ ts: msg.ts as number, text: msg.text as string })
+      } else if (msg.type === 'outline_updated') {
+        listeners.onOutline(msg.outline as Outline)
       } else if (msg.type === 'slide_chunk') {
         const s = msg.slide as { ts: number; key: string; url: string }
         listeners.onSlide({ ts: s.ts, key: s.key, url: s.url })
