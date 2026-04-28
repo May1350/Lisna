@@ -7,7 +7,13 @@ export interface AudioChunk {
   mime: string
 }
 
-const CHUNK_DURATION_MS = 15_000
+// 10 s strikes a good balance:
+//  - long enough for Whisper to anchor speaker / language correctly,
+//  - short enough that notes start appearing within ~12-15 s of the user
+//    pressing play (perceived "real-time"),
+//  - chunks/min = 6, so 1 h of video = 360 Gemini calls; well within the
+//    free-tier 1500 RPD budget for a single user.
+const CHUNK_DURATION_MS = 10_000
 
 export class AudioCapture {
   private recorder: MediaRecorder | null = null

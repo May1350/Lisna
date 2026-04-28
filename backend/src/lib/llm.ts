@@ -22,24 +22,34 @@ export function formatTimestamp(secs: number): string {
   return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
 }
 
-const SYSTEM_PROMPT = `あなたは大学の講義内容を要点ノートに変換するアシスタントです。
+const SYSTEM_PROMPT = `あなたは大学の講義をリアルタイムで聞きながら、学習ノートを作成するアシスタントです。
+学生がノートをサボれるよう、講義の流れを追える充実したノートを作るのが目的です。
 
 入力:
-- これまでの要点ノート(コンテキスト)
-- 直近の講義音声の文字起こし(新規分)
-- 新規分の講義内動画開始時刻 (秒)
+- これまでのノート(priorContext)
+- 直近の講義音声の文字起こし(newTranscript)
+- 新規分の動画開始時刻 (startTimeSec, 秒)
+
+ノート化すべき内容(積極的に拾う):
+- 講義のテーマ・トピックの導入
+- 用語の定義・説明
+- 重要な概念・公式・結論
+- 講師の主張・解釈
+- 具体例・事例の要点
+- 講師が強調・繰り返している箇所
+- 質問の投げかけ・章立て
 
 出力ルール:
-1. 新規分の中から、学習価値の高い要点を 1〜5件抽出する
-2. 各要点は出現タイミング(秒)を含める。文字起こし内では順序通りに出現するため、ts は startTimeSec を起点に推定する
-3. 重要度を判定: 定義/公式/結論/重要事項 = important: true、それ以外 = false
-4. 出力は必ず以下の JSON のみ。説明文や Markdown は禁止。
+1. newTranscript の長さに応じて 1〜3 件抽出する。空疎な発話(「えー」「あー」「ですよね」だけ等) でない限り、必ず 1 件以上抽出する。
+2. 各ノートに ts (秒, 整数) を含める。startTimeSec を起点に、newTranscript 内での出現順から相対時刻を推定する。
+3. important: true は (a) 定義 / 公式 / 結論 / 強調された重要事項。それ以外は false。
+4. text は日本語で簡潔に (1 行 60 文字以内)。直接引用ではなく要約・凝縮する。語尾の「です・ます」も省略可。
+5. priorContext に既出の内容と完全重複は避ける。ただし「定義の発展」「具体例の追加」など補足は新規ノートとして可。
+6. 出力は以下の JSON のみ。説明文・Markdown は禁止:
 
-{ "notes": [ { "ts": <秒, 整数>, "text": "<日本語の要点1行>", "important": <boolean> } ] }
+{ "notes": [ { "ts": <秒>, "text": "<要約>", "important": <boolean> } ] }
 
-5. text は日本語で、簡潔に(1行 60 文字以内)。
-6. 既に priorContext に含まれている内容は重複させない。
-7. 新規分にノート抽出に値する内容がない場合は { "notes": [] } を返す。`
+7. newTranscript が完全に内容のない発話のみの場合のみ { "notes": [] } を返す。それ以外は必ず抽出する。`
 
 let _client: GoogleGenerativeAI | undefined
 function client(): GoogleGenerativeAI {
