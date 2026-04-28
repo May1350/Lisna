@@ -47,16 +47,38 @@ function backend(): SttBackend {
   return _backend
 }
 
+// Map MIME → filename extension. Groq routes the upload to its demuxer based
+// on the filename suffix in the multipart form, so picking the right
+// extension matters: 'audio/wav' → '.wav', 'audio/webm' → '.webm', etc.
+function extensionFor(mime: string): string {
+  const base = mime.split(';')[0].trim().toLowerCase()
+  switch (base) {
+    case 'audio/wav':
+    case 'audio/wave':
+    case 'audio/x-wav': return 'wav'
+    case 'audio/mp3':
+    case 'audio/mpeg': return 'mp3'
+    case 'audio/mp4':
+    case 'audio/m4a':
+    case 'audio/x-m4a': return 'm4a'
+    case 'audio/ogg':
+    case 'audio/opus': return 'ogg'
+    case 'audio/webm': return 'webm'
+    default: return 'webm'
+  }
+}
+
 export async function transcribeChunk(
   audio: ArrayBuffer,
   mime: string,
   hintLanguage?: string
 ): Promise<TranscriptResult> {
   if (audio.byteLength === 0) throw new Error('Audio buffer is empty')
-  // Groq's Whisper endpoint requires .webm extension to detect format from
-  // the filename in many SDK versions, so we keep chunk.webm regardless of
-  // backend.
-  const file = new File([audio], 'chunk.webm', { type: mime })
+  const ext = extensionFor(mime)
+  // Strip codec qualifier ('audio/webm;codecs=opus' → 'audio/webm'); Groq
+  // dislikes the qualifier in the multipart Content-Type header.
+  const cleanMime = mime.split(';')[0].trim()
+  const file = new File([audio], `chunk.${ext}`, { type: cleanMime })
   const b = backend()
   const res = await b.client.audio.transcriptions.create({
     file,

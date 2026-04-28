@@ -1,3 +1,5 @@
+import { webmBlobToWav } from './audio-encode'
+
 export interface AudioChunk {
   startTimeSec: number
   durationSec: number
@@ -45,17 +47,31 @@ export class AudioCapture {
 
   private flushChunk(): void {
     if (this.parts.length === 0) return
-    const blob = new Blob(this.parts, { type: this.mime })
+    const webmBlob = new Blob(this.parts, { type: this.mime })
     const durationSec = (Date.now() - this.chunkStartReal) / 1000
-    this.onChunk({
-      startTimeSec: this.startedAtVideoTime,
-      durationSec,
-      blob,
-      mime: this.mime,
-    })
+    const startTimeSec = this.startedAtVideoTime
     this.parts = []
     this.startedAtVideoTime = this.video.currentTime
     this.chunkStartReal = Date.now()
+
+    // Convert WebM/Opus → WAV before emitting. Groq's Whisper rejects
+    // MediaRecorder WebM fragments ("could not process file"); WAV is
+    // universally accepted. Run async; on failure surface to console and
+    // skip the chunk (rather than blow up the whole capture pipeline).
+    void (async () => {
+      try {
+        const wavBlob = await webmBlobToWav(webmBlob)
+        this.onChunk({
+          startTimeSec,
+          durationSec,
+          blob: wavBlob,
+          mime: 'audio/wav',
+        })
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('[SH:audio-capture] WAV encode failed; dropping chunk', e)
+      }
+    })()
   }
 
   stop(): void {
