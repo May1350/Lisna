@@ -4,11 +4,15 @@ import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-sec
 const Env = z.object({
   DATABASE_URL: z.string().min(1),
   JWT_SECRET: z.string().min(32),
-  // STT keys: at least ONE must be present. GROQ is preferred (free tier,
-  // Whisper Large-v3); OPENAI is an optional fallback.
-  GROQ_API_KEY: z.string().min(1).optional(),
+  // GROQ_API_KEY drives BOTH the STT pipeline (Whisper Large-v3) AND the
+  // LLM pipeline (Llama 3.3 70B). It is required.
+  GROQ_API_KEY: z.string().min(1),
+  // OpenAI is an optional STT fallback only — not required in normal
+  // operation.
   OPENAI_API_KEY: z.string().min(1).optional(),
-  GOOGLE_GENAI_API_KEY: z.string().min(1),
+  // Gemini is no longer used for the LLM step; kept optional so the schema
+  // doesn't fail on existing Secrets Manager entries.
+  GOOGLE_GENAI_API_KEY: z.string().min(1).optional(),
   GOOGLE_OAUTH_CLIENT_ID: z.string().min(1),
   GOOGLE_OAUTH_CLIENT_SECRET: z.string().min(1),
   STRIPE_SECRET_KEY: z.string().min(1),
@@ -17,14 +21,6 @@ const Env = z.object({
   S3_BUCKET: z.string().min(1),
   WS_ENDPOINT: z.string().url().optional(),
   AWS_REGION: z.string().default('ap-northeast-1'),
-}).superRefine((data, ctx) => {
-  if (!data.GROQ_API_KEY && !data.OPENAI_API_KEY) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'At least one of GROQ_API_KEY or OPENAI_API_KEY must be set',
-      path: ['GROQ_API_KEY'],
-    })
-  }
 })
 
 export type AppEnv = z.infer<typeof Env>

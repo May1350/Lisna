@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from '@google/generative-ai'
+import OpenAI from 'openai'
 
 export interface NoteItem {
   ts: number          // seconds from video start
@@ -51,17 +51,9 @@ const SYSTEM_PROMPT = `あなたは大学の講義をリアルタイムで聞き
 
 7. newTranscript が完全に内容のない発話のみの場合のみ { "notes": [] } を返す。それ以外は必ず抽出する。`
 
-let _client: GoogleGenerativeAI | undefined
-function client(): GoogleGenerativeAI {
-  if (!_client) _client = new GoogleGenerativeAI(process.env.GOOGLE_GENAI_API_KEY!)
-  return _client
-}
-
-// Gemini occasionally returns 503 ("This model is currently experiencing
-// high demand") for the consumer free tier — sometimes for several minutes
-// at a stretch. We retry transient server errors with exponential backoff
-// before giving up. This keeps the per-chunk failure rate low without
-// adding meaningful latency on the happy path.
+// Retry transient server errors with exponential backoff before giving up.
+// Keeps the per-chunk failure rate low without adding meaningful latency on
+// the happy path.
 const MAX_ATTEMPTS = 4
 const BASE_DELAY_MS = 600
 
@@ -78,34 +70,58 @@ function isRetryableLLMError(e: unknown): boolean {
   )
 }
 
-// Primary: gemini-2.0-flash. The 1.5-flash family was retired from the
-// public v1beta endpoint, so its name now 404s. The 2.5-flash family has a
-// painfully small free-tier RPD (20/day/project) that vanishes in a few
-// minutes of streaming. 2.0-flash sits between them — well-provisioned
-// (~1500 RPD on free tier), generally available, and quality good enough
-// for Japanese lecture summarisation.
-//
-// Fallback: gemini-2.0-flash-lite. Same family, smaller cost-per-call,
-// usually higher RPD ceiling — a useful safety net when the primary hits
-// either a transient 503 or its own daily quota.
-const PRIMARY_MODEL = 'gemini-2.0-flash'
-const FALLBACK_MODEL = 'gemini-2.0-flash-lite'
+// We use Groq's hosted Llama 3.3 70B as the primary summarisation model and
+// keep Gemini-shaped function names for backwards compatibility. Why Groq
+// instead of Gemini for the LLM step too:
+//   - Single-vendor: STT + LLM share one API key + one rate-limit pool, so
+//     the operator only manages one secret.
+//   - Free tier far more generous than Gemini's free tier (which hit
+//     "limit: 0" for both 2.0-flash and 2.0-flash-lite during testing —
+//     the new-account Gemini free tier is unusably tight): Groq Llama
+//     3.3 70B is 30 RPM / 6,000 RPD / 12,000 TPM on the free tier,
+//     covering ~16 h/day of 10-second-chunked lecture for a single user.
+//   - Japanese quality on Llama 3.3 70B is competitive with Gemini Flash
+//     for summarisation tasks; the prompt is simple enough that model
+//     differences mostly disappear.
+//   - Fallback: Llama 3.1 8B Instant — same provider, lower-cost, useful
+//     when the primary hits a transient 5xx or its own ceiling.
+const PRIMARY_MODEL = 'llama-3.3-70b-versatile'
+const FALLBACK_MODEL = 'llama-3.1-8b-instant'
+
+// Groq exposes an OpenAI-compatible chat completions endpoint, so we
+// reuse the OpenAI SDK and target Groq's baseURL. The same SDK is also
+// used in stt.ts (with a separate client instance there).
+let _client: OpenAI | undefined
+function client(): OpenAI {
+  if (!_client) {
+    const apiKey = process.env.GROQ_API_KEY
+    if (!apiKey) throw new Error('GROQ_API_KEY not set — required for LLM summarisation')
+    _client = new OpenAI({ apiKey, baseURL: 'https://api.groq.com/openai/v1' })
+  }
+  return _client
+}
 
 async function generateWithModel(
   modelName: string,
   userPrompt: string,
   attempts: number,
 ): Promise<SummaryResult> {
-  const model = client().getGenerativeModel({
-    model: modelName,
-    systemInstruction: SYSTEM_PROMPT,
-    generationConfig: { responseMimeType: 'application/json' },
-  })
   let lastErr: unknown
   for (let attempt = 0; attempt < attempts; attempt++) {
     try {
-      const res = await model.generateContent(userPrompt)
-      const text = res.response.text()
+      const res = await client().chat.completions.create({
+        model: modelName,
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user', content: userPrompt },
+        ],
+        // JSON mode — Groq's Llama models support response_format: 'json_object'
+        // when the system prompt contains the literal word "JSON" (which ours
+        // does, in the schema example).
+        response_format: { type: 'json_object' },
+        temperature: 0.2,
+      })
+      const text = res.choices[0]?.message?.content ?? '{}'
       const parsed = JSON.parse(text) as SummaryResult
       return { notes: Array.isArray(parsed.notes) ? parsed.notes : [] }
     } catch (e) {

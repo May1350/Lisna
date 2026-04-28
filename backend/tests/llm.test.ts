@@ -1,9 +1,11 @@
 import { describe, it, expect, vi } from 'vitest'
 
-const mockGenerate = vi.fn()
-vi.mock('@google/generative-ai', () => ({
-  GoogleGenerativeAI: class {
-    getGenerativeModel() { return { generateContent: mockGenerate } }
+// Mock the OpenAI SDK so summarizeChunk doesn't try to actually hit Groq.
+// llm.ts constructs `new OpenAI({...})` and calls `chat.completions.create`.
+const mockCreate = vi.fn()
+vi.mock('openai', () => ({
+  default: class {
+    chat = { completions: { create: mockCreate } }
   }
 }))
 
@@ -20,17 +22,19 @@ describe('formatTimestamp', () => {
 
 describe('summarizeChunk', () => {
   it('returns parsed note items', async () => {
-    mockGenerate.mockResolvedValue({
-      response: {
-        text: () => JSON.stringify({
-          notes: [
-            { ts: 42, text: 'AI の定義', important: false },
-            { ts: 135, text: '⭐ 重要: 誤差逆伝播', important: true },
-          ]
-        })
-      }
+    mockCreate.mockResolvedValue({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            notes: [
+              { ts: 42, text: 'AI の定義', important: false },
+              { ts: 135, text: '⭐ 重要: 誤差逆伝播', important: true },
+            ]
+          })
+        }
+      }]
     })
-    process.env.GOOGLE_GENAI_API_KEY = 'test'
+    process.env.GROQ_API_KEY = 'test'
     const r = await summarizeChunk({
       newTranscript: '本日は AI について話します...',
       priorContext: '',

@@ -23,6 +23,11 @@ let capture: AudioCapture | null = null
 let detector: SlideDetector | null = null
 let currentSessionId: string | null = null
 let onEndedHandler: (() => void) | null = null
+// Tracks the in-flight capture session so stopCaptureLocal can flip a flag
+// that the AudioCapture / SlideDetector callbacks read, suppressing any
+// straggler chunks produced after stop().
+type CaptureSession = { id: string; canonicalAdopted: boolean; stopped: boolean }
+let activeSession: CaptureSession | null = null
 
 function setButtonStatus(s: InlineButtonState): void {
   button?.setStatus(s)
@@ -253,10 +258,15 @@ chrome.runtime.onMessage.addListener((msg, _s, sendResponse) => {
 })
 
 function stopCaptureLocal(): void {
+  // Flip the closure-scoped flag FIRST so any drain chunks emitted by
+  // MediaRecorder's onstop are suppressed instead of POSTing with a
+  // session id that's about to be cleared.
+  if (activeSession) activeSession.stopped = true
   try { capture?.stop() } catch { /* ignore */ }
   try { detector?.stop() } catch { /* ignore */ }
   capture = null
   detector = null
+  activeSession = null
   if (activeVideo && onEndedHandler) {
     activeVideo.removeEventListener('ended', onEndedHandler)
     onEndedHandler = null
@@ -300,12 +310,28 @@ async function startCapture(url: string): Promise<void> {
   // on the first /v1/stream/audio response. Adopt that canonical id and only
   // THEN broadcast session_started so the modal connects WS to the correct
   // session.
-  currentSessionId = crypto.randomUUID()
-  let canonicalAdopted = false
+  //
+  // RACE NOTE: We deliberately keep the session id in a closure (`session`)
+  // rather than re-reading the module-level `currentSessionId` from inside
+  // the AudioCapture callback. After the user presses stop, stopCaptureLocal()
+  // sets the module-level id to null, but MediaRecorder may still emit one
+  // last "drain" chunk via onstop AFTER that nulling. If the callback read
+  // the module variable, that drain chunk would POST `session_id: null` and
+  // the backend's Zod validator would 400. Holding the id in a closure scopes
+  // it correctly to this capture session only.
+  const session: { id: string; canonicalAdopted: boolean; stopped: boolean } = {
+    id: crypto.randomUUID(),
+    canonicalAdopted: false,
+    stopped: false,
+  }
+  currentSessionId = session.id
   let chunksSent = 0
 
   try {
     capture = new AudioCapture(activeVideo, async (chunk) => {
+      // After stopCaptureLocal() flips the flag, drop any straggler chunk
+      // produced by MediaRecorder's drain rather than POSTing with a stale id.
+      if (session.stopped) { log('audio chunk dropped (session stopped)'); return }
       chunksSent += 1
       log('audio chunk produced', { n: chunksSent, durationSec: chunk.durationSec, blobSize: chunk.blob.size, mime: chunk.mime })
       const b64 = await blobToBase64(chunk.blob)
@@ -316,7 +342,7 @@ async function startCapture(url: string): Promise<void> {
           method: 'POST',
           path: '/v1/stream/audio',
           body: {
-            session_id: currentSessionId,
+            session_id: session.id,
             url,
             start_time_sec: chunk.startTimeSec,
             duration_sec: chunk.durationSec,
@@ -333,20 +359,22 @@ async function startCapture(url: string): Promise<void> {
       if (!r.ok) { warn('audio chunk: backend error', r.error); return }
       log('audio chunk: backend ok', { added: r.data?.added, preview: r.data?.transcript_preview, canonicalSessionId: r.data?.session_id })
 
-      if (!canonicalAdopted) {
+      if (!session.canonicalAdopted) {
         const canonical = r.data?.session_id
         if (canonical) {
+          session.id = canonical
           currentSessionId = canonical
-          canonicalAdopted = true
-          log('canonical session adopted, broadcasting session_started', currentSessionId)
+          session.canonicalAdopted = true
+          log('canonical session adopted, broadcasting session_started', canonical)
           chrome.runtime.sendMessage({
             type: 'SP_BROADCAST',
-            payload: { type: 'session_started', sessionId: currentSessionId, url },
+            payload: { type: 'session_started', sessionId: canonical, url },
           })
         }
       }
     })
     capture.start()
+    activeSession = session
     log('AudioCapture started OK')
   } catch (e) {
     warn('AudioCapture failed to start', e)
@@ -355,7 +383,7 @@ async function startCapture(url: string): Promise<void> {
   }
 
   detector = new SlideDetector(activeVideo, async (slide: Slide) => {
-    if (!canonicalAdopted) return
+    if (session.stopped || !session.canonicalAdopted) return
     const buf = await slide.blob.arrayBuffer()
     let s = ''; const bytes = new Uint8Array(buf)
     for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i])
@@ -364,20 +392,21 @@ async function startCapture(url: string): Promise<void> {
       type: 'API_FETCH',
       method: 'POST',
       path: '/v1/stream/slide',
-      body: { session_id: currentSessionId, ts: slide.ts, image_b64: b64, mime: 'image/jpeg' },
+      body: { session_id: session.id, ts: slide.ts, image_b64: b64, mime: 'image/jpeg' },
     })
   })
   detector.start()
 
   onEndedHandler = () => {
+    session.stopped = true
     detector?.stop()
     capture?.stop()
-    if (currentSessionId) {
+    if (session.canonicalAdopted) {
       chrome.runtime.sendMessage({
         type: 'API_FETCH',
         method: 'POST',
         path: '/v1/session/finalize',
-        body: { session_id: currentSessionId, title: document.title },
+        body: { session_id: session.id, title: document.title },
       })
     }
     setButtonStatus('idle')
