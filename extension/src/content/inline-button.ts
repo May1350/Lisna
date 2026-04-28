@@ -88,7 +88,7 @@ function ensureStyle(): void {
   width: auto;
   padding: 0 8px 0 10px;
   background: rgba(15, 23, 42, 1);
-  cursor: default;
+  cursor: pointer;  /* clickable to re-open modal */
 }
 .__sh_btn__.__sh_processing__ .__sh_btn_label__ {
   opacity: 1;
@@ -175,8 +175,10 @@ export function mountInlineButton(
   const handleClick = (e: MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    if (state !== 'idle') return
-    onActivate()
+    // Both 'idle' (start session) and 'processing' (re-open modal for in-flight session)
+    // map to the same activation flow. The ⏹ stop button inside the pill stops
+    // propagation so it doesn't trigger this handler.
+    if (state === 'idle' || state === 'processing') onActivate()
   }
   btn.addEventListener('click', handleClick)
 
@@ -265,8 +267,8 @@ export function mountInlineButton(
         btn.appendChild(stop)
       }
       btn.disabled = false
-      btn.style.cursor = 'default'
-      btn.setAttribute('aria-label', '処理中')
+      btn.style.cursor = 'pointer'  // clickable: re-opens the modal
+      btn.setAttribute('aria-label', '処理中 — クリックでモーダルを再表示')
     } else {
       // idle
       label.textContent = 'この動画を要約'
