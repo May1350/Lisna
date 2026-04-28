@@ -68,12 +68,45 @@ function isRetryableLLMError(e: unknown): boolean {
   )
 }
 
-export async function summarizeChunk(req: SummaryRequest): Promise<SummaryResult> {
+// Primary: gemini-2.5-flash (latest, best quality but most congested on the
+// free tier). Fallback: gemini-1.5-flash (mature, stable, well-provisioned).
+// We try the primary with retries first; if every retry hits 503/overload,
+// we drop one tier and try the fallback once. This trades a tiny quality
+// hit on overloaded windows for "actually getting notes" instead of empty
+// modal.
+const PRIMARY_MODEL = 'gemini-2.5-flash'
+const FALLBACK_MODEL = 'gemini-1.5-flash'
+
+async function generateWithModel(
+  modelName: string,
+  userPrompt: string,
+  attempts: number,
+): Promise<SummaryResult> {
   const model = client().getGenerativeModel({
-    model: 'gemini-2.5-flash',
+    model: modelName,
     systemInstruction: SYSTEM_PROMPT,
     generationConfig: { responseMimeType: 'application/json' },
   })
+  let lastErr: unknown
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      const res = await model.generateContent(userPrompt)
+      const text = res.response.text()
+      const parsed = JSON.parse(text) as SummaryResult
+      return { notes: Array.isArray(parsed.notes) ? parsed.notes : [] }
+    } catch (e) {
+      lastErr = e
+      if (attempt === attempts - 1 || !isRetryableLLMError(e)) break
+      const delay = BASE_DELAY_MS * 2 ** attempt + Math.floor(Math.random() * 250)
+      // eslint-disable-next-line no-console
+      console.warn(`[llm:${modelName}] retry ${attempt + 1}/${attempts - 1} after ${delay}ms:`, e instanceof Error ? e.message : e)
+      await new Promise(r => setTimeout(r, delay))
+    }
+  }
+  throw lastErr
+}
+
+export async function summarizeChunk(req: SummaryRequest): Promise<SummaryResult> {
   const userPrompt = `priorContext:
 ${req.priorContext || '(なし)'}
 
@@ -82,21 +115,12 @@ startTimeSec: ${req.startTimeSec}
 newTranscript:
 ${req.newTranscript}`
 
-  let lastErr: unknown
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    try {
-      const res = await model.generateContent(userPrompt)
-      const text = res.response.text()
-      const parsed = JSON.parse(text) as SummaryResult
-      return { notes: Array.isArray(parsed.notes) ? parsed.notes : [] }
-    } catch (e) {
-      lastErr = e
-      if (attempt === MAX_ATTEMPTS - 1 || !isRetryableLLMError(e)) break
-      const delay = BASE_DELAY_MS * 2 ** attempt + Math.floor(Math.random() * 250)
-      // eslint-disable-next-line no-console
-      console.warn(`[llm] retry ${attempt + 1}/${MAX_ATTEMPTS - 1} after ${delay}ms:`, e instanceof Error ? e.message : e)
-      await new Promise(r => setTimeout(r, delay))
-    }
+  try {
+    return await generateWithModel(PRIMARY_MODEL, userPrompt, MAX_ATTEMPTS)
+  } catch (e) {
+    if (!isRetryableLLMError(e)) throw e
+    // eslint-disable-next-line no-console
+    console.warn(`[llm] ${PRIMARY_MODEL} exhausted; falling back to ${FALLBACK_MODEL}`)
+    return await generateWithModel(FALLBACK_MODEL, userPrompt, 2)
   }
-  throw lastErr
 }
