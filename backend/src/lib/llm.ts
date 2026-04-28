@@ -47,6 +47,27 @@ function client(): GoogleGenerativeAI {
   return _client
 }
 
+// Gemini occasionally returns 503 ("This model is currently experiencing
+// high demand") for the consumer free tier — sometimes for several minutes
+// at a stretch. We retry transient server errors with exponential backoff
+// before giving up. This keeps the per-chunk failure rate low without
+// adding meaningful latency on the happy path.
+const MAX_ATTEMPTS = 4
+const BASE_DELAY_MS = 600
+
+function isRetryableLLMError(e: unknown): boolean {
+  const msg = (e instanceof Error ? e.message : String(e)).toLowerCase()
+  return (
+    msg.includes('503') ||
+    msg.includes('service unavailable') ||
+    msg.includes('500') ||
+    msg.includes('internal') ||
+    msg.includes('overloaded') ||
+    msg.includes('high demand') ||
+    msg.includes('429') // rate-limited; backoff often clears it
+  )
+}
+
 export async function summarizeChunk(req: SummaryRequest): Promise<SummaryResult> {
   const model = client().getGenerativeModel({
     model: 'gemini-2.5-flash',
@@ -61,8 +82,21 @@ startTimeSec: ${req.startTimeSec}
 newTranscript:
 ${req.newTranscript}`
 
-  const res = await model.generateContent(userPrompt)
-  const text = res.response.text()
-  const parsed = JSON.parse(text) as SummaryResult
-  return { notes: Array.isArray(parsed.notes) ? parsed.notes : [] }
+  let lastErr: unknown
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    try {
+      const res = await model.generateContent(userPrompt)
+      const text = res.response.text()
+      const parsed = JSON.parse(text) as SummaryResult
+      return { notes: Array.isArray(parsed.notes) ? parsed.notes : [] }
+    } catch (e) {
+      lastErr = e
+      if (attempt === MAX_ATTEMPTS - 1 || !isRetryableLLMError(e)) break
+      const delay = BASE_DELAY_MS * 2 ** attempt + Math.floor(Math.random() * 250)
+      // eslint-disable-next-line no-console
+      console.warn(`[llm] retry ${attempt + 1}/${MAX_ATTEMPTS - 1} after ${delay}ms:`, e instanceof Error ? e.message : e)
+      await new Promise(r => setTimeout(r, delay))
+    }
+  }
+  throw lastErr
 }

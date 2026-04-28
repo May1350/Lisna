@@ -44,11 +44,14 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   }
 
   const audioBuf = Buffer.from(body.audio_b64, 'base64').buffer
-  const transcript = await transcribeChunk(audioBuf, body.mime)
 
+  // ── 1. UPSERT SESSION ROW (always, even on STT/LLM failure) ──────────────
+  // The client adopts the canonical session_id on the first response and
+  // uses it to connect WebSocket. If we 5xx on every transient STT/LLM
+  // failure, the client never adopts a session and the modal stays empty
+  // forever even after Gemini recovers. So we ALWAYS return 200 with the
+  // canonical session_id; STT/LLM failures just produce { added: 0 }.
   const urlHash = createHash('sha256').update(normalizeUrl(body.url)).digest('hex')
-
-  // upsert session row; capture canonical id (whether INSERT or ON CONFLICT UPDATE)
   const upserted = await query<{ id: string }>(
     `INSERT INTO sessions (id, user_id, url_hash, url_original)
      VALUES ($1, $2, $3, $4)
@@ -58,40 +61,69 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   )
   const sessionId = upserted[0].id
 
-  // gather prior context: last 5 notes
-  const sessRow = await query<{ notes: { text: string; ts: number }[] }>(
-    `SELECT notes FROM sessions WHERE id = $1`, [sessionId]
-  )
-  const priorNotes = sessRow[0]?.notes ?? []
-  const priorContext = priorNotes.slice(-5).map(n => `[${n.ts}s] ${n.text}`).join('\n')
+  // ── 2. STT (best-effort) ────────────────────────────────────────────────
+  let transcriptText = ''
+  let chunkError: string | undefined
+  try {
+    const transcript = await transcribeChunk(audioBuf, body.mime)
+    transcriptText = transcript.text
+  } catch (e) {
+    chunkError = 'stt_failed'
+    // eslint-disable-next-line no-console
+    console.warn('[stream-audio] STT failed; skipping chunk:', e instanceof Error ? e.message : e)
+  }
 
-  const summary = await summarizeChunk({
-    newTranscript: transcript.text,
-    priorContext,
-    startTimeSec: body.start_time_sec,
-  })
+  // ── 3. SUMMARY (best-effort, only if we have transcript text) ───────────
+  let notes: { ts: number; text: string; important: boolean }[] = []
+  if (transcriptText.trim().length > 0) {
+    const sessRow = await query<{ notes: { text: string; ts: number }[] }>(
+      `SELECT notes FROM sessions WHERE id = $1`, [sessionId]
+    )
+    const priorNotes = sessRow[0]?.notes ?? []
+    const priorContext = priorNotes.slice(-5).map(n => `[${n.ts}s] ${n.text}`).join('\n')
 
-  if (summary.notes.length > 0) {
+    try {
+      const summary = await summarizeChunk({
+        newTranscript: transcriptText,
+        priorContext,
+        startTimeSec: body.start_time_sec,
+      })
+      notes = summary.notes
+    } catch (e) {
+      chunkError = chunkError ?? 'llm_failed'
+      // eslint-disable-next-line no-console
+      console.warn('[stream-audio] LLM failed (after retries); skipping notes:', e instanceof Error ? e.message : e)
+    }
+  }
+
+  if (notes.length > 0) {
     await query(
       `UPDATE sessions SET notes = notes || $1::jsonb, updated_at = NOW() WHERE id = $2`,
-      [JSON.stringify(summary.notes), sessionId]
+      [JSON.stringify(notes), sessionId]
     )
   }
 
-  await recordUsage(payload.sub, Math.ceil(body.duration_sec))
+  // Only count usage when we actually produced a transcript. Otherwise the
+  // user shouldn't be charged seconds against their quota.
+  if (transcriptText.trim().length > 0) {
+    await recordUsage(payload.sub, Math.ceil(body.duration_sec))
+  }
 
-  await sendToSession(sessionId, {
-    type: 'note_chunk',
-    notes: summary.notes,
-  })
+  if (notes.length > 0) {
+    await sendToSession(sessionId, {
+      type: 'note_chunk',
+      notes,
+    })
+  }
 
   return {
     statusCode: 200,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       session_id: sessionId,
-      added: summary.notes.length,
-      transcript_preview: transcript.text.slice(0, 80),
+      added: notes.length,
+      transcript_preview: transcriptText.slice(0, 80),
+      ...(chunkError ? { chunk_error: chunkError } : {}),
     }),
   }
 }

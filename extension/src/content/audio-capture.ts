@@ -61,6 +61,17 @@ export class AudioCapture {
     void (async () => {
       try {
         const wavBlob = await webmBlobToWav(webmBlob)
+        // Skip suspiciously small WAVs (< 80 KB ≈ 2.5 s of 16 kHz mono
+        // 16-bit PCM). These come from cycles where the video was paused
+        // for most of the window so decodeAudioData returned only the
+        // small slice that actually played; Whisper rejects those with
+        // "could not process file" or "audio file is too short", and even
+        // when it accepts them they contain too little speech to summarise.
+        if (wavBlob.size < 80_000) {
+          // eslint-disable-next-line no-console
+          console.warn('[SH:audio-capture] dropping near-empty chunk', { size: wavBlob.size, durationSec })
+          return
+        }
         this.onChunk({
           startTimeSec,
           durationSec,
