@@ -87,6 +87,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
         newTranscript: transcriptText,
         priorContext,
         startTimeSec: body.start_time_sec,
+        chunkDurationSec: body.duration_sec,
       })
       notes = summary.notes
     } catch (e) {
