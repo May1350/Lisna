@@ -15,12 +15,27 @@ chrome.runtime.onInstalled.addListener(async () => {
   }
   const enabled = await getEnabled()
   await updateBadge(enabled)
+  warmupBackend('install')
 })
 
 chrome.runtime.onStartup?.addListener(async () => {
   const enabled = await getEnabled()
   await updateBadge(enabled)
+  warmupBackend('startup')
 })
+
+// Best-effort Lambda pre-warm. Triggers on extension install / browser
+// startup and again on demand from content scripts that detect a video.
+// Cold start on the auth + stream paths is 1-3 s on the VPC Lambdas; firing
+// these a moment before the user clicks the inline button typically lands
+// the warm container in time for the real call.
+function warmupBackend(reason: string): void {
+  console.log('[SW] warmup', reason)
+  // Self-handle to keep this function side-effecty without touching the
+  // public message handler types — call our own handle() via dispatch.
+  void handle({ type: 'WARMUP' } as never)
+    .catch(e => console.warn('[SW] warmup failed', e))
+}
 
 // NOTE: chrome.action.onClicked is intentionally NOT registered. With
 // setPanelBehavior({ openPanelOnActionClick: true }) above, Chrome consumes

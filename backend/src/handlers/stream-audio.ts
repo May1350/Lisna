@@ -6,6 +6,7 @@ import { checkQuota, recordUsage } from '../lib/quota.js'
 import { sendToSession } from '../lib/ws-broadcast.js'
 import { query } from '../lib/db.js'
 import { loadAppSecrets } from '../lib/env.js'
+import { isWarmup, warmupResponse } from '../lib/warmup.js'
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
 
@@ -25,6 +26,7 @@ function normalizeUrl(u: string): string {
 }
 
 export const handler: APIGatewayProxyHandlerV2 = async (event) => {
+  if (isWarmup(event)) return warmupResponse()
   await loadAppSecrets()
   const auth = event.headers.authorization || event.headers.Authorization
   if (!auth?.startsWith('Bearer ')) return { statusCode: 401, body: 'unauthorized' }
@@ -71,6 +73,22 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     chunkError = 'stt_failed'
     // eslint-disable-next-line no-console
     console.warn('[stream-audio] STT failed; skipping chunk:', e instanceof Error ? e.message : e)
+  }
+
+  // ── 2b. Live transcript broadcast (fire-and-forget) ─────────────────────
+  // Push the raw transcript to the modal as soon as STT finishes so the
+  // user sees something within ~1 s instead of waiting another ~2 s for
+  // the LLM summarisation. The modal renders these as a low-emphasis
+  // "live captions" track underneath the curated note list.
+  if (transcriptText.trim().length > 0) {
+    void sendToSession(sessionId, {
+      type: 'transcript_chunk',
+      ts: Math.round(body.start_time_sec),
+      text: transcriptText.trim(),
+    }).catch(e => {
+      // eslint-disable-next-line no-console
+      console.warn('[stream-audio] live transcript broadcast failed:', e instanceof Error ? e.message : e)
+    })
   }
 
   // ── 3. SUMMARY (best-effort, only if we have transcript text) ───────────

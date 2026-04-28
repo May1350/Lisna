@@ -1,12 +1,23 @@
 import { useState } from 'react'
-import { login } from '../api-client'
+import { login, type LoginResult } from '../api-client'
 
-export function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
+interface Props {
+  /** Optional: when present (embed mode), the SW exchanges Google OAuth + the
+   * existing-session lookup in a single backend round-trip so the parent can
+   * hydrate notes immediately. */
+  currentUrl?: string
+  onSuccess: (result: LoginResult) => void
+}
+
+export function LoginScreen({ currentUrl, onSuccess }: Props) {
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const handle = async () => {
     setLoading(true); setErr(null)
-    try { await login(); onSuccess() }
+    try {
+      const result = await login(currentUrl)
+      onSuccess(result)
+    }
     catch (e) { setErr(e instanceof Error ? e.message : 'unknown') }
     finally { setLoading(false) }
   }

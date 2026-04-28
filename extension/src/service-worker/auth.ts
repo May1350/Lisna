@@ -1,37 +1,61 @@
 import { setToken, setUser, getToken } from '../shared/storage'
-import type { User } from '../shared/types'
+import type { User, NoteItem, SlideItem } from '../shared/types'
 import { API_BASE_URL } from '../shared/config'
 
-const CLIENT_ID = import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_ID
+// chrome.identity.getAuthToken returns an OAuth ACCESS token (not an ID token).
+// We need an ID token for the backend's verifyGoogleIdToken (Google's tokeninfo
+// only verifies ID tokens with proper aud/exp/sig). Path:
+//   1. getAuthToken({interactive:true}) → access token (silent if user is
+//      already signed into Chrome with a Google account; ~0 s vs ~5 s for
+//      launchWebAuthFlow's popup).
+//   2. Exchange access token for ID token via Google's userinfo endpoint —
+//      actually that returns profile, not an ID token. For ID tokens we use
+//      a separate launchWebAuthFlow with id_token response_type, OR we use
+//      the userinfo profile and trust that the access token grants this
+//      identity. We pick the latter: send the access token to the backend
+//      and have the backend call userinfo to verify.
+//
+// Net: the user-facing flow drops from "popup → consent → redirect" (~5 s)
+// to "instant token return" (~0.2 s) for users already signed into Chrome.
 
-export async function loginWithGoogle(): Promise<User> {
-  const idToken = await new Promise<string>((resolve, reject) => {
-    const redirectUri = chrome.identity.getRedirectURL('oauth2')
-    const url = new URL('https://accounts.google.com/o/oauth2/v2/auth')
-    url.searchParams.set('client_id', CLIENT_ID)
-    url.searchParams.set('response_type', 'id_token')
-    url.searchParams.set('scope', 'openid email profile')
-    url.searchParams.set('redirect_uri', redirectUri)
-    url.searchParams.set('nonce', crypto.randomUUID())
-    chrome.identity.launchWebAuthFlow({ url: url.toString(), interactive: true }, (resp) => {
-      if (chrome.runtime.lastError || !resp) return reject(chrome.runtime.lastError)
-      const fragment = new URL(resp).hash.slice(1)
-      const token = new URLSearchParams(fragment).get('id_token')
-      if (!token) return reject(new Error('no id_token'))
-      resolve(token)
+export interface LoginResult {
+  user: User
+  currentSession: { id: string; notes: NoteItem[]; slides: SlideItem[] } | null
+}
+
+async function getGoogleAccessToken(): Promise<string> {
+  return await new Promise<string>((resolve, reject) => {
+    chrome.identity.getAuthToken({ interactive: true }, (token) => {
+      if (chrome.runtime.lastError || !token) {
+        return reject(new Error(chrome.runtime.lastError?.message ?? 'no access token'))
+      }
+      resolve(typeof token === 'string' ? token : (token as { token: string }).token)
     })
   })
+}
+
+/** Optional: pass currentUrl so the backend hydrates an existing session in
+ * the same response — saves a separate /v1/session round-trip on the modal. */
+export async function loginWithGoogle(currentUrl?: string): Promise<LoginResult> {
+  const accessToken = await getGoogleAccessToken()
 
   const r = await fetch(`${API_BASE_URL}/v1/auth/google`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id_token: idToken }),
+    body: JSON.stringify({
+      access_token: accessToken,
+      ...(currentUrl ? { current_url: currentUrl } : {}),
+    }),
   })
   if (!r.ok) throw new Error('login failed: ' + r.status)
-  const data = await r.json() as { token: string; user: User }
+  const data = await r.json() as {
+    token: string
+    user: User
+    currentSession: { id: string; notes: NoteItem[]; slides: SlideItem[] } | null
+  }
   await setToken(data.token)
   await setUser(data.user)
-  return data.user
+  return { user: data.user, currentSession: data.currentSession }
 }
 
 export async function logout(): Promise<void> {

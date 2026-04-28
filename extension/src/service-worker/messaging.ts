@@ -2,13 +2,14 @@ import type { SwRequest, SwResponse } from '../shared/types'
 import { loginWithGoogle, logout, authedFetch } from './auth'
 import { getUser, setEnabled } from '../shared/storage'
 import { updateBadge, broadcastEnabledChange } from './notify'
+import { API_BASE_URL } from '../shared/config'
 
 export async function handle(req: SwRequest, _sender?: chrome.runtime.MessageSender): Promise<SwResponse> {
   try {
     switch (req.type) {
       case 'AUTH_LOGIN': {
-        const u = await loginWithGoogle()
-        return { ok: true, data: u }
+        const r = await loginWithGoogle(req.currentUrl)
+        return { ok: true, data: r }
       }
       case 'AUTH_LOGOUT': {
         await logout()
@@ -17,6 +18,25 @@ export async function handle(req: SwRequest, _sender?: chrome.runtime.MessageSen
       case 'AUTH_GET_USER': {
         const u = await getUser()
         return { ok: true, data: u }
+      }
+      case 'WARMUP': {
+        // Fire-and-forget pings to the cold-start-sensitive endpoints in the
+        // login + first-chunk path. Each request triggers Node init + VPC ENI
+        // attach, and the resulting warm container survives ~5-15 min — long
+        // enough to cover the user's real click that follows. We don't await
+        // the responses (the user doesn't see this work) and we tolerate any
+        // failure silently because warmup is best-effort by definition.
+        const targets = ['/v1/auth/google', '/v1/session', '/v1/stream/audio']
+        for (const path of targets) {
+          // Use POST so /v1/stream/audio (POST-only route) accepts the ping
+          // — the Body is ignored because isWarmup short-circuits before the
+          // Zod validator runs.
+          void fetch(`${API_BASE_URL}${path}?warmup=1`, {
+            method: 'POST',
+            headers: { 'x-sh-warmup': '1' },
+          }).catch(() => { /* ignore */ })
+        }
+        return { ok: true, data: null }
       }
       case 'API_FETCH': {
         const r = await authedFetch(req.path, {

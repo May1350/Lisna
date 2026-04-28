@@ -4,11 +4,13 @@ import { hasConsent, setConsent, getEnabled, onEnabledChange } from '../shared/s
 import { ConsentModal } from './components/ConsentModal'
 import { LoginScreen } from './components/LoginScreen'
 import { NoteList } from './components/NoteList'
+import { LiveTranscript } from './components/LiveTranscript'
 import { DownloadButton } from './components/DownloadButton'
 import { QuotaBanner } from './components/QuotaBanner'
 import { PanelHeader } from './components/PanelHeader'
 import { StopButton } from './components/StopButton'
 import { callApi, connectWs, getCurrentUser, logout } from './api-client'
+import type { LiveTranscriptItem } from './api-client'
 
 export default function App() {
   const [consented, setConsented] = useState<boolean | null>(null)
@@ -16,6 +18,10 @@ export default function App() {
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [notes, setNotes] = useState<N[]>([])
   const [slides, setSlides] = useState<SlideItem[]>([])
+  // Live transcript items (streamed from /v1/stream/audio's STT step before
+  // LLM finishes). Bounded ring buffer — we only keep the last ~30 chunks
+  // (≈5 min at 10 s chunks) so the UI stays responsive on long sessions.
+  const [transcripts, setTranscripts] = useState<LiveTranscriptItem[]>([])
   const [title, setTitle] = useState('講義ノート')
   const [enabled, setEnabledState] = useState<boolean>(true)
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(2)
@@ -58,7 +64,7 @@ export default function App() {
     const listener = (msg: { type: string; payload?: { type: string; sessionId?: string; url?: string } }) => {
       if (msg.type === 'SP_BROADCAST' && msg.payload?.type === 'session_started' && msg.payload.sessionId) {
         setSessionId(msg.payload.sessionId)
-        setNotes([]); setSlides([])
+        setNotes([]); setSlides([]); setTranscripts([])
       }
     }
     chrome.runtime.onMessage.addListener(listener)
@@ -92,6 +98,15 @@ export default function App() {
       const w = await connectWs(sessionId, {
         onNote: (newNotes) => setNotes(prev => [...prev, ...newNotes]),
         onSlide: (s) => setSlides(prev => [...prev, s]),
+        onTranscript: (item) => {
+          // Bounded ring buffer — drop the oldest when we exceed 30 entries
+          // (~5 min at 10 s chunks). Keeps DOM size and re-render cost
+          // bounded on long sessions.
+          setTranscripts(prev => {
+            const next = [...prev, item]
+            return next.length > 30 ? next.slice(next.length - 30) : next
+          })
+        },
         onClose: () => {},
       })
       if (mounted) ws = w
@@ -157,7 +172,23 @@ export default function App() {
       return <ConsentModal onAccept={async () => { await setConsent(); setConsented(true) }} />
     }
     if (!user) {
-      return <LoginScreen onSuccess={() => getCurrentUser().then(setUser)} />
+      return (
+        <LoginScreen
+          currentUrl={parentUrl ?? undefined}
+          onSuccess={(result) => {
+            // setUser triggers the useEffect that loads existing session via
+            // GET /v1/session as a fallback path. But the backend just gave
+            // us that session in the same response — apply it eagerly so the
+            // user sees notes the moment they land on the session view.
+            setUser(result.user)
+            if (result.currentSession) {
+              setSessionId(result.currentSession.id)
+              setNotes(result.currentSession.notes ?? [])
+              setSlides(result.currentSession.slides ?? [])
+            }
+          }}
+        />
+      )
     }
     return (
       <div className="min-h-screen flex flex-col bg-gray-50">
@@ -170,6 +201,7 @@ export default function App() {
           onLogout={onLogout}
         />
         <NoteList notes={notes} slides={slides} />
+        {sessionId && <LiveTranscript items={transcripts} />}
         <div className="px-3 pb-3 space-y-2">
           {sessionId && <StopButton onStop={onStop} />}
           {sessionId && notes.length > 0 && <DownloadButton sessionId={sessionId} title={title} />}
@@ -180,7 +212,9 @@ export default function App() {
 
   // Side-panel (account) view: consent + auth flow lives here.
   if (!consented) return <ConsentModal onAccept={async () => { await setConsent(); setConsented(true) }} />
-  if (!user) return <LoginScreen onSuccess={() => getCurrentUser().then(setUser)} />
+  // No currentUrl in the side panel — there's no parent video page; the
+  // existing-session lookup isn't useful here.
+  if (!user) return <LoginScreen onSuccess={(r) => setUser(r.user)} />
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">

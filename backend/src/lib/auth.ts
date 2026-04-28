@@ -53,3 +53,48 @@ export async function verifyGoogleIdToken(idToken: string): Promise<{
     email_verified: data.email_verified === 'true',
   }
 }
+
+/**
+ * Verify a Google OAuth access token (the format chrome.identity.getAuthToken
+ * returns). Two checks:
+ *   1. tokeninfo confirms the access token is real and tells us its `aud`
+ *      (the OAuth client it was issued for). Reject if it's not our client.
+ *   2. userinfo gives us the actual user identity. tokeninfo doesn't return
+ *      sub/email/name for access tokens, so we need this second call.
+ * Worst case ~150 ms total (both calls in parallel-able if we cared).
+ */
+export async function verifyGoogleAccessToken(accessToken: string): Promise<{
+  sub: string
+  email: string
+  name?: string
+  email_verified?: boolean
+}> {
+  const tokenInfo = await fetch(
+    'https://oauth2.googleapis.com/tokeninfo?access_token=' + encodeURIComponent(accessToken),
+  )
+  if (!tokenInfo.ok) throw new Error('Google tokeninfo failed: ' + tokenInfo.status)
+  const ti = await tokenInfo.json() as Record<string, string>
+  const expectedClient = process.env.GOOGLE_OAUTH_CLIENT_ID
+  // Chrome's getAuthToken issues against the manifest's oauth2.client_id,
+  // which is a Chrome-extension-type client — this MUST be the same client
+  // ID we configured in the backend. If you see a "client mismatch" error in
+  // production it means the operator forgot to add the Chrome ext client to
+  // GOOGLE_OAUTH_CLIENT_ID (it can be a comma-separated list of accepted aud).
+  if (expectedClient && !expectedClient.split(',').includes(ti.aud)) {
+    throw new Error('Token aud mismatch')
+  }
+  const userInfo = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  if (!userInfo.ok) throw new Error('Google userinfo failed: ' + userInfo.status)
+  const ui = await userInfo.json() as Record<string, string | boolean>
+  if (ui.email_verified !== true && ui.email_verified !== 'true') {
+    throw new Error('Google email not verified')
+  }
+  return {
+    sub: ui.sub as string,
+    email: ui.email as string,
+    name: ui.name as string | undefined,
+    email_verified: true,
+  }
+}

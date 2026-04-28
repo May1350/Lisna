@@ -3,6 +3,7 @@ import { verifyJwt } from '../lib/auth.js'
 import { query } from '../lib/db.js'
 import { loadAppSecrets } from '../lib/env.js'
 import { presignGet } from '../lib/s3-presigned.js'
+import { isWarmup, warmupResponse } from '../lib/warmup.js'
 import { createHash } from 'node:crypto'
 
 function normalizeUrl(u: string): string {
@@ -12,6 +13,7 @@ function normalizeUrl(u: string): string {
 interface SlideRow { ts: number; key: string }
 
 export const handler: APIGatewayProxyHandlerV2 = async (event) => {
+  if (isWarmup(event)) return warmupResponse()
   await loadAppSecrets()
   const auth = event.headers.authorization || event.headers.Authorization
   if (!auth?.startsWith('Bearer ')) return { statusCode: 401, body: 'unauthorized' }

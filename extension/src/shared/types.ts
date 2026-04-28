@@ -26,13 +26,16 @@ export interface SessionState {
 }
 
 export type SwRequest =
-  | { type: 'AUTH_LOGIN' }
+  | { type: 'AUTH_LOGIN'; currentUrl?: string }
   | { type: 'AUTH_LOGOUT' }
   | { type: 'AUTH_GET_USER' }
   | { type: 'API_FETCH'; path: string; method: string; body?: unknown }
   // Side-panel ON/OFF switch flips global enable state, badge, and content scripts.
   | { type: 'TOGGLE_ENABLED'; enabled: boolean }
   | { type: 'STOP_SESSION'; tabId: number }
+  // Lambda warmup ping — fired from SW startup + content script video page entry
+  // to pay the cold-start cost before the user actually clicks anything.
+  | { type: 'WARMUP' }
 
 export type SwResponse =
   | { ok: true; data: unknown }

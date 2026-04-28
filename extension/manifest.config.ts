@@ -11,6 +11,14 @@ export default defineManifest({
   // matching `_locales/<lang>/messages.json` makes Chrome reject the extension.
   permissions: ['storage', 'sidePanel', 'identity', 'tabs'],
   host_permissions: ['<all_urls>'],
+  // OAuth2 client used by chrome.identity.getAuthToken — Chrome Extension
+  // type credential pointed at this extension's ID. Lets us skip the
+  // launchWebAuthFlow popup entirely when the user is already signed into
+  // Chrome with their Google account, cutting ~3-5 s off first login.
+  oauth2: {
+    client_id: '820197116751-p3bgg6nac677qkfq6tmi6j7afnnca4ak.apps.googleusercontent.com',
+    scopes: ['openid', 'email', 'profile'],
+  },
   action: { default_title: 'Study-Helper' },
   side_panel: { default_path: 'src/side-panel/index.html' },
   options_ui: { page: 'src/options/index.html', open_in_tab: true },

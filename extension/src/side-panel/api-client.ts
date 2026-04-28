@@ -8,10 +8,21 @@ export async function callApi<T = unknown>(path: string, method: string, body?: 
   return r.data as T
 }
 
-export async function login(): Promise<User> {
-  const r = await chrome.runtime.sendMessage({ type: 'AUTH_LOGIN' })
+export interface LoginResult {
+  user: User
+  currentSession: { id: string; notes: NoteItem[]; slides: SlideItem[] } | null
+}
+
+/**
+ * Trigger Google OAuth via the SW. If `currentUrl` is provided, the backend
+ * also returns the user's existing session for that URL in the same
+ * response so the modal can hydrate notes immediately without a follow-up
+ * GET /v1/session round-trip.
+ */
+export async function login(currentUrl?: string): Promise<LoginResult> {
+  const r = await chrome.runtime.sendMessage({ type: 'AUTH_LOGIN', currentUrl })
   if (!r.ok) throw new Error(r.error)
-  return r.data as User
+  return r.data as LoginResult
 }
 
 export async function logout(): Promise<void> {
@@ -23,9 +34,15 @@ export async function getCurrentUser(): Promise<User | null> {
   return r.ok ? r.data as User | null : null
 }
 
+export interface LiveTranscriptItem {
+  ts: number       // absolute video time (seconds, from chunk start_time_sec)
+  text: string
+}
+
 export interface WsListeners {
   onNote: (notes: NoteItem[]) => void
   onSlide: (slide: SlideItem) => void
+  onTranscript: (item: LiveTranscriptItem) => void
   onClose: () => void
 }
 
@@ -37,7 +54,9 @@ export async function connectWs(sessionId: string, listeners: WsListeners): Prom
     try {
       const msg = JSON.parse(e.data)
       if (msg.type === 'note_chunk') listeners.onNote(msg.notes as NoteItem[])
-      else if (msg.type === 'slide_chunk') {
+      else if (msg.type === 'transcript_chunk') {
+        listeners.onTranscript({ ts: msg.ts as number, text: msg.text as string })
+      } else if (msg.type === 'slide_chunk') {
         const s = msg.slide as { ts: number; key: string; url: string }
         listeners.onSlide({ ts: s.ts, key: s.key, url: s.url })
       }
