@@ -21,6 +21,8 @@ interface Props extends StackProps {
 
 export class WsStack extends Stack {
   readonly wsEndpoint: string
+  readonly wsApiId: string
+  readonly wsStageName: string
 
   constructor(scope: Construct, id: string, props: Props) {
     super(scope, id, props)
@@ -54,6 +56,13 @@ export class WsStack extends Stack {
     })
     const stage = new WebSocketStage(this, 'Stage', { webSocketApi: wsApi, stageName: 'prod', autoDeploy: true })
     this.wsEndpoint = `https://${wsApi.apiId}.execute-api.${this.region}.amazonaws.com/${stage.stageName}`
+    // Exposed so other stacks (e.g., ApiStack handlers) can grant themselves
+    // execute-api:ManageConnections on this WS API. Without that IAM permission,
+    // the @aws-sdk/client-apigatewaymanagementapi PostToConnection call from
+    // streamAudio fails with AccessDeniedException and notes never reach the
+    // modal even when Gemini produces them.
+    this.wsApiId = wsApi.apiId
+    this.wsStageName = stage.stageName
 
     new CfnOutput(this, 'WsUrl', { value: stage.url })
     new CfnOutput(this, 'WsEndpoint', { value: this.wsEndpoint })

@@ -78,14 +78,18 @@ function isRetryableLLMError(e: unknown): boolean {
   )
 }
 
-// Primary: gemini-2.5-flash (latest, best quality but most congested on the
-// free tier). Fallback: gemini-1.5-flash (mature, stable, well-provisioned).
-// We try the primary with retries first; if every retry hits 503/overload,
-// we drop one tier and try the fallback once. This trades a tiny quality
-// hit on overloaded windows for "actually getting notes" instead of empty
-// modal.
-const PRIMARY_MODEL = 'gemini-2.5-flash'
-const FALLBACK_MODEL = 'gemini-1.5-flash'
+// Primary: gemini-1.5-flash. The free-tier RPD allowance for the newer
+// gemini-2.5-flash is just **20 requests/day per project** for new free-tier
+// accounts, which is exhausted in a few minutes of streaming. 1.5-flash on
+// the same account gets 1500 RPD and 15 RPM, which comfortably covers a
+// single user's daily lecture watching. Quality drop for Japanese lecture
+// summarisation is small and acceptable.
+//
+// Fallback: gemini-2.5-flash. Once 1.5-flash hits its own quota / 503, we
+// can still try 2.5-flash (which has its own separate quota). Both burning
+// out in the same window is rare.
+const PRIMARY_MODEL = 'gemini-1.5-flash'
+const FALLBACK_MODEL = 'gemini-2.5-flash'
 
 async function generateWithModel(
   modelName: string,

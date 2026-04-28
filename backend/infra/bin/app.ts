@@ -27,6 +27,8 @@ new ApiStack(app, 'StudyHelperApi', {
   db: data.db,
   appSecret: secrets.appSecret,
   wsEndpoint: ws.wsEndpoint,
+  wsApiId: ws.wsApiId,
+  wsStageName: ws.wsStageName,
 })
 new MigrateStack(app, 'StudyHelperMigrate', {
   env,

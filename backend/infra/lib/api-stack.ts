@@ -4,6 +4,7 @@ import { Runtime } from 'aws-cdk-lib/aws-lambda'
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs'
 import { HttpApi, HttpMethod, CorsHttpMethod } from 'aws-cdk-lib/aws-apigatewayv2'
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations'
+import { PolicyStatement } from 'aws-cdk-lib/aws-iam'
 import type { DatabaseInstance } from 'aws-cdk-lib/aws-rds'
 import type { Bucket } from 'aws-cdk-lib/aws-s3'
 import type { Secret } from 'aws-cdk-lib/aws-secretsmanager'
@@ -20,6 +21,8 @@ interface Props extends StackProps {
   db: DatabaseInstance
   appSecret: Secret
   wsEndpoint: string
+  wsApiId: string
+  wsStageName: string
 }
 
 export class ApiStack extends Stack {
@@ -117,6 +120,20 @@ export class ApiStack extends Stack {
     props.dbSecret.grantRead(streamSlide)
     props.appSecret.grantRead(streamSlide)
     props.bucket.grantReadWrite(streamSlide)
+
+    // Both stream handlers push notes/slides to client modals via the
+    // WebSocket API's PostToConnection call. That action lives behind the
+    // execute-api:ManageConnections permission scoped to the WS API stage.
+    // Without this grant the SDK call returns AccessDeniedException and
+    // notes never reach the modal — even if Gemini produces them.
+    const wsManagePolicy = new PolicyStatement({
+      actions: ['execute-api:ManageConnections'],
+      resources: [
+        `arn:aws:execute-api:${this.region}:${this.account}:${props.wsApiId}/${props.wsStageName}/POST/@connections/*`,
+      ],
+    })
+    streamAudio.addToRolePolicy(wsManagePolicy)
+    streamSlide.addToRolePolicy(wsManagePolicy)
 
     api.addRoutes({
       path: '/v1/stream/audio',
