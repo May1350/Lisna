@@ -68,6 +68,7 @@ function broadcastToFrames(message: unknown): void {
 }
 
 function handleActivate(): void {
+  console.log(`[SH:${isTopFrame ? 'top' : 'iframe'}]`, location.host, 'handleActivate')
   if (isTopFrame) {
     // Direct flow — modal in same frame, capture in same frame
     mountModal({
@@ -101,6 +102,7 @@ function tryMountButton(): void {
   if (!v) return
   detected = true
   activeVideo = v
+  console.log(`[SH:${isTopFrame ? 'top' : 'iframe'}]`, location.host, 'video found, mounting button', { rectW: v.getBoundingClientRect().width, rectH: v.getBoundingClientRect().height, videoW: v.videoWidth, videoH: v.videoHeight })
   button = mountInlineButton(v, () => { handleActivate() }, () => stopCaptureLocal())
 }
 
@@ -264,10 +266,26 @@ function stopCaptureLocal(): void {
   currentSessionId = null
 }
 
+// Diagnostic logger — prefixed so we can grep in the console regardless of
+// which frame logged. Frame URL is included so it's clear whether the iframe
+// or top frame produced the line.
+const TAG = `[SH:${isTopFrame ? 'top' : 'iframe'}]`
+function log(...args: unknown[]): void {
+  // eslint-disable-next-line no-console
+  console.log(TAG, location.host, ...args)
+}
+function warn(...args: unknown[]): void {
+  // eslint-disable-next-line no-console
+  console.warn(TAG, location.host, ...args)
+}
+
 async function startCapture(url: string): Promise<void> {
-  if (!activeVideo || activeVideo.readyState < 2) return
+  if (!activeVideo) { warn('startCapture: no activeVideo'); return }
+  if (activeVideo.readyState < 2) { warn('startCapture: video readyState<2'); return }
   // Already capturing? Skip.
-  if (capture) return
+  if (capture) { log('startCapture: already capturing'); return }
+
+  log('startCapture: starting', { url, readyState: activeVideo.readyState, paused: activeVideo.paused })
 
   // Apply configured playback speed (or default).
   const stored = await chrome.storage.local.get('sh.playback')
@@ -284,36 +302,57 @@ async function startCapture(url: string): Promise<void> {
   // session.
   currentSessionId = crypto.randomUUID()
   let canonicalAdopted = false
+  let chunksSent = 0
 
-  capture = new AudioCapture(activeVideo, async (chunk) => {
-    const b64 = await blobToBase64(chunk.blob)
-    const r = await chrome.runtime.sendMessage({
-      type: 'API_FETCH',
-      method: 'POST',
-      path: '/v1/stream/audio',
-      body: {
-        session_id: currentSessionId,
-        url,
-        start_time_sec: chunk.startTimeSec,
-        duration_sec: chunk.durationSec,
-        audio_b64: b64,
-        mime: chunk.mime,
-      },
-    }) as { ok: true; data: { added: number; transcript_preview: string; session_id: string } } | { ok: false; error: string }
-
-    if (r && r.ok && !canonicalAdopted) {
-      const canonical = r.data?.session_id
-      if (canonical) {
-        currentSessionId = canonical
-        canonicalAdopted = true
-        chrome.runtime.sendMessage({
-          type: 'SP_BROADCAST',
-          payload: { type: 'session_started', sessionId: currentSessionId, url },
-        })
+  try {
+    capture = new AudioCapture(activeVideo, async (chunk) => {
+      chunksSent += 1
+      log('audio chunk produced', { n: chunksSent, durationSec: chunk.durationSec, blobSize: chunk.blob.size, mime: chunk.mime })
+      const b64 = await blobToBase64(chunk.blob)
+      let r: { ok: true; data: { added: number; transcript_preview: string; session_id: string } } | { ok: false; error: string } | undefined
+      try {
+        r = await chrome.runtime.sendMessage({
+          type: 'API_FETCH',
+          method: 'POST',
+          path: '/v1/stream/audio',
+          body: {
+            session_id: currentSessionId,
+            url,
+            start_time_sec: chunk.startTimeSec,
+            duration_sec: chunk.durationSec,
+            audio_b64: b64,
+            mime: chunk.mime,
+          },
+        }) as typeof r
+      } catch (e) {
+        warn('audio chunk sendMessage threw', e)
+        return
       }
-    }
-  })
-  capture.start()
+
+      if (!r) { warn('audio chunk: empty response'); return }
+      if (!r.ok) { warn('audio chunk: backend error', r.error); return }
+      log('audio chunk: backend ok', { added: r.data?.added, preview: r.data?.transcript_preview, canonicalSessionId: r.data?.session_id })
+
+      if (!canonicalAdopted) {
+        const canonical = r.data?.session_id
+        if (canonical) {
+          currentSessionId = canonical
+          canonicalAdopted = true
+          log('canonical session adopted, broadcasting session_started', currentSessionId)
+          chrome.runtime.sendMessage({
+            type: 'SP_BROADCAST',
+            payload: { type: 'session_started', sessionId: currentSessionId, url },
+          })
+        }
+      }
+    })
+    capture.start()
+    log('AudioCapture started OK')
+  } catch (e) {
+    warn('AudioCapture failed to start', e)
+    capture = null
+    return
+  }
 
   detector = new SlideDetector(activeVideo, async (slide: Slide) => {
     if (!canonicalAdopted) return
