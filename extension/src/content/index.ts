@@ -4,8 +4,16 @@ import { AudioCapture, blobToBase64 } from './audio-capture'
 import { SlideDetector, type Slide } from './slide-detector'
 import { getEnabled } from '../shared/storage'
 
-// Top-frame guard: inline button + session orchestration only run in the top frame.
-// (iframe-embedded videos are out of scope for this iteration — Phase 2.)
+// This script runs in the top frame AND in every iframe (manifest has all_frames: true).
+// Different platforms embed the <video> element in different places:
+//   - YouTube, Coursera (some): top frame
+//   - K-LMS, Canvas Studio, Vimeo embeds: cross-origin iframe
+// We let each frame independently look for a video and mount the inline button
+// in WHATEVER frame contains the video. The modal must be mounted in the TOP
+// frame, however, because it's a viewport-level overlay (an iframe is too small).
+// Cross-frame coordination uses window.postMessage:
+//   iframe → parent (top): { source: 'sh-frame', type: 'REQUEST_MODAL' | 'STOPPED' }
+//   parent (top) → iframe: { source: 'sh-parent', type: 'MODAL_CLOSED' | 'SET_SPEED' | 'STOP_CAPTURE' }
 const isTopFrame = window.top === window.self
 
 let detected = false
@@ -16,62 +24,79 @@ let detector: SlideDetector | null = null
 let currentSessionId: string | null = null
 let onEndedHandler: (() => void) | null = null
 
-// Centralized status setter so callers don't reach into the button handle
-// directly. The inline button is hidden while the modal is mounted (to avoid
-// the visual overlap with the modal in the top-right of the viewport) and
-// restored when the modal closes — see handleActivate / mountModal.onClose.
 function setButtonStatus(s: InlineButtonState): void {
   button?.setStatus(s)
 }
 
+// Robust video detection.
+// - width threshold lowered to 100 (small embedded players still count)
+// - intrinsic videoWidth/Height fallback when bounding rect is momentarily 0
+//   (the metadata loaded before the layout settled)
 function findBestVideo(): HTMLVideoElement | null {
   const all = Array.from(document.querySelectorAll<HTMLVideoElement>('video'))
   let best: HTMLVideoElement | null = null
-  let bestArea = 0
+  let bestScore = 0
   for (const v of all) {
     const r = v.getBoundingClientRect()
-    const area = r.width * r.height
-    if (area > bestArea && r.width > 200) { best = v; bestArea = area }
+    const rectArea = r.width * r.height
+    const intrinsicArea = v.videoWidth * v.videoHeight
+    // Take whichever is larger; intrinsic is weighted lower since it doesn't
+    // reflect visible size.
+    const score = Math.max(rectArea, intrinsicArea / 4)
+    const passes = r.width > 100 || v.videoWidth > 0
+    if (score > bestScore && passes) {
+      best = v
+      bestScore = score
+    }
   }
   return best
 }
 
-function handleActivate(): void {
-  // The modal handles its own auth state — if the user is not logged in, it
-  // renders LoginScreen inline. We optimistically kick off capture in
-  // parallel; the first audio chunk fires ~15s in, so the user has a window
-  // to authenticate before any /v1/stream/audio request lands. If they're
-  // still not logged in by then, the SW returns 401 and we lose the first
-  // chunk — acceptable trade-off vs. blocking on auth here.
-  //
-  // While the modal is mounted we hide the inline button to avoid the visual
-  // overlap with the modal in the top-right of the viewport. When the user
-  // closes the modal we restore the button to whatever state it was in at
-  // the moment of mount (which after activation is 'processing').
-  // Capture the pre-modal status BEFORE we hide the button. After activation
-  // the conceptual state is 'processing' (capture about to start), so that's
-  // what we should restore to when the user closes the modal — unless the
-  // session has already ended by then (e.g. user hit ⏹ from inside the
-  // modal), in which case we stay idle.
-  mountModal({
-    onClose: () => {
-      const restoreTo: InlineButtonState = capture ? 'processing' : 'idle'
-      setButtonStatus(restoreTo)
-    },
-    onSetSpeed: (speed: number) => {
-      if (activeVideo) activeVideo.playbackRate = speed
-    },
+function applySpeed(speed: number): void {
+  if (activeVideo) activeVideo.playbackRate = speed
+}
+
+function onModalClosed(): void {
+  setButtonStatus(capture !== null ? 'processing' : 'idle')
+}
+
+function broadcastToFrames(message: unknown): void {
+  const iframes = document.querySelectorAll<HTMLIFrameElement>('iframe')
+  iframes.forEach(ifr => {
+    try { ifr.contentWindow?.postMessage(message, '*') } catch { /* ignore */ }
   })
-  setButtonStatus('hidden')
-  void startCapture(location.href)
-  // currentButtonStatus is now 'hidden'; the conceptual underlying state
-  // (i.e. what we'd show if the modal closed right now) is 'processing'.
-  // We don't need a separate variable for that — the onClose closure derives
-  // it from `capture` directly.
+}
+
+function handleActivate(): void {
+  if (isTopFrame) {
+    // Direct flow — modal in same frame, capture in same frame
+    mountModal({
+      onClose: () => {
+        // Tell child iframes too (defensive — capture may live there)
+        broadcastToFrames({ source: 'sh-parent', type: 'MODAL_CLOSED' })
+        onModalClosed()
+      },
+      onSetSpeed: (speed: number) => {
+        applySpeed(speed)
+        broadcastToFrames({ source: 'sh-parent', type: 'SET_SPEED', speed })
+      },
+    })
+    setButtonStatus('hidden')
+    void startCapture(location.href)
+  } else {
+    // Iframe: ask the parent (top frame) to mount the modal; capture stays here
+    // (we have the <video> element in this frame).
+    window.parent.postMessage(
+      { source: 'sh-frame', type: 'REQUEST_MODAL', frameUrl: location.href },
+      '*',
+    )
+    setButtonStatus('hidden')
+    void startCapture(location.href)
+  }
 }
 
 function tryMountButton(): void {
-  if (!isTopFrame || detected) return
+  if (detected) return
   const v = findBestVideo()
   if (!v) return
   detected = true
@@ -85,38 +110,110 @@ function unmountButton(): void {
   detected = false
 }
 
+function setupMutationObserver(): void {
+  let mutationDebounce = 0
+  const obs = new MutationObserver((mutations) => {
+    if (detected) { obs.disconnect(); return }
+    const now = Date.now()
+    if (now - mutationDebounce >= 500) {
+      mutationDebounce = now
+      tryMountButton()
+    }
+    // Attach loadedmetadata listener to dynamically-added video elements so we
+    // re-try mounting once the video is actually playable. Some sites (esp.
+    // SPA-style players) add the <video> with 0 size and only populate
+    // dimensions after metadata loads.
+    for (const m of mutations) {
+      m.addedNodes.forEach(node => {
+        if (node instanceof HTMLVideoElement) {
+          node.addEventListener('loadedmetadata', () => tryMountButton(), { once: true })
+        } else if (node instanceof HTMLElement) {
+          node.querySelectorAll('video').forEach(v => {
+            v.addEventListener('loadedmetadata', () => tryMountButton(), { once: true })
+          })
+        }
+      })
+    }
+  })
+  obs.observe(document.documentElement, { childList: true, subtree: true })
+}
+
 function init(): void {
-  if (!isTopFrame) return
   void (async () => {
     const enabled = await getEnabled()
     if (!enabled) return
-    tryMountButton()
 
-    // Watch for late-loading video elements (debounced).
-    let mutationDebounce = 0
-    const obs = new MutationObserver(() => {
-      if (detected) { obs.disconnect(); return }
-      const now = Date.now()
-      if (now - mutationDebounce < 500) return
-      mutationDebounce = now
+    tryMountButton()
+    setupMutationObserver()
+
+    // Periodic poll for the first 30s — covers sites that don't fire mutations
+    // when adding the video (shadow DOM patterns, deferred element insertion,
+    // etc.). Stops as soon as we mount, or after 15 polls.
+    let polls = 0
+    const pollId = window.setInterval(() => {
+      polls += 1
+      if (detected || polls >= 15) {
+        window.clearInterval(pollId)
+        return
+      }
       tryMountButton()
-    })
-    obs.observe(document.documentElement, { childList: true, subtree: true })
+    }, 2000)
   })()
 }
 
 init()
 
+// ===== Cross-frame message routing =====
+
+if (isTopFrame) {
+  // Receive messages from child iframes (e.g. iframe asks us to mount the modal).
+  window.addEventListener('message', (e: MessageEvent) => {
+    const data = e.data as { source?: string; type?: string; frameUrl?: string } | null
+    if (!data || data.source !== 'sh-frame') return
+
+    if (data.type === 'REQUEST_MODAL') {
+      mountModal({
+        onClose: () => {
+          broadcastToFrames({ source: 'sh-parent', type: 'MODAL_CLOSED' })
+          onModalClosed()
+        },
+        onSetSpeed: (speed: number) => {
+          // Apply locally (no-op if no video here) AND broadcast to children
+          applySpeed(speed)
+          broadcastToFrames({ source: 'sh-parent', type: 'SET_SPEED', speed })
+        },
+      })
+    }
+    // 'STOPPED' from a child is informational — modal stays open until user
+    // closes it. Notes are already saved server-side. No-op for now.
+  })
+} else {
+  // Iframe: receive directives from the top frame.
+  window.addEventListener('message', (e: MessageEvent) => {
+    const data = e.data as { source?: string; type?: string; speed?: number } | null
+    if (!data || data.source !== 'sh-parent') return
+
+    if (data.type === 'MODAL_CLOSED') {
+      onModalClosed()
+    } else if (data.type === 'SET_SPEED' && typeof data.speed === 'number') {
+      applySpeed(data.speed)
+    } else if (data.type === 'STOP_CAPTURE') {
+      stopCaptureLocal()
+    }
+  })
+}
+
+// ===== Storage / runtime message routing (existing) =====
+
 // React to ON/OFF changes broadcast by the SW.
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (!isTopFrame) return false
   if (msg?.type === 'SH_ENABLED_CHANGED') {
     if (msg.enabled) {
       tryMountButton()
     } else {
       unmountButton()
       // Do NOT stop an in-flight session here; the OFF toggle just hides the
-      // affordance. Stop is an explicit user action via the side panel.
+      // affordance. Stop is an explicit user action via the side panel / pill.
     }
     sendResponse({ ok: true })
     return true
@@ -126,7 +223,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
 // Also react to direct storage changes (e.g. options page toggling state).
 chrome.storage?.onChanged.addListener((changes, area) => {
-  if (!isTopFrame) return
   if (area !== 'local') return
   const c = changes['sh.enabled']
   if (!c) return
@@ -142,7 +238,12 @@ chrome.runtime.onMessage.addListener((msg, _s, sendResponse) => {
     return true
   }
   if (msg?.type === 'STOP_SESSION') {
+    // Stop locally (no-op if capture is in a child iframe) AND fan out to
+    // child iframes so the frame that actually has the video stops too.
     stopCaptureLocal()
+    if (isTopFrame) {
+      broadcastToFrames({ source: 'sh-parent', type: 'STOP_CAPTURE' })
+    }
     sendResponse({ ok: true })
     return true
   }
@@ -168,7 +269,7 @@ async function startCapture(url: string): Promise<void> {
   // Already capturing? Skip.
   if (capture) return
 
-  // get configured speed (or auto-detect max)
+  // Apply configured playback speed (or default).
   const stored = await chrome.storage.local.get('sh.playback')
   const speed = stored['sh.playback']
   if (speed === 'auto' || speed === undefined) {
@@ -178,8 +279,9 @@ async function startCapture(url: string): Promise<void> {
   }
 
   // Tentative client-generated id; backend MAY return a different canonical id
-  // on the first /v1/stream/audio response. Adopt that canonical id and only THEN
-  // broadcast session_started so the side panel connects WS to the correct session.
+  // on the first /v1/stream/audio response. Adopt that canonical id and only
+  // THEN broadcast session_started so the modal connects WS to the correct
+  // session.
   currentSessionId = crypto.randomUUID()
   let canonicalAdopted = false
 

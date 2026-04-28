@@ -85,7 +85,13 @@ export function mountInlineButton(
   onActivate: () => void,
   onStop: () => void,
 ): InlineButtonHandle | null {
-  if (window.top !== window.self) return null
+  // Note: no top-frame guard. The inline button mounts in WHATEVER frame
+  // contains the <video> element. For platforms like K-LMS / Canvas Studio /
+  // Vimeo embeds, the video lives in a cross-origin iframe; the button must
+  // appear there. The viewport-local position math below works inside an
+  // iframe (positions are relative to the iframe's own viewport, which is
+  // exactly what we want — the button visually overlays the video element
+  // wherever that iframe is rendered in the parent page).
   ensureStyle()
 
   // Remove any prior instance.
