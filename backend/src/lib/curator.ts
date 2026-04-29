@@ -143,6 +143,23 @@ const FALLBACK = 'llama-3.1-8b-instant'
 const MAX_ATTEMPTS = 3
 const BASE_DELAY_MS = 600
 
+// Groq's free-tier on llama-3.3-70b-versatile is hard-capped at 12,000
+// tokens per minute. The system prompt + user prompt scaffolding + JSON
+// output already eat ~3-4 K tokens, so the raw transcript portion has
+// to stay under ~8 K tokens or the request 413s.
+//
+// In Japanese, one character is roughly 0.5 GPT-tokens, so 8 K tokens
+// ≈ 16 K characters of transcript. That covers ~14-27 minutes of typical
+// natural lecture speech (100-200 chars per 10-second chunk). Older
+// material is preserved through previousOutline, which the curator
+// expands / refines rather than carrying raw transcript indefinitely.
+//
+// On forceFullRewrite we drop previousOutline entirely so the transcript
+// is the only source of truth — widen the window to keep more raw
+// context, even if it costs us the very oldest minutes on long lectures.
+const REGULAR_TRANSCRIPT_CHAR_BUDGET = 16_000      // ~8 K tokens
+const FULL_REWRITE_TRANSCRIPT_CHAR_BUDGET = 24_000 // ~12 K tokens
+
 function isRetryable(e: unknown): boolean {
   const msg = (e instanceof Error ? e.message : String(e)).toLowerCase()
   return msg.includes('503') || msg.includes('500') || msg.includes('429')
@@ -192,9 +209,21 @@ function normaliseSection(s: Partial<OutlineSection>): OutlineSection {
 export async function curateOutline(req: CuratorRequest): Promise<Outline> {
   // Build the prompt body. Time-bucket the transcript so the LLM can
   // pinpoint when concepts were introduced.
-  const transcriptText = req.bucketedTranscript
+  //
+  // Apply a tail-sliding window to stay under the Groq free-tier TPM
+  // cap. The trade-off documented above: regular runs lean on the
+  // previousOutline to carry old material; full-rewrite runs widen the
+  // window because the outline is dropped from the prompt.
+  const charBudget = req.forceFullRewrite
+    ? FULL_REWRITE_TRANSCRIPT_CHAR_BUDGET
+    : REGULAR_TRANSCRIPT_CHAR_BUDGET
+  const { included, droppedCount, droppedFirstTs, droppedLastTs } = tailWindow(req.bucketedTranscript, charBudget)
+  const transcriptText = included
     .map(b => `[${formatHHMMSS(b.ts)}] ${b.text}`)
     .join('\n')
+  const droppedNote = droppedCount > 0
+    ? `\n\n[NOTE: 古い ${droppedCount} 個のチャンク (${formatHHMMSS(droppedFirstTs)} 〜 ${formatHHMMSS(droppedLastTs)}) は previousOutline で要約済みのため transcript から省略。古い情報も outline に保持すること。]`
+    : ''
 
   // Drop the previous outline entirely on a full-rewrite run so the model
   // can't anchor to the old structure even subconsciously. Otherwise pass
@@ -204,7 +233,7 @@ export async function curateOutline(req: CuratorRequest): Promise<Outline> {
     : JSON.stringify(req.previousOutline, null, 2)
 
   const userPrompt = `bucketedTranscript:
-${transcriptText}
+${transcriptText}${droppedNote}
 
 previousOutline (前の試案 — 自由に書き直し / 再分類 / マージ / 削除すること):
 ${previousOutlineJson}`
@@ -229,6 +258,40 @@ ${previousOutlineJson}`
     return await generateOnce(FALLBACK, userPrompt)
   }
   throw lastErr
+}
+
+// Keep transcript chunks from the END until we've accumulated `budget`
+// characters. Older chunks fall off the front. We measure in characters
+// instead of tokens to avoid pulling in a tokenizer; the conversion factor
+// for Japanese is roughly 0.5 tokens per character, baked into the
+// budget constants.
+interface TailWindowResult {
+  included: { ts: number; text: string }[]
+  droppedCount: number
+  droppedFirstTs: number
+  droppedLastTs: number
+}
+function tailWindow(chunks: { ts: number; text: string }[], charBudget: number): TailWindowResult {
+  if (chunks.length === 0) {
+    return { included: [], droppedCount: 0, droppedFirstTs: 0, droppedLastTs: 0 }
+  }
+  // Walk backwards accumulating until the budget is exhausted.
+  const reversedKept: typeof chunks = []
+  let used = 0
+  for (let i = chunks.length - 1; i >= 0; i--) {
+    const cost = chunks[i].text.length + 12 // crude: text + "[mm:ss] " timestamp prefix
+    if (reversedKept.length > 0 && used + cost > charBudget) break
+    reversedKept.push(chunks[i])
+    used += cost
+  }
+  const included = reversedKept.reverse()
+  const dropped = chunks.slice(0, chunks.length - included.length)
+  return {
+    included,
+    droppedCount: dropped.length,
+    droppedFirstTs: dropped.length > 0 ? dropped[0].ts : 0,
+    droppedLastTs: dropped.length > 0 ? dropped[dropped.length - 1].ts : 0,
+  }
 }
 
 function formatHHMMSS(secs: number): string {

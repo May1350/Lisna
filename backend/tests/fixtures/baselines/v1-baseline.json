@@ -1,0 +1,195 @@
+{
+  "savedAt": "2026-04-29T05:58:48.407Z",
+  "results": [
+    {
+      "slug": "yt-JGXIB",
+      "source": "https://www.youtube.com/watch?v=JGXIB-dJCMM",
+      "chunks": 266,
+      "curatorRuns": 1,
+      "totalCuratorMs": 34054,
+      "judgeMs": 43595,
+      "outline": {
+        "title": "簿記入門",
+        "sections": [
+          {
+            "heading": "簿記とは",
+            "ts": 300,
+            "summary": "簿記とは、企業の活動を帳簿に記録すること",
+            "key_terms": [
+              {
+                "term": "簿記",
+                "definition": "企業の活動を帳簿に記録すること",
+                "ts": 300
+              }
+            ],
+            "examples": [
+              {
+                "text": "企業の収入や支出を記録する",
+                "ts": 300
+              }
+            ],
+            "points": [
+              {
+                "text": "簿記は、企業の財務状況を把握するために重要",
+                "ts": 300,
+                "important": true
+              }
+            ]
+          },
+          {
+            "heading": "簿記の全体像",
+            "ts": 600,
+            "summary": "簿記の全体像は、期中で仕分けを行い、決算で編纂整理仕訳をする",
+            "key_terms": [
+              {
+                "term": "期中",
+                "definition": "簿記の期間",
+                "ts": 600
+              },
+              {
+                "term": "仕分け",
+                "definition": "取引を分類すること",
+                "ts": 600
+              },
+              {
+                "term": "決算",
+                "definition": "簿記の期間の終了時に行う処理",
+                "ts": 600
+              }
+            ],
+            "examples": [
+              {
+                "text": "期中で仕分けを行い、決算で財務諸表を作成する",
+                "ts": 600
+              }
+            ],
+            "points": [
+              {
+                "text": "簿記の全体像は、期中と決算の2つの段階からなる",
+                "ts": 600,
+                "important": true
+              }
+            ]
+          },
+          {
+            "heading": "簿記の基本概念",
+            "ts": 1200,
+            "summary": "簿記の基本概念は、資産、負債、純資産、費用、収益",
+            "key_terms": [
+              {
+                "term": "資産",
+                "definition": "企業が所有するもの",
+                "ts": 1200
+              },
+              {
+                "term": "負債",
+                "definition": "企業が負っているもの",
+                "ts": 1200
+              },
+              {
+                "term": "純資産",
+                "definition": "資産と負債の差額",
+                "ts": 1200
+              },
+              {
+                "term": "費用",
+                "definition": "企業の活動により発生する費用",
+                "ts": 1200
+              },
+              {
+                "term": "収益",
+                "definition": "企業の活動により得られる収益",
+                "ts": 1200
+              }
+            ],
+            "examples": [
+              {
+                "text": "資産、負債、純資産、費用、収益を理解する",
+                "ts": 1200
+              }
+            ],
+            "points": [
+              {
+                "text": "簿記の基本概念は、財務諸表を作成するために重要",
+                "ts": 1200,
+                "important": true
+              }
+            ]
+          },
+          {
+            "heading": "簿記の仕訳",
+            "ts": 1800,
+            "summary": "簿記の仕訳は、取引を分類し、帳簿に記録すること",
+            "key_terms": [
+              {
+                "term": "仕訳",
+                "definition": "取引を分類し、帳簿に記録すること",
+                "ts": 1800
+              }
+            ],
+            "examples": [
+              {
+                "text": "取引を分類し、帳簿に記録する",
+                "ts": 1800
+              }
+            ],
+            "points": [
+              {
+                "text": "簿記の仕訳は、財務諸表を作成するために重要",
+                "ts": 1800,
+                "important": true
+              }
+            ]
+          },
+          {
+            "heading": "簿記の財務諸表",
+            "ts": 2400,
+            "summary": "簿記の財務諸表は、貸借対照表と損益計算書",
+            "key_terms": [
+              {
+                "term": "貸借対照表",
+                "definition": "企業の財務状況を表す表",
+                "ts": 2400
+              },
+              {
+                "term": "損益計算書",
+                "definition": "企業の収益と費用を表す表",
+                "ts": 2400
+              }
+            ],
+            "examples": [
+              {
+                "text": "貸借対照表と損益計算書を作成する",
+                "ts": 2400
+              }
+            ],
+            "points": [
+              {
+                "text": "簿記の財務諸表は、企業の財務状況を把握するために重要",
+                "ts": 2400,
+                "important": true
+              }
+            ]
+          }
+        ]
+      },
+      "judge": {
+        "coverage": 8,
+        "accuracy": 9,
+        "hierarchy": 8,
+        "conciseness": 7,
+        "importance": 8,
+        "overall": 8.1,
+        "issues": [
+          "一部のセクションでは要約が冗長",
+          "重要度マーキングが一部不足"
+        ],
+        "wins": [
+          "主要な概念が網羅されている",
+          "セクション分けが論理的",
+          "重要な用語の定義が明確"
+        ]
+      }
+    }
+  ]
+}
