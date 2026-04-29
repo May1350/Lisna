@@ -90,6 +90,11 @@ function client(): OpenAI {
 }
 
 async function judgeOnce(modelName: string, userPrompt: string): Promise<JudgeResult> {
+  // Same GPT-5-family constraint as curator.ts: GPT-5 nano / mini /
+  // standard reject anything other than the default temperature. Older
+  // models (Llama, Claude, GPT-4o family) still accept temperature: 0
+  // for deterministic scoring, so we keep that branch intact.
+  const isGpt5Family = modelName.startsWith('gpt-5')
   const res = await client().chat.completions.create({
     model: modelName,
     messages: [
@@ -97,7 +102,7 @@ async function judgeOnce(modelName: string, userPrompt: string): Promise<JudgeRe
       { role: 'user', content: userPrompt },
     ],
     response_format: { type: 'json_object' },
-    temperature: 0,   // judge is deterministic-as-possible; we want stable scores across runs
+    ...(isGpt5Family ? {} : { temperature: 0 }),
   })
   const text = res.choices[0]?.message?.content ?? '{}'
   const parsed = JSON.parse(text) as Partial<JudgeResult>

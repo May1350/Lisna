@@ -166,14 +166,14 @@ const SYSTEM_PROMPT = `あなたは大学生のために講義の「生きたノ
 このノートは学生の Obsidian / Notion 等の PKM ツールに export される. atomic note 原則:
 
 - 各 key_term の definition は **他の文脈なしで読んで意味が通るよう** standalone に書く. 「〜とは, …」で始めて完結する形式が望ましい.
-- セクション間で関連する用語があれば section の `related_terms` 配列に列挙する. 例:[サステナビリティ] と [ESG] が論理的に繋がる場合, related_terms: ["持続可能性", "ESG", "CSR"].
-- 各セクションに `takeaway` (1 文の要旨, heading の言い換えではなく学生が覚えるべき本質) を含める. TL;DR ロールアップに使われる.
-- 各セクションに `check_question` (試験で出題されうる形式の自己確認質問) を含める. 例:「持続可能性の 5 つの階層レベルを列挙せよ」.
+- セクション間で関連する用語があれば section の "related_terms" 配列に列挙する. 例:[サステナビリティ] と [ESG] が論理的に繋がる場合, related_terms: ["持続可能性", "ESG", "CSR"].
+- 各セクションに "takeaway" (1 文の要旨, heading の言い換えではなく学生が覚えるべき本質) を含める. TL;DR ロールアップに使われる.
+- 各セクションに "check_question" (試験で出題されうる形式の自己確認質問) を含める. 例:「持続可能性の 5 つの階層レベルを列挙せよ」.
 - outline 全体レベルに以下を埋める (transcript から推測可能なら, 不明なら省略可):
-  - `course`: 科目名 (例: "現代企業経営各論")
-  - `lecturer`: 講師名 (例: "谷口 和弘")
-  - `tldr`: 講義全体の 1〜2 文要約 (重要事項を凝縮)
-  - `related_lectures`: 関連する他の回 / 関連概念のリスト
+  - "course": 科目名 (例: "現代企業経営各論")
+  - "lecturer": 講師名 (例: "谷口 和弘")
+  - "tldr": 講義全体の 1〜2 文要約 (重要事項を凝縮)
+  - "related_lectures": 関連する他の回 / 関連概念のリスト
 
 出力フォーマット (この JSON のみ。説明文・Markdown は禁止):
 
@@ -260,6 +260,12 @@ function isRetryable(e: unknown): boolean {
 }
 
 async function generateOnce(modelName: string, userPrompt: string): Promise<Outline> {
+  // GPT-5 family (nano / mini / standard) only supports the default
+  // temperature (1) — sending any other value 400s with
+  // "Unsupported value: 'temperature' does not support 0.3 with this
+  // model". Other OpenAI / Llama / Claude models still take a custom
+  // temperature, so we keep that path for the FALLBACK if it's pre-GPT-5.
+  const isGpt5Family = modelName.startsWith('gpt-5')
   const res = await client().chat.completions.create({
     model: modelName,
     messages: [
@@ -267,7 +273,7 @@ async function generateOnce(modelName: string, userPrompt: string): Promise<Outl
       { role: 'user', content: userPrompt },
     ],
     response_format: { type: 'json_object' },
-    temperature: 0.3,   // a touch warmer than per-chunk; structure benefits from a bit of creative re-grouping
+    ...(isGpt5Family ? {} : { temperature: 0.3 }),
   })
   const text = res.choices[0]?.message?.content ?? '{}'
   const parsed = JSON.parse(text) as Partial<Outline>
