@@ -110,6 +110,14 @@ function RefreshIndicator({ at }: { at: number }) {
 }
 
 function SectionBlock({ section, onJump }: { section: OutlineSection; onJump?: (ts: number) => void }) {
+  // Phase 6 added optional fields (takeaway / related_terms / check_question).
+  // We render them as plain UI elements — never as their markdown export
+  // form. The export pipeline handles the markdown rendering separately.
+  const sectionAny = section as OutlineSection & {
+    takeaway?: string
+    related_terms?: string[]
+    check_question?: string
+  }
   return (
     <section className="space-y-2 border-l-2 border-blue-200 pl-3">
       <div className="flex items-baseline justify-between gap-2">
@@ -119,7 +127,16 @@ function SectionBlock({ section, onJump }: { section: OutlineSection; onJump?: (
         <TsButton ts={section.ts} onJump={onJump} />
       </div>
 
-      {section.summary && (
+      {sectionAny.takeaway && (
+        <div className="bg-blue-50/60 border-l-2 border-blue-300 pl-2 pr-2 py-1 rounded-r">
+          <p className="text-xs text-gray-800 leading-snug">
+            <span className="text-[10px] uppercase tracking-wider text-blue-500 font-medium mr-1">要旨</span>
+            {sectionAny.takeaway}
+          </p>
+        </div>
+      )}
+
+      {section.summary && !sectionAny.takeaway && (
         <p className="text-xs text-gray-600 leading-relaxed italic">
           {section.summary}
         </p>
@@ -174,6 +191,29 @@ function SectionBlock({ section, onJump }: { section: OutlineSection; onJump?: (
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {sectionAny.related_terms && sectionAny.related_terms.length > 0 && (
+        <div className="flex flex-wrap gap-1 pt-1">
+          {sectionAny.related_terms.map((t, i) => (
+            <span
+              key={`${t}-${i}`}
+              className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded font-medium"
+              title="関連用語"
+            >
+              {t}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {sectionAny.check_question && (
+        <div className="bg-purple-50/60 border-l-2 border-purple-300 pl-2 pr-2 py-1 rounded-r">
+          <p className="text-xs text-gray-800 leading-snug">
+            <span className="text-[10px] uppercase tracking-wider text-purple-500 font-medium mr-1">確認</span>
+            {sectionAny.check_question}
+          </p>
         </div>
       )}
     </section>

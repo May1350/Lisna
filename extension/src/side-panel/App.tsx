@@ -5,7 +5,7 @@ import { ConsentModal } from './components/ConsentModal'
 import { LoginScreen } from './components/LoginScreen'
 import { OutlineView } from './components/OutlineView'
 import { LiveTranscript } from './components/LiveTranscript'
-import { DownloadButton } from './components/DownloadButton'
+import { ExportMenu } from './components/ExportMenu'
 import { QuotaBanner } from './components/QuotaBanner'
 import { PanelHeader } from './components/PanelHeader'
 import { StopButton } from './components/StopButton'
@@ -221,7 +221,9 @@ export default function App() {
         {sessionId && <LiveTranscript items={transcripts} />}
         <div className="px-3 pb-3 space-y-2">
           {sessionId && <StopButton onStop={onStop} />}
-          {sessionId && hasContent && <DownloadButton sessionId={sessionId} title={title} />}
+          {sessionId && hasContent && parentUrl && (
+            <ExportMenu sessionId={sessionId} sourceUrl={parentUrl} title={title} />
+          )}
         </div>
       </div>
     )

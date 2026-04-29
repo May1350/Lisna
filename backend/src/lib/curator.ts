@@ -47,11 +47,21 @@ export interface OutlineSection {
   key_terms: OutlineKeyTerm[]
   examples: OutlineExample[]
   points: OutlinePoint[]
+  // Phase 6 (Obsidian-aware) additions:
+  related_terms?: string[]    // wikilink candidates — other concepts this section relates to
+  takeaway?: string           // 1-line section essence (used in TL;DR roll-up + per-section header)
+  check_question?: string     // self-assessment question for the study checklist export
 }
 
 export interface Outline {
   title: string           // overall lecture topic — refines as more is heard
   sections: OutlineSection[]
+  // Phase 6 (Obsidian-aware) additions — all optional so legacy outlines
+  // stored in DB still parse cleanly.
+  course?: string             // [[course]] wikilink target (e.g. "現代企業経営各論")
+  lecturer?: string           // [[lecturer]] wikilink target
+  tldr?: string               // 1-2 line whole-lecture summary used in the export TL;DR header
+  related_lectures?: string[] // adjacent lectures or external concepts that link from this one
 }
 
 export interface CuratorRequest {
@@ -112,33 +122,76 @@ const SYSTEM_PROMPT = `あなたは大学生のために講義の「生きたノ
 
 ★★★ 文章の質に関する厳守ルール ★★★
 
-avoid-padding (冗長性の禁止):
-- summary は heading を言い換えただけのものにしない。heading を読めばわかることは書かない。 transcript で実際に語られた特徴的な内容を要約する。
-- example は 「<heading> の実例として <heading の言い換え>」のような同義反復を禁止する。 transcript に出てきた具体的な数字・固有名詞・状況を引用する (例:「現金10万円」「電気代の支払い」「3月決算」など)。
-- points には「X は Y のために重要」のような汎用 filler を書かない。代わりに transcript で実際に提示された主張・命題・手順を抜き出す。
-- 同じ意味を 2 セクションにまたがって書かない。
+★★★ ts (timestamp) ルール — 最優先 ★★★
+- ts は **bucketedTranscript の [HH:MM:SS] タグから直接変換した整数秒** を使う。推定や丸め込みは禁止。
+- 例: transcript に [03:42] 持続可能性のテーマを... とあれば、その内容について書くノートの ts は 222 (= 3*60 + 42)。
+- 「だいたい序盤」みたいな曖昧な ts (0, 10, 30 など) を全部の項目に振らない。 transcript の異なる箇所から拾った内容なら ts も異なるはず。
+- もし complete に判別できなければ、その項目を含む最も近い transcript タグの秒数を使う。
 
-★ marking ルール (重要度マーキング):
-- ★ (important: true) は **1 セクションあたり最大 1〜2 個** に絞る。全 point を ★ にすると ★ の意味がなくなる。
-- ★ をつける条件: (a) 講師が明示的に「重要」と言った点、(b) 公式・定義・結論、(c) 試験 / 実務に直結する事実 (数値・割合・条件)。それ以外は false。
+★★★ key_terms.definition ルール ★★★
+- definition は **term をただ言い換えただけのものを禁止**。
+  - 悪い例: term="価値創造" / definition="企業による価値創造" ← 自己参照、価値ゼロ
+  - 悪い例: term="経済の持続可能性" / definition="経済が持続できるようにする" ← 単に語を分解しただけ
+  - 良い例: term="価値創造" / definition="ビジネスモデルを通じて顧客や社会に新しい価値を提供し、その対価として収益を得るプロセス" ← transcript で語られた特徴を抽出
+- transcript で講師が定義を十分に説明していなければ、definition は **短く正直に**:
+  - "本講義のテーマ" / "後の回で詳述" / "transcript ではまだ定義されていない" のように。
+  - 自己参照で字数を埋めるのは絶対禁止。
 
-content density (内容の密度):
-- 各セクションに以下を可能な限り埋める (transcript に存在すれば):
-  - key_terms: そのセクションで定義された / 用語化された概念。ただ heading を入れるだけは禁止。
-  - examples: transcript の 具体的な事例・数値・場面 (3 件以上が望ましい)
-  - points: 講師の主張・手順・対比・条件 (3-5 件が望ましい)
-- 1 セクションあたり key_terms / examples / points が合計 5 件未満なら transcript を見落としている。再度精査する。
+★★★ examples ルール ★★★
+- examples は **transcript で講師が具体的に挙げた事例**。次のいずれかに該当するものだけ:
+  - 固有名詞 (会社名、製品名、人名、地名)
+  - 数値・金額・割合 (例:「現金10万円」「3月決算」「年間売上の20%」)
+  - 具体的な場面・状況 (例:「電気代を支払うケース」「決算整理仕訳の手順」)
+- 以下は examples ではない (絶対書くな):
+  - heading や summary の言い換え
+  - 一般論 (例:「経営者が不祥事を起こさないようにする」)
+  - definition の再記述
+- transcript にまだ具体例が出ていなければ examples は **空配列 []** にする。空でも問題ない。
+
+★★★ ★ (important) marking ルール ★★★
+- ★ をつける前に、その text が **summary や heading の言い換えではない** ことを確認する。
+- ★ は次のいずれかに該当する point だけ:
+  - 公式・等式 (例:「資産 = 負債 + 純資産」「収益 - 費用 = 利益」)
+  - 数値的条件 (例:「20% 以上で適用」「3 年以内に償却」)
+  - 講師が明示的に「重要」「覚えてください」と言った内容
+  - 試験の頻出事項 (定義のキーフレーズ、対比、結論)
+- 1 セクションあたり ★ は **0〜2 個**。0 個でもよい。汎用的な「X は Y のために重要」は ★ ではなく不要 (削除する)。
+
+★★★ section の最適サイズ ★★★
+- 各セクションは key_terms + examples + points の合計が 3〜8 項目程度。 transcript が浅ければ少なめ、深ければ多め。
+- 「埋めるために中身を水増しする」ことは厳禁。 量より質。
+
+★★★ Obsidian-aware 出力ルール (Phase 6) ★★★
+
+このノートは学生の Obsidian / Notion 等の PKM ツールに export される. atomic note 原則:
+
+- 各 key_term の definition は **他の文脈なしで読んで意味が通るよう** standalone に書く. 「〜とは, …」で始めて完結する形式が望ましい.
+- セクション間で関連する用語があれば section の `related_terms` 配列に列挙する. 例:[サステナビリティ] と [ESG] が論理的に繋がる場合, related_terms: ["持続可能性", "ESG", "CSR"].
+- 各セクションに `takeaway` (1 文の要旨, heading の言い換えではなく学生が覚えるべき本質) を含める. TL;DR ロールアップに使われる.
+- 各セクションに `check_question` (試験で出題されうる形式の自己確認質問) を含める. 例:「持続可能性の 5 つの階層レベルを列挙せよ」.
+- outline 全体レベルに以下を埋める (transcript から推測可能なら, 不明なら省略可):
+  - `course`: 科目名 (例: "現代企業経営各論")
+  - `lecturer`: 講師名 (例: "谷口 和弘")
+  - `tldr`: 講義全体の 1〜2 文要約 (重要事項を凝縮)
+  - `related_lectures`: 関連する他の回 / 関連概念のリスト
 
 出力フォーマット (この JSON のみ。説明文・Markdown は禁止):
 
 {
-  "title": "<講義全体の主題, 1 行 — 講義が進むと より精度の高いタイトルに更新>",
+  "title": "<講義全体の主題, 1 行>",
+  "course": "<科目名 / 不明なら省略>",
+  "lecturer": "<講師名 / 不明なら省略>",
+  "tldr": "<講義全体の 1〜2 文要約>",
+  "related_lectures": ["<関連概念 / 他回>"],
   "sections": [
     {
       "heading": "<セクション見出し>",
       "ts": <秒>,
       "summary": "<1〜2 文の要旨, heading の言い換えではなく中身>",
-      "key_terms": [{ "term": "...", "definition": "...", "ts": <秒> }],
+      "takeaway": "<1 文の本質. 学生が覚えるべきこと>",
+      "check_question": "<自己確認質問>",
+      "related_terms": ["<関連用語1>", "<関連用語2>"],
+      "key_terms": [{ "term": "...", "definition": "atomic note として独立完結", "ts": <秒> }],
       "examples": [{ "text": "transcript の具体例を引用", "ts": <秒> }],
       "points": [{ "text": "講師の具体的主張・手順・条件", "ts": <秒>, "important": <bool> }]
     }
@@ -147,18 +200,36 @@ content density (内容の密度):
 
 ★ 再度確認: previousOutline をそっくりそのまま返してはいけない。新しい transcript を踏まえて、各セクションの内容・構造・順序を **必ず吟味して書き直す**。`
 
+// Phase 6 pivot (2026-04-29): the curator now talks to OpenAI directly
+// instead of Groq's OpenAI-compatible endpoint. Reasoning:
+//   - Groq Dev tier was temporarily closed to new sign-ups, leaving us
+//     stuck on the free tier (12 K TPM, 100 K TPD) — unusable for an
+//     hour-long lecture even with one paying user.
+//   - Gemini free tier hit "limit:0" on multiple Flash variants on this
+//     account, so it's not a reliable alternative.
+//   - OpenAI's pre-paid billing activates immediately, no waitlist.
+//   - GPT-5 nano is $0.05 / $0.40 per M tokens (~$0.12 / hour of lecture)
+//     — cheaper than the Groq paid plan ($0.71 / hr) we were planning on.
+//
+// The eval harness (backend/scripts/eval-curator.ts) lets us measure
+// whether nano's quality holds up against Llama 3.3 70B's v3 baseline.
+// If it falls short we step up to GPT-5 mini ($0.25 / $2 per M, ~$0.60 / hr)
+// without changing this file beyond the model name.
+//
+// stt.ts still uses Groq for Whisper Large-v3 (free tier covers ~8 h /
+// day, plenty for a single user) — separate client, separate key.
 let _client: OpenAI | undefined
 function client(): OpenAI {
   if (!_client) {
-    const apiKey = process.env.GROQ_API_KEY
-    if (!apiKey) throw new Error('GROQ_API_KEY not set — required for curator')
-    _client = new OpenAI({ apiKey, baseURL: 'https://api.groq.com/openai/v1' })
+    const apiKey = process.env.OPENAI_API_KEY
+    if (!apiKey) throw new Error('OPENAI_API_KEY not set — required for curator (Phase 6)')
+    _client = new OpenAI({ apiKey })
   }
   return _client
 }
 
-const PRIMARY = 'llama-3.3-70b-versatile'
-const FALLBACK = 'llama-3.1-8b-instant'
+const PRIMARY = 'gpt-5-nano'
+const FALLBACK = 'gpt-5-mini'   // step up if nano quality regresses; same SDK call shape
 const MAX_ATTEMPTS = 3
 const BASE_DELAY_MS = 600
 
@@ -203,6 +274,12 @@ async function generateOnce(modelName: string, userPrompt: string): Promise<Outl
   return {
     title: typeof parsed.title === 'string' ? parsed.title : '',
     sections: Array.isArray(parsed.sections) ? parsed.sections.map(normaliseSection) : [],
+    course: typeof parsed.course === 'string' && parsed.course.trim() ? parsed.course.trim() : undefined,
+    lecturer: typeof parsed.lecturer === 'string' && parsed.lecturer.trim() ? parsed.lecturer.trim() : undefined,
+    tldr: typeof parsed.tldr === 'string' && parsed.tldr.trim() ? parsed.tldr.trim() : undefined,
+    related_lectures: Array.isArray(parsed.related_lectures)
+      ? parsed.related_lectures.filter((s): s is string => typeof s === 'string' && !!s.trim()).map(s => s.trim())
+      : undefined,
   }
 }
 
@@ -225,6 +302,11 @@ function normaliseSection(s: Partial<OutlineSection>): OutlineSection {
       ts: typeof p.ts === 'number' ? Math.max(0, Math.round(p.ts)) : 0,
       important: !!p.important,
     })).filter(p => p.text) : [],
+    related_terms: Array.isArray(s.related_terms)
+      ? s.related_terms.filter((x): x is string => typeof x === 'string' && !!x.trim()).map(x => x.trim())
+      : undefined,
+    takeaway: typeof s.takeaway === 'string' && s.takeaway.trim() ? s.takeaway.trim() : undefined,
+    check_question: typeof s.check_question === 'string' && s.check_question.trim() ? s.check_question.trim() : undefined,
   }
 }
 

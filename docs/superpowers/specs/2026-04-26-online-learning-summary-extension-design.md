@@ -1,9 +1,25 @@
 # PRD: 講義動画リアルタイム要約 Chrome 拡張機能
 
 > **コードネーム (가칭)**: Study-Helper
-> **문서 작성일**: 2026-04-26
-> **상태**: Draft (디자인 단계, 구현 미시작)
+> **문서 작성일**: 2026-04-26 / **마지막 업데이트**: 2026-04-29
+> **상태**: 구현 진행 중 (Phase 0~5 완료, Phase 6 = Obsidian 통합 진행 중)
 > **대상 시장**: 日本 (1차) → 한국·글로벌 (Phase 2+)
+>
+> ### 🔄 2026-04-29 업데이트 요약 (Phase 6 pivot)
+>
+> 구현 + 유저 테스트 거치며 발견된 사실을 토대로 핵심 방향 조정:
+>
+> 1. **Obsidian-native 출력으로 차별화 축 추가** — 학생들의 PKM 도구(Obsidian/Notion/Logseq) 와 통합되는 노트가 되어야 학기 끝나도 자산으로 남음. Layer 1 (Markdown export) → Layer 2 (REST API auto-sync) → Layer 3 (자체 Obsidian Plugin) 으로 단계적 출시.
+> 2. **모달 UI 정책 변경** — 모달은 "라이브 미리보기 (마크다운 기호 숨김)" 만, 진짜 학습 가치는 **Export 된 .md 파일** 에서 발생. UI 정교화에 시간 안 씀.
+> 3. **AI 모델 결정 변경**:
+>    - STT: Groq Whisper Large-v3 (무료 → Dev tier 가용 시 paid)
+>    - **LLM (Curator)**: ~~Gemini 2.5 Flash~~ → **OpenAI GPT-5 nano** ($0.05/$0.40 per M, ~$0.12/hr)
+>    - 이유: Gemini 무료 티어 quota:0 함정 + Groq Dev tier 일시 차단됨 (2026-04-29)
+> 4. **Curator 출력 스키마 확장**: `related_terms[]` / `takeaway` / `check_question?` 필드 추가 → Obsidian wikilink + 학습 체크리스트 자동 생성 가능.
+> 5. **Self-improvement loop 도입**: LLM-as-judge + fixture-based regression eval (`backend/scripts/eval-curator.ts`) → 프롬프트 변경 효과를 측정 기반으로 검증.
+> 6. **Pricing 단순화 유지**: ¥980 Pro 그대로. 차별화는 **PKM 통합 가치** 로 정당화.
+>
+> 상세는 본 문서 § 11 (Appendix: Phase 6 — Obsidian-aware Pivot) 참조. 본문 1~10 은 원안 보존 (history).
 
 ---
 
@@ -514,6 +530,260 @@
 - **별도 Chrome 윈도우 popup (`chrome.windows.create`)**: 한 차례 시도했으나 macOS에서 fullscreen 렌더 + 사용자 의도와 다른 별도 윈도우라 폐기. In-page iframe 모달이 「브라우저 안 떠있는 모달」 사용자 의도와 일치하여 채택.
 - **iframe full-height 사이드바 (페이지 우측 edge에 도킹)**: 콘텐츠 가림 + Chrome 네이티브 사이드 패널과 정보 중복으로 폐기. Floating 모달 형태(현재 채택)가 정답.
 - **사이드 패널을 세션 view로 사용**: Chrome 116+ `chrome.sidePanel.open()` 은 직접적인 사용자 제스처(action 클릭/contextMenu 등)에서만 호출 가능. content-script-triggered 메시지 패스에서는 호출 불가. 따라서 사이드 패널은 계정 view 전용, popout 윈도우가 세션 view 전용이라는 역할 분리 적용 (Phase 2에서 Chrome 정책 완화되면 재검토)
+
+---
+
+---
+
+## 11. Appendix: Phase 6 — Obsidian-aware Pivot (2026-04-29 추가)
+
+### 11.1 배경: 왜 모달 UI 가 정답이 아닌가
+
+Phase 1~5 동안 모달 UI 를 4안 (Refined / Notion / Cards / Split) 까지 디자인했지만 사용자 피드백:
+
+> "솔직히 확 끌리는 건 없었어"
+
+진짜 학생 행동 분석:
+- 진지하게 공부하는 학생은 **Obsidian / Notion / Logseq** 같은 PKM 도구로 평생 노트를 누적
+- 강의 노트가 "한 번 쓰고 버리는 요약" 이면 학기 끝나면 무가치
+- 모달 UI 가 아무리 예뻐도 = 닫는 순간 학습 자산화 안 됨
+
+따라서 **출력 대상 ≠ 모달**. 출력 대상은 **학생의 vault**.
+
+### 11.2 새 차별화 축
+
+기존 PRD § 1.5 의 5축에 PKM 통합 축 추가:
+
+| 차원 | 경쟁사 (Notta, Otter, NotebookLM 등) | **Study-Helper Phase 6** |
+|---|---|---|
+| 보호/LMS 영상 지원 | ✗ | ✅ |
+| 재생 중 실시간 노트 | △ | ✅ |
+| 슬라이드 자동 캡처 | △ | ✅ |
+| 일본어 강의 특화 | △ | ✅ |
+| **PKM-native 출력 (Obsidian)** | **✗** | **✅ ← 신규 차별화** |
+
+Notta, Otter, NotebookLM 모두 **closed format** 또는 일반 PDF/Markdown 만 export. 누구도 Obsidian 의 `[[wikilink]]`, `^block-id`, callout, frontmatter 컨벤션으로 출력하지 않음. 우리가 이 빈자리를 차지.
+
+### 11.3 3-Layer Obsidian 통합 전략
+
+```
+Layer 1: Markdown export                    ← 누구든 작동, 즉시 출시 (Phase 6, 4-6h)
+   ├─ 클립보드 복사 (Obsidian paste UX)
+   └─ .md 파일 다운로드 (vault drop)
+
+Layer 2: Obsidian Local REST API           ← 파워 유저 (Plugin 설치 필요, Phase 6.5, 8-12h)
+   ├─ 자동 sync (vault 의 지정 폴더)
+   └─ 강의 종료 시 1-shot 또는 실시간
+
+Layer 3: 자체 Obsidian Plugin              ← 프리미엄 차별화 (Phase 7, 20-30h)
+   ├─ Community plugin store 배포
+   ├─ WebSocket 구독 → 실시간 vault 업데이트
+   └─ Obsidian 안에서 라이브 자막 + outline 동시 보기
+```
+
+각 Layer 독립 가치. Layer 1 만으로도 차별화 충분, 점진 출시.
+
+### 11.4 출력 형식: Obsidian-Optimized Markdown
+
+```markdown
+---
+type: lecture-note
+course: "[[現代企業経営各論]]"
+lecturer: "[[谷口 和弘]]"
+date: 2026-04-29
+duration: "1:05:00"
+source: "https://lms.keio.jp/..."
+session_id: 2cba3c8b-87b8-4d9a-b324-17ac2fedf610
+tags: [lecture, business, sustainability, governance, "2026春"]
+generated_by: study-helper
+---
+
+# 第2講 持続可能性とガバナンス
+
+> [!info] 講義情報
+> - 教授: [[谷口 和弘]]
+> - 科目: [[現代企業経営各論]]
+> - [▶ 動画を開く](https://lms.keio.jp/...)
+
+## TL;DR
+持続可能性は[[サステナビリティ]]の本質を地球環境から個人寿命まで多層的に持つ概念...
+
+## 重要事項 ⭐
+- **持続可能性は地球→国→企業→地域→個人と階層化される** [[#^persist-hier]]
+- **価値創造＝顧客への価値提供＋自社の収益確保** [[#^value-define]]
+- ...
+
+## [[サステナビリティ]] (持続可能性)
+^section-1
+
+> [!定義]
+> 地球の環境・個人の寿命・組織の持続可能性などを多層的に含む概念
+
+**用例**
+- 地球の環境（温暖化・資源枯渇）[▶ 0:18](...&t=18)
+- 個人の寿命と家族形成 [▶ 0:32](...&t=32)
+
+**重要ポイント**
+- ⭐ **持続可能性は地球→国→企業→地域→個人と階層化される** [▶ 1:05](...&t=65) ^persist-hier
+
+**関連用語**: [[持続可能性]] | [[ESG]] | [[CSR]]
+
+---
+
+## 関連リンク
+- [[コーポレートガバナンス・コード]]
+- [[ESG投資]]
+
+## 用語インデックス
+- [[サステナビリティ]] / [[持続可能性]]
+- [[価値創造]] / [[価値確保]]
+- [[ガバナンス]]
+- [[ESG]]
+
+## 学習チェックリスト
+- [ ] 持続可能性の階層構造を説明できる
+- [ ] 価値創造と価値確保の違いを説明できる
+- [ ] ガバナンスの3要素を列挙できる
+```
+
+핵심 설계:
+| 컨벤션 | 효과 |
+|---|---|
+| YAML frontmatter | Dataview plugin 으로 강의 검색/필터/통계 |
+| `[[wikilink]]` | 用語 별도 노트로 자동 생성 → 지식 그래프 |
+| `> [!定義]` callout | 시각적 ★, 정의 즉시 식별 |
+| `^block-id` | 다른 노트에서 정확한 bullet 인용 가능 |
+| `[▶ 1:05](...&t=65)` | 영상 해당 시점 deep-link |
+| `## 学習チェックリスト` | 시험 직전 self-check |
+| `## 関連リンク` | 강의 간 cross-reference seed |
+
+### 11.5 Curator 출력 스키마 확장
+
+원안 (Phase 5):
+```typescript
+interface OutlineSection {
+  heading: string
+  ts: number
+  summary: string
+  key_terms: { term, definition, ts }[]
+  examples: { text, ts }[]
+  points: { text, ts, important }[]
+}
+```
+
+Phase 6 확장:
+```typescript
+interface OutlineSection {
+  // 기존 ...
+  related_terms?: string[]      // [[wikilink]] 후보 — 다른 섹션이나 외부 개념
+  takeaway?: string             // TL;DR 1줄
+  check_question?: string       // 학습 체크리스트 항목
+}
+
+interface Outline {
+  // 기존 ...
+  course?: string               // [[course]] 자동 추론 (transcript 에서 추출 가능 시)
+  lecturer?: string             // [[lecturer]] 자동 추론
+  related_lectures?: string[]   // 다른 회차 / 관련 강의
+  tldr?: string                 // 전체 강의 1-2 줄 요약
+}
+```
+
+### 11.6 Curator 프롬프트 룰 추가 (Phase 6 v4)
+
+기존 v3 룰 (anti-padding / ★-only-for-formulas / density / ts-from-tag) 에 추가:
+
+```
+★ Obsidian-aware 출력 룰
+
+1. atomic note 원칙: 各 key_term の definition は他の文脈なしで読んで意味が通るよう
+   独立的に書く ("〜とは" で始めて完結).
+2. 用語間の関連を意識: ある term が他 term と関連すれば section の related_terms に列挙.
+   例: "サステナビリティ" → related_terms: ["持続可能性", "ESG", "CSR"]
+3. takeaway: 各 section の要旨を 1 文で. TL;DR 用. heading の言い換え禁止.
+4. check_question: section の理解度を確認できる質問 1 つ. 試験で出題されうる形.
+   例: "持続可能性の 5 つの階層レベルを列挙せよ."
+5. course / lecturer / tldr: outline 全体レベル. transcript から推測可能なら埋める,
+   不明なら null.
+```
+
+### 11.7 모달 UI 정책 — 마크다운 기호 숨김
+
+**원칙**: 모달 UI = 사용자 가시 표면 = **마크다운 syntax 절대 노출 금지**.
+
+```
+JSON Outline (source of truth)
+       │
+       ├──→ ReactRenderer (모달 UI) — 일반 텍스트 + Tailwind 스타일 (현재 OutlineView)
+       │
+       └──→ MarkdownRenderer — Obsidian-flavored markdown (export 시만)
+```
+
+모달은 다음을 절대 보여주지 않음:
+- `[[wikilink]]` 표기 → 그냥 굵게 + 색상 링크
+- `^block-id` → 표시 X (export 시에만 삽입)
+- `> [!定義]` callout 문법 → 그냥 amber 박스
+- `**bold**` markdown → CSS font-weight
+- `#` heading 마커 → CSS font-size
+- frontmatter (YAML) → 표시 X
+
+### 11.8 AI 모델 최종 결정 (Phase 6 시점)
+
+| 단계 | 결정 | 이유 |
+|---|---|---|
+| **STT** | Groq Whisper Large-v3 (무료) | Dev tier 일시 차단됨, 무료로 일 ~8h 분량 충분. Whisper Large-v3 = 일본어 WER ~5-7% |
+| **LLM Curator** | **OpenAI GPT-5 nano** | $0.05/$0.40 per M = ~$0.12/hr. Gemini 무료 quota:0 함정 회피, Groq Dev tier 차단 회피. 미검증이지만 자기개선 루프로 검증 |
+| **LLM Judge (eval only)** | OpenAI GPT-5 nano (동일) | 별도 vendor 도입 부담 회피 |
+| **이전 후보** | ~~Gemini 2.5 Flash~~ ~~Groq Llama 3.3 70B (free)~~ | quota / 차단 / 한도 초과로 폐기 |
+
+자기개선 루프 (`backend/scripts/eval-curator.ts`) 로 GPT-5 nano 의 실제 점수 측정 → 만약 v3 baseline (8.2) 보다 떨어지면 **GPT-5 mini** 로 격상 ($0.25/$2 per M, ~$0.60/hr).
+
+### 11.9 비용 시뮬레이션 (Phase 6 기준)
+
+```
+1시간 강의:
+  STT (Groq Whisper free)         : $0.00 (무료 한도 안)
+  Curator LLM (GPT-5 nano)        : ~$0.12
+  Judge (eval only, 평소엔 0)     : $0.00
+  AWS Lambda + RDS + S3 (free tier): ~$0.05
+  ─────────────────────────────────
+  Total per hour                   : ~$0.17
+
+학생 평균 5h/월 :
+  $0.17 × 5 = $0.85 OPEX
+  ¥980 ($6.50) 매출 - $0.85 = $5.65 마진 (87%)
+```
+
+¥980 Pro tier 에서 **마진 87%** 가능. 매우 healthy.
+
+### 11.10 Phase 6 구현 우선순위
+
+| 순서 | 작업 | 시간 | 비고 |
+|---|---|---|---|
+| 1 | Curator → OpenAI GPT-5 nano 교체 + 스키마 확장 | 2-3h | 자기개선 루프로 즉시 측정 |
+| 2 | `lib/markdown-obsidian.ts` formatter | 3-4h | YAML / wikilink / callout / block-id / deep-link |
+| 3 | `/v1/session/:id/export?format=markdown` 엔드포인트 | 1h | 기존 finalize 확장 |
+| 4 | 모달 ExportMenu (Copy / Download .md) | 2h | 기존 DownloadButton 확장 |
+| 5 | 모달 OutlineView 마크다운 기호 숨김 검증 | 1h | 이미 plain text 렌더 중인지 확인 |
+| 6 | v4 프롬프트 + GPT-5 nano 로 baseline 재측정 | 2h | self-improvement loop |
+| 7 | Layer 2 (REST API auto-sync) | 8-12h | 베타 사용자 5명+ 후 |
+| 8 | Layer 3 (자체 Obsidian Plugin) | 20-30h | Layer 1 검증 후 |
+
+### 11.11 검증 / 측정 지표
+
+| 지표 | 측정 방법 | 목표 |
+|---|---|---|
+| Markdown export 사용률 | 모달 export 클릭 / 강의 완료 비율 | 50%+ (Pro 사용자) |
+| Obsidian vault drop 후 재방문 | (자가보고) 벨로 / SNS 후기 | "강의 노트가 vault 에 쌓이는 게 좋다" 멘션 |
+| Curator judge score (GPT-5 nano) | `eval-curator.ts` regression | overall ≥ 8.2 (v3 baseline 유지) |
+| 비용 / 학생 / 월 | CloudWatch + DB usage 집계 | ≤ $1.00 |
+
+### 11.12 Out of Scope (Phase 6 한정)
+
+- 다중 vault 동시 sync (Pro+)
+- Notion / Logseq export (Phase 7+ 검토)
+- 학생간 강의 노트 공유 (Phase 8+ — 저작권 이슈)
+- 다른 LMS 자동 인식 확장 (별도 Phase)
 
 ---
 

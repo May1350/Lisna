@@ -4,14 +4,15 @@ import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-sec
 const Env = z.object({
   DATABASE_URL: z.string().min(1),
   JWT_SECRET: z.string().min(32),
-  // GROQ_API_KEY drives BOTH the STT pipeline (Whisper Large-v3) AND the
-  // LLM pipeline (Llama 3.3 70B). It is required.
+  // Phase 6 (2026-04-29): split provider responsibilities.
+  //  - GROQ_API_KEY drives STT only (Whisper Large-v3 free tier — ~8 h/day).
+  //  - OPENAI_API_KEY drives the LLM curator (GPT-5 nano, pre-paid billing).
+  // Both required for production. STT can fall back to OpenAI Whisper API
+  // if Groq is down (already supported in stt.ts).
   GROQ_API_KEY: z.string().min(1),
-  // OpenAI is an optional STT fallback only — not required in normal
-  // operation.
-  OPENAI_API_KEY: z.string().min(1).optional(),
-  // Gemini is no longer used for the LLM step; kept optional so the schema
-  // doesn't fail on existing Secrets Manager entries.
+  OPENAI_API_KEY: z.string().min(1),
+  // Gemini was the previous curator. Kept optional so existing Secrets
+  // Manager entries don't fail validation, but no longer wired in.
   GOOGLE_GENAI_API_KEY: z.string().min(1).optional(),
   GOOGLE_OAUTH_CLIENT_ID: z.string().min(1),
   GOOGLE_OAUTH_CLIENT_SECRET: z.string().min(1),
