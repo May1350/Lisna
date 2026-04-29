@@ -11,6 +11,11 @@ const Env = z.object({
   // if Groq is down (already supported in stt.ts).
   GROQ_API_KEY: z.string().min(1),
   OPENAI_API_KEY: z.string().min(1),
+  // Phase 6.2 (2026-04-29 후반): Claude Haiku 4.5 as primary curator —
+  // GPT-5 nano's reasoning latency (70-99 s) was unacceptable on the
+  // on-demand path. Anthropic key is OPTIONAL: if present the curator
+  // auto-selects Anthropic; if absent it falls back to OpenAI GPT-5 nano.
+  ANTHROPIC_API_KEY: z.string().min(1).optional(),
   // Gemini was the previous curator. Kept optional so existing Secrets
   // Manager entries don't fail validation, but no longer wired in.
   GOOGLE_GENAI_API_KEY: z.string().min(1).optional(),

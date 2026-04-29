@@ -200,36 +200,84 @@ const SYSTEM_PROMPT = `あなたは大学生のために講義の「生きたノ
 
 ★ 再度確認: previousOutline をそっくりそのまま返してはいけない。新しい transcript を踏まえて、各セクションの内容・構造・順序を **必ず吟味して書き直す**。`
 
-// Phase 6 pivot (2026-04-29): the curator now talks to OpenAI directly
-// instead of Groq's OpenAI-compatible endpoint. Reasoning:
-//   - Groq Dev tier was temporarily closed to new sign-ups, leaving us
-//     stuck on the free tier (12 K TPM, 100 K TPD) — unusable for an
-//     hour-long lecture even with one paying user.
-//   - Gemini free tier hit "limit:0" on multiple Flash variants on this
-//     account, so it's not a reliable alternative.
-//   - OpenAI's pre-paid billing activates immediately, no waitlist.
-//   - GPT-5 nano is $0.05 / $0.40 per M tokens (~$0.12 / hour of lecture)
-//     — cheaper than the Groq paid plan ($0.71 / hr) we were planning on.
+// Phase 6.2 (2026-04-29 후반): provider abstraction.
 //
-// The eval harness (backend/scripts/eval-curator.ts) lets us measure
-// whether nano's quality holds up against Llama 3.3 70B's v3 baseline.
-// If it falls short we step up to GPT-5 mini ($0.25 / $2 per M, ~$0.60 / hr)
-// without changing this file beyond the model name.
+// Why we have a multi-provider curator now:
+//   - GPT-5 family (nano / mini / standard) is a "reasoning model" —
+//     a single on-demand curate call took 70-99 s in production.
+//     Acceptable for batch, painful for an "I just paused to take notes"
+//     UX where the user is staring at a spinner.
+//   - Claude Haiku 4.5 is NOT a reasoning model. Same task should land
+//     in 3-10 s. Quality is also expected to be at least equivalent for
+//     Japanese instruction-following (the curator's main job).
+//   - Cost at 20 h / month heavy-user: nano $0.17 / Haiku $2.30 — both
+//     fit the ¥980 plan with healthy margin. The latency win matters
+//     more than the absolute cost difference at this volume.
 //
-// stt.ts still uses Groq for Whisper Large-v3 (free tier covers ~8 h /
-// day, plenty for a single user) — separate client, separate key.
-let _client: OpenAI | undefined
-function client(): OpenAI {
-  if (!_client) {
+// We keep both clients ready and pick by env (CURATOR_PROVIDER or fallback
+// to whichever key is present). Lets us A/B test on the eval fixture
+// without code changes.
+//
+// stt.ts still uses Groq for Whisper Large-v3 (separate client, separate key).
+import Anthropic from '@anthropic-ai/sdk'
+
+let _openai: OpenAI | undefined
+function openaiClient(): OpenAI {
+  if (!_openai) {
     const apiKey = process.env.OPENAI_API_KEY
-    if (!apiKey) throw new Error('OPENAI_API_KEY not set — required for curator (Phase 6)')
-    _client = new OpenAI({ apiKey })
+    if (!apiKey) throw new Error('OPENAI_API_KEY not set')
+    _openai = new OpenAI({ apiKey })
   }
-  return _client
+  return _openai
 }
 
-const PRIMARY = 'gpt-5-nano'
-const FALLBACK = 'gpt-5-mini'   // step up if nano quality regresses; same SDK call shape
+let _anthropic: Anthropic | undefined
+function anthropicClient(): Anthropic {
+  if (!_anthropic) {
+    const apiKey = process.env.ANTHROPIC_API_KEY
+    if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set')
+    _anthropic = new Anthropic({ apiKey })
+  }
+  return _anthropic
+}
+
+type Provider = 'anthropic' | 'openai'
+
+interface ModelChoice {
+  provider: Provider
+  primary: string
+  fallback: string
+}
+
+function selectModels(): ModelChoice {
+  // Phase 6.2 stance (2026-04-29 후반):
+  //   GPT-5 nano stays as the production default. Per the v4 fixture
+  //   baseline (8.1/10) the quality is validated; the on-demand model
+  //   means a single 70-90 s curate call is acceptable since the user
+  //   is already in a "waiting for notes" mental state. Switching to
+  //   Anthropic here adds ~$2/月/heavy user with no proven quality win.
+  //
+  //   The abstraction below is kept as an explicit escape hatch: set
+  //   CURATOR_PROVIDER=anthropic in the Lambda env to swap. Just having
+  //   ANTHROPIC_API_KEY in Secrets Manager does NOT auto-switch — that
+  //   would make the default behaviour depend on which keys happen to be
+  //   present, which we'd rather not do.
+  const forced = process.env.CURATOR_PROVIDER as Provider | undefined
+  if (forced === 'anthropic') {
+    return {
+      provider: 'anthropic',
+      primary: process.env.CURATOR_PRIMARY ?? 'claude-haiku-4-5',
+      fallback: process.env.CURATOR_FALLBACK ?? 'claude-haiku-4-5',
+    }
+  }
+  // Default — and the path taken when forced === 'openai' or unset.
+  return {
+    provider: 'openai',
+    primary: process.env.CURATOR_PRIMARY ?? 'gpt-5-nano',
+    fallback: process.env.CURATOR_FALLBACK ?? 'gpt-5-mini',
+  }
+}
+
 const MAX_ATTEMPTS = 3
 const BASE_DELAY_MS = 600
 
@@ -259,24 +307,11 @@ function isRetryable(e: unknown): boolean {
     || msg.includes('overloaded') || msg.includes('high demand') || msg.includes('service unavailable')
 }
 
-async function generateOnce(modelName: string, userPrompt: string): Promise<Outline> {
-  // GPT-5 family (nano / mini / standard) only supports the default
-  // temperature (1) — sending any other value 400s with
-  // "Unsupported value: 'temperature' does not support 0.3 with this
-  // model". Other OpenAI / Llama / Claude models still take a custom
-  // temperature, so we keep that path for the FALLBACK if it's pre-GPT-5.
-  const isGpt5Family = modelName.startsWith('gpt-5')
-  const res = await client().chat.completions.create({
-    model: modelName,
-    messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
-      { role: 'user', content: userPrompt },
-    ],
-    response_format: { type: 'json_object' },
-    ...(isGpt5Family ? {} : { temperature: 0.3 }),
-  })
-  const text = res.choices[0]?.message?.content ?? '{}'
-  const parsed = JSON.parse(text) as Partial<Outline>
+function parseOutlineJson(text: string): Outline {
+  // Anthropic occasionally wraps JSON in markdown fences despite our
+  // explicit "JSON のみ" instruction; strip them defensively.
+  const cleaned = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
+  const parsed = JSON.parse(cleaned) as Partial<Outline>
   return {
     title: typeof parsed.title === 'string' ? parsed.title : '',
     sections: Array.isArray(parsed.sections) ? parsed.sections.map(normaliseSection) : [],
@@ -287,6 +322,47 @@ async function generateOnce(modelName: string, userPrompt: string): Promise<Outl
       ? parsed.related_lectures.filter((s): s is string => typeof s === 'string' && !!s.trim()).map(s => s.trim())
       : undefined,
   }
+}
+
+async function generateOpenAI(modelName: string, userPrompt: string): Promise<Outline> {
+  // GPT-5 family (nano / mini / standard) only supports the default
+  // temperature (1) — sending any other value 400s with
+  // "Unsupported value: 'temperature' does not support 0.3 with this
+  // model". Pre-GPT-5 OpenAI models still take a custom temperature.
+  const isGpt5Family = modelName.startsWith('gpt-5')
+  const res = await openaiClient().chat.completions.create({
+    model: modelName,
+    messages: [
+      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'user', content: userPrompt },
+    ],
+    response_format: { type: 'json_object' },
+    ...(isGpt5Family ? {} : { temperature: 0.3 }),
+  })
+  return parseOutlineJson(res.choices[0]?.message?.content ?? '{}')
+}
+
+async function generateAnthropic(modelName: string, userPrompt: string): Promise<Outline> {
+  // Anthropic SDK uses messages.create. System prompt is a top-level
+  // field. We don't have an explicit JSON-mode flag like OpenAI's
+  // response_format; rely on the system prompt's "JSON のみ" rule plus
+  // the parseOutlineJson fence-stripping fallback for safety.
+  const res = await anthropicClient().messages.create({
+    model: modelName,
+    max_tokens: 4096,
+    temperature: 0.3,
+    system: SYSTEM_PROMPT,
+    messages: [{ role: 'user', content: userPrompt }],
+  })
+  // Anthropic returns content as an array of blocks. We only ask for text.
+  const textBlocks = res.content.filter((b): b is Anthropic.TextBlock => b.type === 'text')
+  const text = textBlocks.map(b => b.text).join('').trim() || '{}'
+  return parseOutlineJson(text)
+}
+
+async function generateOnce(provider: Provider, modelName: string, userPrompt: string): Promise<Outline> {
+  if (provider === 'anthropic') return generateAnthropic(modelName, userPrompt)
+  return generateOpenAI(modelName, userPrompt)
 }
 
 function normaliseSection(s: Partial<OutlineSection>): OutlineSection {
@@ -348,24 +424,25 @@ ${transcriptText}${droppedNote}
 previousOutline (前の試案 — 自由に書き直し / 再分類 / マージ / 削除すること):
 ${previousOutlineJson}`
 
-  // Try primary, fall back to lite on transient errors.
+  const choice = selectModels()
+  // Try primary with retries, then drop to fallback on terminal failure.
   let lastErr: unknown
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     try {
-      return await generateOnce(PRIMARY, userPrompt)
+      return await generateOnce(choice.provider, choice.primary, userPrompt)
     } catch (e) {
       lastErr = e
       if (attempt === MAX_ATTEMPTS - 1 || !isRetryable(e)) break
       const delay = BASE_DELAY_MS * 2 ** attempt + Math.floor(Math.random() * 200)
       // eslint-disable-next-line no-console
-      console.warn(`[curator:${PRIMARY}] retry ${attempt + 1}/${MAX_ATTEMPTS - 1} after ${delay}ms:`, e instanceof Error ? e.message : e)
+      console.warn(`[curator:${choice.provider}/${choice.primary}] retry ${attempt + 1}/${MAX_ATTEMPTS - 1} after ${delay}ms:`, e instanceof Error ? e.message : e)
       await new Promise(r => setTimeout(r, delay))
     }
   }
   if (lastErr && isRetryable(lastErr)) {
     // eslint-disable-next-line no-console
-    console.warn(`[curator] ${PRIMARY} exhausted; falling back to ${FALLBACK}`)
-    return await generateOnce(FALLBACK, userPrompt)
+    console.warn(`[curator] ${choice.primary} exhausted; falling back to ${choice.fallback}`)
+    return await generateOnce(choice.provider, choice.fallback, userPrompt)
   }
   throw lastErr
 }
