@@ -1,0 +1,180 @@
+{
+  "savedAt": "2026-04-29T06:03:03.611Z",
+  "results": [
+    {
+      "slug": "yt-JGXIB",
+      "source": "https://www.youtube.com/watch?v=JGXIB-dJCMM",
+      "chunks": 266,
+      "curatorRuns": 1,
+      "totalCuratorMs": 4375,
+      "judgeMs": 41877,
+      "outline": {
+        "title": "簿記の基礎",
+        "sections": [
+          {
+            "heading": "簿記の定義",
+            "ts": 10,
+            "summary": "簿記とは、企業の活動を帳簿に記入すること",
+            "key_terms": [
+              {
+                "term": "簿記",
+                "definition": "企業の活動を帳簿に記入すること",
+                "ts": 10
+              }
+            ],
+            "examples": [
+              {
+                "text": "企業の売上や費用を記録する",
+                "ts": 10
+              }
+            ],
+            "points": [
+              {
+                "text": "簿記は企業の財務状況を理解するために重要",
+                "ts": 10,
+                "important": true
+              }
+            ]
+          },
+          {
+            "heading": "資産、負債、純資産",
+            "ts": 100,
+            "summary": "資産、負債、純資産は簿記の基本概念",
+            "key_terms": [
+              {
+                "term": "資産",
+                "definition": "企業が所有するもの",
+                "ts": 100
+              },
+              {
+                "term": "負債",
+                "definition": "企業が負っているもの",
+                "ts": 100
+              },
+              {
+                "term": "純資産",
+                "definition": "資産と負債の差額",
+                "ts": 100
+              }
+            ],
+            "examples": [
+              {
+                "text": "現金、商品、土地など",
+                "ts": 100
+              }
+            ],
+            "points": [
+              {
+                "text": "資産 = 負債 + 純資産",
+                "ts": 100,
+                "important": true
+              }
+            ]
+          },
+          {
+            "heading": "費用と収益",
+            "ts": 200,
+            "summary": "費用と収益は簿記の重要な概念",
+            "key_terms": [
+              {
+                "term": "費用",
+                "definition": "企業が発生するコスト",
+                "ts": 200
+              },
+              {
+                "term": "収益",
+                "definition": "企業が得る収入",
+                "ts": 200
+              }
+            ],
+            "examples": [
+              {
+                "text": "給料、電気代、家賃など",
+                "ts": 200
+              }
+            ],
+            "points": [
+              {
+                "text": "収益 - 費用 = 利益",
+                "ts": 200,
+                "important": true
+              }
+            ]
+          },
+          {
+            "heading": "簿記の仕訳",
+            "ts": 300,
+            "summary": "簿記の仕訳は借方と貸方の記入",
+            "key_terms": [
+              {
+                "term": "借方",
+                "definition": "資産の増加や費用の発生",
+                "ts": 300
+              },
+              {
+                "term": "貸方",
+                "definition": "資産の減少や収益の発生",
+                "ts": 300
+              }
+            ],
+            "examples": [
+              {
+                "text": "現金の増加、商品の減少",
+                "ts": 300
+              }
+            ],
+            "points": [
+              {
+                "text": "借方 = 貸方",
+                "ts": 300,
+                "important": true
+              }
+            ]
+          },
+          {
+            "heading": "決算",
+            "ts": 400,
+            "summary": "決算は簿記の最終的な目的",
+            "key_terms": [
+              {
+                "term": "決算",
+                "definition": "簿記の最終的な目的",
+                "ts": 400
+              }
+            ],
+            "examples": [
+              {
+                "text": "財務諸表の作成",
+                "ts": 400
+              }
+            ],
+            "points": [
+              {
+                "text": "決算は財務状況を理解するために重要",
+                "ts": 400,
+                "important": true
+              }
+            ]
+          }
+        ]
+      },
+      "judge": {
+        "coverage": 8,
+        "accuracy": 9,
+        "hierarchy": 8,
+        "conciseness": 7,
+        "importance": 8,
+        "overall": 8.2,
+        "issues": [
+          "一部の例題が省略されている",
+          "簡潔性が低い箇所がある"
+        ],
+        "wins": [
+          "主要な概念が網羅されている",
+          "重要なポイントが強調されている",
+          "概要が明確にまとめられている"
+        ]
+      }
+    }
+  ]
+}

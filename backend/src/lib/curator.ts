@@ -110,6 +110,25 @@ const SYSTEM_PROMPT = `あなたは大学生のために講義の「生きたノ
 6. **ts は整数秒**(bucketedTranscript の時刻情報から推定)
 7. **空疎な発話のみ**(「えー」「あー」「ですよね」だけ)の場合のみ空 sections を返す。それ以外は必ず構造化する
 
+★★★ 文章の質に関する厳守ルール ★★★
+
+avoid-padding (冗長性の禁止):
+- summary は heading を言い換えただけのものにしない。heading を読めばわかることは書かない。 transcript で実際に語られた特徴的な内容を要約する。
+- example は 「<heading> の実例として <heading の言い換え>」のような同義反復を禁止する。 transcript に出てきた具体的な数字・固有名詞・状況を引用する (例:「現金10万円」「電気代の支払い」「3月決算」など)。
+- points には「X は Y のために重要」のような汎用 filler を書かない。代わりに transcript で実際に提示された主張・命題・手順を抜き出す。
+- 同じ意味を 2 セクションにまたがって書かない。
+
+★ marking ルール (重要度マーキング):
+- ★ (important: true) は **1 セクションあたり最大 1〜2 個** に絞る。全 point を ★ にすると ★ の意味がなくなる。
+- ★ をつける条件: (a) 講師が明示的に「重要」と言った点、(b) 公式・定義・結論、(c) 試験 / 実務に直結する事実 (数値・割合・条件)。それ以外は false。
+
+content density (内容の密度):
+- 各セクションに以下を可能な限り埋める (transcript に存在すれば):
+  - key_terms: そのセクションで定義された / 用語化された概念。ただ heading を入れるだけは禁止。
+  - examples: transcript の 具体的な事例・数値・場面 (3 件以上が望ましい)
+  - points: 講師の主張・手順・対比・条件 (3-5 件が望ましい)
+- 1 セクションあたり key_terms / examples / points が合計 5 件未満なら transcript を見落としている。再度精査する。
+
 出力フォーマット (この JSON のみ。説明文・Markdown は禁止):
 
 {
@@ -118,10 +137,10 @@ const SYSTEM_PROMPT = `あなたは大学生のために講義の「生きたノ
     {
       "heading": "<セクション見出し>",
       "ts": <秒>,
-      "summary": "<1〜2 文の要旨>",
+      "summary": "<1〜2 文の要旨, heading の言い換えではなく中身>",
       "key_terms": [{ "term": "...", "definition": "...", "ts": <秒> }],
-      "examples": [{ "text": "...", "ts": <秒> }],
-      "points": [{ "text": "...", "ts": <秒>, "important": <bool> }]
+      "examples": [{ "text": "transcript の具体例を引用", "ts": <秒> }],
+      "points": [{ "text": "講師の具体的主張・手順・条件", "ts": <秒>, "important": <bool> }]
     }
   ]
 }
@@ -157,8 +176,11 @@ const BASE_DELAY_MS = 600
 // On forceFullRewrite we drop previousOutline entirely so the transcript
 // is the only source of truth — widen the window to keep more raw
 // context, even if it costs us the very oldest minutes on long lectures.
-const REGULAR_TRANSCRIPT_CHAR_BUDGET = 16_000      // ~8 K tokens
-const FULL_REWRITE_TRANSCRIPT_CHAR_BUDGET = 24_000 // ~12 K tokens
+// 14 K chars (~7 K tokens) leaves more headroom for the JSON output and
+// the longer v2 system prompt. The earlier 16 K budget was tight enough
+// that prompt-length increases pushed total request size over the cap.
+const REGULAR_TRANSCRIPT_CHAR_BUDGET = 14_000      // ~7 K tokens
+const FULL_REWRITE_TRANSCRIPT_CHAR_BUDGET = 20_000 // ~10 K tokens
 
 function isRetryable(e: unknown): boolean {
   const msg = (e instanceof Error ? e.message : String(e)).toLowerCase()
