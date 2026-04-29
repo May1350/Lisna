@@ -100,7 +100,12 @@ export class ApiStack extends Stack {
     const streamAudio = new NodejsFunction(this, 'StreamAudioFn', {
       entry: path.join(__dirname, '../../src/handlers/stream-audio.ts'),
       runtime: Runtime.NODEJS_20_X,
-      timeout: Duration.seconds(60),
+      // Curator runs in this Lambda. GPT-5 family models are reasoning
+      // models — a single full-fixture call took ~105 s in eval. Even
+      // chunk-sized rolling-mode runs can exceed 60 s when the API Gateway
+      // is heavily loaded. 5 min gives us plenty of margin without burning
+      // money on idle: Lambda only bills for actual execution time.
+      timeout: Duration.minutes(5),
       memorySize: 1024,
       environment: { ...commonEnv, WS_ENDPOINT: wsEndpoint },
       vpc: props.vpc,
