@@ -1,7 +1,6 @@
 import type { APIGatewayProxyHandlerV2 } from 'aws-lambda'
 import { verifyJwt } from '../lib/auth.js'
 import { transcribeChunk } from '../lib/stt.js'
-import { curateOutline, type Outline } from '../lib/curator.js'
 import { checkQuota, recordUsage } from '../lib/quota.js'
 import { sendToSession } from '../lib/ws-broadcast.js'
 import { query } from '../lib/db.js'
@@ -9,6 +8,27 @@ import { loadAppSecrets } from '../lib/env.js'
 import { isWarmup, warmupResponse } from '../lib/warmup.js'
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
+
+// Phase 6.1 (2026-04-29): on-demand curator pivot.
+// stream-audio is now ONLY the live STT path:
+//   1. Run STT on the chunk
+//   2. Append to session.transcripts[]
+//   3. Broadcast transcript_chunk over WS for the modal's live captions
+//
+// The curator is no longer triggered here. It runs in a separate handler
+// (session-curate.ts → POST /v1/session/:id/curate) which the modal calls
+// when:
+//   - the user pauses the video (debounced)
+//   - the video ends
+//   - the user clicks the manual "📝 ノートを生成" button
+//   - the user stops the session
+//
+// This drops the per-chunk Lambda time from 60-90 s (curator was the
+// bottleneck) to 1-3 s (just STT + DB append + WS broadcast). It also
+// reduces curator calls per 1 h lecture from ~120 to ~1-3, slashing LLM
+// cost from ~$0.12 to ~$0.005 — a 96% reduction with HIGHER quality
+// because the on-demand call sees the full transcript instead of a
+// 16 K-char tail window.
 
 const Body = z.object({
   session_id: z.string().uuid(),
@@ -20,18 +40,6 @@ const Body = z.object({
 })
 
 interface TranscriptEntry { ts: number; text: string }
-
-// Curator runs every CURATOR_EVERY_N_CHUNKS chunks. With 10 s chunks that's
-// roughly every 30 s of lecture audio. Tighter = more responsive outline,
-// looser = fewer LLM calls. Keep the per-chunk live transcript broadcast as
-// the "instant feedback" track regardless of this cadence.
-const CURATOR_EVERY_N_CHUNKS = 3
-// Every Nth curator run, drop the previousOutline hint entirely and force
-// the model to regenerate from scratch using only the transcript. This
-// breaks the "anchored on the first draft" failure mode where the model
-// just appends new sections rather than reorganising older ones.
-// 5 = roughly every 2.5 minutes of lecture audio.
-const CURATOR_FULL_REWRITE_EVERY_N_RUNS = 5
 
 function normalizeUrl(u: string): string {
   const url = new URL(u)
@@ -61,10 +69,10 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
 
   const audioBuf = Buffer.from(body.audio_b64, 'base64').buffer
 
-  // ── 1. UPSERT SESSION ROW (always, even on STT/curator failure) ──────────
-  // The client adopts the canonical session_id on the first response and
-  // uses it to connect WebSocket. We always return 200 with that id even on
-  // downstream errors so the modal can still hydrate and listen to WS.
+  // ── 1. UPSERT SESSION ROW ──────────────────────────────────────────────
+  // Always return canonical session_id even on STT failure so the client
+  // adopts it and connects WS. Any later /v1/session/:id/curate call will
+  // find an empty (or partial) transcripts array and decide what to do.
   const urlHash = createHash('sha256').update(normalizeUrl(body.url)).digest('hex')
   const upserted = await query<{ id: string }>(
     `INSERT INTO sessions (id, user_id, url_hash, url_original)
@@ -87,16 +95,11 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     console.warn('[stream-audio] STT failed; skipping chunk:', e instanceof Error ? e.message : e)
   }
 
-  // Nothing usable from STT — nothing to do downstream. Still return 200 so
-  // the client can adopt the session id.
   if (transcriptText.length === 0) {
     return ok(sessionId, { chunk_error: chunkError ?? 'empty_transcript' })
   }
 
-  // ── 3. Append transcript to session log + live broadcast ────────────────
-  // Append-only JSONB array. The curator reads the full array on each run.
-  // Live transcript broadcast goes out the moment STT finishes, before the
-  // (potentially expensive) curator runs, so the user sees text in ~1 s.
+  // ── 3. Append transcript + live broadcast ───────────────────────────────
   const transcriptEntry: TranscriptEntry = {
     ts: Math.round(body.start_time_sec),
     text: transcriptText,
@@ -116,52 +119,10 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     [JSON.stringify([transcriptEntry]), sessionId],
   )
 
-  // ── 4. Curator (every N chunks; not every chunk) ────────────────────────
-  // Read the current transcripts + outline, regenerate the outline. This is
-  // expensive (~1-3 s with the full transcript so far), so we throttle by
-  // chunk count: only run it every CURATOR_EVERY_N_CHUNKS chunks.
-  const sess = await query<{ transcripts: TranscriptEntry[]; outline: Outline | null }>(
-    `SELECT transcripts, outline FROM sessions WHERE id = $1`,
-    [sessionId],
-  )
-  const transcripts = sess[0]?.transcripts ?? []
-  const previousOutline = sess[0]?.outline ?? null
-  const shouldCurate = transcripts.length % CURATOR_EVERY_N_CHUNKS === 0
-    || previousOutline === null  // first time we have any transcript at all
-
-  if (shouldCurate) {
-    // runIndex tracks how many curator runs have happened so far this session.
-    // We force a full rewrite on every Nth run.
-    const runIndex = Math.floor(transcripts.length / CURATOR_EVERY_N_CHUNKS)
-    const forceFullRewrite = runIndex > 0 && runIndex % CURATOR_FULL_REWRITE_EVERY_N_RUNS === 0
-    try {
-      const outline = await curateOutline({
-        bucketedTranscript: transcripts,
-        previousOutline,
-        forceFullRewrite,
-      })
-      await query(
-        `UPDATE sessions SET outline = $1::jsonb, updated_at = NOW() WHERE id = $2`,
-        [JSON.stringify(outline), sessionId],
-      )
-      void sendToSession(sessionId, {
-        type: 'outline_updated',
-        outline,
-        full_rewrite: forceFullRewrite,
-      }).catch(e => console.warn('[stream-audio] outline broadcast failed:', e))
-    } catch (e) {
-      chunkError = chunkError ?? 'curator_failed'
-      // eslint-disable-next-line no-console
-      console.warn('[stream-audio] curator failed; outline unchanged:', e instanceof Error ? e.message : e)
-    }
-  }
-
   await recordUsage(payload.sub, Math.ceil(body.duration_sec))
 
   return ok(sessionId, {
     transcript_preview: transcriptText.slice(0, 80),
-    transcripts_count: transcripts.length,
-    curated: shouldCurate,
     ...(chunkError ? { chunk_error: chunkError } : {}),
   })
 }

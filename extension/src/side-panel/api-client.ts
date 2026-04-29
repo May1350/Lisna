@@ -98,3 +98,14 @@ export async function jumpToTimestamp(ts: number): Promise<void> {
   if (!tab.id) return
   await chrome.tabs.sendMessage(tab.id, { type: 'JUMP_TO', ts })
 }
+
+/** Phase 6.1: on-demand curator. Trigger when the user pauses / stops /
+ *  ends the lecture, or hits "📝 ノートを生成". Backend reads the full
+ *  transcript log for this session and produces (or rewrites) the outline.
+ *  WS broadcasts the result, so the modal also receives it via onOutline. */
+export async function triggerCurate(sessionId: string, fullRewrite = false): Promise<Outline | null> {
+  const r = await callApi<{ outline: Outline | null; reason?: string }>(
+    '/v1/session/curate', 'POST', { session_id: sessionId, full_rewrite: fullRewrite },
+  )
+  return r.outline
+}

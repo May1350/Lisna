@@ -778,6 +778,68 @@ JSON Outline (source of truth)
 | Curator judge score (GPT-5 nano) | `eval-curator.ts` regression | overall ≥ 8.2 (v3 baseline 유지) |
 | 비용 / 학생 / 월 | CloudWatch + DB usage 집계 | ≤ $1.00 |
 
+### 11.12.5 On-demand Curator Pivot (Phase 6.1, 2026-04-29 후반 추가)
+
+**계기**: Phase 6 배포 후 K-LMS 검증 시 GPT-5 nano (reasoning model) 의 호출 latency 60-105초 → Lambda 60s timeout 다중 발생 → outline 모달에 안 뜸. 게다가 rolling 모델은 30초마다 호출 = 시간당 120회 = 비용 + Lambda 부담.
+
+**핵심 통찰** (사용자 제안): 노트 요약은 **실시간일 필요가 없음**. 학생이:
+- 영상 일시정지 시 / 정지 시 / 영상 종료 시 → "지금까지 들은 내용 정리" 가 자연스러운 학습 흐름
+- 영상 재생 중에는 **라이브 자막** 만 흐르면 충분 (강의 따라가기)
+
+→ **on-demand 모델로 architecture pivot**.
+
+#### 새 데이터 흐름
+
+```
+[재생 중 — 매 청크]
+오디오 chunk → Groq Whisper STT
+            → transcript 누적 (DB)
+            → transcript_chunk WS broadcast → 모달 자막 영역
+
+[일시정지 / 정지 / 종료 / "노트 생성" 버튼]
+POST /v1/session/:id/curate
+  → 전체 transcript 읽기
+  → curator (GPT-5 nano) 1회 호출 (전체 컨텍스트)
+  → outline 저장 + outline_updated WS broadcast
+  → 모달이 "ノート生成中..." → outline view 로 전환
+```
+
+#### 트리거 이벤트 (모달이 자동 호출)
+
+1. `<video>` `pause` event — debounced 3초 (짧은 일시정지 무시)
+2. `<video>` `ended` event — 자동 finalize
+3. ⏹ 정지 버튼
+4. 📝 「ノートを生成」 수동 버튼 (영상 재생 중에도 누르면 즉시 정리)
+
+#### Cost 효과 (1시간 강의)
+
+| | Rolling (Phase 6) | On-demand (Phase 6.1) |
+|---|---|---|
+| Curator 호출 수 | 120회 | **1-3회** |
+| Curator 비용 | $0.12 | **$0.005** |
+| Total/hr | $0.12 | **$0.005** |
+| ¥980 plan 마진 | 87% | **99%+** |
+
+#### Quality 효과
+
+- Rolling: window-truncated transcript (last 16K chars)
+- On-demand: **전체 transcript** input → 완전한 hierarchy reasoning
+
+#### Lambda 측 효과
+
+- stream-audio: STT 만 처리 → 평균 1-3초 (curator 60-90초 대비 dramatic 단축)
+- session-curate: 별도 endpoint, 5min timeout 안에서 완료 (실패 시 retry/fallback 동일)
+
+#### Model 결정 — nano 유지
+
+GPT-5 mini 격상 검토했지만:
+- on-demand 에서 latency 차이는 사용자 경험에 미미 (사용자가 "정리 중" 기다리는 자연스러운 컨텍스트)
+- nano 의 v4 baseline 8.1/10 + 정성적 큰 향상 이미 입증
+- 비용 5배 차이 — 절약된 99%+ 마진은 다른 곳 (Streaming STT 도입, 인프라 확장) 에 쓰는 게 합리적
+- A/B test 인프라 (eval-curator.ts) 로 나중에 mini 격상 정량 비교 가능
+
+→ **GPT-5 nano 유지**. 측정 기반 변경.
+
 ### 11.12 Out of Scope (Phase 6 한정)
 
 - 다중 vault 동시 sync (Pro+)

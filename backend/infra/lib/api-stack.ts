@@ -151,6 +151,29 @@ export class ApiStack extends Stack {
       integration: new HttpLambdaIntegration('SSInt', streamSlide),
     })
 
+    // ── Phase 6.1: on-demand curator (POST /v1/session/curate) ──────────
+    // Pulled out of stream-audio so the per-chunk hot path stays fast
+    // (just STT + transcript broadcast). Triggered by the modal when the
+    // user pauses, stops, ends the video, or hits "📝 ノートを生成".
+    const sessionCurate = new NodejsFunction(this, 'SessCurateFn', {
+      entry: path.join(__dirname, '../../src/handlers/session-curate.ts'),
+      runtime: Runtime.NODEJS_20_X,
+      // Same 5 min ceiling as stream-audio — GPT-5 nano is a reasoning
+      // model and a single full-transcript call can stretch to ~100 s.
+      timeout: Duration.minutes(5),
+      memorySize: 1024,
+      environment: { ...commonEnv, WS_ENDPOINT: wsEndpoint },
+      vpc: props.vpc,
+    })
+    props.dbSecret.grantRead(sessionCurate)
+    props.appSecret.grantRead(sessionCurate)
+    sessionCurate.addToRolePolicy(wsManagePolicy)
+    api.addRoutes({
+      path: '/v1/session/curate',
+      methods: [HttpMethod.POST],
+      integration: new HttpLambdaIntegration('SCurateInt', sessionCurate),
+    })
+
     // ---- T10: session finalize / get / delete ----
     const sessionFinalize = new NodejsFunction(this, 'SessFinFn', {
       entry: path.join(__dirname, '../../src/handlers/session-finalize.ts'),

@@ -402,11 +402,84 @@ async function startCapture(url: string): Promise<void> {
   })
   detector.start()
 
+  // ── Phase 6.1: on-demand curator triggers ──────────────────────────────
+  // The curator is no longer driven by stream-audio (rolling). It runs
+  // on demand when the user signals "I'm pausing — give me notes":
+  //   - pause event after 3 s of remaining paused (debounce — short
+  //     scrub-pauses or scrub-back shouldn't fire the curator)
+  //   - ended event (video finished naturally)
+  //   - the modal's manual "📝 ノートを生成" button (sent via window
+  //     postMessage from the iframe → see SH_TRIGGER_CURATE handler)
+  //
+  // Each trigger calls POST /v1/session/curate which reads the full
+  // transcript log and (re)writes the outline, then broadcasts via WS.
+  let curateInFlight = false
+  let pauseDebounceTimer: number | null = null
+
+  const triggerCurate = (reason: string): void => {
+    if (!session.canonicalAdopted) return       // no session yet — nothing to curate
+    if (curateInFlight) return                  // dedupe overlapping requests
+    curateInFlight = true
+    log('triggering curate', { reason, sessionId: session.id })
+    // The modal is the user-facing surface — tell it we're curating so
+    // it can swap to a "ノート生成中…" state. The modal receives this
+    // via window.postMessage from this content frame.
+    broadcastToFrames({ source: 'sh-frame', type: 'CURATING', reason })
+    chrome.runtime.sendMessage({
+      type: 'API_FETCH',
+      method: 'POST',
+      path: '/v1/session/curate',
+      body: { session_id: session.id, full_rewrite: reason === 'manual_full' },
+    }).then((r: unknown) => {
+      const ok = typeof r === 'object' && r !== null && 'ok' in r && (r as { ok: boolean }).ok
+      log('curate done', { reason, ok })
+      // The actual outline payload reaches the modal via WS broadcast
+      // (outline_updated message) — no need to forward it from here.
+    }).catch(e => warn('curate request failed', e))
+      .finally(() => { curateInFlight = false })
+  }
+
+  const onPause = (): void => {
+    if (pauseDebounceTimer !== null) window.clearTimeout(pauseDebounceTimer)
+    // 3 s debounce: a quick scrub or accidental tap won't trigger curate.
+    pauseDebounceTimer = window.setTimeout(() => {
+      pauseDebounceTimer = null
+      // If the user resumed before the timer fired, video.paused is now
+      // false — bail out without curating.
+      if (!activeVideo?.paused) return
+      triggerCurate('pause')
+    }, 3000)
+  }
+  const onPlay = (): void => {
+    // Cancel any pending pause-debounce when playback resumes.
+    if (pauseDebounceTimer !== null) {
+      window.clearTimeout(pauseDebounceTimer)
+      pauseDebounceTimer = null
+    }
+  }
+  activeVideo.addEventListener('pause', onPause)
+  activeVideo.addEventListener('play', onPlay)
+  // Listen for manual trigger from the modal (postMessage).
+  const onManualTrigger = (e: MessageEvent): void => {
+    const data = e.data as { source?: string; type?: string; full?: boolean } | null
+    if (!data || data.source !== 'sh-parent') return
+    if (data.type === 'TRIGGER_CURATE') {
+      triggerCurate(data.full ? 'manual_full' : 'manual')
+    }
+  }
+  window.addEventListener('message', onManualTrigger)
+
   onEndedHandler = () => {
     session.stopped = true
     detector?.stop()
     capture?.stop()
+    activeVideo?.removeEventListener('pause', onPause)
+    activeVideo?.removeEventListener('play', onPlay)
+    window.removeEventListener('message', onManualTrigger)
+    if (pauseDebounceTimer !== null) window.clearTimeout(pauseDebounceTimer)
     if (session.canonicalAdopted) {
+      // End-of-video curate: produce the final, complete outline.
+      triggerCurate('ended')
       chrome.runtime.sendMessage({
         type: 'API_FETCH',
         method: 'POST',

@@ -12,6 +12,25 @@ import { StopButton } from './components/StopButton'
 import { callApi, connectWs, getCurrentUser, logout } from './api-client'
 import type { LiveTranscriptItem, Outline } from './api-client'
 
+// Big-square spinner shown when the user has triggered curate but no
+// outline exists yet (first generation). Once an outline is in place the
+// modal keeps rendering it underneath the spinning button label instead.
+function CuratingState() {
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center px-6 py-10 text-center">
+      <div className="relative w-12 h-12 mb-4">
+        <span className="absolute inset-0 rounded-full border-4 border-blue-100" />
+        <span className="absolute inset-0 rounded-full border-4 border-blue-500 border-t-transparent animate-spin" />
+      </div>
+      <p className="text-sm font-medium text-gray-900">ノート生成中…</p>
+      <p className="text-xs text-gray-500 mt-1 max-w-xs leading-relaxed">
+        これまでの講義内容を AI が整理しています。<br />
+        通常 30〜90 秒ほどかかります。
+      </p>
+    </div>
+  )
+}
+
 export default function App() {
   const [consented, setConsented] = useState<boolean | null>(null)
   const [user, setUser] = useState<User | null>(null)
@@ -29,6 +48,10 @@ export default function App() {
   // LLM finishes). Bounded ring buffer — we only keep the last ~30 chunks
   // (≈5 min at 10 s chunks) so the UI stays responsive on long sessions.
   const [transcripts, setTranscripts] = useState<LiveTranscriptItem[]>([])
+  // Phase 6.1: curating state. Goes true when content-script POSTs
+  // /v1/session/curate (pause / ended / manual button) and back to false
+  // when the outline_updated WS message arrives. UI shows a spinner row.
+  const [curating, setCurating] = useState(false)
   const [title, setTitle] = useState('講義ノート')
   const [enabled, setEnabledState] = useState<boolean>(true)
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(2)
@@ -71,11 +94,26 @@ export default function App() {
     const listener = (msg: { type: string; payload?: { type: string; sessionId?: string; url?: string } }) => {
       if (msg.type === 'SP_BROADCAST' && msg.payload?.type === 'session_started' && msg.payload.sessionId) {
         setSessionId(msg.payload.sessionId)
-        setNotes([]); setSlides([]); setTranscripts([]); setOutline(null)
+        setNotes([]); setSlides([]); setTranscripts([]); setOutline(null); setCurating(false)
       }
     }
     chrome.runtime.onMessage.addListener(listener)
     return () => chrome.runtime.onMessage.removeListener(listener)
+  }, [isEmbed])
+
+  // Listen for CURATING postMessage from the content frame (sent when the
+  // user pauses / ends / clicks "generate"). Switches the modal to a
+  // "ノート生成中…" state. The companion outline_updated WS message
+  // clears it back when the curator finishes.
+  useEffect(() => {
+    if (!isEmbed) return
+    const listener = (e: MessageEvent) => {
+      const data = e.data as { source?: string; type?: string } | null
+      if (!data || data.source !== 'sh-frame') return
+      if (data.type === 'CURATING') setCurating(true)
+    }
+    window.addEventListener('message', listener)
+    return () => window.removeEventListener('message', listener)
   }, [isEmbed])
 
   // Embed: load the existing session (if any) for the parent page's URL.
@@ -117,7 +155,7 @@ export default function App() {
             return next.length > 30 ? next.slice(next.length - 30) : next
           })
         },
-        onOutline: (newOutline) => setOutline(newOutline),
+        onOutline: (newOutline) => { setOutline(newOutline); setCurating(false) },
         onClose: () => {},
       })
       if (mounted) ws = w
@@ -206,7 +244,19 @@ export default function App() {
       // Same channel that NoteItem uses to jump the underlying video.
       void chrome.runtime.sendMessage({ type: 'JUMP_TO', ts })
     }
+    // Phase 6.1: manual curate trigger. Sent to the parent (top-frame
+    // content script) which forwards via window.postMessage to the iframe
+    // running the actual capture. The content script's TRIGGER_CURATE
+    // listener kicks off /v1/session/curate.
+    const onTriggerCurate = (full = false) => {
+      setCurating(true)
+      window.parent.postMessage(
+        { source: 'sh-parent', type: 'TRIGGER_CURATE', full },
+        '*',
+      )
+    }
     const hasContent = !!outline?.sections.length || notes.length > 0
+    const hasTranscripts = transcripts.length > 0
     return (
       <div className="min-h-screen flex flex-col bg-gray-50">
         <PanelHeader
@@ -217,9 +267,30 @@ export default function App() {
           onClose={onClose}
           onLogout={onLogout}
         />
-        <OutlineView outline={outline} onJump={onJump} />
+        {curating && !hasContent ? (
+          <CuratingState />
+        ) : (
+          <OutlineView outline={outline} onJump={onJump} />
+        )}
         {sessionId && <LiveTranscript items={transcripts} />}
         <div className="px-3 pb-3 space-y-2">
+          {sessionId && hasTranscripts && (
+            <button
+              onClick={() => onTriggerCurate(hasContent)}
+              disabled={curating}
+              className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white text-xs font-medium py-2 px-3 rounded-lg transition flex items-center justify-center gap-1.5"
+              title="現時点までの内容でノートを生成 / 再生成"
+            >
+              {curating ? (
+                <>
+                  <span className="inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ノート生成中…
+                </>
+              ) : (
+                <>📝 {hasContent ? 'ノートを再生成' : 'ノートを生成'}</>
+              )}
+            </button>
+          )}
           {sessionId && <StopButton onStop={onStop} />}
           {sessionId && hasContent && parentUrl && (
             <ExportMenu sessionId={sessionId} sourceUrl={parentUrl} title={title} />
