@@ -25,7 +25,7 @@ function CuratingState() {
       <p className="text-sm font-medium text-gray-900">ノート生成中…</p>
       <p className="text-xs text-gray-500 mt-1 max-w-xs leading-relaxed">
         これまでの講義内容を AI が整理しています。<br />
-        通常 30〜90 秒ほどかかります。
+        通常 1〜2 分ほどかかります。
       </p>
     </div>
   )
