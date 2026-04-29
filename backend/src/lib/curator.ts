@@ -271,10 +271,19 @@ function selectModels(): ModelChoice {
     }
   }
   // Default — and the path taken when forced === 'openai' or unset.
+  //
+  // Phase 6.3 (2026-04-29 깊은 밤): gpt-4o-mini, not gpt-5-nano.
+  // Measured GPT-5 nano (a reasoning model) at 60-160 s per curate call,
+  // with a hard ~60 s floor even on a 441-char transcript. That's
+  // unacceptable on the on-demand path — students stop watching the
+  // spinner at the 30 s mark. gpt-4o-mini is a non-reasoning model in the
+  // same OpenAI billing account, expected 3-8 s per call, ~$0.41/月 for a
+  // 20 h/月 heavy user (vs. nano's $0.17/月 — the latency win is worth
+  // the $0.24/月 increase). gpt-4o is the fallback when -mini regresses.
   return {
     provider: 'openai',
-    primary: process.env.CURATOR_PRIMARY ?? 'gpt-5-nano',
-    fallback: process.env.CURATOR_FALLBACK ?? 'gpt-5-mini',
+    primary: process.env.CURATOR_PRIMARY ?? 'gpt-4o-mini',
+    fallback: process.env.CURATOR_FALLBACK ?? 'gpt-4o',
   }
 }
 
