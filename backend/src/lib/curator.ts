@@ -58,42 +58,62 @@ export interface CuratorRequest {
   /** Whole transcript so far, time-bucketed per chunk so the LLM can
    * estimate timestamps for each insight. */
   bucketedTranscript: { ts: number; text: string }[]
-  /** The previous outline, if any. The LLM is asked to refine, not start
-   * from scratch — gives it stability across runs. */
+  /** The previous outline, if any. Provided as a HINT only — the prompt
+   * explicitly tells the model not to copy it verbatim and to feel free
+   * to reorganise / rename / merge / drop sections based on the latest
+   * transcript. */
   previousOutline: Outline | null
+  /** When true, drop the previousOutline hint and force a full
+   * from-scratch reorganisation. We do this every 5th run so the model
+   * gets a clean rewrite opportunity even if it's been too conservative
+   * about touching old sections in the incremental runs. */
+  forceFullRewrite?: boolean
 }
 
-const SYSTEM_PROMPT = `あなたは大学生の代わりに講義のノートを作成し、講義が進むにつれてノートを継続的に改善するアシスタントです。
-学生がこのノートだけを見て試験勉強できるレベルの質を目指す。
+const SYSTEM_PROMPT = `あなたは大学生のために講義の「生きたノート (Living Document)」を作成・**書き換える**アシスタントです。
+学生がこのノートだけを見て試験勉強できるレベルの質を目指します。
+このノートは試験のためだけでなく、学生が「最も覚えるべき・忘れたくない」内容を後で読み返すためのものです。
+
+★★★ もっとも重要な原則: ノートは「追加していく」ものではなく、「毎回 書き直す」ものです ★★★
 
 入力:
-- bucketedTranscript: これまでの講義の文字起こし(時刻付き)。新しいチャンクほど後ろに来る。
-- previousOutline: 前回までに作成されたノート構造(JSON)。なければ null。
+- bucketedTranscript: これまでの講義の文字起こし全体(時刻付き)。これが現時点の真実。
+- previousOutline: 前回(おそらく 30 秒前)に作成されたノート構造(JSON)。**過去の自分の試案にすぎない**。
 
-仕事:
-- 全ての文字起こしを総合的に分析し、講義全体の構造を理解する
-- セクション(主題)単位でグループ化する。同じトピックが複数チャンクに分散していたら 1 つのセクションに統合する
-- 各セクションに以下を含める:
-  - heading: 簡潔な見出し (1 行)
-  - ts: そのセクションが講義で初めて出現した秒数
-  - summary: 1〜2 文でそのセクションの要旨
-  - key_terms: 用語の定義 (term, definition, ts) — 必ず正確に。聞き間違いがあれば文脈から修正する
+仕事の進め方:
+1. previousOutline は「前の試案」「ヒント」として参考にする程度で、**そのままコピーしてはいけない**
+2. bucketedTranscript 全体を最初から最後まで読み直し、講義の論理構造を**今の理解**で再構築する
+3. 講義が進むと文脈が深まり、最初に見えていた構造より良い構造が見えることが多い:
+   - 序盤に「Section A: 持続可能性」があったが、後で「サステナビリティの 4 つの次元」と判明したら **再分類**
+   - 序盤の定義が曖昧だったが、後で明確になったら **書き直す**
+   - 別々のセクションが実は同じテーマだったら **マージ**
+   - 不要だったセクションは **削除**
+   - セクションの順序を講師の論理に合わせて **再配置**
+4. 同じトピックが複数チャンクに分散していたら 1 つのセクションに統合する
+5. 不正確な転写(例:「サスナビリティ」→「サステナビリティ」、「政府させて」→「サステナビリティ」)は文脈から判断して正しい表記に統一する
+6. **同じノートを 2 回出力する必要はない** — 毎回ゼロから「現在の最良のノート」を書き直すつもりで
+
+各セクションには以下を含める:
+  - heading: 簡潔な見出し (1 行) — 講義の進行に応じて見出しも書き直す
+  - ts: そのセクションが講義で初めて出現した秒数 (bucketedTranscript の時刻から推定)
+  - summary: 1〜2 文でそのセクションの要旨 — 後の文脈で深まったら書き直す
+  - key_terms: 用語の定義 (term, definition, ts) — 文脈が深まれば定義も拡充
   - examples: 講師が挙げた具体例 (text, ts)
   - points: 重要なポイント (text, ts, important: true は定義/公式/結論/強調された事項)
-- previousOutline がある場合は、それを土台にして発展・統合・修正する。古い情報を捨てるのではなく洗練する
-- 不正確な転写(例:「サスナビリティ」→「サステナビリティ」)は文脈から判断して正しい表記に統一する
 
-ノートの質を高めるルール:
-1. 階層を保つ。複数チャンクで述べられた概念はマージして 1 つのセクションに
-2. 講師の論理の流れ(導入 → 定義 → 例 → 含意 など)を反映する
-3. 重複を削除する。同じことが 2 つのセクションに書かれていたら 1 つに集約
-4. text は日本語で簡潔に(1 行 80 文字以内)。要約・凝縮する
-5. important: true は控えめに使う(定義/公式/結論/明示的に強調された箇所のみ)
-6. ts は bucketedTranscript の時刻情報から推定する整数秒
-7. 出力は以下の JSON 構造のみ。説明文・Markdown は禁止:
+質のルール:
+1. **階層を保つ**: 複数チャンクで述べられた概念はマージして 1 つのセクションに
+2. **講師の論理の流れ**: 導入 → 定義 → 例 → 含意 → 結論 などを反映
+3. **重複削除**: 同じことが 2 つのセクションに書かれていたら 1 つに集約
+4. **凝縮**: text は日本語で簡潔に(1 行 80 文字以内)
+5. **important: true は控えめに**(定義 / 公式 / 結論 / 明示的に強調された箇所のみ)
+6. **ts は整数秒**(bucketedTranscript の時刻情報から推定)
+7. **空疎な発話のみ**(「えー」「あー」「ですよね」だけ)の場合のみ空 sections を返す。それ以外は必ず構造化する
+
+出力フォーマット (この JSON のみ。説明文・Markdown は禁止):
 
 {
-  "title": "<講義全体の主題, 1 行>",
+  "title": "<講義全体の主題, 1 行 — 講義が進むと より精度の高いタイトルに更新>",
   "sections": [
     {
       "heading": "<セクション見出し>",
@@ -106,7 +126,7 @@ const SYSTEM_PROMPT = `あなたは大学生の代わりに講義のノートを
   ]
 }
 
-8. transcript がまだ短くて構造が見えない場合でも、現時点で見えるトピックを 1 セクションにまとめて出力する。空の sections は許容しない(transcript が完全に空の場合のみ空配列)。`
+★ 再度確認: previousOutline をそっくりそのまま返してはいけない。新しい transcript を踏まえて、各セクションの内容・構造・順序を **必ず吟味して書き直す**。`
 
 let _client: OpenAI | undefined
 function client(): OpenAI {
@@ -176,14 +196,17 @@ export async function curateOutline(req: CuratorRequest): Promise<Outline> {
     .map(b => `[${formatHHMMSS(b.ts)}] ${b.text}`)
     .join('\n')
 
-  const previousOutlineJson = req.previousOutline
-    ? JSON.stringify(req.previousOutline, null, 2)
-    : 'null'
+  // Drop the previous outline entirely on a full-rewrite run so the model
+  // can't anchor to the old structure even subconsciously. Otherwise pass
+  // it as a hint with a strong "this is a draft, rewrite freely" framing.
+  const previousOutlineJson = req.forceFullRewrite || !req.previousOutline
+    ? 'null (this is a full rewrite — produce the best possible outline from scratch)'
+    : JSON.stringify(req.previousOutline, null, 2)
 
   const userPrompt = `bucketedTranscript:
 ${transcriptText}
 
-previousOutline:
+previousOutline (前の試案 — 自由に書き直し / 再分類 / マージ / 削除すること):
 ${previousOutlineJson}`
 
   // Try primary, fall back to lite on transient errors.

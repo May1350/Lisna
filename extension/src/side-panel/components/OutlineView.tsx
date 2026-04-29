@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import type { Outline, OutlineSection } from '../api-client'
 
 // Renders the curated lecture outline produced by the backend's curator
@@ -33,6 +34,31 @@ interface Props {
 }
 
 export function OutlineView({ outline, onJump }: Props) {
+  // Track "the outline was just refreshed" so we can flash a brief visual
+  // signal — the curator rewrites the whole document each run, and without
+  // a cue the user can't tell that earlier sections were just rewritten.
+  // We compare a serialised snapshot of the outline against the previous
+  // render to detect actual changes (vs no-op WS messages).
+  const [refreshedAt, setRefreshedAt] = useState<number | null>(null)
+  const lastSerialisedRef = useRef<string>('')
+  useEffect(() => {
+    if (!outline) return
+    const serialised = JSON.stringify(outline)
+    if (serialised === lastSerialisedRef.current) return
+    lastSerialisedRef.current = serialised
+    setRefreshedAt(Date.now())
+  }, [outline])
+
+  // Auto-clear the flash class after the animation has played so future
+  // updates re-trigger it.
+  const [flashing, setFlashing] = useState(false)
+  useEffect(() => {
+    if (refreshedAt === null) return
+    setFlashing(true)
+    const t = window.setTimeout(() => setFlashing(false), 800)
+    return () => window.clearTimeout(t)
+  }, [refreshedAt])
+
   if (!outline || outline.sections.length === 0) {
     return (
       <div className="flex-1 overflow-y-auto px-3 py-4">
@@ -42,16 +68,44 @@ export function OutlineView({ outline, onJump }: Props) {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto px-3 py-3 space-y-4">
-      {outline.title && (
-        <h2 className="text-base font-bold text-gray-900 leading-snug">
-          {outline.title}
-        </h2>
-      )}
+    <div className={`flex-1 overflow-y-auto px-3 py-3 space-y-4 transition-colors duration-700 ${flashing ? 'bg-blue-50/60' : 'bg-transparent'}`}>
+      <div className="flex items-baseline justify-between gap-2">
+        {outline.title && (
+          <h2 className="text-base font-bold text-gray-900 leading-snug">
+            {outline.title}
+          </h2>
+        )}
+        {refreshedAt !== null && (
+          <RefreshIndicator at={refreshedAt} />
+        )}
+      </div>
       {outline.sections.map((section, i) => (
         <SectionBlock key={`${section.heading}-${i}`} section={section} onJump={onJump} />
       ))}
     </div>
+  )
+}
+
+// Renders "X seconds ago" / "X分前" relative to the last refresh. Updates
+// every 5 s so it stays vaguely current without re-rendering constantly.
+function RefreshIndicator({ at }: { at: number }) {
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    const id = window.setInterval(() => setTick(t => t + 1), 5000)
+    return () => window.clearInterval(id)
+  }, [])
+  const ago = Math.floor((Date.now() - at) / 1000)
+  let label: string
+  if (ago < 5) label = '更新したて'
+  else if (ago < 60) label = `${ago}秒前に更新`
+  else label = `${Math.floor(ago / 60)}分前に更新`
+  return (
+    <span
+      className="text-[10px] text-blue-500 font-medium shrink-0 whitespace-nowrap"
+      title="ノートはバックグラウンドで継続的に書き直されます"
+    >
+      ✎ {label}
+    </span>
   )
 }
 

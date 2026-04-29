@@ -26,6 +26,12 @@ interface TranscriptEntry { ts: number; text: string }
 // looser = fewer LLM calls. Keep the per-chunk live transcript broadcast as
 // the "instant feedback" track regardless of this cadence.
 const CURATOR_EVERY_N_CHUNKS = 3
+// Every Nth curator run, drop the previousOutline hint entirely and force
+// the model to regenerate from scratch using only the transcript. This
+// breaks the "anchored on the first draft" failure mode where the model
+// just appends new sections rather than reorganising older ones.
+// 5 = roughly every 2.5 minutes of lecture audio.
+const CURATOR_FULL_REWRITE_EVERY_N_RUNS = 5
 
 function normalizeUrl(u: string): string {
   const url = new URL(u)
@@ -124,10 +130,15 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     || previousOutline === null  // first time we have any transcript at all
 
   if (shouldCurate) {
+    // runIndex tracks how many curator runs have happened so far this session.
+    // We force a full rewrite on every Nth run.
+    const runIndex = Math.floor(transcripts.length / CURATOR_EVERY_N_CHUNKS)
+    const forceFullRewrite = runIndex > 0 && runIndex % CURATOR_FULL_REWRITE_EVERY_N_RUNS === 0
     try {
       const outline = await curateOutline({
         bucketedTranscript: transcripts,
         previousOutline,
+        forceFullRewrite,
       })
       await query(
         `UPDATE sessions SET outline = $1::jsonb, updated_at = NOW() WHERE id = $2`,
@@ -136,6 +147,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       void sendToSession(sessionId, {
         type: 'outline_updated',
         outline,
+        full_rewrite: forceFullRewrite,
       }).catch(e => console.warn('[stream-audio] outline broadcast failed:', e))
     } catch (e) {
       chunkError = chunkError ?? 'curator_failed'

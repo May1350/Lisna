@@ -37,13 +37,24 @@ export async function webmBlobToWav(webm: Blob): Promise<Blob> {
   return encodeWavBlob(mono16k, TARGET_SAMPLE_RATE, TARGET_CHANNELS)
 }
 
+// Minimal AudioBuffer-shaped interface so callers can pass either a real
+// AudioBuffer (the WebM-decode path) or a thin wrapper around a raw
+// Float32Array (the continuous-capture path in audio-capture.ts) without
+// allocating a fresh AudioBuffer just to get resampled.
+export interface AudioBufferLike {
+  length: number
+  numberOfChannels: number
+  sampleRate: number
+  getChannelData(channel: number): Float32Array
+}
+
 // Downmix to mono (avg channels) + linear-resample to targetSampleRate.
 // Linear resampling is "good enough" for speech — Whisper is robust to
 // minor aliasing and we're going from typical 48 kHz down to 16 kHz, which
 // is a clean 3:1 ratio with little energy above 8 kHz that matters for
 // speech.
-function downmixAndResample(
-  buffer: AudioBuffer,
+export function downmixAndResample(
+  buffer: AudioBufferLike,
   targetSampleRate: number,
   targetChannels: number,
 ): Float32Array {
@@ -83,7 +94,7 @@ function downmixAndResample(
 }
 
 // Standard 44-byte RIFF WAV header followed by little-endian 16-bit PCM.
-function encodeWavBlob(samples: Float32Array, sampleRate: number, numChannels: number): Blob {
+export function encodeWavBlob(samples: Float32Array, sampleRate: number, numChannels: number): Blob {
   const numFrames = samples.length / numChannels
   const bytesPerSample = 2
   const dataSize = numFrames * numChannels * bytesPerSample
