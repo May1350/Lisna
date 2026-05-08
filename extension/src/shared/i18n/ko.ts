@@ -168,7 +168,7 @@ export const ko: Translations = {
     selectorTitle: '재생 속도',
   },
   login: {
-    title: 'Study-Helper',
+    title: 'Lisna',
     tagline: '강의 영상을 실시간으로\n요약·정리해드립니다',
     button: 'Google로 로그인',
     busy: '로그인 중…',
@@ -202,7 +202,7 @@ export const ko: Translations = {
     inlineHintIcon: '✨ 아이콘',
   },
   options: {
-    pageTitle: 'Study-Helper 설정',
+    pageTitle: 'Lisna 설정',
     section_language: '언어',
     label_systemLanguage: '시스템 언어',
     label_noteLanguage: '노트 생성 언어',

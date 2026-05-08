@@ -167,7 +167,7 @@ export const zh: Translations = {
     selectorTitle: '播放速度',
   },
   login: {
-    title: 'Study-Helper',
+    title: 'Lisna',
     tagline: '实时为讲座视频\n生成 AI 摘要与笔记',
     button: '使用 Google 登录',
     busy: '正在登录…',
@@ -201,7 +201,7 @@ export const zh: Translations = {
     inlineHintIcon: '✨ 图标',
   },
   options: {
-    pageTitle: 'Study-Helper 设置',
+    pageTitle: 'Lisna 设置',
     section_language: '语言',
     label_systemLanguage: '系统语言',
     label_noteLanguage: '笔记生成语言',

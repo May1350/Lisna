@@ -167,7 +167,7 @@ export const ja: Translations = {
     selectorTitle: '再生速度',
   },
   login: {
-    title: 'Study-Helper',
+    title: 'Lisna',
     tagline: '講義動画をリアルタイムで\n要約・整理します',
     button: 'Google でログイン',
     busy: 'サインイン中…',
@@ -201,7 +201,7 @@ export const ja: Translations = {
     inlineHintIcon: '✨ アイコン',
   },
   options: {
-    pageTitle: 'Study-Helper 設定',
+    pageTitle: 'Lisna 設定',
     section_language: '言語',
     label_systemLanguage: 'システム言語',
     label_noteLanguage: 'ノート生成言語',

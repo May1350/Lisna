@@ -168,7 +168,7 @@ export const en: Translations = {
     selectorTitle: 'Playback speed',
   },
   login: {
-    title: 'Study-Helper',
+    title: 'Lisna',
     tagline: 'Real-time AI summaries\nfor lecture videos',
     button: 'Sign in with Google',
     busy: 'Signing in…',
@@ -202,7 +202,7 @@ export const en: Translations = {
     inlineHintIcon: '✨ icon',
   },
   options: {
-    pageTitle: 'Study-Helper Settings',
+    pageTitle: 'Lisna Settings',
     section_language: 'Language',
     label_systemLanguage: 'System language',
     label_noteLanguage: 'Note language',

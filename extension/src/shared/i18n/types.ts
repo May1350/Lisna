@@ -191,7 +191,7 @@ export interface Translations {
 
   // ── Login screen ───────────────────────────────────────────────
   login: {
-    title: string                        // "Study-Helper"
+    title: string                        // "Lisna"
     tagline: string                      // "講義動画をリアルタイムで\n要約・整理します"
     button: string                       // "Google でログイン"
     busy: string                         // "サインイン中…"
@@ -231,7 +231,7 @@ export interface Translations {
 
   // ── Options page ───────────────────────────────────────────────
   options: {
-    pageTitle: string                    // "Study-Helper 設定"
+    pageTitle: string                    // "Lisna 設定"
     section_language: string             // "言語"
     label_systemLanguage: string         // "システム言語"
     label_noteLanguage: string           // "ノート生成言語"

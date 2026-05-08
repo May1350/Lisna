@@ -6,7 +6,7 @@
 //   - `markdown`  : plain .md download
 //   - `clipboard` : copy markdown to system clipboard
 //   - `zip`       : .md + slide attachments, layout matches Obsidian's
-//                   `Attachments/Study-Helper/<sess>/` convention.
+//                   `Attachments/Lisna/<sess>/` convention.
 //
 // The zip path uses fflate via dynamic import so the ~14 KB library
 // only loads when the user actually triggers an export. We considered
@@ -613,7 +613,7 @@ async function fetchFreshSlides(sourceUrl: string): Promise<SlideItem[]> {
 //         └── …
 //
 // Why this layout: previous version used Obsidian's `Attachments/...`
-// convention with a deep nested path (`Attachments/Study-Helper/<sess>/`),
+// convention with a deep nested per-app path under `Attachments/`,
 // which forced the user to either preserve that whole hierarchy or
 // manually re-create it in their vault — confusing first-time users.
 // Putting everything in one self-contained folder reduces the user's
@@ -697,7 +697,7 @@ export async function exportZip(input: ExportInput): Promise<void> {
 //   1. Install the plugin in Obsidian
 //   2. Enable HTTP at port 27123 in plugin settings (HTTPS uses self-
 //      signed cert which Chrome rejects without manual exception)
-//   3. Copy the API key + paste into Study-Helper Options
+//   3. Copy the API key + paste into Lisna Options
 //
 // What we PUT: same self-contained folder structure as exportZip but
 // landed directly in vault — `<folder>/<title>/<title>.md` plus
