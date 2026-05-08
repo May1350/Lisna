@@ -385,6 +385,16 @@ export default function App() {
         // button but KEEP sessionId / outline / slides so the user can
         // still trigger manual re-curate or export.
         setIsCapturing(false)
+        // Wipe any stale curateError carried over from a mid-session
+        // failure. The fallback copy ("녹음은 계속되고 있어요" /
+        // "Recording continues") becomes a contradiction the moment
+        // capture stops, since the post-session UI also shows the
+        // green "녹음이 종료되었습니다" hint right beneath. If
+        // content-script fires triggerCurate('ended') here and that
+        // call fails, the curate_failed broadcast that follows will
+        // re-set curateError with a fresh, accurate reason — this
+        // clear runs synchronously before any async response arrives.
+        setCurateError(null)
         // Arm the auto-download flag. The next outline_updated will
         // fire exportZip if the user has opted into the setting.
         pendingAutoDownloadRef.current = true

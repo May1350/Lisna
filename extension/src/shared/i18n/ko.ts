@@ -281,7 +281,7 @@ export const ko: Translations = {
     curator_failed: 'AI 정리에 실패했어요. 「📝 노트 재생성」을 눌러 다시 시도해주세요.',
     no_outline_returned: '노트가 비어 있는 채로 돌아왔어요. 녹음 내용을 확인하고 다시 시도해주세요.',
     curate_cooldown: '생성 요청이 너무 많아요. 잠시 기다린 후 다시 시도해주세요.',
-    fallback: '노트 생성에 실패했습니다. 녹음은 계속되고 있어요. 「📝 노트 재생성」을 눌러 다시 시도해주세요.',
+    fallback: '노트 생성에 실패했어요. 「📝 노트 재생성」을 눌러 다시 시도해주세요.',
   },
   errorBoundary: {
     title: '모달에서 오류가 발생했어요',

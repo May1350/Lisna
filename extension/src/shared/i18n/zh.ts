@@ -280,7 +280,7 @@ export const zh: Translations = {
     curator_failed: 'AI 整理失败。请点击「📝 重新生成笔记」再试一次。',
     no_outline_returned: '返回的笔记为空。请确认录音内容后重试。',
     curate_cooldown: '生成请求过于频繁。请稍候片刻再重试。',
-    fallback: '笔记生成失败。录音仍在继续。请点击「📝 重新生成笔记」再试一次。',
+    fallback: '笔记生成失败。请点击「📝 重新生成笔记」再试一次。',
   },
   errorBoundary: {
     title: '窗口发生错误',

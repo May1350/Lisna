@@ -740,7 +740,22 @@ async function startCapture(url: string): Promise<void> {
       absoluteUrl: CURATE_URL || undefined,
       body: { session_id: session.id, full_rewrite: reason === 'manual_full' },
     }).then((r: unknown) => {
-      const resp = r as { ok: boolean; data?: { outline?: unknown; reason?: string }; error?: string } | null
+      // Backend response shapes:
+      //   200 { outline: {...} }                            ← success
+      //   200 { outline: null, reason: 'no_transcripts_yet' } ← soft-fail
+      //   502 { error: 'curator_failed', message: '...' }   ← LLM blew up
+      // The SW's API_FETCH wrapper preserves `data` (parsed body) on every
+      // status. So we read `data.reason` (200-soft-fail key) THEN
+      // `data.error` (4xx/5xx key) before falling through to the SW's
+      // wrapper string. Without consulting `data.error`, every 5xx ended
+      // up as a raw "HTTP 502: {...}" reason that didn't match any
+      // T.curateError[reason] entry → user always saw the generic
+      // fallback copy instead of the localised "curator_failed" hint.
+      const resp = r as {
+        ok: boolean
+        data?: { outline?: unknown; reason?: string; error?: string }
+        error?: string
+      } | null
       const ok = !!resp?.ok
       log('curate done', { reason, ok, hasOutline: !!resp?.data?.outline, error: resp?.error })
       // Fallback path: WS broadcast can be lost if the connection dropped
@@ -759,7 +774,7 @@ async function startCapture(url: string): Promise<void> {
       } else if (!ok || resp?.data?.reason === 'no_transcripts_yet') {
         // Tell the modal to come out of the spinner state with a useful
         // message instead of hanging forever.
-        const reason = resp?.data?.reason ?? resp?.error ?? 'unknown'
+        const reason = resp?.data?.reason ?? resp?.data?.error ?? resp?.error ?? 'unknown'
         chrome.runtime.sendMessage({
           type: 'SP_BROADCAST',
           payload: { type: 'curate_failed', reason },

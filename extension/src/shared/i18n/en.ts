@@ -281,7 +281,7 @@ export const en: Translations = {
     curator_failed: 'AI organisation failed. Try "📝 Regenerate notes".',
     no_outline_returned: 'Notes came back empty. Confirm the recording captured audio and try again.',
     curate_cooldown: 'Too many generation requests. Wait briefly and try again.',
-    fallback: 'Note generation failed. Recording continues. Try "📝 Regenerate notes" again.',
+    fallback: 'Note generation failed. Try "📝 Regenerate notes" again.',
   },
   errorBoundary: {
     title: 'Something went wrong in the modal',
