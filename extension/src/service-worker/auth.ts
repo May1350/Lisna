@@ -107,6 +107,33 @@ export async function logout(): Promise<void> {
   await setUser(null)
 }
 
+/**
+ * Hard reset for "switch Google account". Clears the backend session
+ * AND every cached OAuth token Chrome holds for this extension. Without
+ * the cache wipe, the next getAuthToken({interactive:false}) silently
+ * returns whichever Google account Chrome is signed into → the user
+ * lands right back on the same account they wanted to leave.
+ *
+ * After this call, the next loginWithGoogle() will go through
+ * getAuthToken({interactive:true}). For Chrome profiles with multiple
+ * Google accounts added (Add another account), this surfaces the
+ * account picker. For single-account Chrome profiles, the user still
+ * needs to add the target account at the Chrome level — there's no
+ * Google account in Chrome that we don't know about.
+ */
+export async function switchAccount(): Promise<void> {
+  await setToken(null)
+  await setUser(null)
+  await new Promise<void>((resolve) => {
+    chrome.identity.clearAllCachedAuthTokens(() => {
+      // We intentionally don't surface chrome.runtime.lastError here —
+      // a missing-cache error is benign and means we're already in the
+      // desired clean state.
+      resolve()
+    })
+  })
+}
+
 export async function authedFetch(
   path: string,
   init: RequestInit = {},

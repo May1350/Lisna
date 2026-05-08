@@ -299,9 +299,14 @@ export interface Translations {
     plan_upgrade_busy: string            // "準備中…"
     plan_upgradeFailPrefix: string
     section_account: string              // "アカウント"
+    account_currentLabel: string         // "ログイン中のアカウント"
+    account_emailHint: string            // "Pro にアップグレードしたアカウントと違う場合は…"
     logout: string                       // "ログアウト"
     logout_busy: string                  // "ログアウト中…"
     logout_done: string                  // "ログアウトしました。"
+    switchAccount: string                // "別の Google アカウントでログイン"
+    switchAccount_busy: string           // "切り替え中…"
+    switchAccount_done: string           // "ログアウトしました。サイドパネルから別のアカウントで…"
   }
 
   // ── Curate failure reason map (humanised in the modal) ─────────

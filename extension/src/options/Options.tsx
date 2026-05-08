@@ -38,6 +38,7 @@ export function Options() {
   const [speed, setSpeed] = useState<'auto' | number>('auto')
   const [autoDl, setAutoDl] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
+  const [switchingAccount, setSwitchingAccount] = useState(false)
   const [me, setMe] = useState<{ user: User; quota: QuotaSnapshot } | null>(null)
   const [upgrading, setUpgrading] = useState(false)
   const [obsidian, setObsidian] = useState<ObsidianConfig>({ apiUrl: DEFAULT_OBSIDIAN_URL, apiKey: '', folder: '', autoSync: false })
@@ -145,6 +146,19 @@ export function Options() {
       alert(T.options.logout_done)
     } finally {
       setLoggingOut(false)
+    }
+  }
+  // Sign-out + clear Chrome's cached OAuth tokens. Used when the user
+  // is on the wrong Google account (e.g. paid as A@... but Chrome is
+  // signed in as B@...) — without the cache wipe the next login would
+  // silently re-grab the same Google account.
+  const onSwitchAccount = async () => {
+    setSwitchingAccount(true)
+    try {
+      await chrome.runtime.sendMessage({ type: 'AUTH_SWITCH_ACCOUNT' })
+      alert(T.options.switchAccount_done)
+    } finally {
+      setSwitchingAccount(false)
     }
   }
 
@@ -439,15 +453,50 @@ export function Options() {
       </section>
 
       <section>
-        <h2 className="font-semibold mb-2">{T.options.section_account}</h2>
-        <button
-          type="button"
-          onClick={onLogout}
-          disabled={loggingOut}
-          className="px-4 py-2 rounded border border-gray-300 hover:bg-gray-50 disabled:opacity-50"
-        >
-          {loggingOut ? T.options.logout_busy : T.options.logout}
-        </button>
+        <h2 className="font-semibold mb-3">{T.options.section_account}</h2>
+
+        {/* Identity card — shows the email + name of whichever Google
+         *  account is currently signed in. Critical surface: Pro users
+         *  whose Chrome is signed into a different Google account would
+         *  otherwise silently see Free-plan limits without realising
+         *  they're on the wrong account. Putting the email front and
+         *  centre makes the mismatch impossible to miss. */}
+        {me?.user && (
+          <div className="rounded-lg border border-gray-200 bg-white p-3 mb-3">
+            <div className="text-[11px] font-medium text-gray-500 uppercase tracking-wide mb-1">
+              {T.options.account_currentLabel}
+            </div>
+            <div className="text-sm font-semibold text-gray-900 break-all">
+              {me.user.email}
+            </div>
+            {me.user.name && (
+              <div className="text-xs text-gray-600 mt-0.5">{me.user.name}</div>
+            )}
+          </div>
+        )}
+
+        <p className="text-xs text-gray-600 mb-3 leading-relaxed">
+          {T.options.account_emailHint}
+        </p>
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={onSwitchAccount}
+            disabled={switchingAccount || loggingOut}
+            className="px-4 py-2 text-sm rounded border border-indigo-300 bg-indigo-50 text-indigo-800 hover:bg-indigo-100 disabled:opacity-50"
+          >
+            {switchingAccount ? T.options.switchAccount_busy : T.options.switchAccount}
+          </button>
+          <button
+            type="button"
+            onClick={onLogout}
+            disabled={loggingOut || switchingAccount}
+            className="px-4 py-2 text-sm rounded border border-gray-300 hover:bg-gray-50 disabled:opacity-50"
+          >
+            {loggingOut ? T.options.logout_busy : T.options.logout}
+          </button>
+        </div>
       </section>
     </div>
   )

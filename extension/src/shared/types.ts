@@ -14,6 +14,11 @@ export interface SlideItem {
 export type SwRequest =
   | { type: 'AUTH_LOGIN'; currentUrl?: string }
   | { type: 'AUTH_LOGOUT' }
+  // Logout + clear Chrome's cached OAuth tokens. Required for "switch
+  // Google account" UX — without clearing the cache, the next
+  // getAuthToken({interactive:false}) silently returns the same account
+  // and the user can't actually switch.
+  | { type: 'AUTH_SWITCH_ACCOUNT' }
   | { type: 'AUTH_GET_USER' }
   // path is appended to API_BASE_URL by default. When `absoluteUrl` is
   // set the SW fetches that URL directly instead — used to call the

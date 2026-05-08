@@ -1,5 +1,5 @@
 import type { SwRequest, SwResponse } from '../shared/types'
-import { loginWithGoogle, logout, authedFetch } from './auth'
+import { loginWithGoogle, logout, switchAccount, authedFetch } from './auth'
 import { getUser, setEnabled } from '../shared/storage'
 import { updateBadge, broadcastEnabledChange } from './notify'
 import { API_BASE_URL } from '../shared/config'
@@ -13,6 +13,10 @@ export async function handle(req: SwRequest, _sender?: chrome.runtime.MessageSen
       }
       case 'AUTH_LOGOUT': {
         await logout()
+        return { ok: true, data: null }
+      }
+      case 'AUTH_SWITCH_ACCOUNT': {
+        await switchAccount()
         return { ok: true, data: null }
       }
       case 'AUTH_GET_USER': {
