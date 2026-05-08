@@ -74,10 +74,13 @@ export class DataStack extends Stack {
       securityGroups: [dbSg],
       allocatedStorage: 20,           // GB — within Free Tier
       maxAllocatedStorage: 100,       // auto-grow up to 100GB if needed (still cheap)
-      // 7-day retention (~+$2/mo on 20 GB) is worth it now that we have
-      // paid users — 1 day was cutting things too close for "user emails
-      // on Tuesday about a problem from Friday" recovery scenarios.
-      backupRetention: Duration.days(7),
+      // Backup retention. Tried bumping 1 → 7 days (~+$2/mo on 20 GB)
+      // for paid-user "user emails Tuesday about a Friday problem"
+      // recovery scenarios, but RDS rejected with "exceeds the maximum
+      // available to free tier customers". This account is still on
+      // Free Tier; revisit once we've moved off (then 7 days is the
+      // right target).
+      backupRetention: Duration.days(1),
       deleteAutomatedBackups: true,
       removalPolicy: RemovalPolicy.DESTROY,
       publiclyAccessible: false,

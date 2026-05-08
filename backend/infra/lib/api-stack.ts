@@ -39,6 +39,12 @@ export class ApiStack extends Stack {
       S3_BUCKET: props.bucket.bucketName,
       DB_SECRET_ARN: props.dbSecret.secretArn,
       APP_SECRET_ARN: props.appSecret.secretArn,
+      // Read by stripe-checkout (success/cancel URLs) and any future
+      // handler that links back to the marketing site. Without this
+      // injected, handlers fall through to a hardcoded Vercel preview
+      // URL — fine until the marketing site moves to a custom domain,
+      // at which point checkout URLs would 404.
+      PUBLIC_WEB_BASE_URL: 'https://lisna-may1350s-projects.vercel.app',
     }
     const wsEndpoint = props.wsEndpoint
 
@@ -81,17 +87,20 @@ export class ApiStack extends Stack {
 
     const api = new HttpApi(this, 'HttpApi', {
       corsPreflight: {
-        // Tightened from '*' so a malicious site cannot have a logged-in
-        // user's browser issue authenticated requests on its behalf.
-        // Sources of these IDs:
-        //   - chrome-extension://… is the production CRX ID derived from
-        //     manifest.config.ts `key:` (deterministic per public key).
-        //   - https://lisna-may1350s-projects.vercel.app is the marketing
-        //     site, listed as `homepage_url` in the same manifest.
-        allowOrigins: [
-          'chrome-extension://idbgminbpkbiippdncoooeelijagfggp',
-          'https://lisna-may1350s-projects.vercel.app',
-        ],
+        // CORS retained as '*' on purpose:
+        //   - The extension's service worker performs the actual fetches
+        //     with `host_permissions: <all_urls>`, which bypasses CORS
+        //     entirely (extension-privileged context, no preflight).
+        //   - JWT verification is the real auth gate; an unauthorised
+        //     CORS-allowed request still 401s without doing any work.
+        //   - API Gateway v2 rejects chrome-extension:// origins as
+        //     "Invalid format" so the obvious narrow doesn't even
+        //     deploy. The marketing site origin alone would lock out
+        //     any future browser-side caller (admin dashboards etc.)
+        //     without buying us security we don't already have.
+        // Revisit only if cookie-based auth or browser-direct calls
+        // become a primary path.
+        allowOrigins: ['*'],
         allowMethods: [CorsHttpMethod.GET, CorsHttpMethod.POST, CorsHttpMethod.DELETE, CorsHttpMethod.OPTIONS],
         allowHeaders: ['Content-Type', 'Authorization'],
       },
@@ -218,6 +227,11 @@ export class ApiStack extends Stack {
     // exported value below). If unset, callApi falls back through
     // API Gateway and sessions long enough to need the Function URL
     // path will time out; this is the recovery for that situation.
+    // Function URL is unauthenticated at the AWS layer; the Lambda
+    // verifies the JWT internally before any expensive curator work.
+    // CORS kept '*' for the same reasons documented on HttpApi above
+    // (extension SW bypasses CORS, JWT is the real gate, AWS rejects
+    // chrome-extension:// origins anyway).
     const sessionCurateUrl = sessionCurate.addFunctionUrl({
       authType: FunctionUrlAuthType.NONE,
       cors: {
