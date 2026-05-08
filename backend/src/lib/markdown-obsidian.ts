@@ -37,6 +37,12 @@ export interface ExportContext {
   durationSec?: number
   /** Tags to add to frontmatter beyond the auto-derived ones. */
   extraTags?: string[]
+  /** Captured slides with fresh presigned URLs. Slides whose ts falls
+   *  inside a section's [ts, nextSection.ts) range get embedded as
+   *  `![](url)` inline at the top of that section's body. The bare-alt
+   *  pattern matches the extension's export.ts regex which rewrites
+   *  these to local filenames during the zip export. */
+  slides?: { ts: number; url: string; key: string }[]
 }
 
 export function outlineToObsidianMarkdown(o: Outline, ctx: ExportContext): string {
@@ -74,7 +80,7 @@ export function outlineToObsidianMarkdown(o: Outline, ctx: ExportContext): strin
 
   // ── 5. Per-section detail ─────────────────────────────────────────────
   o.sections.forEach((s, i) => {
-    lines.push(...sectionBlock(s, i, ctx))
+    lines.push(...sectionBlock(s, i, ctx, o.sections))
     lines.push('')
   })
 
@@ -110,7 +116,7 @@ export function outlineToObsidianMarkdown(o: Outline, ctx: ExportContext): strin
 // Section block: heading → callout(定義 if key_terms) → 用例 / 重要 / 補足
 // ──────────────────────────────────────────────────────────────────────
 
-function sectionBlock(s: OutlineSection, idx: number, ctx: ExportContext): string[] {
+function sectionBlock(s: OutlineSection, idx: number, ctx: ExportContext, allSections: OutlineSection[]): string[] {
   const out: string[] = []
   const blockId = sectionBlockId(s, idx)
   const terms = collectTerms({ title: '', sections: [s] })
@@ -127,6 +133,20 @@ function sectionBlock(s: OutlineSection, idx: number, ctx: ExportContext): strin
     out.push(`> [!summary] 要旨`)
     out.push(`> ${autoLinkTerms(s.takeaway, terms)}`)
     out.push('')
+  }
+
+  // Slide images for this section. Time-based bucket: every slide whose
+  // ts falls in [s.ts, nextSection.ts) lands here, sorted by ts. The
+  // first section also collects any slides captured BEFORE its own ts
+  // (e.g. very early slides while the model was still settling on a
+  // section boundary) so no captured slide is silently dropped.
+  const sectionSlides = slidesForSection(s, idx, allSections, ctx.slides ?? [])
+  if (sectionSlides.length > 0) {
+    for (const sl of sectionSlides) {
+      out.push(`![](${sl.url})`)
+      out.push(`*${deepLink(ctx.sourceUrl, sl.ts)}*`)
+      out.push('')
+    }
   }
 
   // Definitions: one callout per key_term
@@ -231,6 +251,23 @@ function collectTerms(o: Outline): string[] {
 
 function collectCheckQuestions(o: Outline): string[] {
   return o.sections.map(s => s.check_question).filter((q): q is string => !!q && !!q.trim())
+}
+
+function slidesForSection(
+  s: OutlineSection,
+  idx: number,
+  allSections: OutlineSection[],
+  slides: { ts: number; url: string; key: string }[],
+): { ts: number; url: string; key: string }[] {
+  if (slides.length === 0) return []
+  // Section range: [s.ts, nextSection.ts). The first section also picks
+  // up any slide captured before it (ts < s.ts) — usually a tiny number
+  // and dropping them silently would surprise the user.
+  const start = idx === 0 ? -Infinity : s.ts
+  const end = idx + 1 < allSections.length ? allSections[idx + 1].ts : Infinity
+  return slides
+    .filter(sl => sl.ts >= start && sl.ts < end)
+    .sort((a, b) => a.ts - b.ts)
 }
 
 function sectionBlockId(s: OutlineSection, idx: number): string {

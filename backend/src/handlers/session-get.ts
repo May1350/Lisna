@@ -61,11 +61,26 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     const createdAtIso = session.created_at instanceof Date
       ? session.created_at.toISOString()
       : String(session.created_at)
+    // Presign each captured slide so the markdown can embed working
+    // `![](url)` image refs. The frontend's zip-export pipeline rewrites
+    // these URLs into bare filenames against a local Attachments folder
+    // so the unzipped vault resolves images without the (1 h) presign
+    // TTL ever mattering.
+    const slidesPresigned = Array.isArray(session.slides)
+      ? await Promise.all(
+          session.slides.map(async (s) => ({
+            ts: s.ts,
+            key: s.key,
+            url: await presignGet(s.key),
+          })),
+        )
+      : []
     const md = outlineToObsidianMarkdown(session.outline, {
       sourceUrl: session.url_original,
       sessionId: session.id,
       generatedAt: new Date(),
       lectureDate: createdAtIso.slice(0, 10),
+      slides: slidesPresigned,
     })
     // Filename is built from the title, falling back to session id slice.
     const title = (session.outline.title || session.id.slice(0, 8))

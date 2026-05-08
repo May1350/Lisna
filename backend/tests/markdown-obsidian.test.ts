@@ -135,6 +135,66 @@ describe('outlineToObsidianMarkdown', () => {
     expect(withQuery).toContain('[▶ 01:30](https://example.com/lec?id=1&t=90s)')
   })
 
+  it('embeds slides into the section whose ts range covers the slide ts', () => {
+    const o: Outline = {
+      title: 't',
+      sections: [
+        {
+          heading: 'A', ts: 0, summary: '',
+          key_terms: [], examples: [], points: [],
+        },
+        {
+          heading: 'B', ts: 60, summary: '',
+          key_terms: [], examples: [], points: [],
+        },
+        {
+          heading: 'C', ts: 180, summary: '',
+          key_terms: [], examples: [], points: [],
+        },
+      ],
+    }
+    const md = outlineToObsidianMarkdown(o, {
+      ...ctx,
+      slides: [
+        { ts: 10,  url: 'https://s3/key-a1.jpg?sig=1', key: 'k/a1' },
+        { ts: 95,  url: 'https://s3/key-b1.jpg?sig=2', key: 'k/b1' },
+        { ts: 120, url: 'https://s3/key-b2.jpg?sig=3', key: 'k/b2' },
+        { ts: 250, url: 'https://s3/key-c1.jpg?sig=4', key: 'k/c1' },
+      ],
+    })
+
+    // Slide refs are bare-alt `![](url)` (matches the export.ts regex on the
+    // extension side that rewrites them to local filenames in zip export).
+    expect(md).toContain('![](https://s3/key-a1.jpg?sig=1)')
+    expect(md).toContain('![](https://s3/key-b1.jpg?sig=2)')
+    expect(md).toContain('![](https://s3/key-b2.jpg?sig=3)')
+    expect(md).toContain('![](https://s3/key-c1.jpg?sig=4)')
+
+    // Each section's slides must land in its own block (between the
+    // section heading and the next section's `---` divider).
+    const aBlock = md.split('## A')[1].split('---')[0]
+    const bBlock = md.split('## B')[1].split('---')[0]
+    const cBlock = md.split('## C')[1].split('---')[0]
+    expect(aBlock).toContain('![](https://s3/key-a1.jpg?sig=1)')
+    expect(aBlock).not.toContain('![](https://s3/key-b1.jpg?sig=2)')
+    expect(bBlock).toContain('![](https://s3/key-b1.jpg?sig=2)')
+    expect(bBlock).toContain('![](https://s3/key-b2.jpg?sig=3)')
+    expect(bBlock).not.toContain('![](https://s3/key-c1.jpg?sig=4)')
+    expect(cBlock).toContain('![](https://s3/key-c1.jpg?sig=4)')
+  })
+
+  it('skips slide embedding when no slides provided', () => {
+    const o: Outline = {
+      title: 't',
+      sections: [{
+        heading: 'A', ts: 0, summary: '',
+        key_terms: [], examples: [], points: [],
+      }],
+    }
+    const md = outlineToObsidianMarkdown(o, ctx)
+    expect(md).not.toMatch(/!\[\]\(/)
+  })
+
   it('sanitises wikilink targets (no [, ], |, ^, # leaks)', () => {
     const o: Outline = {
       title: 't',
