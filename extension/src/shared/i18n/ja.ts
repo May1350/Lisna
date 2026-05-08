@@ -253,7 +253,7 @@ export const ja: Translations = {
     obsidian_test_404: '/vault/ エンドポイントが見つかりません。\nLocal REST API プラグインのバージョンが古いか、URL が間違っている可能性があります。',
     obsidian_test_network: 'サーバーに接続できません。\n・Obsidian が起動していますか?\n・Local REST API プラグインの「Enable Non-encrypted (HTTP) Server」が ON ですか?\n・URL のポート (デフォルト 27123) は合っていますか?',
     obsidian_autoSync: 'ノート生成のたびに Obsidian へ自動送信',
-    obsidian_autoSync_hint: 'オフでも、モーダルの「🔮 Obsidian」ボタンで手動送信可能。',
+    obsidian_autoSync_hint: 'オフでも、モーダルの「{icon} Obsidian」ボタンで手動送信可能。',
     obsidian_unconfigured: 'Obsidian の設定が未完了です',
     obsidian_slidesSendFail: '{n} 枚のスライド送信に失敗',
     obsidian_markdownPutFail: 'markdown PUT {status}',

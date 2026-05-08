@@ -251,7 +251,7 @@ export const en: Translations = {
     obsidian_test_404: '/vault/ endpoint not found.\nThe Local REST API plugin may be outdated, or the URL is wrong.',
     obsidian_test_network: "Can't reach the server.\n• Is Obsidian running?\n• Is the plugin's \"Non-encrypted (HTTP) Server\" enabled?\n• Does the URL port (default 27123) match?",
     obsidian_autoSync: 'Auto-send to Obsidian on every note generation',
-    obsidian_autoSync_hint: 'Even off, you can use the "🔮 Obsidian" button in the modal to push manually.',
+    obsidian_autoSync_hint: 'Even off, you can use the "{icon} Obsidian" button in the modal to push manually.',
     obsidian_unconfigured: 'Obsidian is not fully configured',
     obsidian_slidesSendFail: '{n} slide(s) failed to send',
     obsidian_markdownPutFail: 'markdown PUT {status}',

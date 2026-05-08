@@ -250,7 +250,7 @@ export const zh: Translations = {
     obsidian_test_404: '未找到 /vault/ 端点。\nLocal REST API 插件版本可能过旧,或 URL 不正确。',
     obsidian_test_network: '无法连接到服务器。\n・Obsidian 是否已启动?\n・Local REST API 插件的「Enable Non-encrypted (HTTP) Server」是否已开启?\n・URL 端口 (默认 27123) 是否正确?',
     obsidian_autoSync: '每次生成笔记时自动发送到 Obsidian',
-    obsidian_autoSync_hint: '关闭后仍可通过窗口中的「🔮 Obsidian」按钮手动发送。',
+    obsidian_autoSync_hint: '关闭后仍可通过窗口中的「{icon} Obsidian」按钮手动发送。',
     obsidian_unconfigured: 'Obsidian 设置尚未完成',
     obsidian_slidesSendFail: '{n} 张幻灯片发送失败',
     obsidian_markdownPutFail: 'markdown PUT {status}',

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import {
   getPlaybackSpeed, setPlaybackSpeed,
   getAutoDownload, setAutoDownload,
@@ -395,7 +395,17 @@ export function Options() {
             <span className="text-sm">
               {T.options.obsidian_autoSync}
               <span className="block text-xs text-gray-500 mt-0.5">
-                {T.options.obsidian_autoSync_hint}
+                {/* Inline brand mark — splits the locale string on the
+                    {icon} placeholder so each language can position the
+                    Obsidian gem wherever the sentence structure
+                    demands. The placeholder pattern mirrors the
+                    {path} substitution in obsidian_folder_pathPreview. */}
+                {T.options.obsidian_autoSync_hint.split('{icon}').map((part, i, arr) => (
+                  <Fragment key={i}>
+                    {part}
+                    {i < arr.length - 1 && <ObsidianMark size={12} />}
+                  </Fragment>
+                ))}
               </span>
             </span>
           </label>

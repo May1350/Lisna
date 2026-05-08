@@ -251,7 +251,7 @@ export const ko: Translations = {
     obsidian_test_404: '/vault/ 엔드포인트를 찾을 수 없어요.\nLocal REST API 플러그인 버전이 오래되었거나 URL이 잘못되었을 수 있습니다.',
     obsidian_test_network: '서버에 연결할 수 없어요.\n· Obsidian이 실행 중인가요?\n· Local REST API 플러그인의 「Enable Non-encrypted (HTTP) Server」가 ON인가요?\n· URL의 포트 (기본 27123)는 맞나요?',
     obsidian_autoSync: '노트 생성마다 Obsidian으로 자동 전송',
-    obsidian_autoSync_hint: '꺼두어도 모달의 「🔮 Obsidian」 버튼으로 직접 보낼 수 있어요.',
+    obsidian_autoSync_hint: '꺼두어도 모달의 「{icon} Obsidian」 버튼으로 직접 보낼 수 있어요.',
     obsidian_unconfigured: 'Obsidian 설정이 완료되지 않았습니다',
     obsidian_slidesSendFail: '슬라이드 {n}장 전송에 실패했습니다',
     obsidian_markdownPutFail: 'markdown PUT {status}',
