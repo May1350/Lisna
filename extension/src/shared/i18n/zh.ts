@@ -283,6 +283,18 @@ export const zh: Translations = {
     curate_in_progress: '已有一个笔记生成任务正在进行中。请等结束后再试。',
     fallback: '笔记生成失败。请点击「📝 重新生成笔记」再试一次。',
   },
+  errorToast: {
+    unauthorized: '登录已过期。请重新登录。',
+    forbidden: '没有访问权限。',
+    rateLimit: '请求过多。请稍后重试。',
+    server: '服务器发生错误。请稍后重试。',
+    quotaExceeded: '已达到使用上限。请升级到 Pro 套餐。',
+    audioCapture: '无法获取音频。请确认视频有声音,以及麦克风权限是否已授予。',
+    permission: '权限被拒绝。请检查浏览器设置。',
+    network: '请检查网络连接。',
+    oauthCancelled: 'Google 登录已取消。请重试。',
+    timeout: '请求超时。请重试。',
+  },
   errorBoundary: {
     title: '窗口发生错误',
     body: '由于意外错误,界面渲染已中断。录音本身可能未受影响。重新加载即可恢复。',

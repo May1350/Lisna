@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { subscribeToErrorToasts } from '../../shared/errors'
 import { useT } from '../../shared/i18n'
+import type { Translations } from '../../shared/i18n'
 
 interface Toast {
   id: number
@@ -77,7 +78,7 @@ export function ErrorToast() {
             {t.severity === 'warning' ? '⚠️' : '❌'}
           </span>
           <div className="flex-1 leading-relaxed break-words">
-            {translate(t.message)}
+            {translate(t.message, T)}
           </div>
           <button
             onClick={() => dismissToast(t.id)}
@@ -92,21 +93,27 @@ export function ErrorToast() {
   )
 }
 
-// Translate common backend error strings into user-friendly Japanese.
-function translate(msg: string): string {
-  if (/HTTP 401|unauthorized|invalid token/i.test(msg)) return '認証が切れました。再度ログインしてください。'
-  if (/HTTP 403/.test(msg)) return 'アクセス権限がありません。'
-  if (/HTTP 429|rate.?limit/i.test(msg)) return 'リクエストが多すぎます。少し待ってから再試行してください。'
-  if (/HTTP 5\d\d/.test(msg)) return 'サーバーエラーが発生しました。しばらくしてから再試行してください。'
-  if (/quota|limit reached|exceeded/i.test(msg)) return '利用上限に達しました。Pro プランにアップグレードしてください。'
+// Translate common backend error strings into user-friendly localised
+// copy. Pattern table is locale-agnostic — message strings (HTTP/text
+// fragments) come from the backend or browser APIs and don't depend on
+// the user's UI language. Result strings come from the active locale.
+// Unmatched messages fall through to the original (visible to user is
+// preferable to silent dropping when something unexpected breaks).
+function translate(msg: string, T: Translations): string {
+  const E = T.errorToast
+  if (/HTTP 401|unauthorized|invalid token/i.test(msg)) return E.unauthorized
+  if (/HTTP 403/.test(msg)) return E.forbidden
+  if (/HTTP 429|rate.?limit/i.test(msg)) return E.rateLimit
+  if (/HTTP 5\d\d/.test(msg)) return E.server
+  if (/quota|limit reached|exceeded/i.test(msg)) return E.quotaExceeded
   if (/no audio (track|track in)|getusermedia|audio.+denied|permission.*audio|microphone/i.test(msg)) {
-    return '音声を取得できませんでした。動画に音声があるか、マイク権限を確認してください。'
+    return E.audioCapture
   }
-  if (/permission.*denied|notallowed/i.test(msg)) return '権限が拒否されました。ブラウザの設定を確認してください。'
-  if (/network|fetch|failed to fetch|net::err/i.test(msg)) return 'ネットワーク接続を確認してください。'
+  if (/permission.*denied|notallowed/i.test(msg)) return E.permission
+  if (/network|fetch|failed to fetch|net::err/i.test(msg)) return E.network
   if (/sign.?in cancelled|sign.?in failed|oauth.*cancel/i.test(msg)) {
-    return 'Google ログインがキャンセルされました。もう一度お試しください。'
+    return E.oauthCancelled
   }
-  if (/aborted|timeout/i.test(msg)) return 'タイムアウトしました。もう一度お試しください。'
+  if (/aborted|timeout/i.test(msg)) return E.timeout
   return msg
 }

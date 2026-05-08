@@ -284,6 +284,18 @@ export const en: Translations = {
     curate_in_progress: 'Another note generation is already in progress. Try again once it finishes.',
     fallback: 'Note generation failed. Try "📝 Regenerate notes" again.',
   },
+  errorToast: {
+    unauthorized: 'Your session has expired. Please sign in again.',
+    forbidden: "You don't have permission to do that.",
+    rateLimit: 'Too many requests. Please wait a moment and try again.',
+    server: 'A server error occurred. Please try again shortly.',
+    quotaExceeded: "You've hit your usage limit. Please upgrade to Pro.",
+    audioCapture: "Couldn't capture audio. Please check that the video has sound and that microphone permissions are granted.",
+    permission: 'Permission denied. Please check your browser settings.',
+    network: 'Please check your network connection.',
+    oauthCancelled: 'Google sign-in was cancelled. Please try again.',
+    timeout: 'The request timed out. Please try again.',
+  },
   errorBoundary: {
     title: 'Something went wrong in the modal',
     body: "An unexpected error stopped the UI. The recording itself may not be affected. Reloading should restore normal operation.",

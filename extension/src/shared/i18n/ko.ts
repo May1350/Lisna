@@ -284,6 +284,18 @@ export const ko: Translations = {
     curate_in_progress: '이미 노트를 만들고 있어요. 완료된 후 다시 시도해주세요.',
     fallback: '노트 생성에 실패했어요. 「📝 노트 재생성」을 눌러 다시 시도해주세요.',
   },
+  errorToast: {
+    unauthorized: '인증이 만료되었어요. 다시 로그인해주세요.',
+    forbidden: '접근 권한이 없습니다.',
+    rateLimit: '요청이 너무 많아요. 잠시 후 다시 시도해주세요.',
+    server: '서버 오류가 발생했어요. 잠시 후 다시 시도해주세요.',
+    quotaExceeded: '사용 한도에 도달했어요. Pro 플랜으로 업그레이드해주세요.',
+    audioCapture: '오디오를 가져올 수 없었어요. 영상에 소리가 있는지, 마이크 권한이 있는지 확인해주세요.',
+    permission: '권한이 거부되었어요. 브라우저 설정을 확인해주세요.',
+    network: '네트워크 연결을 확인해주세요.',
+    oauthCancelled: 'Google 로그인이 취소됐어요. 다시 시도해주세요.',
+    timeout: '시간이 초과됐어요. 다시 시도해주세요.',
+  },
   errorBoundary: {
     title: '모달에서 오류가 발생했어요',
     body: '예기치 않은 오류로 화면 표시가 중단되었습니다. 녹음 자체는 영향을 받지 않았을 수 있어요. 새로고침하면 정상 동작으로 돌아옵니다.',

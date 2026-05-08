@@ -316,6 +316,20 @@ export interface Translations {
     fallback: string                     // unknown reason fallback
   }
 
+  // ── ErrorToast translation map (regex match on backend message → friendly copy) ──
+  errorToast: {
+    unauthorized: string                  // HTTP 401 / unauthorized / invalid token
+    forbidden: string                     // HTTP 403
+    rateLimit: string                     // HTTP 429 / rate limit
+    server: string                        // HTTP 5xx
+    quotaExceeded: string                 // quota / limit reached / exceeded
+    audioCapture: string                  // no audio / getUserMedia / mic permission
+    permission: string                    // permission denied / NotAllowed
+    network: string                       // network / fetch / failed to fetch
+    oauthCancelled: string                // sign-in cancelled / oauth cancel
+    timeout: string                       // aborted / timeout
+  }
+
   // ── Error boundary ─────────────────────────────────────────────
   errorBoundary: {
     title: string
