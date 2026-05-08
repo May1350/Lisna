@@ -409,6 +409,14 @@ export function Options() {
             <span className="inline-block w-3 h-3 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin align-[-2px] mr-1.5" />
             {T.options.plan_loading}
           </p>
+        ) : !me.quota ? (
+          // Defense-in-depth: an older backend deploy (or a transient
+          // partial response) may return `{ user }` without the `quota`
+          // field. Without this guard PlanSection accesses
+          // `quota.used_secs` on undefined → React unmounts → blank
+          // page. Fall back to plan-only rendering so the rest of the
+          // Options surface stays usable.
+          <p className="text-sm text-gray-500">{T.options.plan_loading}</p>
         ) : (
           <PlanSection
             plan={me.user.plan}
