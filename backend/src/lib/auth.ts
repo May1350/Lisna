@@ -61,7 +61,8 @@ export async function verifyGoogleIdToken(idToken: string): Promise<{
  *      (the OAuth client it was issued for). Reject if it's not our client.
  *   2. userinfo gives us the actual user identity. tokeninfo doesn't return
  *      sub/email/name for access tokens, so we need this second call.
- * Worst case ~150 ms total (both calls in parallel-able if we cared).
+ * Both Google endpoints are independent — fired in parallel to halve
+ * latency (~150 ms serial → ~75 ms).
  */
 export async function verifyGoogleAccessToken(accessToken: string): Promise<{
   sub: string
@@ -69,9 +70,12 @@ export async function verifyGoogleAccessToken(accessToken: string): Promise<{
   name?: string
   email_verified?: boolean
 }> {
-  const tokenInfo = await fetch(
-    'https://oauth2.googleapis.com/tokeninfo?access_token=' + encodeURIComponent(accessToken),
-  )
+  const [tokenInfo, userInfo] = await Promise.all([
+    fetch('https://oauth2.googleapis.com/tokeninfo?access_token=' + encodeURIComponent(accessToken)),
+    fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }),
+  ])
   if (!tokenInfo.ok) throw new Error('Google tokeninfo failed: ' + tokenInfo.status)
   const ti = await tokenInfo.json() as Record<string, string>
   const expectedClient = process.env.GOOGLE_OAUTH_CLIENT_ID
@@ -83,9 +87,6 @@ export async function verifyGoogleAccessToken(accessToken: string): Promise<{
   if (expectedClient && !expectedClient.split(',').includes(ti.aud)) {
     throw new Error('Token aud mismatch')
   }
-  const userInfo = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  })
   if (!userInfo.ok) throw new Error('Google userinfo failed: ' + userInfo.status)
   const ui = await userInfo.json() as Record<string, string | boolean>
   if (ui.email_verified !== true && ui.email_verified !== 'true') {

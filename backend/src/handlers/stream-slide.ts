@@ -44,13 +44,15 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
 
   const urlHash = createHash('sha256').update(normalizeUrl(body.url)).digest('hex')
 
-  // Upsert session FIRST so the dedup read sees a consistent slides
-  // array even on a brand-new session (slides default to []).
-  const upserted = await query<{ id: string }>(
+  // Upsert session AND read existing slides in a single round-trip.
+  // RETURNING fires for both INSERT (slides defaults to []) and the
+  // ON CONFLICT branch, so we always get the canonical slides array
+  // back without a follow-up SELECT.
+  const upserted = await query<{ id: string; slides: SlideRow[] | null }>(
     `INSERT INTO sessions (id, user_id, url_hash, url_original)
      VALUES ($1, $2, $3, $4)
      ON CONFLICT (user_id, url_hash) DO UPDATE SET updated_at = NOW()
-     RETURNING id`,
+     RETURNING id, slides`,
     [body.session_id, payload.sub, urlHash, body.url]
   )
   const sessionId = upserted[0].id
@@ -60,11 +62,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   // and skip the WS broadcast (so the modal doesn't get a duplicate
   // entry). Legacy slides without a `hash` field never match — they
   // simply fail to dedup, which is the safer side (no false skips).
-  const existingRows = await query<{ slides: SlideRow[] | null }>(
-    `SELECT slides FROM sessions WHERE id = $1`,
-    [sessionId]
-  )
-  const existing = existingRows[0]?.slides ?? []
+  const existing = upserted[0].slides ?? []
   const dup = existing.find(s => s.hash === imgHash)
   if (dup) {
     const presignedUrl = await presignGet(dup.key)

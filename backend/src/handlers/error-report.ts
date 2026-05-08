@@ -31,6 +31,22 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     return { statusCode: 400, body: JSON.stringify({ error: 'message required' }) }
   }
 
+  // Hard-cap metadata size BEFORE logging — endpoint is unauthenticated, so
+  // arbitrary metadata could otherwise be used to flood CloudWatch and run
+  // up ingest cost. 4 KB serialised is generous for legitimate diagnostic
+  // payloads and well under the 256 KB log event limit.
+  if (report.metadata !== undefined) {
+    let serialised: string
+    try {
+      serialised = JSON.stringify(report.metadata)
+    } catch {
+      return { statusCode: 400, body: JSON.stringify({ error: 'metadata_too_large' }) }
+    }
+    if (serialised.length > 4096) {
+      return { statusCode: 400, body: JSON.stringify({ error: 'metadata_too_large' }) }
+    }
+  }
+
   // Truncate to keep CloudWatch log entries reasonable (max event size 256KB
   // but we never need anywhere near that; cap each field at sensible limits).
   const truncate = (s: string | undefined, max: number) =>

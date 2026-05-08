@@ -294,19 +294,25 @@ function deepLink(sourceUrl: string, ts: number): string {
 
 /** Auto-replaces occurrences of any term in `terms` with [[term]] in `text`,
  *  longest-first so "持続可能性" doesn't get broken into [[持続]]可能性 by a
- *  shorter match. Idempotent — won't double-link an already wikilinked term. */
+ *  shorter match. Idempotent — won't double-link an already wikilinked term.
+ *
+ *  Performance: builds a single combined alternation regex (sorted by length
+ *  DESC, since regex alternation is left-greedy this preserves longest-match
+ *  precedence) and walks the body in one pass instead of N passes for N
+ *  terms. */
 function autoLinkTerms(text: string, terms: string[]): string {
   if (!text || terms.length === 0) return escapeText(text)
-  const sorted = [...new Set(terms)].sort((a, b) => b.length - a.length)
-  let result = text
-  for (const t of sorted) {
-    if (!t || t.length < 2) continue
-    const escaped = t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    // Skip terms already wrapped in [[…]] to avoid double-bracket
-    const re = new RegExp(`(?<!\\[\\[)${escaped}(?!\\]\\])`, 'g')
-    result = result.replace(re, `[[${sanitiseWikilink(t)}]]`)
-  }
-  return result
+  const sorted = [...new Set(terms)]
+    .filter(t => t && t.length >= 2)
+    .sort((a, b) => b.length - a.length)
+  if (sorted.length === 0) return escapeText(text)
+  const escapedAlternatives = sorted.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  // Skip terms already wrapped in [[…]] to avoid double-bracket. The
+  // alternation is left-greedy in JS regex — sorted DESC by length means
+  // the longest viable match wins, identical to the per-term loop's
+  // longest-first ordering.
+  const combined = new RegExp(`(?<!\\[\\[)(?:${escapedAlternatives.join('|')})(?!\\]\\])`, 'g')
+  return text.replace(combined, (match) => `[[${sanitiseWikilink(match)}]]`)
 }
 
 /** Strip characters that would break Obsidian wikilink syntax. */
