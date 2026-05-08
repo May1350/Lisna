@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { subscribeToErrorToasts } from '../../shared/errors'
+import { useT } from '../../shared/i18n'
 
 interface Toast {
   id: number
@@ -14,19 +15,47 @@ let nextId = 1
  * Auto-dismiss: warnings 4 s, errors 8 s, fatals never (user dismisses).
  */
 export function ErrorToast() {
+  const T = useT()
   const [toasts, setToasts] = useState<Toast[]>([])
+  // Track each toast's auto-dismiss timer so we can:
+  //   1. clearTimeout all pending timers on unmount (no late
+  //      `setToasts` calls after the component is gone), and
+  //   2. clearTimeout the specific timer when the user manually
+  //      dismisses a toast (otherwise the now-redundant timer would
+  //      still fire and call setToasts post-removal).
+  const timersRef = useRef<Map<number, number>>(new Map())
+
+  // Helper: dismiss a toast by id, clearing its pending timer.
+  const dismissToast = (id: number) => {
+    const t = timersRef.current.get(id)
+    if (t !== undefined) {
+      window.clearTimeout(t)
+      timersRef.current.delete(id)
+    }
+    setToasts(prev => prev.filter(x => x.id !== id))
+  }
 
   useEffect(() => {
-    return subscribeToErrorToasts(({ message, severity }) => {
+    const unsubscribe = subscribeToErrorToasts(({ message, severity }) => {
       const id = nextId++
       setToasts(prev => [...prev, { id, message, severity }])
       const ttl = severity === 'fatal' ? 0 : severity === 'warning' ? 4000 : 8000
       if (ttl > 0) {
-        setTimeout(() => {
+        const handle = window.setTimeout(() => {
+          timersRef.current.delete(id)
           setToasts(prev => prev.filter(t => t.id !== id))
         }, ttl)
+        timersRef.current.set(id, handle)
       }
     })
+    return () => {
+      unsubscribe()
+      // Clear every still-pending timer so unmount can't trigger a
+      // setToasts on an unmounted component.
+      const timers = timersRef.current
+      for (const handle of timers.values()) window.clearTimeout(handle)
+      timers.clear()
+    }
   }, [])
 
   if (toasts.length === 0) return null
@@ -51,9 +80,9 @@ export function ErrorToast() {
             {translate(t.message)}
           </div>
           <button
-            onClick={() => setToasts(prev => prev.filter(x => x.id !== t.id))}
+            onClick={() => dismissToast(t.id)}
             className="opacity-60 hover:opacity-100 transition text-base leading-none px-1"
-            aria-label="閉じる"
+            aria-label={T.common.close}
           >
             ×
           </button>

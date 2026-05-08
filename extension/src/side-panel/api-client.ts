@@ -40,7 +40,12 @@ export interface LoginResult {
   currentSession: {
     id: string
     slides: SlideItem[]
-    outline: Outline | null
+    // Curated outline for this URL. Optional + nullable so older
+    // backend builds (and freshly-created sessions with no curate
+    // run yet) still parse without explicit casts. Hoisted into
+    // this type so callers don't need a `(x as { outline?: ... })`
+    // assertion to read it.
+    outline?: Outline | null
     // ISO 8601 last-update timestamp from the DB. Used to show the
     // real "X分前" on the outline indicator when the modal hydrates
     // a previously-curated session. Optional so older backend

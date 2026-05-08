@@ -279,13 +279,20 @@ export default function App() {
   const { isEmbed, parentUrl } = ctx
 
   useEffect(() => { void hasConsent().then(setConsented) }, [])
-  useEffect(() => { void getCurrentUser().then(setUser) }, [consented])
+  // Wait until the user has explicitly consented before fetching the
+  // session. Earlier deps `[consented]` made this re-run on every
+  // consented flip — including the initial null→false on a fresh
+  // user — issuing a needless AUTH_GET_USER round-trip and clobbering
+  // any in-flight setUser the login flow had just performed.
+  useEffect(() => {
+    if (consented !== true) return
+    void getCurrentUser().then(setUser)
+  }, [consented])
 
   // Keep the export-input ref in sync with the React state used by
-  // the auto-download path inside applyEvent.
-  useEffect(() => {
-    exportCtxRef.current = { parentUrl, sessionId, title, slides }
-  })
+  // the auto-download path inside applyEvent. Refs are commit-phase
+  // safe to write from the render body — no useEffect needed.
+  exportCtxRef.current = { parentUrl, sessionId, title, slides }
 
   // ON/OFF state — only meaningful in the side-panel (account) view, but we
   // load + subscribe regardless so the source of truth is storage.
@@ -666,9 +673,17 @@ export default function App() {
   // counter where it is. The next chunk's quota_update will resync
   // to the backend's authoritative value, so any tiny drift is
   // bounded by the ~10 s chunk cadence.
+  //
+  // Deps are [isCapturing, videoPlaying] only — we do NOT list
+  // liveRemainingSecs even though we read it. Listing it would tear
+  // down + rebuild the interval every second (since the state
+  // updates every tick), which is wasteful and races: the new
+  // setInterval starts ~0 ms after the previous tick fired, so the
+  // wall-clock cadence drifts. Instead we read the current value
+  // through the functional setter form, where `prev` is always the
+  // freshest state regardless of when the closure was created.
   useEffect(() => {
     if (!isCapturing || videoPlaying !== true) return
-    if (liveRemainingSecs === null || liveRemainingSecs <= 0) return
     const id = window.setInterval(() => {
       setLiveRemainingSecs(prev => {
         if (prev === null) return prev
@@ -676,7 +691,7 @@ export default function App() {
       })
     }, 1000)
     return () => window.clearInterval(id)
-  }, [isCapturing, videoPlaying, liveRemainingSecs])
+  }, [isCapturing, videoPlaying])
 
   // Watchdog for the `curating` flag. Defensive against ANY curate path
   // (manual modal click, content-script auto-trigger on session-end,
@@ -795,7 +810,7 @@ export default function App() {
             if (result.currentSession) {
               setSessionId(result.currentSession.id)
               setSlides(result.currentSession.slides ?? [])
-              const o = (result.currentSession as { outline?: Outline | null }).outline ?? null
+              const o = result.currentSession.outline ?? null
               setOutline(o)
               setOutlineUpdatedAt(
                 o && result.currentSession.updated_at
