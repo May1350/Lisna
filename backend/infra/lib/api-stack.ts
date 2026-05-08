@@ -229,6 +229,13 @@ export class ApiStack extends Stack {
     })
     props.dbSecret.grantRead(sessionGet)
     props.appSecret.grantRead(sessionGet)
+    // Required for presignGet — a presigned URL inherits the signing
+    // principal's IAM permissions. Without this grant the URL is
+    // syntactically valid but every browser GET against it returns 403
+    // because session-get's role lacks s3:GetObject. Symptom in the
+    // wild: existing notes' slide thumbnails all 403; zip export
+    // → "slide slide-XX-XX.jpg fetch 403".
+    props.bucket.grantRead(sessionGet)
 
     const sessionDelete = new NodejsFunction(this, 'SessDelFn', {
       entry: path.join(__dirname, '../../src/handlers/session-delete.ts'),
