@@ -39,14 +39,35 @@ interface TranscriptEntry { ts: number; text: string }
 export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   if (isWarmup(event)) return warmupResponse()
   await loadAppSecrets()
+  // Diagnostic: every non-warmup invocation logs ONE structured line so
+  // CloudWatch can answer "what reason did this call exit with?" without
+  // an extra deploy. Removed once the launch period stabilises — the
+  // logs aren't free, but at this stage observing real failure modes is
+  // worth more than the per-line cost. See follow-up issue for cleanup.
+  const reqId = event.requestContext?.requestId ?? 'no-rid'
+  const hasAuth = !!(event.headers.authorization || event.headers.Authorization)
+  console.log('[session-curate] entry', { reqId, hasAuth, bodyLen: (event.body ?? '').length })
   const auth = event.headers.authorization || event.headers.Authorization
-  if (!auth?.startsWith('Bearer ')) return { statusCode: 401, body: 'unauthorized' }
+  if (!auth?.startsWith('Bearer ')) {
+    console.log('[session-curate] exit', { reqId, status: 401, reason: 'no_bearer' })
+    return { statusCode: 401, body: 'unauthorized' }
+  }
 
   let payload
   try { payload = await verifyJwt(auth.slice(7)) }
-  catch { return { statusCode: 401, body: 'invalid token' } }
+  catch (e) {
+    console.log('[session-curate] exit', { reqId, status: 401, reason: 'jwt_invalid', err: e instanceof Error ? e.message : String(e) })
+    return { statusCode: 401, body: 'invalid token' }
+  }
 
-  const body = Body.parse(JSON.parse(event.body || '{}'))
+  let body: ReturnType<typeof Body.parse>
+  try {
+    body = Body.parse(JSON.parse(event.body || '{}'))
+  } catch (e) {
+    console.log('[session-curate] exit', { reqId, status: 400, reason: 'body_parse', err: e instanceof Error ? e.message : String(e) })
+    throw e
+  }
+  console.log('[session-curate] auth ok', { reqId, sub: payload.sub, sessionId: body.session_id, fullRewrite: !!body.full_rewrite })
 
   // Per-session curate lock (see migrations/003_curate_lock.sql).
   // Compare-and-swap on curate_lock_at: only acquire if either no
@@ -76,8 +97,10 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       [body.session_id, payload.sub],
     )
     if (owned.length === 0) {
+      console.log('[session-curate] exit', { reqId, status: 404, reason: 'session_not_found_or_wrong_owner' })
       return { statusCode: 404, body: JSON.stringify({ error: 'session not found' }) }
     }
+    console.log('[session-curate] exit', { reqId, status: 409, reason: 'lock_held' })
     return {
       statusCode: 409,
       headers: { 'Content-Type': 'application/json' },
@@ -97,9 +120,11 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     const transcripts = rows[0]?.transcripts ?? []
     const previousOutline = rows[0]?.outline ?? null
 
+    console.log('[session-curate] db read', { reqId, transcriptCount: transcripts.length, hasPrev: !!previousOutline })
     // Empty session — nothing to curate. Caller should retry once the
     // user has actually played some audio.
     if (transcripts.length === 0) {
+      console.log('[session-curate] exit', { reqId, status: 200, reason: 'no_transcripts_yet' })
       return {
         statusCode: 200,
         headers: { 'Content-Type': 'application/json' },
@@ -113,6 +138,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     // lectures the curator's own internal char-budget will still kick in
     // to stay under the LLM's TPM cap.)
     let outline: Outline
+    const t0 = Date.now()
     try {
       outline = await curateOutline({
         bucketedTranscript: transcripts,
@@ -121,7 +147,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       })
     } catch (e) {
       // eslint-disable-next-line no-console
-      console.error('[session-curate] curator failed:', e instanceof Error ? e.message : e)
+      console.error('[session-curate] curator failed:', { reqId, durationMs: Date.now() - t0, err: e instanceof Error ? e.message : e, stack: e instanceof Error ? e.stack : undefined })
       return {
         statusCode: 502,
         headers: { 'Content-Type': 'application/json' },
@@ -131,6 +157,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
         }),
       }
     }
+    console.log('[session-curate] curator ok', { reqId, durationMs: Date.now() - t0, sectionCount: outline.sections?.length ?? 0 })
 
     // Persist + broadcast.
     await query(
