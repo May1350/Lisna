@@ -9,6 +9,10 @@ import {
   Credentials,
 } from 'aws-cdk-lib/aws-rds'
 import { Secret } from 'aws-cdk-lib/aws-secretsmanager'
+import { Alarm, ComparisonOperator, TreatMissingData } from 'aws-cdk-lib/aws-cloudwatch'
+import { SnsAction } from 'aws-cdk-lib/aws-cloudwatch-actions'
+import { Topic } from 'aws-cdk-lib/aws-sns'
+import { EmailSubscription } from 'aws-cdk-lib/aws-sns-subscriptions'
 import type { Construct } from 'constructs'
 
 interface Props extends StackProps { vpc: Vpc }
@@ -70,13 +74,42 @@ export class DataStack extends Stack {
       securityGroups: [dbSg],
       allocatedStorage: 20,           // GB — within Free Tier
       maxAllocatedStorage: 100,       // auto-grow up to 100GB if needed (still cheap)
-      // Free Tier caps backup retention at 1 day. Bump to 7 once on a paid plan
-      // or after migrating to Aurora (which gets 35-day PITR included).
-      backupRetention: Duration.days(1),
+      // 7-day retention (~+$2/mo on 20 GB) is worth it now that we have
+      // paid users — 1 day was cutting things too close for "user emails
+      // on Tuesday about a problem from Friday" recovery scenarios.
+      backupRetention: Duration.days(7),
       deleteAutomatedBackups: true,
       removalPolicy: RemovalPolicy.DESTROY,
       publiclyAccessible: false,
       multiAz: false,                 // single-AZ for cost; flip to true before public launch
     })
+
+    // Standalone alerts topic for data-stack. ApiStack owns its own
+    // 'lisna-alerts' topic, but DataStack is created BEFORE ApiStack in
+    // bin/app.ts — passing the api-stack topic as a prop would create a
+    // CloudFormation dependency cycle (Api → Data already exists via
+    // dbSecret + bucket grants). Two topics is the clean fix; both
+    // subscribe the same on-call email so the operator UX is unchanged.
+    const alertEmail = process.env.LISNA_ALERT_EMAIL ?? 'takgun.jr@gmail.com'
+    const dataAlertsTopic = new Topic(this, 'DataAlertsTopic', {
+      topicName: 'lisna-data-alerts',
+      displayName: 'Lisna Data Alerts',
+    })
+    dataAlertsTopic.addSubscription(new EmailSubscription(alertEmail))
+
+    // FreeStorageSpace ≤ 2 GiB. RDS auto-scales storage up to
+    // maxAllocatedStorage, but the scale-up takes minutes and a fully
+    // saturated disk wedges Postgres before that completes. 2 GiB headroom
+    // is a comfortable warning threshold at 20 GiB allocated.
+    const lowStorageAlarm = new Alarm(this, 'DbLowStorageAlarm', {
+      alarmName: 'lisna-rds-low-storage',
+      alarmDescription: 'RDS FreeStorageSpace ≤ 2 GiB — provision more storage or investigate growth.',
+      metric: this.db.metric('FreeStorageSpace', { period: Duration.minutes(5), statistic: 'Average' }),
+      threshold: 2 * 1024 * 1024 * 1024, // 2 GiB in bytes
+      evaluationPeriods: 1,
+      comparisonOperator: ComparisonOperator.LESS_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: TreatMissingData.NOT_BREACHING,
+    })
+    lowStorageAlarm.addAlarmAction(new SnsAction(dataAlertsTopic))
   }
 }

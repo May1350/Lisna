@@ -7,7 +7,7 @@ import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam'
 import { Alarm, ComparisonOperator, TreatMissingData, Metric } from 'aws-cdk-lib/aws-cloudwatch'
 import { SnsAction } from 'aws-cdk-lib/aws-cloudwatch-actions'
-import { MetricFilter, FilterPattern } from 'aws-cdk-lib/aws-logs'
+import { MetricFilter, FilterPattern, RetentionDays } from 'aws-cdk-lib/aws-logs'
 import { Topic } from 'aws-cdk-lib/aws-sns'
 import { EmailSubscription } from 'aws-cdk-lib/aws-sns-subscriptions'
 import { CfnBudget } from 'aws-cdk-lib/aws-budgets'
@@ -47,6 +47,7 @@ export class ApiStack extends Stack {
       runtime: Runtime.NODEJS_20_X,
       timeout: Duration.seconds(5),
       environment: commonEnv,
+      logRetention: RetentionDays.ONE_MONTH,
     })
 
     // DB SG already permits VPC CIDR ingress on 5432 (see data-stack.ts).
@@ -62,6 +63,7 @@ export class ApiStack extends Stack {
       timeout: Duration.seconds(10),
       environment: commonEnv,
       vpc: props.vpc,
+      logRetention: RetentionDays.ONE_MONTH,
     })
     props.dbSecret.grantRead(authGoogle)
     props.appSecret.grantRead(authGoogle)
@@ -72,13 +74,24 @@ export class ApiStack extends Stack {
       timeout: Duration.seconds(5),
       environment: commonEnv,
       vpc: props.vpc,
+      logRetention: RetentionDays.ONE_MONTH,
     })
     props.dbSecret.grantRead(authMe)
     props.appSecret.grantRead(authMe)
 
     const api = new HttpApi(this, 'HttpApi', {
       corsPreflight: {
-        allowOrigins: ['*'],
+        // Tightened from '*' so a malicious site cannot have a logged-in
+        // user's browser issue authenticated requests on its behalf.
+        // Sources of these IDs:
+        //   - chrome-extension://… is the production CRX ID derived from
+        //     manifest.config.ts `key:` (deterministic per public key).
+        //   - https://lisna-may1350s-projects.vercel.app is the marketing
+        //     site, listed as `homepage_url` in the same manifest.
+        allowOrigins: [
+          'chrome-extension://idbgminbpkbiippdncoooeelijagfggp',
+          'https://lisna-may1350s-projects.vercel.app',
+        ],
         allowMethods: [CorsHttpMethod.GET, CorsHttpMethod.POST, CorsHttpMethod.DELETE, CorsHttpMethod.OPTIONS],
         allowHeaders: ['Content-Type', 'Authorization'],
       },
@@ -106,15 +119,20 @@ export class ApiStack extends Stack {
     const streamAudio = new NodejsFunction(this, 'StreamAudioFn', {
       entry: path.join(__dirname, '../../src/handlers/stream-audio.ts'),
       runtime: Runtime.NODEJS_20_X,
-      // Curator runs in this Lambda. GPT-5 family models are reasoning
-      // models — a single full-fixture call took ~105 s in eval. Even
-      // chunk-sized rolling-mode runs can exceed 60 s when the API Gateway
-      // is heavily loaded. 5 min gives us plenty of margin without burning
-      // money on idle: Lambda only bills for actual execution time.
-      timeout: Duration.minutes(5),
+      // Curator was pulled out into session-curate (Phase 6.1), so this
+      // Lambda is now just per-chunk Whisper STT + transcript broadcast.
+      // 90 s is comfortable headroom: a single chunk's STT typically runs
+      // 5–15 s; 90 s covers tail latency under API-Gateway load without
+      // letting a runaway request hold a Lambda slot for 5 minutes.
+      timeout: Duration.seconds(90),
       memorySize: 1024,
+      // Cap concurrent executions so a retry storm (extension reconnect
+      // loop, Whisper 5xx bursts) cannot blow through the account-level
+      // Lambda concurrency budget and starve other handlers.
+      reservedConcurrentExecutions: 20,
       environment: { ...commonEnv, WS_ENDPOINT: wsEndpoint },
       vpc: props.vpc,
+      logRetention: RetentionDays.ONE_MONTH,
     })
     props.dbSecret.grantRead(streamAudio)
     props.appSecret.grantRead(streamAudio)
@@ -127,6 +145,7 @@ export class ApiStack extends Stack {
       memorySize: 512,
       environment: { ...commonEnv, WS_ENDPOINT: wsEndpoint },
       vpc: props.vpc,
+      logRetention: RetentionDays.ONE_MONTH,
     })
     props.dbSecret.grantRead(streamSlide)
     props.appSecret.grantRead(streamSlide)
@@ -164,12 +183,18 @@ export class ApiStack extends Stack {
     const sessionCurate = new NodejsFunction(this, 'SessCurateFn', {
       entry: path.join(__dirname, '../../src/handlers/session-curate.ts'),
       runtime: Runtime.NODEJS_20_X,
-      // Same 5 min ceiling as stream-audio — GPT-5 nano is a reasoning
-      // model and a single full-transcript call can stretch to ~100 s.
+      // 5 min ceiling because the curator legitimately runs that long —
+      // GPT-5 nano is a reasoning model and a single full-transcript call
+      // can stretch to ~100 s on long sessions.
       timeout: Duration.minutes(5),
       memorySize: 1024,
+      // Cap concurrency: each invocation holds an OpenAI/Anthropic call
+      // for ~1–2 min, so 10 in-flight is enough headroom while keeping
+      // a runaway burst from exhausting the upstream LLM rate limit.
+      reservedConcurrentExecutions: 10,
       environment: { ...commonEnv, WS_ENDPOINT: wsEndpoint },
       vpc: props.vpc,
+      logRetention: RetentionDays.ONE_MONTH,
     })
     props.dbSecret.grantRead(sessionCurate)
     props.appSecret.grantRead(sessionCurate)
@@ -214,6 +239,7 @@ export class ApiStack extends Stack {
       timeout: Duration.seconds(10),
       environment: commonEnv,
       vpc: props.vpc,
+      logRetention: RetentionDays.ONE_MONTH,
     })
     props.dbSecret.grantRead(sessionGet)
     props.appSecret.grantRead(sessionGet)
@@ -231,6 +257,7 @@ export class ApiStack extends Stack {
       timeout: Duration.seconds(10),
       environment: commonEnv,
       vpc: props.vpc,
+      logRetention: RetentionDays.ONE_MONTH,
     })
     props.dbSecret.grantRead(sessionDelete)
     props.appSecret.grantRead(sessionDelete)
@@ -253,6 +280,7 @@ export class ApiStack extends Stack {
       timeout: Duration.seconds(15),
       environment: commonEnv,
       vpc: props.vpc,
+      logRetention: RetentionDays.ONE_MONTH,
     })
     props.dbSecret.grantRead(stripeCheckout)
     props.appSecret.grantRead(stripeCheckout)
@@ -260,9 +288,13 @@ export class ApiStack extends Stack {
     const stripeWebhook = new NodejsFunction(this, 'StripeWebhookFn', {
       entry: path.join(__dirname, '../../src/handlers/stripe-webhook.ts'),
       runtime: Runtime.NODEJS_20_X,
-      timeout: Duration.seconds(15),
+      // 30 s — Stripe signature verification + DB write through the NAT
+      // Gateway can race the previous 15 s budget under cold-start +
+      // NAT contention, and a missed webhook means a missed billing event.
+      timeout: Duration.seconds(30),
       environment: commonEnv,
       vpc: props.vpc,
+      logRetention: RetentionDays.ONE_MONTH,
     })
     props.dbSecret.grantRead(stripeWebhook)
     props.appSecret.grantRead(stripeWebhook)
@@ -289,6 +321,7 @@ export class ApiStack extends Stack {
       runtime: Runtime.NODEJS_20_X,
       timeout: Duration.seconds(5),
       memorySize: 256,
+      logRetention: RetentionDays.ONE_MONTH,
     })
     api.addRoutes({
       path: '/v1/errors',
@@ -336,6 +369,67 @@ export class ApiStack extends Stack {
       treatMissingData: TreatMissingData.NOT_BREACHING,
     })
     fatalAlarm.addAlarmAction(new SnsAction(alertsTopic))
+
+    // ── Per-Lambda error-rate alarms ───────────────────────────────────────
+    // Lambda.metricErrors() counts handler invocations that returned a
+    // non-2xx (uncaught throw, OOM, timeout). A handful of errors in a
+    // 5-min window is a real signal — these handlers are on the hot path
+    // for STT, note generation, and billing.
+    const streamAudioErrorAlarm = new Alarm(this, 'StreamAudioErrorAlarm', {
+      alarmName: 'lisna-stream-audio-errors',
+      alarmDescription: 'StreamAudio Lambda errors ≥ 3 in 5 min — STT pipeline degraded.',
+      metric: streamAudio.metricErrors({ period: Duration.minutes(5), statistic: 'Sum' }),
+      threshold: 3,
+      evaluationPeriods: 1,
+      comparisonOperator: ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: TreatMissingData.NOT_BREACHING,
+    })
+    streamAudioErrorAlarm.addAlarmAction(new SnsAction(alertsTopic))
+
+    const sessionCurateErrorAlarm = new Alarm(this, 'SessionCurateErrorAlarm', {
+      alarmName: 'lisna-session-curate-errors',
+      alarmDescription: 'SessionCurate Lambda errors ≥ 3 in 5 min — note generation broken.',
+      metric: sessionCurate.metricErrors({ period: Duration.minutes(5), statistic: 'Sum' }),
+      threshold: 3,
+      evaluationPeriods: 1,
+      comparisonOperator: ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: TreatMissingData.NOT_BREACHING,
+    })
+    sessionCurateErrorAlarm.addAlarmAction(new SnsAction(alertsTopic))
+
+    // Stripe webhook: any error matters — a dropped event means a missed
+    // subscription state transition (charge succeeded / cancelled / refunded).
+    const stripeWebhookErrorAlarm = new Alarm(this, 'StripeWebhookErrorAlarm', {
+      alarmName: 'lisna-stripe-webhook-errors',
+      alarmDescription: 'StripeWebhook Lambda errors ≥ 1 in 5 min — billing event may be lost.',
+      metric: stripeWebhook.metricErrors({ period: Duration.minutes(5), statistic: 'Sum' }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator: ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: TreatMissingData.NOT_BREACHING,
+    })
+    stripeWebhookErrorAlarm.addAlarmAction(new SnsAction(alertsTopic))
+
+    // API Gateway 5xx: catches integration timeouts (HTTP API's 30 s ceiling)
+    // and Lambda permission errors that never even reach the handler.
+    // Using the raw CloudWatch metric since HttpApi.metricServerError() is
+    // not exposed on aws-cdk-lib's CfnApi-based HttpApi construct in 2.251.
+    const apiGw5xxAlarm = new Alarm(this, 'ApiGateway5xxAlarm', {
+      alarmName: 'lisna-apigw-5xx',
+      alarmDescription: 'API Gateway 5xx ≥ 5 in 5 min — upstream Lambda or integration failing.',
+      metric: new Metric({
+        namespace: 'AWS/ApiGateway',
+        metricName: '5xx',
+        dimensionsMap: { ApiId: api.apiId },
+        statistic: 'Sum',
+        period: Duration.minutes(5),
+      }),
+      threshold: 5,
+      evaluationPeriods: 1,
+      comparisonOperator: ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: TreatMissingData.NOT_BREACHING,
+    })
+    apiGw5xxAlarm.addAlarmAction(new SnsAction(alertsTopic))
 
     // ── AWS Budgets: monthly cost cap with early-warning thresholds ────────
     // Two notifications: 80 % (warning, "we're trending hot") and 100 %
