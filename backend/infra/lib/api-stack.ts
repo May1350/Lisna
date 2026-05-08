@@ -276,10 +276,30 @@ export class ApiStack extends Stack {
     props.dbSecret.grantRead(sessionDelete)
     props.appSecret.grantRead(sessionDelete)
 
+    // GET /v1/sessions — recent-session list for the side-panel
+    // SessionHistory component. Read-only single-SELECT, no S3 access
+    // needed (the row carries url + title + counts; thumbnails are
+    // fetched lazily via /v1/session?url=…).
+    const sessionList = new NodejsFunction(this, 'SessListFn', {
+      entry: path.join(__dirname, '../../src/handlers/sessions-list.ts'),
+      runtime: Runtime.NODEJS_20_X,
+      timeout: Duration.seconds(10),
+      environment: commonEnv,
+      vpc: props.vpc,
+      logRetention: RetentionDays.ONE_MONTH,
+    })
+    props.dbSecret.grantRead(sessionList)
+    props.appSecret.grantRead(sessionList)
+
     api.addRoutes({
       path: '/v1/session',
       methods: [HttpMethod.GET],
       integration: new HttpLambdaIntegration('SGInt', sessionGet),
+    })
+    api.addRoutes({
+      path: '/v1/sessions',
+      methods: [HttpMethod.GET],
+      integration: new HttpLambdaIntegration('SLInt', sessionList),
     })
     api.addRoutes({
       path: '/v1/session/{id}',
