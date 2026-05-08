@@ -12,8 +12,13 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   }
   try {
     const payload = await verifyJwt(auth.slice(7))
-    const rows = await query<{ id: string; email: string; display_name: string; plan: Plan }>(
-      `SELECT id, email, display_name, plan FROM users WHERE id = $1`, [payload.sub]
+    // Alias display_name → name in the SQL so the response shape matches
+    // the extension's User type (`{id, email, name?, plan}`). Without
+    // this, the side-panel avatar + Options identity card would render
+    // `user.name` as undefined for /v1/auth/me payloads — the Pro user
+    // would see a placeholder initial instead of their actual name.
+    const rows = await query<{ id: string; email: string; name: string; plan: Plan }>(
+      `SELECT id, email, display_name AS name, plan FROM users WHERE id = $1`, [payload.sub]
     )
     if (rows.length === 0) {
       return { statusCode: 404, body: JSON.stringify({ error: 'user not found' }) }
