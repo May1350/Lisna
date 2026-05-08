@@ -1,5 +1,5 @@
 import { setToken, setUser, getToken } from '../shared/storage'
-import type { User, NoteItem, SlideItem } from '../shared/types'
+import type { User, SlideItem } from '../shared/types'
 import { API_BASE_URL } from '../shared/config'
 
 // Outline shape mirrors backend/src/lib/curator.ts. Inline rather than imported
@@ -36,9 +36,10 @@ export interface LoginResult {
   user: User
   currentSession: {
     id: string
-    notes: NoteItem[]
     slides: SlideItem[]
     outline: OutlineShape | null
+    // Legacy `notes` field is still in the backend response shape but
+    // unused since Phase 6.1 — see api-client.ts for the rationale.
   } | null
 }
 
@@ -85,7 +86,6 @@ export async function loginWithGoogle(currentUrl?: string): Promise<LoginResult>
     user: User
     currentSession: {
       id: string
-      notes: NoteItem[]
       slides: SlideItem[]
       outline: OutlineShape | null
     } | null
@@ -100,10 +100,18 @@ export async function logout(): Promise<void> {
   await setUser(null)
 }
 
-export async function authedFetch(path: string, init: RequestInit = {}): Promise<Response> {
+export async function authedFetch(
+  path: string,
+  init: RequestInit = {},
+  absoluteUrl?: string,
+): Promise<Response> {
   const token = await getToken()
   const headers = new Headers(init.headers)
   if (token) headers.set('Authorization', `Bearer ${token}`)
   if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
-  return fetch(`${API_BASE_URL}${path}`, { ...init, headers })
+  // When the caller passes a full URL we use it verbatim — needed for
+  // Lambda Function URLs (e.g. /v1/session/curate) that live outside
+  // API Gateway. Otherwise prepend API_BASE_URL to the path as before.
+  const url = absoluteUrl || `${API_BASE_URL}${path}`
+  return fetch(url, { ...init, headers })
 }

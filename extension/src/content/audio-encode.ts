@@ -1,46 +1,18 @@
-// WebM/Opus → WAV(PCM 16-bit mono 16kHz) converter.
+// WAV (PCM 16-bit mono 16kHz) encoding helpers used by audio-capture.ts.
 //
-// Why we do this client-side: Groq's Whisper endpoint runs the audio through
-// ffmpeg, and MediaRecorder-produced WebM fragments (especially after our
-// stop()/start() chunking pattern) trigger "could not process file" 400s on
-// Groq even though OpenAI's gpt-4o-mini-transcribe accepted them. WAV is
-// universally parseable — no demuxer ambiguity. Whisper internally resamples
-// everything to 16 kHz mono, so encoding to that target now also reduces
-// bandwidth (15 s WAV @ 16 kHz mono 16-bit ≈ 480 KB; we were sending 240 KB
-// Opus, so ~2× bandwidth — still well within Groq's 25 MB/file limit).
-//
-// Decoding via AudioContext.decodeAudioData is robust: if it CAN'T decode the
-// WebM blob, that's an early signal the chunk itself is malformed and no STT
-// would have accepted it anyway, so we surface the error instead of silently
-// dropping.
+// History: this file used to also export `webmBlobToWav` for converting
+// MediaRecorder WebM/Opus blobs into WAV. The current capture path
+// (audio-capture.ts) feeds the AudioContext directly via Web Audio's
+// ScriptProcessor — no WebM ever exists — so the WebM→WAV converter
+// was deleted along with `audioCtx()`. Only `downmixAndResample` and
+// `encodeWavBlob` remain because audio-capture still wraps its raw
+// Float32 PCM in `AudioBufferLike` and pipes it through these
+// functions to produce the final WAV blob the backend expects.
 
-const TARGET_SAMPLE_RATE = 16000  // Whisper's native rate
-const TARGET_CHANNELS = 1         // mono
-
-let _ctx: AudioContext | null = null
-function audioCtx(): AudioContext {
-  // Reuse a single AudioContext for the lifetime of capture — creating one
-  // per chunk is wasteful and can hit the per-page AudioContext cap (Chrome
-  // limits to ~6 simultaneously alive contexts).
-  if (!_ctx || _ctx.state === 'closed') {
-    _ctx = new AudioContext()
-  }
-  return _ctx
-}
-
-export async function webmBlobToWav(webm: Blob): Promise<Blob> {
-  const buf = await webm.arrayBuffer()
-  // decodeAudioData mutates / detaches the buffer, so pass a fresh copy if
-  // we're going to retain the original anywhere. Here we don't, so just pass.
-  const audioBuf = await audioCtx().decodeAudioData(buf)
-  const mono16k = downmixAndResample(audioBuf, TARGET_SAMPLE_RATE, TARGET_CHANNELS)
-  return encodeWavBlob(mono16k, TARGET_SAMPLE_RATE, TARGET_CHANNELS)
-}
-
-// Minimal AudioBuffer-shaped interface so callers can pass either a real
-// AudioBuffer (the WebM-decode path) or a thin wrapper around a raw
-// Float32Array (the continuous-capture path in audio-capture.ts) without
-// allocating a fresh AudioBuffer just to get resampled.
+// Minimal AudioBuffer-shaped interface so callers can pass a thin
+// wrapper around a raw Float32Array (the continuous-capture path in
+// audio-capture.ts) without allocating a fresh real AudioBuffer just
+// to get resampled.
 export interface AudioBufferLike {
   length: number
   numberOfChannels: number

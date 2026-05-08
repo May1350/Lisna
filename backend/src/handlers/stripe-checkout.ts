@@ -26,12 +26,15 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     await query(`UPDATE users SET stripe_customer_id = $1 WHERE id = $2`, [customerId, payload.sub])
   }
 
+  // Read the public-facing site root from env. Set in CDK as
+  // PUBLIC_WEB_BASE_URL (commonEnv) so success/cancel pages are reachable.
+  const baseUrl = process.env.PUBLIC_WEB_BASE_URL ?? 'https://lisna-may1350s-projects.vercel.app'
   const session = await stripe.checkout.sessions.create({
     mode: 'subscription',
     customer: customerId,
     line_items: [{ price: process.env.STRIPE_PRICE_PRO, quantity: 1 }],
-    success_url: 'https://study-helper.example.com/success?session_id={CHECKOUT_SESSION_ID}',
-    cancel_url: 'https://study-helper.example.com/cancel',
+    success_url: `${baseUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${baseUrl}/cancel`,
     locale: 'ja',
     client_reference_id: payload.sub,
   })

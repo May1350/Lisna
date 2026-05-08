@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useT } from '../../shared/i18n'
 
 const SPEEDS = [1, 1.5, 2, 2.5, 3, 4] as const
 
@@ -8,6 +9,7 @@ interface Props {
 }
 
 export function SpeedSelector({ current, onChange }: Props) {
+  const T = useT()
   const [open, setOpen] = useState(false)
   return (
     <div className="relative">
@@ -15,7 +17,7 @@ export function SpeedSelector({ current, onChange }: Props) {
         type="button"
         onClick={() => setOpen(!open)}
         className="px-2 py-1 text-xs font-semibold rounded-md bg-gray-100 hover:bg-gray-200 text-gray-800 min-w-[40px]"
-        title="再生速度"
+        title={T.speed.selectorTitle}
       >
         {current}×
       </button>

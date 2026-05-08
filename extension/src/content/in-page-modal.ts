@@ -24,9 +24,20 @@ const STYLE_ID = '__sh_modal_style__'
 const RECT_KEY = 'sh.modalRect'
 const MIN_W = 280
 const MIN_H = 320
-const DEFAULT_W = 400
-const DEFAULT_H = 600
 const MARGIN = 20
+
+// Default modal size — adaptive to the viewport so the modal feels
+// proportional on a 1280×800 laptop AND on a 4K desktop. Previously a
+// fixed 400×600 looked tiny on big monitors and crowded on small ones.
+// Capped at sensible upper bounds so the modal never dominates the
+// page (a too-large modal hides the video the user is trying to study).
+function computeDefaultSize(): { w: number; h: number } {
+  const vw = window.innerWidth
+  const vh = window.innerHeight
+  const w = Math.max(MIN_W, Math.min(Math.round(vw * 0.32), 480))
+  const h = Math.max(MIN_H, Math.min(Math.round(vh * 0.85), 760))
+  return { w, h }
+}
 
 interface SavedRect {
   top: number
@@ -151,6 +162,15 @@ interface ResizeState {
 export interface MountModalOptions {
   onClose: () => void
   onSetSpeed?: (speed: number) => void
+  // The URL the audio/slide chunks were uploaded with. The modal uses
+  // it as the ?url= key on /v1/session lookups (live outline pull,
+  // markdown export). MUST match the URL used by the capture frame —
+  // on K-LMS / Vimeo / Canvas Studio the capture lives in a child
+  // iframe so its location.href differs from the top frame's. If the
+  // top frame mounts the modal with its own URL the export 404s
+  // because no session exists at that url_hash. Defaults to
+  // `location.href` for the same-frame (YouTube etc.) case.
+  parentUrl?: string
 }
 
 interface ModalContainerExtras {
@@ -177,8 +197,9 @@ export function mountModal(opts: MountModalOptions): void {
   const viewportW = window.innerWidth
   const viewportH = window.innerHeight
 
-  const width = clamp(saved?.width ?? DEFAULT_W, MIN_W, Math.max(MIN_W, viewportW))
-  const height = clamp(saved?.height ?? DEFAULT_H, MIN_H, Math.max(MIN_H, viewportH))
+  const defaults = computeDefaultSize()
+  const width = clamp(saved?.width ?? defaults.w, MIN_W, Math.max(MIN_W, viewportW))
+  const height = clamp(saved?.height ?? defaults.h, MIN_H, Math.max(MIN_H, viewportH))
   const defaultLeft = Math.max(MARGIN, viewportW - width - MARGIN)
   const defaultTop = MARGIN
   const top = clamp(saved?.top ?? defaultTop, 0, Math.max(0, viewportH - height))
@@ -199,8 +220,9 @@ export function mountModal(opts: MountModalOptions): void {
 
   const iframe = document.createElement('iframe')
   iframe.id = IFRAME_ID
+  const captureUrl = opts.parentUrl ?? location.href
   const url = chrome.runtime.getURL('src/side-panel/index.html')
-    + `?embed=1&parentUrl=${encodeURIComponent(location.href)}`
+    + `?embed=1&parentUrl=${encodeURIComponent(captureUrl)}`
   iframe.src = url
 
   const resizeHandle = document.createElement('div')

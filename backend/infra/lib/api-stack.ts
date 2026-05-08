@@ -5,6 +5,12 @@ import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs'
 import { HttpApi, HttpMethod, CorsHttpMethod } from 'aws-cdk-lib/aws-apigatewayv2'
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations'
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam'
+import { Alarm, ComparisonOperator, TreatMissingData, Metric } from 'aws-cdk-lib/aws-cloudwatch'
+import { SnsAction } from 'aws-cdk-lib/aws-cloudwatch-actions'
+import { MetricFilter, FilterPattern } from 'aws-cdk-lib/aws-logs'
+import { Topic } from 'aws-cdk-lib/aws-sns'
+import { EmailSubscription } from 'aws-cdk-lib/aws-sns-subscriptions'
+import { CfnBudget } from 'aws-cdk-lib/aws-budgets'
 import type { DatabaseInstance } from 'aws-cdk-lib/aws-rds'
 import type { Bucket } from 'aws-cdk-lib/aws-s3'
 import type { Secret } from 'aws-cdk-lib/aws-secretsmanager'
@@ -255,6 +261,99 @@ export class ApiStack extends Stack {
       integration: new HttpLambdaIntegration('SWInt', stripeWebhook),
     })
 
+    // ── Client error reporting (POST /v1/errors) ───────────────────────────
+    // No auth: errors must report even when login itself fails. Logs to
+    // CloudWatch only — no DB. Use CloudWatch Insights to query by severity:
+    //   fields @timestamp, @message
+    //   | filter type = "CLIENT_ERROR" and severity = "fatal"
+    //   | sort @timestamp desc
+    const errorReport = new NodejsFunction(this, 'ErrorReportFn', {
+      entry: path.join(__dirname, '../../src/handlers/error-report.ts'),
+      runtime: Runtime.NODEJS_20_X,
+      timeout: Duration.seconds(5),
+      memorySize: 256,
+    })
+    api.addRoutes({
+      path: '/v1/errors',
+      methods: [HttpMethod.POST],
+      integration: new HttpLambdaIntegration('ErrInt', errorReport),
+    })
+
+    // ── Operational alerting: SNS topic + email subscription ───────────────
+    // Single topic shared by every alarm in the stack. Email subscribers
+    // must click the AWS confirmation link (sent right after first deploy)
+    // before they actually receive notifications — this is enforced by SNS
+    // and not something CDK can shortcut.
+    const alertEmail = process.env.LISNA_ALERT_EMAIL ?? 'takgun.jr@gmail.com'
+    const alertsTopic = new Topic(this, 'AlertsTopic', {
+      topicName: 'lisna-alerts',
+      displayName: 'Lisna Alerts',
+    })
+    alertsTopic.addSubscription(new EmailSubscription(alertEmail))
+
+    // ── CloudWatch alarm: fatal client errors spike ────────────────────────
+    // Counts log lines with severity = "fatal" emitted by error-report
+    // Lambda. Alarm fires when ≥ 5 fatals occur in any 10-min window — a
+    // smoke signal for "something just broke for many users at once".
+    const fatalErrorMetric = new MetricFilter(this, 'FatalClientErrorFilter', {
+      logGroup: errorReport.logGroup,
+      metricNamespace: 'Lisna/ClientErrors',
+      metricName: 'FatalCount',
+      filterPattern: FilterPattern.stringValue('$.severity', '=', 'fatal'),
+      metricValue: '1',
+      defaultValue: 0,
+    })
+    void fatalErrorMetric
+    const fatalAlarm = new Alarm(this, 'FatalClientErrorAlarm', {
+      alarmName: 'lisna-fatal-client-errors',
+      alarmDescription: 'Triggered when ≥5 fatal client errors are reported within any 10-minute window.',
+      metric: new Metric({
+        namespace: 'Lisna/ClientErrors',
+        metricName: 'FatalCount',
+        statistic: 'Sum',
+        period: Duration.minutes(10),
+      }),
+      threshold: 5,
+      evaluationPeriods: 1,
+      comparisonOperator: ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: TreatMissingData.NOT_BREACHING,
+    })
+    fatalAlarm.addAlarmAction(new SnsAction(alertsTopic))
+
+    // ── AWS Budgets: monthly cost cap with early-warning thresholds ────────
+    // Two notifications: 80 % (warning, "we're trending hot") and 100 %
+    // (actual breach). Both go to the same email — SNS can't be a target
+    // for Budgets directly, so this is its own subscription channel.
+    new CfnBudget(this, 'MonthlyCostBudget', {
+      budget: {
+        budgetName: 'lisna-monthly-cost',
+        budgetLimit: { amount: 50, unit: 'USD' },
+        timeUnit: 'MONTHLY',
+        budgetType: 'COST',
+      },
+      notificationsWithSubscribers: [
+        {
+          notification: {
+            comparisonOperator: 'GREATER_THAN',
+            notificationType: 'ACTUAL',
+            threshold: 80,
+            thresholdType: 'PERCENTAGE',
+          },
+          subscribers: [{ subscriptionType: 'EMAIL', address: alertEmail }],
+        },
+        {
+          notification: {
+            comparisonOperator: 'GREATER_THAN',
+            notificationType: 'ACTUAL',
+            threshold: 100,
+            thresholdType: 'PERCENTAGE',
+          },
+          subscribers: [{ subscriptionType: 'EMAIL', address: alertEmail }],
+        },
+      ],
+    })
+
     new CfnOutput(this, 'ApiUrl', { value: api.apiEndpoint })
+    new CfnOutput(this, 'AlertsTopicArn', { value: alertsTopic.topicArn })
   }
 }
