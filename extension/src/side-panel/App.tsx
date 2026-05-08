@@ -193,7 +193,7 @@ export default function App() {
   // OutlineView itself (see serverUpdatedAt prop semantics there).
   // null means "no DB record / hydrating" — OutlineView falls through
   // to Date.now() for the first content arrival in that case.
-  const [serverOutlineUpdatedAt, setServerOutlineUpdatedAt] = useState<number | null>(null)
+  const [outlineUpdatedAt, setOutlineUpdatedAt] = useState<number | null>(null)
   const [slides, setSlides] = useState<SlideItem[]>([])
   // Live transcript items (streamed from /v1/stream/audio's STT step before
   // LLM finishes). Bounded ring buffer — we only keep the last ~30 chunks
@@ -374,7 +374,7 @@ export default function App() {
           // Brand new session — wipe DB-backed state.
           setSlides([])
           setOutline(null)
-          setServerOutlineUpdatedAt(null)
+          setOutlineUpdatedAt(null)
           setCurating(false)
         }
         return
@@ -406,6 +406,13 @@ export default function App() {
         // runs can outlive an idle WS connection). Idempotent —
         // overwrites with the latest outline.
         setOutline(p.outline)
+        // Stamp the indicator clock to NOW: the curator just produced
+        // this outline, regardless of whether the JSON happened to
+        // match a previous version (e.g. user clicked regenerate
+        // without new content). Without this the OutlineView's
+        // content-diff guard would early-return and the timestamp
+        // would stay stuck on the hydrate value (3시간 전 etc).
+        setOutlineUpdatedAt(Date.now())
         // Update the export filename to match the curated lecture
         // topic. Empty / whitespace-only titles fall back to the
         // generic placeholder — better than naming a file ".zip".
@@ -550,9 +557,19 @@ export default function App() {
           setSlides(r.session.slides || [])
           setOutline(r.session.outline ?? null)
           // Carry the DB's updated_at so the indicator shows the real
-          // last-edit time of this saved note instead of "now".
-          setServerOutlineUpdatedAt(
-            r.session.updated_at ? new Date(r.session.updated_at).getTime() : null,
+          // last-edit time of this saved note instead of "now". Only
+          // use the server timestamp when an OUTLINE actually exists
+          // — sessions.updated_at also moves on every audio chunk
+          // write, so without this guard a session that has audio
+          // captured today but no outline yet would inherit "today"
+          // as the indicator value, then on the user's first curate
+          // the OutlineView's first-content-arrival branch would
+          // pick that stale value instead of Date.now(). Net effect
+          // was a freshly-curated note showing "3시간 전".
+          setOutlineUpdatedAt(
+            r.session.outline && r.session.updated_at
+              ? new Date(r.session.updated_at).getTime()
+              : null,
           )
           // Adopt the curator-extracted title for the filename. Falls
           // through to the placeholder when the curator hasn't run
@@ -569,7 +586,7 @@ export default function App() {
           setSessionId(null)
           setSlides([])
           setOutline(null)
-          setServerOutlineUpdatedAt(null)
+          setOutlineUpdatedAt(null)
         }
       } catch { /* ignore */ }
     })()
@@ -601,7 +618,16 @@ export default function App() {
               return next.length > RING_CAP ? next.slice(next.length - RING_CAP) : next
             })
           },
-          onOutline: (newOutline) => { setOutline(newOutline); setCurating(false); setCurateError(null) },
+          onOutline: (newOutline) => {
+            setOutline(newOutline)
+            // Stamp NOW on every WS-delivered outline — same reasoning
+            // as the postMessage outline_updated path: a fresh curate
+            // completed server-side, even if the JSON is byte-
+            // identical to the previous version.
+            setOutlineUpdatedAt(Date.now())
+            setCurating(false)
+            setCurateError(null)
+          },
           onClose: () => {
             // Reconnection attempts have been exhausted (or the close
             // was clean). The HTTP fallback in content/index.ts still
@@ -696,7 +722,7 @@ export default function App() {
     setSessionId(null)
     setSlides([])
     setOutline(null)
-    setServerOutlineUpdatedAt(null)
+    setOutlineUpdatedAt(null)
     setTranscripts([])
     setCurating(false)
     setCurateError(null)
@@ -771,8 +797,8 @@ export default function App() {
               setSlides(result.currentSession.slides ?? [])
               const o = (result.currentSession as { outline?: Outline | null }).outline ?? null
               setOutline(o)
-              setServerOutlineUpdatedAt(
-                result.currentSession.updated_at
+              setOutlineUpdatedAt(
+                o && result.currentSession.updated_at
                   ? new Date(result.currentSession.updated_at).getTime()
                   : null,
               )
@@ -831,6 +857,10 @@ export default function App() {
         )
         if (r.outline) {
           setOutline(r.outline)
+          // The HTTP response IS the curate-completion signal; stamp
+          // the indicator clock to NOW. (Same reasoning as the WS /
+          // postMessage outline_updated paths.)
+          setOutlineUpdatedAt(Date.now())
           setCurating(false)
           setCurateError(null)
         } else {
@@ -899,7 +929,7 @@ export default function App() {
             // already-consumed first-render slot.
             key={sessionId ?? 'no-session'}
             outline={outline}
-            serverUpdatedAt={serverOutlineUpdatedAt}
+            outlineUpdatedAt={outlineUpdatedAt}
             slides={slides}
             onJump={onJump}
             displayTitle={title}

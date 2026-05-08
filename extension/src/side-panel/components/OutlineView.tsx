@@ -42,16 +42,19 @@ interface Props {
    *  edit immediately so the H1 here matches what the export will
    *  produce. Falls back to outline.title when omitted. */
   displayTitle?: string
-  /** Server-trusted last-update timestamp (epoch ms) for an outline
-   *  hydrated from the DB. When provided, the indicator on the FIRST
-   *  content arrival shows this time and skips the "freshly updated"
-   *  flash — re-opening a modal on a previously-saved note should
-   *  display its actual save time, not "just now". Subsequent content
-   *  changes (curate / WS outline_updated) are real-time, so they
-   *  use Date.now() and flash as before. Pass null when there is no
-   *  server-side record (brand-new session) — first content arrival
-   *  then falls back to Date.now() and flashes, the original behavior. */
-  serverUpdatedAt?: number | null
+  /** Last-updated timestamp (epoch ms) for the displayed outline.
+   *  Single source of truth — App.tsx sets it from sessions.updated_at
+   *  on hydrate (when an outline already exists) and to Date.now() on
+   *  every fresh curate completion (HTTP response, WS broadcast, or
+   *  postMessage forward). null means "no outline yet" — indicator
+   *  is hidden. The component used to derive its own refreshedAt
+   *  with a "first content arrival" branch keyed on this prop, but
+   *  that mishandled the case where a session row had a recent
+   *  updated_at (from audio chunks) and a NULL outline column — the
+   *  first curate's outline arrival would inherit the audio-chunk
+   *  timestamp instead of stamping NOW. Lifting authority to App.tsx
+   *  fixed it cleanly. */
+  outlineUpdatedAt?: number | null
 }
 
 // Bucket slides by section. Each section i with ts T_i owns slides
@@ -73,53 +76,33 @@ function bucketSlides(sections: OutlineSection[], slides: SlideItem[]): SlideIte
   return buckets
 }
 
-export function OutlineView({ outline, slides = [], onJump, displayTitle, serverUpdatedAt }: Props) {
+export function OutlineView({ outline, slides = [], onJump, displayTitle, outlineUpdatedAt }: Props) {
   const T = useT()
-  // Track "the outline was just refreshed" so we can flash a brief visual
-  // signal — the curator rewrites the whole document each run, and without
-  // a cue the user can't tell that earlier sections were just rewritten.
-  // The effect runs only when `outline` reference changes (React's
-  // dependency check), so the JSON.stringify diff is the only reliable
-  // way to detect "actual content change vs no-op redelivery". An
-  // earlier reference-equality shortcut was dead code — App.tsx
-  // deserialises a fresh object from each WS / postMessage delivery.
-  //
-  // First-render branch: when the parent supplied serverUpdatedAt, the
-  // outline was hydrated from the DB (re-opened modal on a previously-
-  // saved URL). Use the server's timestamp and skip the flash — neither
-  // the timestamp nor the visual cue should pretend a stale save just
-  // happened. Subsequent content changes are real-time (curate / WS
-  // outline_updated) and use Date.now() with the original flash.
-  const [refreshedAt, setRefreshedAt] = useState<number | null>(null)
+  // Flash a brief visual cue whenever the outline content actually
+  // changes — the curator rewrites the whole document each run, and
+  // without this signal the user can't tell that earlier sections
+  // were just rewritten. The JSON.stringify diff filters out no-op
+  // redeliveries (WS reconnect can replay the same outline; that
+  // shouldn't flash). The first non-null outline arrival skips the
+  // flash so re-opening a modal on a previously-saved note doesn't
+  // pretend something just changed. Timestamp display is decoupled
+  // from this — the indicator pulls from the outlineUpdatedAt prop
+  // directly, so user-triggered regenerates with byte-identical JSON
+  // (gpt-4o-mini deterministic on unchanged inputs) still update the
+  // visible "X分前" reading even though no flash fires.
+  const [flashing, setFlashing] = useState(false)
   const lastSerialisedRef = useRef<string>('')
-  const skipNextFlashRef = useRef(false)
   useEffect(() => {
     if (!outline) return
     const serialised = JSON.stringify(outline)
     if (serialised === lastSerialisedRef.current) return
     const isFirst = lastSerialisedRef.current === ''
     lastSerialisedRef.current = serialised
-    if (isFirst && serverUpdatedAt != null) {
-      skipNextFlashRef.current = true
-      setRefreshedAt(serverUpdatedAt)
-    } else {
-      setRefreshedAt(Date.now())
-    }
-  }, [outline, serverUpdatedAt])
-
-  // Auto-clear the flash class after the animation has played so future
-  // updates re-trigger it.
-  const [flashing, setFlashing] = useState(false)
-  useEffect(() => {
-    if (refreshedAt === null) return
-    if (skipNextFlashRef.current) {
-      skipNextFlashRef.current = false
-      return
-    }
+    if (isFirst) return  // hydrating into the modal — content didn't "just change"
     setFlashing(true)
     const t = window.setTimeout(() => setFlashing(false), 800)
     return () => window.clearTimeout(t)
-  }, [refreshedAt])
+  }, [outline])
 
   if (!outline || outline.sections.length === 0) {
     return (
@@ -137,8 +120,8 @@ export function OutlineView({ outline, slides = [], onJump, displayTitle, server
             {displayTitle?.trim() || outline.title}
           </h2>
         )}
-        {refreshedAt !== null && (
-          <RefreshIndicator at={refreshedAt} />
+        {outlineUpdatedAt != null && (
+          <RefreshIndicator at={outlineUpdatedAt} />
         )}
       </div>
       <SectionList outline={outline} slides={slides} onJump={onJump} />
