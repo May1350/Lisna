@@ -697,7 +697,19 @@ async function startCapture(url: string): Promise<void> {
     if (!session.canonicalAdopted) {
       // Queue rather than drop. The audio-chunk handler flushes this
       // queue right after it adopts the canonical session id.
+      // Bounded: if the FIRST audio chunk fails repeatedly (STT 5xx
+      // loop, network down, etc.) the queue would grow without limit
+      // — every slide the detector emits keeps piling on. Cap at 50,
+      // dropping oldest, so the worst case is bounded memory and we
+      // still flush the most recent slides if the canonical id ever
+      // does arrive. 50 ≈ 8 minutes of slide-change activity at the
+      // typical detector rate, more than enough headroom for normal
+      // canonical-adoption latency (10–18 s).
+      const PENDING_SLIDES_CAP = 50
       session.pendingSlides.push(slide)
+      if (session.pendingSlides.length > PENDING_SLIDES_CAP) {
+        session.pendingSlides.shift()
+      }
       log('slide queued (waiting for canonical session id)', { ts: slide.ts.toFixed(1), queued: session.pendingSlides.length })
       return
     }
@@ -802,14 +814,26 @@ async function startCapture(url: string): Promise<void> {
   // burning the 30 s cooldown for the next deliberate manual click.
   //
   // Listen for manual trigger from the modal (postMessage).
-  const onManualTrigger = (e: MessageEvent): void => {
+  //
+  // The AbortController is the listener-cleanup contract: passing
+  // `signal` to addEventListener auto-removes it when abort() runs,
+  // regardless of which teardown path runs first (onEndedHandler on
+  // natural end, stopCaptureLocal on user-stop, or a future
+  // SPA-navigation handler that just kills the controller).
+  // The previous `removeEventListener(onManualTrigger)` form depended
+  // on having the exact same closure reference at cleanup time —
+  // robust during a single capture lifetime, but fragile if a
+  // future refactor or SPA-renav path forgot to thread the closure
+  // through. abort() is also idempotent so duplicate teardowns are
+  // safe.
+  const triggerAbort = new AbortController()
+  window.addEventListener('message', (e: MessageEvent) => {
     const data = e.data as { source?: string; type?: string; full?: boolean } | null
     if (!data || data.source !== 'sh-parent') return
     if (data.type === 'TRIGGER_CURATE') {
       triggerCurate(data.full ? 'manual_full' : 'manual')
     }
-  }
-  window.addEventListener('message', onManualTrigger)
+  }, { signal: triggerAbort.signal })
 
   // Wrap-up handler — called from BOTH the natural-end path (<video>'s
   // 'ended' event) and the user-stop path (stopCaptureLocal). Idempotent
@@ -826,7 +850,7 @@ async function startCapture(url: string): Promise<void> {
     capture?.stop()
     activeVideo?.removeEventListener('play', earlyOnPlay)
     activeVideo?.removeEventListener('pause', earlyOnPause)
-    window.removeEventListener('message', onManualTrigger)
+    triggerAbort.abort()
     if (session.canonicalAdopted) {
       // Final curate produces the wrap-up outline from everything we
       // captured. Same trigger for both natural-end and user-stop —

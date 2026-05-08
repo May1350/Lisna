@@ -281,6 +281,7 @@ export const en: Translations = {
     curator_failed: 'AI organisation failed. Try "📝 Regenerate notes".',
     no_outline_returned: 'Notes came back empty. Confirm the recording captured audio and try again.',
     curate_cooldown: 'Too many generation requests. Wait briefly and try again.',
+    curate_in_progress: 'Another note generation is already in progress. Try again once it finishes.',
     fallback: 'Note generation failed. Try "📝 Regenerate notes" again.',
   },
   errorBoundary: {

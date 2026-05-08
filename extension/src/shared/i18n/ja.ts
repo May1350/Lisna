@@ -283,6 +283,7 @@ export const ja: Translations = {
     curator_failed: 'AI による整理に失敗しました。「📝 ノートを再生成」を押して再度お試しください。',
     no_outline_returned: 'ノートが空で返ってきました。録音内容を確認して再度お試しください。',
     curate_cooldown: '生成リクエストが多すぎます。少し待ってから再度お試しください。',
+    curate_in_progress: '別のノート生成が進行中です。完了後にもう一度お試しください。',
     fallback: 'ノート生成に失敗しました。「📝 ノートを再生成」を押して再度お試しください。',
   },
   errorBoundary: {

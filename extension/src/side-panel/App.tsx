@@ -12,7 +12,7 @@ import { ExportMenu } from './components/ExportMenu'
 import { QuotaBanner } from './components/QuotaBanner'
 import { PanelHeader } from './components/PanelHeader'
 import { SessionControls } from './components/SessionControls'
-import { callApi, connectWs, getCurrentUser, logout } from './api-client'
+import { callApi, connectWs, getCurrentUser, logout, ApiError } from './api-client'
 import type { LiveTranscriptItem, Outline } from './api-client'
 import { useT } from '../shared/i18n'
 import type { Translations } from '../shared/i18n'
@@ -575,14 +575,18 @@ export default function App() {
     })()
   }, [user, isEmbed, parentUrl])
 
-  // connect WS when sessionId arrives (embed only).
+  // connect WS when sessionId arrives (embed only). The handle returned
+  // by connectWs owns its own reconnect-with-backoff loop (see
+  // api-client.ts), so this effect just opens once on mount and closes
+  // on cleanup; teardown is idempotent and cancels any pending
+  // reconnect timer.
   useEffect(() => {
     if (!sessionId) return
     let mounted = true
-    let ws: WebSocket | null = null
+    let handle: { close(): void } | null = null
     void (async () => {
       try {
-        const w = await connectWs(sessionId, {
+        const h = await connectWs(sessionId, {
           onSlide: (s) => setSlides(prev => [...prev, s]),
           onTranscript: (items) => {
             // Bounded ring buffer — drop the oldest when we exceed the cap.
@@ -598,19 +602,36 @@ export default function App() {
             })
           },
           onOutline: (newOutline) => { setOutline(newOutline); setCurating(false); setCurateError(null) },
-          onClose: () => {},
+          onClose: () => {
+            // Reconnection attempts have been exhausted (or the close
+            // was clean). The HTTP fallback in content/index.ts still
+            // delivers curate completions over chrome.runtime, so the
+            // user can keep generating notes; only live transcripts /
+            // slides from this session id will be missed until they
+            // refresh the modal.
+            // eslint-disable-next-line no-console
+            console.warn('[App] WS permanently closed — live updates suspended for this session')
+          },
+          onReconnect: ({ attempt, nextDelayMs }) => {
+            // Diagnostic only for now. A future iteration could surface
+            // a "live updates paused — reconnecting" badge in the
+            // header; for now the user gets through via HTTP fallback
+            // and the issue is silent.
+            // eslint-disable-next-line no-console
+            console.info('[App] WS reconnecting', { attempt, nextDelayMs })
+          },
         })
         // If the cleanup already ran (sessionId changed mid-handshake or
         // the component unmounted), close the freshly-opened socket
         // instead of letting it linger.
-        if (mounted) ws = w
-        else w.close()
+        if (mounted) handle = h
+        else h.close()
       } catch (e) {
         // eslint-disable-next-line no-console
         console.warn('[App] WS connect failed:', e)
       }
     })()
-    return () => { mounted = false; ws?.close() }
+    return () => { mounted = false; handle?.close() }
   }, [sessionId])
 
   // 1 Hz tick-down for the live remaining-secs display. Only ticks
@@ -821,7 +842,23 @@ export default function App() {
         }
       } catch (e) {
         setCurating(false)
-        setCurateError(e instanceof Error ? e.message : 'unknown')
+        // ApiError preserves the parsed response body so the 409
+        // `{error: 'curate_in_progress'}` and 502
+        // `{error: 'curator_failed'}` shapes surface as localised
+        // reasons instead of the raw "HTTP 409: ..." string falling
+        // through to the generic fallback copy. Mirrors the same
+        // priority order used in content/index.ts:
+        //   data.reason  (200 soft-fail key)  ―
+        //   data.error   (4xx / 5xx error key) ―
+        //   error string (SW wrapper) — last resort
+        let reason = 'unknown'
+        if (e instanceof ApiError) {
+          const data = e.data as { reason?: string; error?: string } | undefined
+          reason = data?.reason ?? data?.error ?? e.message ?? 'unknown'
+        } else if (e instanceof Error) {
+          reason = e.message
+        }
+        setCurateError(reason)
       }
     }
     const hasContent = !!outline?.sections.length

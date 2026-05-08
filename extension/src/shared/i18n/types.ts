@@ -312,6 +312,7 @@ export interface Translations {
     curator_failed: string
     no_outline_returned: string
     curate_cooldown: string
+    curate_in_progress: string           // backend lock held by concurrent curate
     fallback: string                     // unknown reason fallback
   }
 
