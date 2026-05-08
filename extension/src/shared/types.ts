@@ -20,6 +20,11 @@ export type SwRequest =
   // and the user can't actually switch.
   | { type: 'AUTH_SWITCH_ACCOUNT' }
   | { type: 'AUTH_GET_USER' }
+  // Quick-disable from the inline button's × affordance. SW sets
+  // sh.enabled=false + sh.disabledUntil=now+durationHours and creates a
+  // chrome.alarm that re-enables when the timer expires. Manual ON in
+  // the side panel cancels the alarm.
+  | { type: 'DISABLE_TEMPORARILY' }
   // path is appended to API_BASE_URL by default. When `absoluteUrl` is
   // set the SW fetches that URL directly instead — used to call the
   // Lambda Function URL for /v1/session/curate (bypasses API Gateway's

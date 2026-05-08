@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState } from 'react'
 import {
   getPlaybackSpeed, setPlaybackSpeed,
   getAutoDownload, setAutoDownload,
+  getDisableDurationHours, setDisableDurationHours,
   getObsidianConfig, setObsidianConfig, type ObsidianConfig,
 } from '../shared/storage'
 import { testObsidianConnection } from '../side-panel/lib/export'
@@ -37,6 +38,7 @@ export function Options() {
   const SPEED_OPTIONS = buildSpeedOptions(T)
   const [speed, setSpeed] = useState<'auto' | number>('auto')
   const [autoDl, setAutoDl] = useState(false)
+  const [disableHours, setDisableHours] = useState<number>(24)
   const [loggingOut, setLoggingOut] = useState(false)
   const [switchingAccount, setSwitchingAccount] = useState(false)
   const [me, setMe] = useState<{ user: User; quota: QuotaSnapshot } | null>(null)
@@ -77,6 +79,7 @@ export function Options() {
       .catch(() => { /* ignore — surface only on real interaction */ })
     void getPlaybackSpeed().then(setSpeed)
     void getAutoDownload().then(setAutoDl)
+    void getDisableDurationHours().then(setDisableHours)
     void getObsidianConfig().then(c => {
       // First-run hydration: persist the default URL so the API call
       // works the moment the user pastes their API key. Without this
@@ -138,6 +141,10 @@ export function Options() {
   const onAutoDlChange = async (v: boolean) => {
     setAutoDl(v)
     await setAutoDownload(v)
+  }
+  const onDisableHoursChange = async (h: number) => {
+    setDisableHours(h)
+    await setDisableDurationHours(h)
   }
   const onLogout = async () => {
     setLoggingOut(true)
@@ -234,6 +241,24 @@ export function Options() {
             </span>
           </span>
         </label>
+      </section>
+
+      <section className="mb-8">
+        <h2 className="font-semibold mb-2">{T.options.section_disableTimer}</h2>
+        <p className="text-sm text-gray-600 mb-4 leading-relaxed">
+          {T.options.disableTimer_hint}
+        </p>
+        <select
+          value={disableHours}
+          onChange={(e) => void onDisableHoursChange(Number(e.target.value))}
+          className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-200 bg-white"
+        >
+          {[1, 4, 12, 24, 72, 168].map(h => (
+            <option key={h} value={h}>
+              {interpolate(T.options.disableTimer_label_hours, { n: h })}
+            </option>
+          ))}
+        </select>
       </section>
 
       <section className="mb-8">

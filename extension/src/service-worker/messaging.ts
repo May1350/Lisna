@@ -1,8 +1,13 @@
 import type { SwRequest, SwResponse } from '../shared/types'
 import { loginWithGoogle, logout, switchAccount, authedFetch } from './auth'
-import { getUser, setEnabled } from '../shared/storage'
+import { getUser, setEnabled, setDisabledUntil, getDisableDurationHours } from '../shared/storage'
 import { updateBadge, broadcastEnabledChange } from './notify'
 import { API_BASE_URL } from '../shared/config'
+
+// Single canonical name for the quick-disable re-enable alarm. Reused
+// from both the create site (DISABLE_TEMPORARILY) and the consumer
+// in service-worker/main.ts so a typo can't desync the two.
+export const REENABLE_ALARM = 'lisna.reenable'
 
 export async function handle(req: SwRequest, _sender?: chrome.runtime.MessageSender): Promise<SwResponse> {
   try {
@@ -71,11 +76,31 @@ export async function handle(req: SwRequest, _sender?: chrome.runtime.MessageSen
         return { ok: true, data: parsed }
       }
       case 'TOGGLE_ENABLED': {
-        // Sent from the side-panel ON/OFF switch.
+        // Sent from the side-panel ON/OFF switch. Manual toggle cancels
+        // any pending re-enable alarm and clears disabledUntil — the
+        // user's choice supersedes the timer in either direction.
         await setEnabled(req.enabled)
+        await setDisabledUntil(null)
+        try { await chrome.alarms.clear(REENABLE_ALARM) } catch { /* ignore */ }
         await updateBadge(req.enabled)
         await broadcastEnabledChange(req.enabled)
         return { ok: true, data: null }
+      }
+      case 'DISABLE_TEMPORARILY': {
+        // Quick-disable from inline button ×. Read user-configured
+        // duration (1-168 h, default 24) and schedule a chrome.alarm
+        // to re-enable when it elapses. The alarm survives SW sleep
+        // and is the canonical timer; getDisabledUntil() is the
+        // user-visible state surface.
+        const hours = await getDisableDurationHours()
+        const until = Date.now() + hours * 60 * 60 * 1000
+        await setEnabled(false)
+        await setDisabledUntil(until)
+        try { await chrome.alarms.clear(REENABLE_ALARM) } catch { /* ignore */ }
+        chrome.alarms.create(REENABLE_ALARM, { when: until })
+        await updateBadge(false)
+        await broadcastEnabledChange(false)
+        return { ok: true, data: { until, hours } }
       }
       case 'STOP_SESSION': {
         try {

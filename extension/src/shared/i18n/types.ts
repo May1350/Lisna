@@ -39,6 +39,10 @@ export interface Translations {
     onboarding: string                   // "ここをクリックで録音開始 →"
     processing: string                   // "処理中 — クリックでモーダルを再表示"
     stop: string                          // "停止"
+    disable_tooltip: string              // hover title on the × badge — generic, no {hours} (we can't read it sync at mount)
+    disable_aria: string                 // aria-label for screen readers
+    disabled_toast: string               // confirmation toast body ("Lisna は {hours} 時間オフになりました")
+    disabled_undo: string                // undo link inside the toast ("元に戻す")
   }
 
   // ── Modal capture states (IdleSessionState) ────────────────────
@@ -237,6 +241,9 @@ export interface Translations {
     exportHint: string                   // "講義が終わったら、ノートとスライドを..."
     autoDownloadLabel: string            // "講義終了時に自動で .zip をダウンロードする"
     autoDownloadHint: string             // "手動で「⬇ .zip」ボタンを..."
+    section_disableTimer: string         // "一時オフ時間 / 잠시 끄기 시간"
+    disableTimer_hint: string            // explanation of × badge auto-resume timer
+    disableTimer_label_hours: string     // "{n} 時間 / {n} 시간 / etc" — interpolated
     section_obsidian: string             // "Obsidian 連携"
     obsidian_intro: string
     obsidian_setupHeader: string         // "セットアップ手順"

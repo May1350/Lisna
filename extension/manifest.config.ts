@@ -18,7 +18,7 @@ export default defineManifest({
   // No `default_locale` — we don't use chrome.i18n / __MSG_*__ message references
   // (all UI strings are inline plain Japanese). Setting default_locale without a
   // matching `_locales/<lang>/messages.json` makes Chrome reject the extension.
-  permissions: ['storage', 'sidePanel', 'identity', 'tabs'],
+  permissions: ['storage', 'sidePanel', 'identity', 'tabs', 'alarms'],
   host_permissions: ['<all_urls>'],
   // OAuth2 client used by chrome.identity.getAuthToken — Chrome Extension
   // type credential pointed at this extension's ID. Lets us skip the
