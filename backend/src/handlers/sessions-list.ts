@@ -38,12 +38,18 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
 
   const auth = event.headers.authorization || event.headers.Authorization
   if (!auth?.startsWith('Bearer ')) {
+    console.warn('[sessions-list] auth missing or non-Bearer')
     return { statusCode: 401, body: JSON.stringify({ error: 'unauthorized' }) }
   }
   let payload
   try {
     payload = await verifyJwt(auth.slice(7))
-  } catch {
+  } catch (e) {
+    // Logged so a "history shows error in production" investigation
+    // can confirm whether the issue is auth (token expired / signed by
+    // another env) vs DB / SQL / route. CloudWatch is the diagnostic
+    // surface per project memory.
+    console.warn('[sessions-list] jwt verify failed', { err: e instanceof Error ? e.message : String(e) })
     return { statusCode: 401, body: JSON.stringify({ error: 'invalid token' }) }
   }
 
