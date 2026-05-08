@@ -25,6 +25,11 @@ export interface LoginResult {
     id: string
     slides: SlideItem[]
     outline: Outline | null
+    // ISO 8601 last-update timestamp from the DB. Used to show the
+    // real "X分前" on the outline indicator when the modal hydrates
+    // a previously-curated session. Optional so older backend
+    // builds that don't include the field still parse.
+    updated_at?: string
     // Note: backend still returns `notes` (legacy per-chunk bullets)
     // but the modal no longer renders them — Phase 6.1 made the
     // outline the single source of truth. Field omitted here so it

@@ -38,6 +38,12 @@ export interface LoginResult {
     id: string
     slides: SlideItem[]
     outline: OutlineShape | null
+    // ISO 8601 timestamp from sessions.updated_at — the actual last
+    // time the outline (or any session field) was modified server-
+    // side. Drives the modal's "X分前" indicator instead of the
+    // modal-open time. Optional for backward compatibility with
+    // older backend deploys that don't include the field.
+    updated_at?: string
     // Legacy `notes` field is still in the backend response shape but
     // unused since Phase 6.1 — see api-client.ts for the rationale.
   } | null
@@ -88,6 +94,7 @@ export async function loginWithGoogle(currentUrl?: string): Promise<LoginResult>
       id: string
       slides: SlideItem[]
       outline: OutlineShape | null
+      updated_at?: string
     } | null
   }
   await setToken(data.token)

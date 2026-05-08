@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Outline, OutlineSection } from '../api-client'
 import type { SlideItem } from '../../shared/types'
-import { useT, interpolate } from '../../shared/i18n'
+import { useT, interpolate, getLang } from '../../shared/i18n'
 
 // Renders the curated lecture outline produced by the backend's curator
 // pass. The outline is REPLACED on every curator run (every ~30 s of
@@ -42,6 +42,16 @@ interface Props {
    *  edit immediately so the H1 here matches what the export will
    *  produce. Falls back to outline.title when omitted. */
   displayTitle?: string
+  /** Server-trusted last-update timestamp (epoch ms) for an outline
+   *  hydrated from the DB. When provided, the indicator on the FIRST
+   *  content arrival shows this time and skips the "freshly updated"
+   *  flash — re-opening a modal on a previously-saved note should
+   *  display its actual save time, not "just now". Subsequent content
+   *  changes (curate / WS outline_updated) are real-time, so they
+   *  use Date.now() and flash as before. Pass null when there is no
+   *  server-side record (brand-new session) — first content arrival
+   *  then falls back to Date.now() and flashes, the original behavior. */
+  serverUpdatedAt?: number | null
 }
 
 // Bucket slides by section. Each section i with ts T_i owns slides
@@ -63,7 +73,7 @@ function bucketSlides(sections: OutlineSection[], slides: SlideItem[]): SlideIte
   return buckets
 }
 
-export function OutlineView({ outline, slides = [], onJump, displayTitle }: Props) {
+export function OutlineView({ outline, slides = [], onJump, displayTitle, serverUpdatedAt }: Props) {
   const T = useT()
   // Track "the outline was just refreshed" so we can flash a brief visual
   // signal — the curator rewrites the whole document each run, and without
@@ -73,21 +83,39 @@ export function OutlineView({ outline, slides = [], onJump, displayTitle }: Prop
   // way to detect "actual content change vs no-op redelivery". An
   // earlier reference-equality shortcut was dead code — App.tsx
   // deserialises a fresh object from each WS / postMessage delivery.
+  //
+  // First-render branch: when the parent supplied serverUpdatedAt, the
+  // outline was hydrated from the DB (re-opened modal on a previously-
+  // saved URL). Use the server's timestamp and skip the flash — neither
+  // the timestamp nor the visual cue should pretend a stale save just
+  // happened. Subsequent content changes are real-time (curate / WS
+  // outline_updated) and use Date.now() with the original flash.
   const [refreshedAt, setRefreshedAt] = useState<number | null>(null)
   const lastSerialisedRef = useRef<string>('')
+  const skipNextFlashRef = useRef(false)
   useEffect(() => {
     if (!outline) return
     const serialised = JSON.stringify(outline)
     if (serialised === lastSerialisedRef.current) return
+    const isFirst = lastSerialisedRef.current === ''
     lastSerialisedRef.current = serialised
-    setRefreshedAt(Date.now())
-  }, [outline])
+    if (isFirst && serverUpdatedAt != null) {
+      skipNextFlashRef.current = true
+      setRefreshedAt(serverUpdatedAt)
+    } else {
+      setRefreshedAt(Date.now())
+    }
+  }, [outline, serverUpdatedAt])
 
   // Auto-clear the flash class after the animation has played so future
   // updates re-trigger it.
   const [flashing, setFlashing] = useState(false)
   useEffect(() => {
     if (refreshedAt === null) return
+    if (skipNextFlashRef.current) {
+      skipNextFlashRef.current = false
+      return
+    }
     setFlashing(true)
     const t = window.setTimeout(() => setFlashing(false), 800)
     return () => window.clearTimeout(t)
@@ -151,27 +179,65 @@ function SectionList({
   )
 }
 
-// Renders "X seconds ago" / "X分前" relative to the last refresh. Stops
-// ticking after 10 minutes since the absolute time becomes more useful
-// than a rolling counter and the interval was leaking CPU+battery on
-// long-idle modal sessions.
+// Maps our internal language codes to BCP 47 locales for Intl.DateTimeFormat.
+// Without this, `new Intl.DateTimeFormat('ja')` works but `'ko'` / `'zh'`
+// pick the platform default which can render the wrong calendar / month
+// abbreviation. Pinning to the country form gives the user the exact
+// glyphs they see in the rest of the modal.
+const BCP47: Record<'ja' | 'en' | 'ko' | 'zh', string> = {
+  ja: 'ja-JP',
+  en: 'en-US',
+  ko: 'ko-KR',
+  zh: 'zh-CN',
+}
+
+// Locale-aware absolute time. Drops the year when the timestamp is in
+// the same calendar year as "now" — for a returning-user reading a
+// note from last week, "10月3日 14:32" is plenty; "2026年" prefix is
+// noise. Falls back to the full form across years.
+function formatAbsolute(ts: number): string {
+  const d = new Date(ts)
+  const now = new Date()
+  const locale = BCP47[getLang()]
+  const sameYear = d.getFullYear() === now.getFullYear()
+  return new Intl.DateTimeFormat(locale, {
+    year: sameYear ? undefined : 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(d)
+}
+
+// Renders the outline's last-update time. Two display modes:
+//   - within 24 h: relative ("X分前") with the existing tick loop so the
+//     label stays accurate as time elapses.
+//   - 24 h or older: absolute date+time. Once a note is "yesterday or
+//     before" the relative form ("48時間前") is harder to map to a real
+//     calendar moment than just showing the date, and we can stop the
+//     tick interval entirely (saves CPU/battery on long-idle modals).
+//
+// Re-evaluated when `at` changes — fresh curate / WS update flips the
+// indicator back to the rolling-counter mode if the new timestamp is
+// recent.
 function RefreshIndicator({ at }: { at: number }) {
   const T = useT()
-  const STOP_TICKING_AFTER_SECS = 600
+  const ABSOLUTE_AFTER_SECS = 86_400  // 24 h
   const [, setTick] = useState(0)
   useEffect(() => {
     const initialAgo = Math.floor((Date.now() - at) / 1000)
-    if (initialAgo > STOP_TICKING_AFTER_SECS) return
+    if (initialAgo >= ABSOLUTE_AFTER_SECS) return
     const id = window.setInterval(() => {
       const ago = Math.floor((Date.now() - at) / 1000)
       setTick(t => t + 1)
-      if (ago > STOP_TICKING_AFTER_SECS) window.clearInterval(id)
-    }, 5000)
+      if (ago >= ABSOLUTE_AFTER_SECS) window.clearInterval(id)
+    }, 30_000)
     return () => window.clearInterval(id)
   }, [at])
   const ago = Math.floor((Date.now() - at) / 1000)
   let label: string
-  if (ago < 5) label = T.outline.refresh_just
+  if (ago >= ABSOLUTE_AFTER_SECS) label = formatAbsolute(at)
+  else if (ago < 5) label = T.outline.refresh_just
   else if (ago < 60) label = interpolate(T.outline.refresh_secAgo, { n: ago })
   else if (ago < 3600) label = interpolate(T.outline.refresh_minAgo, { n: Math.floor(ago / 60) })
   else label = interpolate(T.outline.refresh_hrAgo, { n: Math.floor(ago / 3600) })

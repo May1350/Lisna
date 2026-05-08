@@ -35,9 +35,10 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     outline: Outline | null
     status: string
     created_at: string
+    updated_at: Date
     url_original: string
   }>(
-    `SELECT id, notes, slides, outline, status, created_at, url_original FROM sessions
+    `SELECT id, notes, slides, outline, status, created_at, updated_at, url_original FROM sessions
      WHERE user_id = $1 AND url_hash = $2 AND status != 'deleted'`,
     [payload.sub, urlHash]
   )

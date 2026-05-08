@@ -62,12 +62,17 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     // Optional eager-load: if the caller passed current_url, look up the
     // existing session for that (user, url) pair in the same Lambda invocation
     // so the modal can render notes immediately without GET /v1/session.
-    let currentSession: { id: string; notes: NoteRow[]; slides: SlideRow[]; outline: OutlineRow | null } | null = null
+    // updated_at lets the modal show the actual last-edit time of the
+    // outline (set by curate/stream handlers via NOW()) instead of
+    // re-stamping to "just now" every time the modal hydrates a saved
+    // session. pg returns TIMESTAMP as Date; JSON.stringify emits an
+    // ISO string the client parses with new Date(...).getTime().
+    let currentSession: { id: string; notes: NoteRow[]; slides: SlideRow[]; outline: OutlineRow | null; updated_at: Date } | null = null
     if (current_url) {
       try {
         const urlHash = createHash('sha256').update(normalizeUrl(current_url)).digest('hex')
-        const sessRow = await query<{ id: string; notes: NoteRow[]; slides: SlideRow[]; outline: OutlineRow | null }>(
-          `SELECT id, notes, slides, outline FROM sessions WHERE user_id = $1 AND url_hash = $2`,
+        const sessRow = await query<{ id: string; notes: NoteRow[]; slides: SlideRow[]; outline: OutlineRow | null; updated_at: Date }>(
+          `SELECT id, notes, slides, outline, updated_at FROM sessions WHERE user_id = $1 AND url_hash = $2`,
           [userId, urlHash],
         )
         if (sessRow.length > 0) currentSession = sessRow[0]

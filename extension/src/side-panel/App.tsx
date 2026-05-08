@@ -184,6 +184,16 @@ export default function App() {
   // wholesale on every curator run (every ~30 s of lecture); the UI thus
   // evolves as the lecture progresses.
   const [outline, setOutline] = useState<Outline | null>(null)
+  // Server-trusted last-update epoch ms for the hydrated outline. Set
+  // from sessions.updated_at on initial hydrate (login eager-load or
+  // GET /v1/session) so the modal's "X分前" indicator reflects the
+  // actual save time of an existing note rather than the modal-open
+  // time. Stays at this value across the lifetime of the OutlineView
+  // instance — real-time WS / curate updates use Date.now() inside
+  // OutlineView itself (see serverUpdatedAt prop semantics there).
+  // null means "no DB record / hydrating" — OutlineView falls through
+  // to Date.now() for the first content arrival in that case.
+  const [serverOutlineUpdatedAt, setServerOutlineUpdatedAt] = useState<number | null>(null)
   const [slides, setSlides] = useState<SlideItem[]>([])
   // Live transcript items (streamed from /v1/stream/audio's STT step before
   // LLM finishes). Bounded ring buffer — we only keep the last ~30 chunks
@@ -364,6 +374,7 @@ export default function App() {
           // Brand new session — wipe DB-backed state.
           setSlides([])
           setOutline(null)
+          setServerOutlineUpdatedAt(null)
           setCurating(false)
         }
         return
@@ -520,7 +531,7 @@ export default function App() {
         // renders only `outline` now, so we ignore that field. See
         // backend/src/handlers/session-get.ts for the full shape.
         const r = await callApi<{
-          session: { id: string; slides: SlideItem[]; outline: Outline | null } | null
+          session: { id: string; slides: SlideItem[]; outline: Outline | null; updated_at?: string } | null
         }>(
           `/v1/session?url=${encodeURIComponent(parentUrl)}`, 'GET'
         )
@@ -528,6 +539,11 @@ export default function App() {
           setSessionId(r.session.id)
           setSlides(r.session.slides || [])
           setOutline(r.session.outline ?? null)
+          // Carry the DB's updated_at so the indicator shows the real
+          // last-edit time of this saved note instead of "now".
+          setServerOutlineUpdatedAt(
+            r.session.updated_at ? new Date(r.session.updated_at).getTime() : null,
+          )
           // Adopt the curator-extracted title for the filename. Falls
           // through to the placeholder when the curator hasn't run
           // yet (outline === null) or returned an empty string.
@@ -543,6 +559,7 @@ export default function App() {
           setSessionId(null)
           setSlides([])
           setOutline(null)
+          setServerOutlineUpdatedAt(null)
         }
       } catch { /* ignore */ }
     })()
@@ -648,6 +665,7 @@ export default function App() {
     setSessionId(null)
     setSlides([])
     setOutline(null)
+    setServerOutlineUpdatedAt(null)
     setTranscripts([])
     setCurating(false)
     setCurateError(null)
@@ -722,6 +740,11 @@ export default function App() {
               setSlides(result.currentSession.slides ?? [])
               const o = (result.currentSession as { outline?: Outline | null }).outline ?? null
               setOutline(o)
+              setServerOutlineUpdatedAt(
+                result.currentSession.updated_at
+                  ? new Date(result.currentSession.updated_at).getTime()
+                  : null,
+              )
               if (o?.title?.trim()) setTitle(o.title.trim())
             }
           }}
@@ -819,7 +842,21 @@ export default function App() {
           // pill flips to "🎙️ 録音中" the moment they press play.
           <IdleSessionState videoPlaying={videoPlaying} />
         ) : (
-          <OutlineView outline={outline} slides={slides} onJump={onJump} displayTitle={title} />
+          <OutlineView
+            // Force remount when the session swaps (e.g. user
+            // navigates to a different URL with a different prior
+            // record). The internal "first content change" tracker
+            // resets along with the timestamp seed, so the new
+            // session's serverUpdatedAt correctly seeds the indicator
+            // instead of being shadowed by the previous session's
+            // already-consumed first-render slot.
+            key={sessionId ?? 'no-session'}
+            outline={outline}
+            serverUpdatedAt={serverOutlineUpdatedAt}
+            slides={slides}
+            onJump={onJump}
+            displayTitle={title}
+          />
         )}
         {curateError && (
           <div className="mx-3 mb-1 bg-red-50 border border-red-200 text-red-800 text-xs px-3 py-2 rounded">
