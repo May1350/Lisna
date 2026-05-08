@@ -1047,7 +1047,7 @@ export default function App() {
           ))
         })()}
       </div>
-      <SessionHistory />
+      <SessionHistory onAuthExpired={() => setUser(null)} />
     </div>
   )
 }

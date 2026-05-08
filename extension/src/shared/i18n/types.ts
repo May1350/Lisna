@@ -216,9 +216,12 @@ export interface Translations {
   sidePanel: {
     inlineHint: string                   // "動画ページで ✨ アイコン を..."
     historyHeader: string                // "履歴 ({n})"
-    historyEmpty: string                 // "まだ録音した講義がありません。..."
+    historyEmpty: string                 // "まだ録音した講義がありません。..." (legacy single-line; new path uses historyEmpty_title/_body)
+    historyEmpty_title: string           // bold heading for empty state
+    historyEmpty_body: string            // softer body line below the heading
     historyLoading: string               // "履歴を読み込み中…"
     historyFetchFailed: string           // "履歴の取得に失敗しました: "
+    historyFetchFailedAgain: string      // copy after 3 consecutive failures
     historyTitle_untitled: string        // "(無題のノート)"
     historyMeta_withOutline: string      // "📝 ノート ✓"
     historyMeta_recordOnly: string       // "録音のみ"
@@ -226,6 +229,21 @@ export interface Translations {
     historyMeta_outline_withSlides: string // "📝 ノート ✓  📷 {n}"
     relativeDate: { now: string; minAgo: string; hrAgo: string; dayAgo: string }
     inlineHintIcon: string               // "✨ アイコン"
+    // Search / filter
+    searchPlaceholder: string            // input placeholder when ≥8 sessions
+    searchEmpty: string                  // "No lectures match {q}"
+    searchClear: string                  // "Clear"
+    // Time grouping headers (visible when ≥5 sessions and no search)
+    timeGroup_today: string
+    timeGroup_yesterday: string
+    timeGroup_thisWeek: string
+    timeGroup_thisMonth: string
+    timeGroup_earlier: string
+    // Per-row delete (inline confirm)
+    deleteAria: string                   // aria-label for trash icon
+    deleteConfirmBody: string            // body text in inline confirm strip
+    deleteConfirm: string                // destructive confirm button label
+    deleteFailed: string                 // toast/inline message on delete API failure
   }
 
   // ── Options page ───────────────────────────────────────────────
