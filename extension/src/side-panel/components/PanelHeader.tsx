@@ -2,6 +2,74 @@ import type { User } from '../../shared/types'
 import { SpeedSelector } from './SpeedSelector'
 import { useT, interpolate } from '../../shared/i18n'
 
+// ── Avatar helpers ────────────────────────────────────────────────────
+//
+// 6-step palette in the cool/violet family. All gradients are within the
+// Lisna brand vicinity so the surface stays cohesive, but distinct
+// enough that a user juggling two Google accounts can tell at a glance
+// which one is currently signed in (directly addresses the "wrong
+// account → wrong plan" trap that drove the recent account-switch UX).
+//
+// Pro plan ALWAYS uses palette[0] (indigo) so the paid tier reads as a
+// consistent visual identity regardless of the user's email hash.
+const AVATAR_PALETTE: ReadonlyArray<readonly [string, string]> = [
+  ['#6366f1', '#8b5cf6'],  // indigo → violet (Pro default)
+  ['#3b82f6', '#6366f1'],  // blue → indigo
+  ['#8b5cf6', '#a855f7'],  // violet → purple
+  ['#06b6d4', '#3b82f6'],  // cyan → blue
+  ['#a855f7', '#ec4899'],  // purple → pink
+  ['#0ea5e9', '#8b5cf6'],  // sky → violet
+]
+
+// djb2-style string hash. We don't need cryptographic strength — only
+// "same input → same palette index" so the avatar colour is stable for a
+// given account across sessions.
+function hashSeed(s: string): number {
+  let h = 5381
+  for (let i = 0; i < s.length; i++) h = (((h << 5) + h) ^ s.charCodeAt(i)) >>> 0
+  return h
+}
+
+function avatarPalette(user: User): readonly [string, string] {
+  if (user.plan === 'pro') return AVATAR_PALETTE[0]
+  return AVATAR_PALETTE[hashSeed(user.email) % AVATAR_PALETTE.length]
+}
+
+// First displayable character of name (preferred) or email. Uses
+// Array.from to be Unicode-safe — `'🌟abc'[0]` returns a broken
+// surrogate half, but `[...'🌟abc'][0]` returns the full grapheme. CJK
+// (Korean, Japanese, Chinese) characters render at the same size and
+// don't case-fold so toLocaleUpperCase is a no-op for them.
+function avatarInitial(user: User): string {
+  const src = (user.name?.trim() || user.email).trim()
+  const ch = Array.from(src)[0] ?? '?'
+  return ch.toLocaleUpperCase()
+}
+
+function Avatar({ user }: { user: User }) {
+  const [from, to] = avatarPalette(user)
+  const initial = avatarInitial(user)
+  const isPro = user.plan === 'pro'
+  return (
+    <div
+      className="w-7 h-7 shrink-0 rounded-full flex items-center justify-center text-white text-[12.5px] font-semibold select-none leading-none"
+      style={{
+        background: `linear-gradient(135deg, ${from}, ${to})`,
+        // Pro: a soft indigo ring sits 1.5 px outside the avatar so the
+        // paid tier reads as elevated without changing layout. Free:
+        // just a subtle drop shadow for definition against white.
+        boxShadow: isPro
+          ? '0 0 0 1.5px #ffffff, 0 0 0 3px rgba(165,180,252,0.7), 0 1px 4px rgba(99,102,241,0.4)'
+          : '0 1px 2px rgba(15,23,42,0.15)',
+      }}
+      aria-hidden="true"
+      title={user.email}
+    >
+      {initial}
+    </div>
+  )
+}
+
 // Modern minimalist gear icon for opening the Options page. Uses
 // chrome.runtime.openOptionsPage() — the canonical way to open the
 // extension's manifest-declared options_page in a new tab. Visible
@@ -100,44 +168,57 @@ export function PanelHeader({
 
   return (
     <header className="flex items-center justify-between gap-2 px-3 py-2 border-b border-gray-200 bg-white">
-      <div className="flex flex-col min-w-0">
+      <div className="flex items-center gap-2.5 min-w-0">
         {user ? (
-          isEmbed ? (
-            // Embed mode: minimal — email + plan badge only. Account toggles
-            // (ON/OFF, logout) live in the Chrome native side panel.
-            <>
+          <>
+            <Avatar user={user} />
+            <div className="flex flex-col min-w-0 leading-tight">
               <span className="text-xs font-semibold text-gray-900 truncate" title={user.email}>
-                👤 {user.email}
+                {user.email}
               </span>
-              <span className="text-[11px] text-gray-500 flex items-center gap-1.5">
-                <span>{user.plan === 'pro' ? T.quota.plan_pro : T.quota.plan_free}</span>
-                {showLiveRemaining && (
+              {isEmbed ? (
+                // Embed (modal) mode: plan dot + label, optional MM:SS
+                // remaining-quota chip when the free user is approaching
+                // the wall. Account toggles (ON/OFF, logout) live in the
+                // Chrome native side panel surface, not here.
+                <span className="text-[11px] text-gray-500 flex items-center gap-1.5 mt-0.5">
                   <span
-                    className={`px-1.5 py-[1px] rounded font-mono tabular-nums text-[10px] font-medium ${remainingClass}`}
-                    title={T.quota.remainingTooltip}
-                  >
-                    {T.panelHeader.remainingPrefix} {formatMmSs(liveRemainingSecs!)}
+                    className="w-1.5 h-1.5 rounded-full shrink-0"
+                    style={{
+                      background: user.plan === 'pro' ? '#6366f1' : '#94a3b8',
+                      boxShadow: user.plan === 'pro' ? '0 0 0 2px rgba(99,102,241,0.18)' : 'none',
+                    }}
+                  />
+                  <span className={user.plan === 'pro' ? 'text-indigo-600 font-medium' : ''}>
+                    {user.plan === 'pro' ? T.quota.plan_pro : T.quota.plan_free}
                   </span>
-                )}
-              </span>
-            </>
-          ) : (
-            <>
-              <span className="text-xs font-semibold text-gray-900 truncate" title={user.email}>
-                👤 {user.email}
-              </span>
-              <button
-                type="button"
-                onClick={onLogout}
-                className="text-[11px] text-gray-500 hover:text-gray-700 text-left"
-                title={T.panelHeader.logoutTooltip}
-              >
-                {interpolate(T.panelHeader.planLogoutCombo, {
-                  plan: user.plan === 'pro' ? T.quota.plan_pro : T.quota.plan_free,
-                })}
-              </button>
-            </>
-          )
+                  {showLiveRemaining && (
+                    <span
+                      className={`px-1.5 py-[1px] rounded font-mono tabular-nums text-[10px] font-medium ${remainingClass}`}
+                      title={T.quota.remainingTooltip}
+                    >
+                      {T.panelHeader.remainingPrefix} {formatMmSs(liveRemainingSecs!)}
+                    </span>
+                  )}
+                </span>
+              ) : (
+                // Side panel (account view): same identity card layout,
+                // but the second line is a clickable plan + logout combo
+                // (existing behaviour). The toggle / logout buttons in
+                // the right cluster still cover the explicit cases.
+                <button
+                  type="button"
+                  onClick={onLogout}
+                  className="text-[11px] text-gray-500 hover:text-gray-700 text-left mt-0.5"
+                  title={T.panelHeader.logoutTooltip}
+                >
+                  {interpolate(T.panelHeader.planLogoutCombo, {
+                    plan: user.plan === 'pro' ? T.quota.plan_pro : T.quota.plan_free,
+                  })}
+                </button>
+              )}
+            </div>
+          </>
         ) : (
           <span className="text-xs text-gray-500">{T.panelHeader.notLoggedIn}</span>
         )}
