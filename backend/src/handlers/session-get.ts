@@ -34,7 +34,11 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     slides: SlideRow[]
     outline: Outline | null
     status: string
-    created_at: string
+    // pg's node-postgres returns timestamp columns as Date objects by
+    // default. The earlier `created_at: string` annotation was wishful
+    // and caused a runtime `created_at.slice is not a function` 500 in
+    // the markdown branch — coerce explicitly below.
+    created_at: Date | string
     updated_at: Date
     url_original: string
   }>(
@@ -54,11 +58,14 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     if (!session || !session.outline) {
       return { statusCode: 404, body: 'no curated outline yet' }
     }
+    const createdAtIso = session.created_at instanceof Date
+      ? session.created_at.toISOString()
+      : String(session.created_at)
     const md = outlineToObsidianMarkdown(session.outline, {
       sourceUrl: session.url_original,
       sessionId: session.id,
       generatedAt: new Date(),
-      lectureDate: session.created_at.slice(0, 10),
+      lectureDate: createdAtIso.slice(0, 10),
     })
     // Filename is built from the title, falling back to session id slice.
     const title = (session.outline.title || session.id.slice(0, 8))
