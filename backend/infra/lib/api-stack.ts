@@ -1,6 +1,6 @@
 import { Stack, type StackProps, Duration, CfnOutput } from 'aws-cdk-lib'
 import { Vpc } from 'aws-cdk-lib/aws-ec2'
-import { Runtime } from 'aws-cdk-lib/aws-lambda'
+import { Runtime, FunctionUrlAuthType, HttpMethod as LambdaHttpMethod } from 'aws-cdk-lib/aws-lambda'
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs'
 import { HttpApi, HttpMethod, CorsHttpMethod } from 'aws-cdk-lib/aws-apigatewayv2'
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations'
@@ -178,6 +178,33 @@ export class ApiStack extends Stack {
       path: '/v1/session/curate',
       methods: [HttpMethod.POST],
       integration: new HttpLambdaIntegration('SCurateInt', sessionCurate),
+    })
+
+    // Lambda Function URL bypasses API Gateway HTTP API's hard 30 s
+    // integration timeout — the curator can take 50–90 s on long
+    // transcripts, which would 504 through API Gateway even though
+    // the Lambda itself runs to completion. The handler still calls
+    // verifyJwt on the Authorization header, so authType: NONE
+    // doesn't widen the auth surface (Lambda Function URL just hands
+    // the request straight to the function — JWT verification gates
+    // access exactly the same way).
+    //
+    // The extension's content/index.ts honours VITE_CURATE_URL (the
+    // exported value below). If unset, callApi falls back through
+    // API Gateway and sessions long enough to need the Function URL
+    // path will time out; this is the recovery for that situation.
+    const sessionCurateUrl = sessionCurate.addFunctionUrl({
+      authType: FunctionUrlAuthType.NONE,
+      cors: {
+        allowedOrigins: ['*'],
+        allowedMethods: [LambdaHttpMethod.POST],
+        allowedHeaders: ['authorization', 'content-type'],
+        maxAge: Duration.hours(1),
+      },
+    })
+    new CfnOutput(this, 'CurateUrl', {
+      value: sessionCurateUrl.url,
+      description: 'Lambda Function URL for /v1/session/curate (bypasses API Gateway 30 s timeout). Set as VITE_CURATE_URL in extension/.env.local.',
     })
 
     // ---- T10: session finalize / get / delete ----
