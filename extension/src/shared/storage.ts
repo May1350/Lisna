@@ -137,5 +137,3 @@ export function onEnabledChange(callback: (enabled: boolean) => void): () => voi
   chrome.storage.onChanged.addListener(listener)
   return () => chrome.storage.onChanged.removeListener(listener)
 }
-
-export const STORAGE_KEYS = KEYS

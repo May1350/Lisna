@@ -110,10 +110,6 @@ export interface Translations {
     plan_free: string                    // "Free プラン"
     plan_pro: string                     // "Pro プラン"
     remainingTooltip: string             // "今月の残り時間 (リアルタイム)"
-    warn50: string                       // "今月の使用量が 50% を超えました"
-    warn80: string
-    warn95: string
-    blocked: string                      // "今月の使用量が上限に達しました"
     upgradeButton: string                // "Pro にアップグレード"
     // Banner-specific copy
     blocked_label: string                // "⛔ 月間使用枠を使い切りました"
@@ -221,7 +217,6 @@ export interface Translations {
     historyFetchFailed: string           // "履歴の取得に失敗しました: "
     historyTitle_untitled: string        // "(無題のノート)"
     historyMeta_withOutline: string      // "📝 ノート ✓"
-    historyMeta_withSlides: string       // "📷 {n}"
     historyMeta_recordOnly: string       // "録音のみ"
     historyMeta_slidesOnly: string       // "📷 {n} 枚"
     historyMeta_outline_withSlides: string // "📝 ノート ✓  📷 {n}"

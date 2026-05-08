@@ -13,8 +13,6 @@ import { useT, interpolate } from '../../shared/i18n'
 // 90% on long sessions (30 h/月), so we render the warning for them too,
 // just without the upgrade button.
 
-import { useEffect, useRef } from 'react'
-
 function formatMinutes(secs: number, T: ReturnType<typeof useT>): string {
   const mins = Math.floor(secs / 60)
   const rem = secs % 60
@@ -34,18 +32,8 @@ interface Props {
 
 export function QuotaBanner({ user, quota, onUpgrade, blocked }: Props) {
   const T = useT()
-  // Suppress duplicate 90% warnings within a single mounted lifetime —
-  // the banner toggles back-on once after first crossing into the warning
-  // band, so the user gets the nudge but doesn't see it flash on every
-  // chunk update from then on. Reset when usage drops back below 90%.
-  const warnedRef = useRef(false)
 
   const pct = quota ? (blocked ? 100 : quota.percent_used) : 0
-
-  useEffect(() => {
-    if (pct < 90) warnedRef.current = false
-    else if (pct < 100) warnedRef.current = true
-  }, [pct])
 
   if (!user) return null
   if (!quota) return null

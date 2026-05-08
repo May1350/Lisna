@@ -30,8 +30,6 @@ interface Props {
   /** Whether the underlying <video> element is currently playing.
    *  null = unknown (haven't received a state broadcast yet). */
   videoPlaying?: boolean | null
-  /** When false the section hides entirely — used for non-session contexts. */
-  visible?: boolean
 }
 
 function placeholderFor(
@@ -64,7 +62,7 @@ function placeholderFor(
 // yank them away from older captions they're trying to read.
 const STICK_TO_BOTTOM_MARGIN_PX = 50
 
-export function LiveTranscript({ items, videoPlaying = null, visible = true }: Props) {
+export function LiveTranscript({ items, videoPlaying = null }: Props) {
   const T = useT()
   const scrollRef = useRef<HTMLDivElement>(null)
   // Track whether the user is "stuck to the bottom" — the typical
@@ -85,8 +83,6 @@ export function LiveTranscript({ items, videoPlaying = null, visible = true }: P
     if (!el) return
     if (stickToBottomRef.current) el.scrollTop = el.scrollHeight
   }, [items])
-
-  if (!visible) return null
 
   const { icon, text, tone } = placeholderFor(videoPlaying, T)
 
