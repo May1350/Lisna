@@ -247,7 +247,21 @@ export function mountInlineButton(
     // viewport.
     const rightEdge = Math.min(rect.right, window.innerWidth)
     const mainLeft = window.scrollX + Math.max(0, rightEdge - inset - w)
-    const mainTop = window.scrollY + Math.max(0, rect.top) + inset
+    // Position vertically. Preferred: just ABOVE the video frame (outside)
+    // so the button never covers lecture content. Falls back to inside-top
+    // when the video sits at the page top with no clearance above.
+    //
+    // The clamp `Math.max(0, rect.top)` that previously pinned the button
+    // to viewport top during scroll is intentionally gone: the button now
+    // scrolls naturally with the video and disappears when the video is
+    // fully out of view, matching user expectation. A "follower" pinned
+    // to the viewport felt like nag-UI on pages that weren't even
+    // lectures.
+    const aboveTop = rect.top - h - GAP
+    const useAbove = aboveTop >= GAP    // need at least one GAP of clearance above
+    const mainTop = useAbove
+      ? window.scrollY + aboveTop
+      : window.scrollY + rect.top + inset
     btn.style.top = `${mainTop}px`
     btn.style.left = `${mainLeft}px`
 
