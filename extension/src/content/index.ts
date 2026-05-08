@@ -18,6 +18,17 @@ import { CURATE_URL } from '../shared/config'
 //   parent (top) → iframe: { source: 'sh-parent', type: 'MODAL_CLOSED' | 'SET_SPEED' | 'STOP_CAPTURE' }
 const isTopFrame = window.top === window.self
 
+// Origin of this extension's bundled pages — including the modal iframe
+// at chrome-extension://<ID>/src/side-panel/index.html. We use this for:
+//   1. Validating event.origin on incoming postMessages from the modal
+//      (so a malicious script can't impersonate it from the host page).
+//   2. Targeting outbound postMessages destined for the modal (so a
+//      payload containing session IDs / quota / outline can't leak to
+//      ad / tracker iframes that happen to be on the page).
+// chrome.runtime.getURL('') returns 'chrome-extension://<ID>/'; strip the
+// trailing slash so it matches the format browsers report as event.origin.
+const EXTENSION_ORIGIN = chrome.runtime.getURL('').replace(/\/$/, '')
+
 // Idempotence sentinel against content-script re-injection. SPA
 // navigations inside the same tab can cause Chrome to re-run the
 // content script without unloading the prior copy. Without a guard
@@ -42,7 +53,7 @@ let onEndedHandler: (() => void) | null = null
 // Tracks the in-flight capture session so stopCaptureLocal can flip a flag
 // that the AudioCapture / SlideDetector callbacks read, suppressing any
 // straggler chunks produced after stop().
-type CaptureSession = { id: string; canonicalAdopted: boolean; stopped: boolean }
+type CaptureSession = { id: string; canonicalAdopted: boolean; stopped: boolean; abort: AbortController }
 let activeSession: CaptureSession | null = null
 // Cleanup callback set by startCapture and invoked by stopCaptureLocal
 // to detach the early play/pause listeners attached before the await
@@ -86,10 +97,61 @@ function onModalClosed(): void {
   setButtonStatus(capture !== null ? 'processing' : 'idle')
 }
 
+// Fire-and-forget helper around chrome.runtime.sendMessage. The extension
+// SW can be in three "missing" states from the content script's view:
+//   1. Just restarted (SW MV3 lifecycle) — sendMessage rejects with
+//      "Could not establish connection. Receiving end does not exist."
+//      until the SW finishes booting. Browser usually retries internally
+//      but the promise rejects in some races.
+//   2. Disabled / uninstalled at runtime — "Extension context invalidated".
+//   3. Update reload — same as (2) for a few seconds.
+// Without an attached .catch the rejection becomes an unhandledrejection,
+// which is noisy in DevTools, surfaces in error-reporting hooks the page
+// itself may have, and (in some MV3 builds) terminates the whole content
+// script. Logging at warn-level lets us debug without becoming a UX bug.
+function fireAndForgetSend(msg: unknown): void {
+  try {
+    const p = chrome.runtime.sendMessage(msg)
+    if (p && typeof (p as Promise<unknown>).catch === 'function') {
+      void (p as Promise<unknown>).catch((e) => {
+        // eslint-disable-next-line no-console
+        console.warn('[content] sendMessage failed:', e instanceof Error ? e.message : e)
+      })
+    }
+  } catch (e) {
+    // sendMessage can throw synchronously when the extension context
+    // is already invalidated (no Promise issued at all).
+    // eslint-disable-next-line no-console
+    console.warn('[content] sendMessage threw:', e instanceof Error ? e.message : e)
+  }
+}
+
 function broadcastToFrames(message: unknown): void {
+  // Pick the postMessage target origin based on which side the message
+  // is bound for:
+  //   - source: 'sh-frame'  → destined for the modal iframe at the
+  //                            extension origin. Sensitive payloads
+  //                            (session IDs, quota, outline) flow here,
+  //                            so we restrict the target to
+  //                            EXTENSION_ORIGIN — ad / tracker iframes
+  //                            on the host page will silently drop the
+  //                            message instead of receiving the data.
+  //   - source: 'sh-parent' → destined for the video child iframes
+  //                            (YouTube same-origin, but also Vimeo /
+  //                            K-LMS / Canvas Studio cross-origin).
+  //                            We don't know each iframe's origin
+  //                            ahead of time and these messages carry
+  //                            only control verbs (no sensitive data),
+  //                            so '*' stays. The receiver-side handler
+  //                            below validates that event.source is
+  //                            window.top before acting.
+  //   - anything else        → fall back to extension origin (safer
+  //                            default; nothing legitimate hits this).
+  const m = message as { source?: string } | null
+  const targetOrigin = m?.source === 'sh-parent' ? '*' : EXTENSION_ORIGIN
   const iframes = document.querySelectorAll<HTMLIFrameElement>('iframe')
   iframes.forEach(ifr => {
-    try { ifr.contentWindow?.postMessage(message, '*') } catch { /* ignore */ }
+    try { ifr.contentWindow?.postMessage(message, targetOrigin) } catch { /* ignore */ }
   })
 }
 
@@ -101,7 +163,7 @@ function handleActivate(): void {
   // (~13-18 s on a cold-start path), so users perceive the click as
   // unresponsive. Fired BEFORE the modal even mounts so the React app
   // sees it on first render via the SP_BROADCAST channel.
-  chrome.runtime.sendMessage({
+  fireAndForgetSend({
     type: 'SP_BROADCAST',
     payload: { type: 'session_pending' },
   })
@@ -266,9 +328,22 @@ if (__sh_first_boot__) init()
 
 if (__sh_first_boot__ && isTopFrame) {
   // Receive messages from child iframes (e.g. iframe asks us to mount the modal).
+  // Origin policy: REQUEST_MODAL is sent by content scripts running in CHILD
+  // iframes (any origin — host-same-origin, Vimeo, K-LMS, Canvas Studio, etc.).
+  // We can't restrict by event.origin without breaking those legitimate
+  // cross-origin video frames, so we instead validate via event.source: it
+  // must be a real Window object that is neither this top frame nor null
+  // (a page-top script trying to impersonate a child iframe would have
+  // event.source === window). This blocks the in-page-script attack vector
+  // while still admitting all genuine cross-origin video iframes.
   window.addEventListener('message', (e: MessageEvent) => {
     const data = e.data as { source?: string; type?: string; frameUrl?: string } | null
     if (!data || data.source !== 'sh-frame') return
+    if (e.source === null || e.source === window) {
+      // eslint-disable-next-line no-console
+      console.warn('[SH:top] rejecting sh-frame message with non-iframe source', { origin: e.origin })
+      return
+    }
 
     if (data.type === 'REQUEST_MODAL') {
       mountModal({
@@ -301,9 +376,18 @@ if (__sh_first_boot__ && isTopFrame) {
   // need to forward the message there. Doing both unconditionally is
   // safe — only the frame that actually has activeVideo / capture
   // state will act on it.
+  // Origin policy: sh-parent messages received here originate from the
+  // modal iframe at the extension origin. Reject anything else — a
+  // host-page script firing { source:'sh-parent', type:'SET_PLAY' }
+  // would otherwise jump video time / toggle play / fire a curate.
   window.addEventListener('message', (e: MessageEvent) => {
     const data = e.data as { source?: string; type?: string; ts?: number; full?: boolean; play?: boolean } | null
     if (!data || data.source !== 'sh-parent') return
+    if (e.origin !== EXTENSION_ORIGIN) {
+      // eslint-disable-next-line no-console
+      console.warn('[SH:top] rejecting sh-parent from non-extension origin', { origin: e.origin, type: data.type })
+      return
+    }
     if (data.type === 'JUMP_TO' && typeof data.ts === 'number') {
       if (activeVideo) activeVideo.currentTime = data.ts
       broadcastToFrames(data)
@@ -322,9 +406,20 @@ if (__sh_first_boot__ && isTopFrame) {
   })
 } else if (__sh_first_boot__) {
   // Iframe: receive directives from the top frame.
+  // Origin policy: sh-parent control messages here are sent by the top
+  // frame via broadcastToFrames — so event.source must equal window.top.
+  // (We can't compare event.origin to top frame's origin because that's
+  // cross-origin and unreadable from here.) The Window-identity check
+  // blocks any host-page-injected script in this iframe trying to fake
+  // a STOP_CAPTURE / JUMP_TO / SET_PLAY directive on its own.
   window.addEventListener('message', (e: MessageEvent) => {
     const data = e.data as { source?: string; type?: string; speed?: number; ts?: number; play?: boolean } | null
     if (!data || data.source !== 'sh-parent') return
+    if (e.source !== window.top) {
+      // eslint-disable-next-line no-console
+      console.warn('[SH:iframe] rejecting sh-parent from non-top source', { origin: e.origin, type: data.type })
+      return
+    }
 
     if (data.type === 'MODAL_CLOSED') {
       onModalClosed()
@@ -428,7 +523,15 @@ function stopCaptureLocal(): void {
   } else {
     // No wrap-up handler set (capture never started, or already torn
     // down). Defensive cleanup of capture/detector if somehow lingering.
-    if (activeSession) activeSession.stopped = true
+    if (activeSession) {
+      activeSession.stopped = true
+      // Fire the abort so any in-flight chunk/slide post-processing in
+      // this frame short-circuits at the next await boundary. The SW's
+      // /v1/stream/audio fetch itself can't be aborted from here (no
+      // signal channel across sendMessage), but the response will be
+      // ignored by the session.stopped guard above.
+      try { activeSession.abort.abort() } catch { /* ignore */ }
+    }
     try { capture?.stop() } catch { /* ignore */ }
     try { detector?.stop() } catch { /* ignore */ }
   }
@@ -475,7 +578,7 @@ async function startCapture(url: string): Promise<void> {
     type: 'SP_BROADCAST',
     payload: { type: 'video_state', playing },
   })
-  chrome.runtime.sendMessage(earlyVideoStateMessage(!activeVideo.paused))
+  fireAndForgetSend(earlyVideoStateMessage(!activeVideo.paused))
   broadcastToFrames({ source: 'sh-frame', type: 'VIDEO_STATE', playing: !activeVideo.paused })
 
   // Attach play/pause listeners IMMEDIATELY too — before the async
@@ -484,11 +587,11 @@ async function startCapture(url: string): Promise<void> {
   // here that just rebroadcasts state; the curate-trigger listeners
   // are attached later (after capture is up) and are independent.
   const earlyOnPlay = () => {
-    chrome.runtime.sendMessage(earlyVideoStateMessage(true))
+    fireAndForgetSend(earlyVideoStateMessage(true))
     broadcastToFrames({ source: 'sh-frame', type: 'VIDEO_STATE', playing: true })
   }
   const earlyOnPause = () => {
-    chrome.runtime.sendMessage(earlyVideoStateMessage(false))
+    fireAndForgetSend(earlyVideoStateMessage(false))
     broadcastToFrames({ source: 'sh-frame', type: 'VIDEO_STATE', playing: false })
   }
   activeVideo.addEventListener('play', earlyOnPlay)
@@ -522,10 +625,24 @@ async function startCapture(url: string): Promise<void> {
   // the module variable, that drain chunk would POST `session_id: null` and
   // the backend's Zod validator would 400. Holding the id in a closure scopes
   // it correctly to this capture session only.
+  // AbortController scoped to this capture session. Triggered by
+  // stopCaptureLocal() / onEndedHandler. We can't abort the SW-side
+  // /v1/stream/audio fetch from here (chrome.runtime.sendMessage doesn't
+  // accept an AbortSignal and the SW does the actual fetch), but the
+  // signal still serves three purposes inside this content frame:
+  //   1. Short-circuit the 1.5 s retry sleep when the user stops mid-
+  //      backoff (otherwise a chunk POST you no longer care about can
+  //      still fire ~1.5 s after stop()).
+  //   2. Skip the b64-encode + sendMessage path for any chunk whose
+  //      onChunk callback raced past the session.stopped flag check.
+  //   3. Auto-detach the TRIGGER_CURATE message listener via
+  //      addEventListener({ signal }) — already in place below.
+  const sessionAbort = new AbortController()
   const session: {
     id: string
     canonicalAdopted: boolean
     stopped: boolean
+    abort: AbortController
     // Slides emitted before the canonical session id arrives. Holding
     // them here (instead of dropping) preserves the very first slide —
     // SlideDetector's forced-baseline emit fires at ~2 s after capture
@@ -537,6 +654,7 @@ async function startCapture(url: string): Promise<void> {
     id: crypto.randomUUID(),
     canonicalAdopted: false,
     stopped: false,
+    abort: sessionAbort,
     pendingSlides: [],
   }
   let chunksSent = 0
@@ -586,11 +704,23 @@ async function startCapture(url: string): Promise<void> {
       let r: ChunkOk | ChunkErr | undefined
       try {
         r = await sendChunk()
+        if (session.stopped || session.abort.signal.aborted) return
         if (isTransient5xx(r)) {
           warn('audio chunk: transient 5xx, retrying once', { status: (r as ChunkErr).status, n: chunksSent })
-          await new Promise(res => setTimeout(res, 1500))
-          if (session.stopped) return
+          // Abortable sleep — when the user clicks 停止 mid-backoff we
+          // resolve early and exit before issuing the retry, instead of
+          // making the user wait 1.5 s for a request they no longer
+          // care about.
+          await new Promise<void>(res => {
+            const t = setTimeout(res, 1500)
+            session.abort.signal.addEventListener('abort', () => {
+              clearTimeout(t)
+              res()
+            }, { once: true })
+          })
+          if (session.stopped || session.abort.signal.aborted) return
           r = await sendChunk()
+          if (session.stopped || session.abort.signal.aborted) return
         }
       } catch (e) {
         warn('audio chunk sendMessage threw', e)
@@ -606,7 +736,7 @@ async function startCapture(url: string): Promise<void> {
         // capture cleanly — there's no point burning bandwidth on chunks the
         // backend will reject for the rest of the period.
         if (r.status === 402 && r.data?.error === 'quota_exceeded' && r.data.quota) {
-          chrome.runtime.sendMessage({
+          fireAndForgetSend({
             type: 'SP_BROADCAST',
             payload: { type: 'quota_exceeded', quota: r.data.quota },
           })
@@ -623,7 +753,7 @@ async function startCapture(url: string): Promise<void> {
           session.id = canonical
           session.canonicalAdopted = true
           log('canonical session adopted, broadcasting session_started', canonical)
-          chrome.runtime.sendMessage({
+          fireAndForgetSend({
             type: 'SP_BROADCAST',
             payload: { type: 'session_started', sessionId: canonical, url },
           })
@@ -647,7 +777,7 @@ async function startCapture(url: string): Promise<void> {
       // → 100% blocking. Sent both via SW broadcast (side-panel UI) and
       // via in-page postMessage (embed iframe modal).
       if (r.data?.quota) {
-        chrome.runtime.sendMessage({
+        fireAndForgetSend({
           type: 'SP_BROADCAST',
           payload: { type: 'quota_update', quota: r.data.quota },
         })
@@ -666,14 +796,13 @@ async function startCapture(url: string): Promise<void> {
   // Slide POST extracted so the audio-chunk path can flush queued slides
   // through the same code path after canonical-id adoption.
   const postSlide = async (slide: Slide): Promise<void> => {
-    if (session.stopped) {
+    if (session.stopped || session.abort.signal.aborted) {
       log('slide dropped (session stopped)', { ts: slide.ts.toFixed(1) })
       return
     }
     const buf = await slide.blob.arrayBuffer()
-    let s = ''; const bytes = new Uint8Array(buf)
-    for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i])
-    const b64 = btoa(s)
+    if (session.stopped || session.abort.signal.aborted) return
+    const b64 = arrayBufferToBase64(buf)
     log('slide → POST /v1/stream/slide', { ts: slide.ts.toFixed(1), bytes: slide.blob.size })
     const r = await chrome.runtime.sendMessage({
       type: 'API_FETCH',
@@ -778,7 +907,7 @@ async function startCapture(url: string): Promise<void> {
       // harmless. This guarantees the user never sits in an infinite
       // "ノート生成中…" state when the curator actually succeeded.
       if (ok && resp?.data?.outline) {
-        chrome.runtime.sendMessage({
+        fireAndForgetSend({
           type: 'SP_BROADCAST',
           payload: { type: 'outline_updated', outline: resp.data.outline },
         })
@@ -787,7 +916,7 @@ async function startCapture(url: string): Promise<void> {
         // Tell the modal to come out of the spinner state with a useful
         // message instead of hanging forever.
         const reason = resp?.data?.reason ?? resp?.data?.error ?? resp?.error ?? 'unknown'
-        chrome.runtime.sendMessage({
+        fireAndForgetSend({
           type: 'SP_BROADCAST',
           payload: { type: 'curate_failed', reason },
         })
@@ -796,7 +925,7 @@ async function startCapture(url: string): Promise<void> {
     }).catch(e => {
       warn('curate request failed', e)
       const reason = e instanceof Error ? e.message : 'request_failed'
-      chrome.runtime.sendMessage({
+      fireAndForgetSend({
         type: 'SP_BROADCAST',
         payload: { type: 'curate_failed', reason },
       })
@@ -830,6 +959,16 @@ async function startCapture(url: string): Promise<void> {
   window.addEventListener('message', (e: MessageEvent) => {
     const data = e.data as { source?: string; type?: string; full?: boolean } | null
     if (!data || data.source !== 'sh-parent') return
+    // sh-parent TRIGGER_CURATE comes from the modal iframe (extension
+    // origin) when this is the top frame, OR is relayed from the top
+    // frame via broadcastToFrames when this is a video child iframe.
+    // Validate accordingly so an in-page-injected script can't fire a
+    // /v1/session/curate roundtrip on its own.
+    if (isTopFrame) {
+      if (e.origin !== EXTENSION_ORIGIN) return
+    } else {
+      if (e.source !== window.top) return
+    }
     if (data.type === 'TRIGGER_CURATE') {
       triggerCurate(data.full ? 'manual_full' : 'manual')
     }
@@ -846,6 +985,13 @@ async function startCapture(url: string): Promise<void> {
     if (session.stopped) return                  // idempotence
     try { activeVideo?.pause() } catch { /* ignore */ }
     session.stopped = true
+    // Abort the session-scoped controller. This kills the abortable
+    // retry sleep in the chunk handler and short-circuits any further
+    // post-processing of in-flight chunks/slides at their next await
+    // boundary. (The SW's /v1/stream/audio fetch itself proceeds to
+    // completion — we ignore the response on the receiving side via
+    // the session.stopped check.)
+    try { sessionAbort.abort() } catch { /* ignore */ }
     detector?.stop()
     capture?.stop()
     activeVideo?.removeEventListener('play', earlyOnPlay)
@@ -861,7 +1007,7 @@ async function startCapture(url: string): Promise<void> {
       // zip export as soon as the final outline arrives. Both the
       // SP_BROADCAST channel (side-panel mode) and the in-page
       // postMessage channel (embed mode) are used.
-      chrome.runtime.sendMessage({
+      fireAndForgetSend({
         type: 'SP_BROADCAST',
         payload: { type: 'session_ended', sessionId: session.id },
       })
@@ -874,6 +1020,23 @@ async function startCapture(url: string): Promise<void> {
 
 function detectMaxSpeed(_v: HTMLVideoElement): number | null {
   return 2
+}
+
+// Fast browser-safe base64 of an ArrayBuffer. The naive
+// `btoa(String.fromCharCode(...bytes))` form rebuilds the string one
+// character at a time, which on 320 KB+ slide / WAV blobs spends most
+// of its time in V8 string concatenation rather than the actual b64
+// encode. Chunking into 32 KB windows and joining via
+// String.fromCharCode.apply is ~10× faster on large buffers and matches
+// the helper already used by side-panel/lib/export.ts.
+function arrayBufferToBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf)
+  const CHUNK = 0x8000
+  let binary = ''
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + CHUNK)))
+  }
+  return btoa(binary)
 }
 
 export {}  // module marker

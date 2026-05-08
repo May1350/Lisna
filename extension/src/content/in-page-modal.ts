@@ -21,6 +21,11 @@ const CONTAINER_ID = '__sh_modal_container__'
 const IFRAME_ID = '__sh_modal_iframe__'
 const STYLE_ID = '__sh_modal_style__'
 
+// Origin of the modal iframe (chrome-extension://<id>). We validate
+// incoming postMessages against this so a malicious script on the host
+// page can't spoof a SH_CLOSE_MODAL / SH_SET_SPEED to trip the modal.
+const EXTENSION_ORIGIN = chrome.runtime.getURL('').replace(/\/$/, '')
+
 const RECT_KEY = 'sh.modalRect'
 const MIN_W = 280
 const MIN_H = 320
@@ -369,6 +374,16 @@ export function unmountModal(): void {
 function handleMessage(e: MessageEvent): void {
   const data = e.data
   if (!data || typeof data !== 'object') return
+  // SH_CLOSE_MODAL / SH_SET_SPEED are sent by the modal iframe (App.tsx
+  // running at the extension origin). Reject anything else so a script
+  // on the host page can't dismiss the modal or change playback speed.
+  if (e.origin !== EXTENSION_ORIGIN) {
+    if (data.type === 'SH_CLOSE_MODAL' || data.type === 'SH_SET_SPEED') {
+      // eslint-disable-next-line no-console
+      console.warn('[SH:modal-host] rejecting SH_* from non-extension origin', { origin: e.origin, type: data.type })
+    }
+    return
+  }
   if (data.type === 'SH_CLOSE_MODAL') {
     unmountModal()
     return
