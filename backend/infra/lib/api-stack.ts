@@ -1,7 +1,7 @@
 import { Stack, type StackProps, Duration, CfnOutput } from 'aws-cdk-lib'
 import { Vpc } from 'aws-cdk-lib/aws-ec2'
-import { Runtime } from 'aws-cdk-lib/aws-lambda'
-import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs'
+import { Runtime, FunctionUrlAuthType, HttpMethod as LambdaHttpMethod } from 'aws-cdk-lib/aws-lambda'
+import { NodejsFunction, type NodejsFunctionProps } from 'aws-cdk-lib/aws-lambda-nodejs'
 import { HttpApi, HttpMethod, CorsHttpMethod } from 'aws-cdk-lib/aws-apigatewayv2'
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations'
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam'
@@ -36,11 +36,42 @@ export class ApiStack extends Stack {
     }
     const wsEndpoint = props.wsEndpoint
 
+    // Shared bundling defaults for every NodejsFunction in this stack:
+    //   - minify: true        — strips whitespace/comments/longidents in
+    //                           the bundled output, ~30-50% smaller .zip,
+    //                           which makes cold-start faster (less to
+    //                           download + parse).
+    //   - sourceMap: true     — production stack traces map back to the
+    //                           original .ts file. Sourcemaps go into the
+    //                           bundle (Lambda /tmp), so CloudWatch
+    //                           reports the right line.
+    //   - externalModules: ['@aws-sdk/*'] — the Node 20 runtime ships
+    //                           AWS SDK v3 as a built-in. Bundling it
+    //                           wastes ~3 MB per function for no gain.
+    //                           NOTE: judge.ts (an eval-only Anthropic
+    //                           consumer) was moved to scripts/lib/ so
+    //                           Lambda builds don't pull it. curator.ts
+    //                           also imports @anthropic-ai/sdk for its
+    //                           dormant CURATOR_PROVIDER='anthropic'
+    //                           branch — that one is intentionally
+    //                           bundled into SessCurateFn so flipping
+    //                           the env var is sufficient to swap
+    //                           providers in production. Switching to
+    //                           dynamic import would shave it from the
+    //                           cold-start path; defer until that
+    //                           branch is actually live.
+    const lambdaBundling: NonNullable<NodejsFunctionProps['bundling']> = {
+      minify: true,
+      sourceMap: true,
+      externalModules: ['@aws-sdk/*'],
+    }
+
     const health = new NodejsFunction(this, 'HealthFn', {
       entry: path.join(__dirname, '../../src/handlers/health.ts'),
       runtime: Runtime.NODEJS_20_X,
       timeout: Duration.seconds(5),
       environment: commonEnv,
+      bundling: lambdaBundling,
     })
 
     // DB SG already permits VPC CIDR ingress on 5432 (see data-stack.ts).
@@ -56,6 +87,7 @@ export class ApiStack extends Stack {
       timeout: Duration.seconds(10),
       environment: commonEnv,
       vpc: props.vpc,
+      bundling: lambdaBundling,
     })
     props.dbSecret.grantRead(authGoogle)
     props.appSecret.grantRead(authGoogle)
@@ -66,13 +98,28 @@ export class ApiStack extends Stack {
       timeout: Duration.seconds(5),
       environment: commonEnv,
       vpc: props.vpc,
+      bundling: lambdaBundling,
     })
     props.dbSecret.grantRead(authMe)
     props.appSecret.grantRead(authMe)
 
+    // CORS allowlist. Defaults to '*' for dev because unpacked Chrome
+    // extensions get a randomized chrome-extension://<id> on each install,
+    // making a strict allowlist impractical until the extension is
+    // published to the Web Store and gets a stable ID.
+    //
+    // Once we have a stable ID, set ALLOWED_CORS_ORIGINS as a CDK
+    // context variable (cdk deploy -c allowedCorsOrigins=chrome-extension://abc123...)
+    // so we narrow this to just the actual extension. Bearer JWT auth
+    // already prevents unauthenticated reads, but CORS narrowing makes
+    // it impossible for a stolen token to be used from a third-party
+    // page in someone's browser.
+    const allowedCorsOrigins =
+      (this.node.tryGetContext('allowedCorsOrigins') as string | undefined)?.split(',')
+        .map(s => s.trim()).filter(Boolean) ?? ['*']
     const api = new HttpApi(this, 'HttpApi', {
       corsPreflight: {
-        allowOrigins: ['*'],
+        allowOrigins: allowedCorsOrigins,
         allowMethods: [CorsHttpMethod.GET, CorsHttpMethod.POST, CorsHttpMethod.DELETE, CorsHttpMethod.OPTIONS],
         allowHeaders: ['Content-Type', 'Authorization'],
       },
@@ -100,15 +147,16 @@ export class ApiStack extends Stack {
     const streamAudio = new NodejsFunction(this, 'StreamAudioFn', {
       entry: path.join(__dirname, '../../src/handlers/stream-audio.ts'),
       runtime: Runtime.NODEJS_20_X,
-      // Curator runs in this Lambda. GPT-5 family models are reasoning
-      // models — a single full-fixture call took ~105 s in eval. Even
-      // chunk-sized rolling-mode runs can exceed 60 s when the API Gateway
-      // is heavily loaded. 5 min gives us plenty of margin without burning
-      // money on idle: Lambda only bills for actual execution time.
-      timeout: Duration.minutes(5),
+      // Phase 6.1 moved the curator OFF this hot path. stream-audio
+      // now only does STT (~1-3 s) + transcript broadcast + DB append.
+      // 30 s timeout has comfortable margin even with cold-start init
+      // and a transient Groq slowdown; the API Gateway integration
+      // timeout caps requests at 30 s anyway.
+      timeout: Duration.seconds(30),
       memorySize: 1024,
       environment: { ...commonEnv, WS_ENDPOINT: wsEndpoint },
       vpc: props.vpc,
+      bundling: lambdaBundling,
     })
     props.dbSecret.grantRead(streamAudio)
     props.appSecret.grantRead(streamAudio)
@@ -121,6 +169,7 @@ export class ApiStack extends Stack {
       memorySize: 512,
       environment: { ...commonEnv, WS_ENDPOINT: wsEndpoint },
       vpc: props.vpc,
+      bundling: lambdaBundling,
     })
     props.dbSecret.grantRead(streamSlide)
     props.appSecret.grantRead(streamSlide)
@@ -164,6 +213,7 @@ export class ApiStack extends Stack {
       memorySize: 1024,
       environment: { ...commonEnv, WS_ENDPOINT: wsEndpoint },
       vpc: props.vpc,
+      bundling: lambdaBundling,
     })
     props.dbSecret.grantRead(sessionCurate)
     props.appSecret.grantRead(sessionCurate)
@@ -174,28 +224,65 @@ export class ApiStack extends Stack {
       integration: new HttpLambdaIntegration('SCurateInt', sessionCurate),
     })
 
-    // ---- T10: session finalize / get / delete ----
-    const sessionFinalize = new NodejsFunction(this, 'SessFinFn', {
-      entry: path.join(__dirname, '../../src/handlers/session-finalize.ts'),
-      runtime: Runtime.NODEJS_20_X,
-      timeout: Duration.seconds(60),
-      memorySize: 1024,
-      environment: commonEnv,
-      vpc: props.vpc,
+    // 2026-04-30: API Gateway HTTP API has a HARD 30 s integration timeout
+    // that cannot be raised. The curator's wall-clock can hit 50–90 s on
+    // longer transcripts (gpt-4o-mini through OpenAI is sometimes slow,
+    // and total tokens scale with lecture length). When that happens API
+    // Gateway returns 503 to the client even though the Lambda is still
+    // running and will eventually persist the outline + broadcast over WS.
+    // The modal never sees a successful HTTP response and falls into the
+    // "ノート生成に失敗しました (HTTP 503: Service Unavailable)" error path.
+    //
+    // Fix: expose the curator behind a Lambda Function URL too. Function
+    // URLs are limited only by the Lambda's own timeout (here 5 min), so
+    // we can ride out the full curator latency and return the outline
+    // synchronously. The handler is the same — Lambda Function URL events
+    // are shape-compatible with APIGatewayProxyEventV2 (the SDK uses the
+    // same payload format v2.0 by default), so no handler change required.
+    //
+    // The modal calls the Function URL directly with the JWT in the
+    // Authorization header. The handler still does verifyJwt, so opening
+    // the URL with authType: NONE doesn't widen our auth surface.
+    const sessionCurateUrl = sessionCurate.addFunctionUrl({
+      authType: FunctionUrlAuthType.NONE,
+      cors: {
+        allowedOrigins: ['*'],
+        allowedMethods: [LambdaHttpMethod.POST],
+        allowedHeaders: ['authorization', 'content-type'],
+        maxAge: Duration.hours(1),
+      },
     })
-    props.dbSecret.grantRead(sessionFinalize)
-    props.appSecret.grantRead(sessionFinalize)
-    props.bucket.grantReadWrite(sessionFinalize)
+    new CfnOutput(this, 'CurateUrl', {
+      value: sessionCurateUrl.url,
+      description: 'Lambda Function URL for /v1/session/curate (bypasses API Gateway 30 s timeout)',
+    })
 
+    // ---- session get / delete ----
+    // Phase 6.1 retired the legacy session-finalize Lambda (it produced
+    // a PDF off the deprecated `notes` jsonb column, which no current
+    // handler writes — every produced PDF was empty). Markdown export
+    // via GET /v1/session?format=markdown covers the same use case
+    // using the live `outline` column. The CDK resource + route were
+    // removed; CloudFormation will drop the orphaned function on next
+    // deploy.
     const sessionGet = new NodejsFunction(this, 'SessGetFn', {
       entry: path.join(__dirname, '../../src/handlers/session-get.ts'),
       runtime: Runtime.NODEJS_20_X,
       timeout: Duration.seconds(10),
       environment: commonEnv,
       vpc: props.vpc,
+      bundling: lambdaBundling,
     })
     props.dbSecret.grantRead(sessionGet)
     props.appSecret.grantRead(sessionGet)
+    // Required for presignGet — a presigned URL inherits the signing
+    // principal's IAM permissions. Without this grant the URL is
+    // syntactically valid but every browser GET against it returns 403
+    // because session-get's role lacks s3:GetObject. Symptom seen in
+    // the wild: zip export → "slide slide-XX-XX.jpg fetch 403" on
+    // every slide. Discovered after S3 bucket CORS was added (which
+    // we'd assumed was the culprit) and the failure persisted.
+    props.bucket.grantRead(sessionGet)
 
     const sessionDelete = new NodejsFunction(this, 'SessDelFn', {
       entry: path.join(__dirname, '../../src/handlers/session-delete.ts'),
@@ -203,15 +290,11 @@ export class ApiStack extends Stack {
       timeout: Duration.seconds(10),
       environment: commonEnv,
       vpc: props.vpc,
+      bundling: lambdaBundling,
     })
     props.dbSecret.grantRead(sessionDelete)
     props.appSecret.grantRead(sessionDelete)
 
-    api.addRoutes({
-      path: '/v1/session/finalize',
-      methods: [HttpMethod.POST],
-      integration: new HttpLambdaIntegration('SFInt', sessionFinalize),
-    })
     api.addRoutes({
       path: '/v1/session',
       methods: [HttpMethod.GET],
@@ -223,6 +306,25 @@ export class ApiStack extends Stack {
       integration: new HttpLambdaIntegration('SDInt', sessionDelete),
     })
 
+    // List endpoint: powers the side-panel history view. Lightweight
+    // — returns id / url / title / counts, NOT outline content, so the
+    // payload stays small even with 100+ sessions per user.
+    const sessionsList = new NodejsFunction(this, 'SessListFn', {
+      entry: path.join(__dirname, '../../src/handlers/sessions-list.ts'),
+      runtime: Runtime.NODEJS_20_X,
+      timeout: Duration.seconds(10),
+      environment: commonEnv,
+      vpc: props.vpc,
+      bundling: lambdaBundling,
+    })
+    props.dbSecret.grantRead(sessionsList)
+    props.appSecret.grantRead(sessionsList)
+    api.addRoutes({
+      path: '/v1/sessions',
+      methods: [HttpMethod.GET],
+      integration: new HttpLambdaIntegration('SLInt', sessionsList),
+    })
+
     // ---- T11: Stripe checkout + webhook ----
     const stripeCheckout = new NodejsFunction(this, 'StripeCheckoutFn', {
       entry: path.join(__dirname, '../../src/handlers/stripe-checkout.ts'),
@@ -230,6 +332,7 @@ export class ApiStack extends Stack {
       timeout: Duration.seconds(15),
       environment: commonEnv,
       vpc: props.vpc,
+      bundling: lambdaBundling,
     })
     props.dbSecret.grantRead(stripeCheckout)
     props.appSecret.grantRead(stripeCheckout)
@@ -240,6 +343,7 @@ export class ApiStack extends Stack {
       timeout: Duration.seconds(15),
       environment: commonEnv,
       vpc: props.vpc,
+      bundling: lambdaBundling,
     })
     props.dbSecret.grantRead(stripeWebhook)
     props.appSecret.grantRead(stripeWebhook)

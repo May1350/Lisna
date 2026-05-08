@@ -17,14 +17,22 @@
 // Input: { session_id }. Auth: Bearer JWT.
 // Output: { outline } (also broadcast over WS for any other clients).
 
-import type { APIGatewayProxyHandlerV2 } from 'aws-lambda'
-import { verifyJwt } from '../lib/auth.js'
+import { withAuth } from '../lib/auth.js'
 import { curateOutline, type Outline } from '../lib/curator.js'
 import { sendToSession } from '../lib/ws-broadcast.js'
 import { query } from '../lib/db.js'
-import { loadAppSecrets } from '../lib/env.js'
-import { isWarmup, warmupResponse } from '../lib/warmup.js'
 import { z } from 'zod'
+
+// Per-session cooldown to prevent abuse (an attacker with a stolen JWT
+// firing curate in a tight loop racks up gpt-4o-mini cost — ~$0.003
+// per call). Free plan gets a longer cooldown because the abuse
+// surface there is wider (it's the casual abuse class). Pro users
+// hitting cooldown is rare in normal use; 5 s still allows snappy
+// regenerate clicks.
+const CURATE_COOLDOWN_SECS: Record<'free' | 'pro', number> = {
+  free: 30,
+  pro: 5,
+}
 
 const Body = z.object({
   session_id: z.string().uuid(),
@@ -32,33 +40,67 @@ const Body = z.object({
   // gets a fresh-perspective rebuild (used by the manual "regenerate"
   // button in the modal).
   full_rewrite: z.boolean().optional(),
+  // Phase i18n: optional output-language override. Client passes the
+  // user's preference from chrome.storage; missing/null means 'auto'
+  // (curator detects from transcript). Validated as one of our four
+  // supported locales plus 'auto'; anything else falls through to auto.
+  note_language: z.enum(['auto', 'ja', 'en', 'ko', 'zh']).optional(),
 })
 
 interface TranscriptEntry { ts: number; text: string }
 
-export const handler: APIGatewayProxyHandlerV2 = async (event) => {
-  if (isWarmup(event)) return warmupResponse()
-  await loadAppSecrets()
-  const auth = event.headers.authorization || event.headers.Authorization
-  if (!auth?.startsWith('Bearer ')) return { statusCode: 401, body: 'unauthorized' }
-
-  let payload
-  try { payload = await verifyJwt(auth.slice(7)) }
-  catch { return { statusCode: 401, body: 'invalid token' } }
-
+export const handler = withAuth(async (event, payload) => {
   const body = Body.parse(JSON.parse(event.body || '{}'))
 
-  // Fetch the full transcript + previous outline. The session_id is
-  // guarded by user_id so a token can't curate someone else's session.
-  const rows = await query<{ transcripts: TranscriptEntry[]; outline: Outline | null }>(
-    `SELECT transcripts, outline FROM sessions WHERE id = $1 AND user_id = $2`,
+  // Fetch the full transcript + previous outline + last curate time.
+  // The session_id is guarded by user_id so a token can't curate
+  // someone else's session.
+  const rows = await query<{
+    transcripts: TranscriptEntry[]
+    outline: Outline | null
+    last_curated_at: string | null
+  }>(
+    `SELECT transcripts, outline, last_curated_at
+       FROM sessions WHERE id = $1 AND user_id = $2`,
     [body.session_id, payload.sub],
   )
   if (rows.length === 0) {
-    return { statusCode: 404, body: JSON.stringify({ error: 'session not found' }) }
+    return {
+      statusCode: 404,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ error: 'session not found' }),
+    }
   }
   const transcripts = rows[0].transcripts ?? []
   const previousOutline = rows[0].outline ?? null
+  const lastCuratedAt = rows[0].last_curated_at
+
+  // Cooldown check. We deliberately do this AFTER the session-ownership
+  // query (so a probe can't enumerate session ids by timing) but BEFORE
+  // the LLM call (which is what actually costs money). Returning 429
+  // with Retry-After lets the client back off cleanly.
+  const cooldownSecs = CURATE_COOLDOWN_SECS[payload.plan] ?? CURATE_COOLDOWN_SECS.free
+  if (lastCuratedAt) {
+    const elapsedMs = Date.now() - new Date(lastCuratedAt).getTime()
+    const remainingMs = cooldownSecs * 1000 - elapsedMs
+    if (remainingMs > 0) {
+      const retryAfter = Math.ceil(remainingMs / 1000)
+      // Cast headers to a homogeneous Record<string, string> so the
+      // TypeScript narrowing of return-statement union types doesn't
+      // interpret 'Retry-After' as `string | undefined` (which would
+      // conflict with APIGatewayProxyStructuredResultV2's strict
+      // `[header]: string | number | boolean` index signature).
+      return {
+        statusCode: 429,
+        headers: { 'Content-Type': 'application/json', 'Retry-After': String(retryAfter) } as Record<string, string>,
+        body: JSON.stringify({
+          error: 'curate_cooldown',
+          retry_after_secs: retryAfter,
+          message: `Please wait ${retryAfter} seconds before regenerating.`,
+        }),
+      }
+    }
+  }
 
   // Empty session — nothing to curate. Caller should retry once the
   // user has actually played some audio.
@@ -81,6 +123,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       bucketedTranscript: transcripts,
       previousOutline,
       forceFullRewrite: body.full_rewrite ?? false,
+      targetLanguage: body.note_language ?? 'auto',
     })
   } catch (e) {
     // eslint-disable-next-line no-console
@@ -95,9 +138,14 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     }
   }
 
-  // Persist + broadcast.
+  // Persist + broadcast. Also stamp last_curated_at so the cooldown
+  // check above this handler can throttle subsequent calls.
   await query(
-    `UPDATE sessions SET outline = $1::jsonb, updated_at = NOW() WHERE id = $2`,
+    `UPDATE sessions
+       SET outline = $1::jsonb,
+           last_curated_at = NOW(),
+           updated_at = NOW()
+     WHERE id = $2`,
     [JSON.stringify(outline), body.session_id],
   )
   void sendToSession(body.session_id, {
@@ -111,4 +159,4 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ outline }),
   }
-}
+})

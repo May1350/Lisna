@@ -1,5 +1,5 @@
 import { Stack, type StackProps, Duration, RemovalPolicy } from 'aws-cdk-lib'
-import { Bucket, BlockPublicAccess } from 'aws-cdk-lib/aws-s3'
+import { Bucket, BlockPublicAccess, HttpMethods } from 'aws-cdk-lib/aws-s3'
 import {
   Vpc, SubnetType, SecurityGroup, Port, Peer,
   InstanceType, InstanceClass, InstanceSize,
@@ -43,6 +43,24 @@ export class DataStack extends Stack {
       removalPolicy: RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
       lifecycleRules: [{ expiration: Duration.days(90) }],
+      // CORS rule for direct browser GET from the extension. The zip-
+      // export path in the side-panel UI fetches each slide directly
+      // from S3 via its presigned URL — without an allow-origin rule
+      // S3 returns 403 to the browser even though the signature is
+      // valid (presigning grants the IAM action, CORS gates whether
+      // *the browser* will surface the response). The PUT path goes
+      // through Lambda so it doesn't need a CORS rule. allowedOrigins
+      // is '*' for now because unpacked Chrome extensions get random
+      // IDs per install — narrow to chrome-extension://<published-id>
+      // once the Web Store listing is live (same TODO as the API
+      // Gateway CORS allowlist; flip both at the same time).
+      cors: [{
+        allowedMethods: [HttpMethods.GET],
+        allowedOrigins: ['*'],
+        allowedHeaders: ['*'],
+        exposedHeaders: [],
+        maxAge: 3600,
+      }],
     })
 
     this.dbSecret = new Secret(this, 'DbSecret', {

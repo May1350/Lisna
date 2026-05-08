@@ -39,14 +39,31 @@ export async function handle(req: SwRequest, _sender?: chrome.runtime.MessageSen
         return { ok: true, data: null }
       }
       case 'API_FETCH': {
-        const r = await authedFetch(req.path, {
-          method: req.method,
-          body: req.body ? JSON.stringify(req.body) : undefined,
-        })
+        const r = await authedFetch(
+          req.path,
+          {
+            method: req.method,
+            body: req.body ? JSON.stringify(req.body) : undefined,
+          },
+          req.absoluteUrl,
+        )
         const text = await r.text()
         let parsed: unknown
         try { parsed = JSON.parse(text) } catch { parsed = text }
-        if (!r.ok) return { ok: false, error: `HTTP ${r.status}: ${text}` }
+        if (!r.ok) {
+          // Pass the parsed body + status back even on failure. Some routes
+          // (notably /v1/stream/audio on quota_exceeded) embed structured
+          // payloads — e.g. { error: 'quota_exceeded', quota: {...} } — that
+          // the content script must surface to the modal as a banner. If we
+          // collapsed everything to a string here those fields would be
+          // unrecoverable without re-parsing.
+          return {
+            ok: false,
+            error: `HTTP ${r.status}: ${text}`,
+            status: r.status,
+            data: parsed,
+          }
+        }
         return { ok: true, data: parsed }
       }
       case 'TOGGLE_ENABLED': {
@@ -61,6 +78,20 @@ export async function handle(req: SwRequest, _sender?: chrome.runtime.MessageSen
           await chrome.tabs.sendMessage(req.tabId, { type: 'STOP_SESSION' })
         } catch {
           // tab may have navigated away; not fatal
+        }
+        return { ok: true, data: null }
+      }
+      case 'JUMP_TO_REQUEST': {
+        // Side-panel users don't have a parent window to postMessage to.
+        // Forward to whichever tab is active so its top-frame content
+        // script can route to the frame holding the <video>.
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+        if (tab?.id !== undefined) {
+          try {
+            await chrome.tabs.sendMessage(tab.id, { type: 'JUMP_TO', ts: req.ts })
+          } catch {
+            // Tab might not have our content script (e.g. chrome:// pages).
+          }
         }
         return { ok: true, data: null }
       }

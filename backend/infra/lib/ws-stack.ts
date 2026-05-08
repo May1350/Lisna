@@ -39,6 +39,13 @@ export class WsStack extends Stack {
         environment: env,
         vpc: props.vpc,
         vpcSubnets: { subnetType: SubnetType.PRIVATE_WITH_EGRESS },
+        // Match api-stack: minify, sourcemaps, AWS SDK external (provided
+        // by Node 20 runtime). Cuts WS Lambda cold-start latency too.
+        bundling: {
+          minify: true,
+          sourceMap: true,
+          externalModules: ['@aws-sdk/*'],
+        },
       })
       props.dbSecret.grantRead(fn)
       props.appSecret.grantRead(fn)

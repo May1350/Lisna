@@ -29,6 +29,12 @@ export class MigrateStack extends Stack {
       vpc: props.vpc,
       vpcSubnets: { subnetType: SubnetType.PRIVATE_WITH_EGRESS },
       bundling: {
+        // Match the rest of the stack — keeps the migrate Lambda lean
+        // and consistent. The afterBundling hook still runs to copy
+        // migration SQL files into the bundle's runtime location.
+        minify: true,
+        sourceMap: true,
+        externalModules: ['@aws-sdk/*'],
         commandHooks: {
           beforeBundling: () => [],
           beforeInstall: () => [],

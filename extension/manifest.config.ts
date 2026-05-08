@@ -4,7 +4,10 @@ import pkg from './package.json'
 export default defineManifest({
   manifest_version: 3,
   name: 'Study-Helper',
-  description: '日本の大学生のための、ダウンロード不可な講義動画専用のリアルタイム学習アシスタント',
+  // Chrome Web Store displays this in search results + listing card.
+  // Capped at 132 chars (Chrome's hard limit). Front-load the core
+  // value (リアルタイム要約) and the niche (講義動画).
+  description: '講義動画をリアルタイムで要約・整理する AI 学習アシスタント。スライド自動キャプチャと Obsidian 連携対応。',
   version: pkg.version,
   // No `default_locale` — we don't use chrome.i18n / __MSG_*__ message references
   // (all UI strings are inline plain Japanese). Setting default_locale without a

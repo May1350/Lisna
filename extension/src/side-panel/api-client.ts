@@ -1,9 +1,20 @@
 import { WS_URL } from '../shared/config'
-import type { NoteItem, SlideItem, User } from '../shared/types'
+import type { SlideItem, User } from '../shared/types'
 import { getToken } from '../shared/storage'
 
-export async function callApi<T = unknown>(path: string, method: string, body?: unknown): Promise<T> {
-  const r = await chrome.runtime.sendMessage({ type: 'API_FETCH', path, method, body })
+export async function callApi<T = unknown>(
+  path: string,
+  method: string,
+  body?: unknown,
+  options: { absoluteUrl?: string } = {},
+): Promise<T> {
+  const r = await chrome.runtime.sendMessage({
+    type: 'API_FETCH',
+    path,
+    method,
+    body,
+    absoluteUrl: options.absoluteUrl,
+  })
   if (!r.ok) throw new Error(r.error)
   return r.data as T
 }
@@ -12,9 +23,12 @@ export interface LoginResult {
   user: User
   currentSession: {
     id: string
-    notes: NoteItem[]
     slides: SlideItem[]
     outline: Outline | null
+    // Note: backend still returns `notes` (legacy per-chunk bullets)
+    // but the modal no longer renders them — Phase 6.1 made the
+    // outline the single source of truth. Field omitted here so it
+    // can't be accidentally consumed.
   } | null
 }
 
@@ -44,12 +58,30 @@ export interface LiveTranscriptItem {
   text: string
 }
 
-// Outline shape mirrors backend/src/lib/curator.ts. Kept inline here rather
-// than imported because the extension build doesn't share the backend's
-// tsconfig path mappings.
-export interface OutlineKeyTerm { term: string; definition: string; ts: number }
-export interface OutlineExample { text: string; ts: number }
-export interface OutlinePoint { text: string; ts: number; important: boolean }
+// =============================================================
+// Outline types — mirror of backend/src/lib/curator.ts.
+// SOURCE OF TRUTH: backend/src/lib/curator.ts (Outline*).
+// Keep these two definitions in sync when adding fields. The
+// alternative (a shared workspace package) is overkill while the
+// shape is small; revisit if drift becomes a recurring source of
+// bugs (see CLAUDE.md for the prior drift incident where Phase 6
+// fields landed in backend without making it here, forcing
+// `as` casts in OutlineView.tsx).
+// =============================================================
+export interface OutlineKeyTerm {
+  term: string
+  definition: string
+  ts: number
+}
+export interface OutlineExample {
+  text: string
+  ts: number
+}
+export interface OutlinePoint {
+  text: string
+  ts: number
+  important: boolean
+}
 export interface OutlineSection {
   heading: string
   ts: number
@@ -57,16 +89,28 @@ export interface OutlineSection {
   key_terms: OutlineKeyTerm[]
   examples: OutlineExample[]
   points: OutlinePoint[]
+  // Phase 6 (Obsidian-aware) additions — all optional so legacy
+  // outlines (stored in DB without these fields) still parse.
+  related_terms?: string[]
+  takeaway?: string
+  check_question?: string
 }
 export interface Outline {
   title: string
   sections: OutlineSection[]
+  // Phase 6 (Obsidian-aware) — all optional, legacy outlines may omit.
+  course?: string
+  lecturer?: string
+  tldr?: string
+  related_lectures?: string[]
 }
 
 export interface WsListeners {
-  onNote: (notes: NoteItem[]) => void
   onSlide: (slide: SlideItem) => void
-  onTranscript: (item: LiveTranscriptItem) => void
+  /** Receives one OR more transcript items per WS message. The backend
+   *  bundles all sub-chunk segments from a 10 s audio chunk into a
+   *  single message, so callers should append all items in order. */
+  onTranscript: (items: LiveTranscriptItem[]) => void
   onOutline: (outline: Outline) => void
   onClose: () => void
 }
@@ -78,9 +122,19 @@ export async function connectWs(sessionId: string, listeners: WsListeners): Prom
   ws.onmessage = (e) => {
     try {
       const msg = JSON.parse(e.data)
-      if (msg.type === 'note_chunk') listeners.onNote(msg.notes as NoteItem[])
-      else if (msg.type === 'transcript_chunk') {
-        listeners.onTranscript({ ts: msg.ts as number, text: msg.text as string })
+      if (msg.type === 'transcript_chunk') {
+        // Newer backend builds emit `items: [{ts, text}, ...]` so the
+        // 10 s audio chunk's sub-chunk Whisper segments all land in one
+        // message. Older builds (or fallback paths) emit just `ts`+
+        // `text` for a single chunk-level entry. Handle both.
+        if (Array.isArray(msg.items) && msg.items.length > 0) {
+          listeners.onTranscript(
+            (msg.items as { ts: number; text: string }[])
+              .map(it => ({ ts: it.ts, text: it.text })),
+          )
+        } else if (typeof msg.ts === 'number' && typeof msg.text === 'string') {
+          listeners.onTranscript([{ ts: msg.ts, text: msg.text }])
+        }
       } else if (msg.type === 'outline_updated') {
         listeners.onOutline(msg.outline as Outline)
       } else if (msg.type === 'slide_chunk') {
@@ -93,19 +147,10 @@ export async function connectWs(sessionId: string, listeners: WsListeners): Prom
   return ws
 }
 
-export async function jumpToTimestamp(ts: number): Promise<void> {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-  if (!tab.id) return
-  await chrome.tabs.sendMessage(tab.id, { type: 'JUMP_TO', ts })
-}
-
-/** Phase 6.1: on-demand curator. Trigger when the user pauses / stops /
- *  ends the lecture, or hits "📝 ノートを生成". Backend reads the full
- *  transcript log for this session and produces (or rewrites) the outline.
- *  WS broadcasts the result, so the modal also receives it via onOutline. */
-export async function triggerCurate(sessionId: string, fullRewrite = false): Promise<Outline | null> {
-  const r = await callApi<{ outline: Outline | null; reason?: string }>(
-    '/v1/session/curate', 'POST', { session_id: sessionId, full_rewrite: fullRewrite },
-  )
-  return r.outline
-}
+// Note: an earlier `jumpToTimestamp` helper and a `triggerCurate` helper
+// lived here. Both became dead code after Phase 6.1: timestamp jumps
+// flow through window.postMessage (App.tsx onJump) directly, and the
+// curator is fired by the content script's pause/end/manual handlers,
+// not via this api-client. Removed in the post-review cleanup; if you
+// re-introduce them, route through `callApi` for consistent SW
+// auth-token handling.

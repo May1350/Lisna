@@ -1,20 +1,20 @@
-import type { APIGatewayProxyHandlerV2 } from 'aws-lambda'
 import Stripe from 'stripe'
-import { verifyJwt } from '../lib/auth.js'
+import { withAuth } from '../lib/auth.js'
 import { query } from '../lib/db.js'
-import { loadAppSecrets } from '../lib/env.js'
 
-export const handler: APIGatewayProxyHandlerV2 = async (event) => {
-  await loadAppSecrets()
-  const auth = event.headers.authorization || event.headers.Authorization
-  if (!auth?.startsWith('Bearer ')) return { statusCode: 401, body: 'unauthorized' }
-  let payload
-  try { payload = await verifyJwt(auth.slice(7)) }
-  catch { return { statusCode: 401, body: 'invalid' } }
-
-  // Plan-mandated apiVersion '2025-09-30.acacia'; this Stripe SDK rev's typings list
-  // a different code-name suffix for that date so we cast to satisfy the union.
-  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2025-09-30.acacia' as any })
+export const handler = withAuth(async (_event, payload) => {
+  // Plan-mandated apiVersion '2025-09-30.acacia'. The currently-installed
+  // Stripe SDK has moved its single-literal type to a newer version
+  // ('2026-04-22.dahlia'), but our integration was tested against the
+  // 2025-09 snapshot and needs to keep that exact wire format. Cast
+  // through `unknown` to bypass the narrow union type — this is the
+  // canonical pattern when the SDK's literal type drifts ahead of the
+  // operator-specified API version that you've already verified works.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const stripe = new Stripe(
+    process.env.STRIPE_SECRET_KEY!,
+    { apiVersion: '2025-09-30.acacia' as any },
+  )
   const userRows = await query<{ email: string; stripe_customer_id: string | null }>(
     `SELECT email, stripe_customer_id FROM users WHERE id = $1`, [payload.sub]
   )
@@ -41,4 +41,4 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url: session.url }),
   }
-}
+})

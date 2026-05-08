@@ -5,9 +5,13 @@
 //     - sibling stop button: ⏹ icon (click = stop session)
 // - 'hidden': hidden via display:none.
 
+import { hasSeenInlineButton, markInlineButtonSeen } from '../shared/storage'
+import { t } from '../shared/i18n'
+
 const STYLE_ID = '__sh_inline_button_style__'
 const ROOT_ID = '__sh_inline_button_root__'
 const STOP_ID = '__sh_inline_button_stop__'
+const TOOLTIP_ID = '__sh_inline_button_tooltip__'
 
 const SPARKLE_SVG = `
 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -21,6 +25,19 @@ const STOP_SVG = `
   <rect x="2" y="2" width="10" height="10" rx="2" fill="currentColor"/>
 </svg>
 `.trim()
+
+// Defensive HTML-escape for strings interpolated into innerHTML. The
+// onboarding tooltip pulls its message from the locale table; even
+// though the strings are statically known, escaping protects against
+// future i18n entries that might contain &, <, > characters.
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
 
 function ensureStyle(): void {
   if (document.getElementById(STYLE_ID)) return
@@ -66,6 +83,59 @@ function ensureStyle(): void {
   0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239,68,68,0.6); }
   50% { transform: scale(1.15); box-shadow: 0 0 0 6px rgba(239,68,68,0); }
 }
+
+/* First-time onboarding: until the user has clicked the button at
+ * least once, the idle button glows in a pulsing blue halo and a
+ * small label appears next to it pointing at the click target.
+ * Both auto-clear after the user clicks OR after 30 s. The pulse is
+ * tinted blue (vs the red processing pulse) so the two states are
+ * never confused at a glance.
+ */
+.__sh_first_glow__ {
+  animation: __sh_first_glow__ 1.6s ease-in-out infinite;
+}
+@keyframes __sh_first_glow__ {
+  0%, 100% { box-shadow: 0 8px 32px rgba(0,0,0,0.28), 0 0 0 0 rgba(59,130,246,0.55); }
+  50%      { box-shadow: 0 8px 32px rgba(0,0,0,0.28), 0 0 0 12px rgba(59,130,246,0); }
+}
+.__sh_onboarding_tooltip__ {
+  position: absolute;
+  z-index: 999999;
+  background: #1e40af;
+  color: white;
+  font: 500 12px/1.4 -apple-system, "Hiragino Sans", "Apple SD Gothic Neo", sans-serif;
+  padding: 6px 11px;
+  border-radius: 8px;
+  white-space: nowrap;
+  box-shadow: 0 6px 24px rgba(30,64,175,0.4);
+  pointer-events: none;
+  animation: __sh_tooltip_in__ 280ms cubic-bezier(0.16,1,0.3,1) both;
+}
+.__sh_onboarding_tooltip__ .__sh_arrow__ {
+  display: inline-block;
+  margin-left: 4px;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-weight: 400;
+  color: rgba(255,255,255,0.92);
+  animation: __sh_arrow_nudge__ 1.2s ease-in-out infinite;
+}
+@keyframes __sh_arrow_nudge__ {
+  0%, 100% { transform: translateX(0); }
+  50%      { transform: translateX(3px); }
+}
+.__sh_onboarding_tooltip__::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: -5px;
+  transform: translateY(-50%);
+  border: 5px solid transparent;
+  border-left-color: #1e40af;
+}
+@keyframes __sh_tooltip_in__ {
+  from { opacity: 0; transform: translateX(8px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
 `
   document.documentElement.appendChild(style)
 }
@@ -79,6 +149,16 @@ export interface InlineButtonHandle {
 
 const POSITION_THROTTLE_MS = 250
 const GAP = 8
+
+// Module-level handle to the most recent mount, so `mountInlineButton`
+// can fully tear down the previous instance — listeners + observers
+// included — before installing a new one. The previous implementation
+// only removed the DOM node via getElementById().remove(), which left
+// `onScroll` / `onResize` / `ResizeObserver` callbacks bound to window
+// holding closures referencing the now-detached <button>. Each page
+// navigation that re-mounted the button leaked another set of zombie
+// listeners that fired on every scroll forever.
+let currentHandle: InlineButtonHandle | null = null
 
 export function mountInlineButton(
   video: HTMLVideoElement,
@@ -94,25 +174,56 @@ export function mountInlineButton(
   // wherever that iframe is rendered in the parent page).
   ensureStyle()
 
-  // Remove any prior instance.
+  // Tear down the prior instance if any, so we don't leak listeners.
+  if (currentHandle) {
+    try { currentHandle.unmount() } catch { /* best effort */ }
+    currentHandle = null
+  }
+  // Defensive: also nuke any orphan DOM nodes left behind by an
+  // unrelated extension instance / hot-reload that didn't go through
+  // currentHandle.unmount().
   document.getElementById(ROOT_ID)?.remove()
   document.getElementById(STOP_ID)?.remove()
 
+  // Look up locale strings ONCE at mount. The inline button is a
+  // non-React content-script DOM tree; it doesn't subscribe to
+  // language changes (a fresh page load picks up the new locale).
+  // This is acceptable because inline-button text changes are not
+  // part of any in-session UX flow — the user sees these labels
+  // exactly once per video page mount.
+  const T_init = t()
   const btn = document.createElement('button')
   btn.id = ROOT_ID
   btn.className = '__sh_btn__'
   btn.type = 'button'
-  btn.title = 'この動画を要約'
-  btn.setAttribute('aria-label', 'この動画を要約')
+  btn.title = T_init.inlineButton.activate
+  btn.setAttribute('aria-label', T_init.inlineButton.activate)
   btn.innerHTML = SPARKLE_SVG
   document.body.appendChild(btn)
 
   let state: InlineButtonState = 'idle'
   let stopBtn: HTMLButtonElement | null = null
+  let onboardingTooltip: HTMLDivElement | null = null
+  let onboardingTimer: number | null = null
+
+  const dismissOnboarding = (): void => {
+    btn.classList.remove('__sh_first_glow__')
+    if (onboardingTooltip) {
+      onboardingTooltip.remove()
+      onboardingTooltip = null
+    }
+    if (onboardingTimer !== null) {
+      window.clearTimeout(onboardingTimer)
+      onboardingTimer = null
+    }
+  }
 
   const handleClick = (e: MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
+    // Mark onboarding completed on first click + clear visuals.
+    void markInlineButtonSeen()
+    dismissOnboarding()
     // Both 'idle' (start session) and 'processing' (re-open modal for in-flight session)
     // map to the same activation flow.
     if (state === 'idle' || state === 'processing') onActivate()
@@ -154,6 +265,23 @@ export function mountInlineButton(
         stopBtn.style.left = `${mainLeft}px`
       }
     }
+
+    // Onboarding tooltip — anchored to the LEFT of the main button so
+    // the speech-bubble arrow points at the button. Shows the
+    // discoverability hint until the user has clicked once.
+    if (onboardingTooltip) {
+      const tooltipW = onboardingTooltip.offsetWidth || 180
+      const tooltipH = onboardingTooltip.offsetHeight || 30
+      const desiredLeft = mainLeft - GAP - tooltipW
+      if (desiredLeft >= 0) {
+        onboardingTooltip.style.left = `${desiredLeft}px`
+        onboardingTooltip.style.top = `${mainTop + (h - tooltipH) / 2}px`
+      } else {
+        // No room left — place below the button.
+        onboardingTooltip.style.left = `${Math.max(0, mainLeft)}px`
+        onboardingTooltip.style.top = `${mainTop + h + GAP}px`
+      }
+    }
   }
 
   const schedule = (): void => {
@@ -168,6 +296,39 @@ export function mountInlineButton(
   // Initial position (synchronous + a follow-up after layout settles).
   updatePosition()
   window.setTimeout(updatePosition, 50)
+
+  // First-time onboarding affordance. Shown only once per install (the
+  // `sh.inlineButtonSeen` flag in chrome.storage.local). The tooltip
+  // and pulsing halo auto-dismiss after 30 s if the user ignores them
+  // — silent for everyone after that, no permanent UI noise.
+  void hasSeenInlineButton().then((seen) => {
+    if (seen) return
+    btn.classList.add('__sh_first_glow__')
+    const tip = document.createElement('div')
+    tip.id = TOOLTIP_ID
+    tip.className = '__sh_onboarding_tooltip__'
+    // Tooltip sits LEFT of the button with a speech-bubble arrow on its
+    // right edge pointing AT the button. The text-end arrow ("→") also
+    // points at the button so the visual cue is consistent end-to-end —
+    // the previous "👈" pointed the opposite direction (left), which
+    // contradicted the speech-bubble arrow and confused users about
+    // which direction the actual button was.
+    // Strip the trailing "→" the locale string already includes in some
+    // languages (we render that as the styled span below).
+    const onboardingMsg = T_init.inlineButton.onboarding.replace(/\s*→\s*$/, '').trim()
+    tip.innerHTML = `${escapeHtml(onboardingMsg)} <span class="__sh_arrow__">→</span>`
+    document.body.appendChild(tip)
+    onboardingTooltip = tip
+    updatePosition()
+    onboardingTimer = window.setTimeout(() => {
+      // 30 s passed without a click — drop the visuals but DO NOT
+      // mark seen yet, so the next page load gives them another shot.
+      btn.classList.remove('__sh_first_glow__')
+      onboardingTooltip?.remove()
+      onboardingTooltip = null
+      onboardingTimer = null
+    }, 30000)
+  })
 
   const onScroll = () => schedule()
   const onResize = () => schedule()
@@ -193,8 +354,8 @@ export function mountInlineButton(
     s.id = STOP_ID
     s.className = '__sh_btn__'
     s.type = 'button'
-    s.title = '停止'
-    s.setAttribute('aria-label', '停止')
+    s.title = T_init.inlineButton.stop
+    s.setAttribute('aria-label', T_init.inlineButton.stop)
     s.innerHTML = STOP_SVG
     s.addEventListener('click', (e) => {
       e.preventDefault()
@@ -207,6 +368,11 @@ export function mountInlineButton(
 
   const setStatus: InlineButtonHandle['setStatus'] = (s) => {
     state = s
+    // Any state transition out of idle dismisses the onboarding
+    // affordance — once they've activated the modal at least once,
+    // they don't need the hint anymore (and the pulse + tooltip
+    // would clash visually with the processing red pulse).
+    if (s !== 'idle') dismissOnboarding()
     if (s === 'hidden') {
       btn.style.display = 'none'
       if (stopBtn) stopBtn.style.display = 'none'
@@ -219,14 +385,14 @@ export function mountInlineButton(
       const pulse = document.createElement('span')
       pulse.className = '__sh_status_pulse__'
       btn.appendChild(pulse)
-      btn.title = '処理中 — クリックでモーダルを再表示'
-      btn.setAttribute('aria-label', '処理中 — クリックでモーダルを再表示')
+      btn.title = T_init.inlineButton.processing
+      btn.setAttribute('aria-label', T_init.inlineButton.processing)
       ensureStopBtn()
     } else {
       // idle: restore sparkle SVG and remove the stop sibling.
       btn.innerHTML = SPARKLE_SVG
-      btn.title = 'この動画を要約'
-      btn.setAttribute('aria-label', 'この動画を要約')
+      btn.title = T_init.inlineButton.activate
+      btn.setAttribute('aria-label', T_init.inlineButton.activate)
       removeStopBtn()
     }
     window.setTimeout(updatePosition, 0)
@@ -234,13 +400,19 @@ export function mountInlineButton(
 
   const unmount = () => {
     state = 'hidden'
+    dismissOnboarding()
     window.removeEventListener('scroll', onScroll, true)
     window.removeEventListener('resize', onResize)
     resizeObs?.disconnect()
     btn.removeEventListener('click', handleClick)
     btn.remove()
     removeStopBtn()
+    // Clear the module-level handle if WE are the current one. If a newer
+    // mount has already replaced us, leave the new handle alone.
+    if (currentHandle && currentHandle.unmount === unmount) currentHandle = null
   }
 
-  return { setStatus, unmount }
+  const handle: InlineButtonHandle = { setStatus, unmount }
+  currentHandle = handle
+  return handle
 }

@@ -15,9 +15,22 @@ import OpenAI from 'openai'
 // Falls back to OpenAI if GROQ_API_KEY is unset (defense in depth — local dev
 // or future revert without code change).
 
+export interface TranscriptSegment {
+  /** Seconds from the start of the chunk audio (NOT absolute video time).
+   *  Caller adds chunk's start_time_sec to get the absolute timestamp. */
+  start: number
+  end: number
+  text: string
+}
+
 export interface TranscriptResult {
   text: string
   language?: string
+  /** Sentence/phrase-level segments with sub-chunk timestamps. Whisper
+   *  emits these natively when response_format='verbose_json'. Empty
+   *  array if the backend doesn't (or chose not to) return segments —
+   *  callers should fall back to chunk-level granularity in that case. */
+  segments: TranscriptSegment[]
 }
 
 interface SttBackend {
@@ -80,11 +93,30 @@ export async function transcribeChunk(
   const cleanMime = mime.split(';')[0].trim()
   const file = new File([audio], `chunk.${ext}`, { type: cleanMime })
   const b = backend()
+  // verbose_json returns segments with sub-chunk start/end times.
+  // Whisper natively splits a 10 s chunk into ~3-7 sentence-bounded
+  // segments at ~1-3 s granularity. Caller turns each segment into its
+  // own transcript entry, giving the curator (and the user clicking
+  // timestamps) much tighter granularity than a single ts per chunk —
+  // without changing chunk size, STT cost, or the streaming pipeline.
+  // Same call, same model, just a richer response.
   const res = await b.client.audio.transcriptions.create({
     file,
     model: b.model,
     language: hintLanguage,
-    response_format: 'json',
+    response_format: 'verbose_json',
   })
-  return { text: res.text }
+  // The SDK overload for verbose_json returns TranscriptionVerbose which
+  // includes `segments`. Cast defensively in case the upstream provider
+  // (Groq vs OpenAI) shapes things slightly differently — we accept any
+  // shape that has {start, end, text} and ignore the rest.
+  const verbose = res as unknown as {
+    text: string
+    language?: string
+    segments?: Array<{ start: number; end: number; text: string }>
+  }
+  const segments: TranscriptSegment[] = (verbose.segments ?? [])
+    .filter(s => typeof s.start === 'number' && typeof s.end === 'number' && typeof s.text === 'string')
+    .map(s => ({ start: s.start, end: s.end, text: s.text }))
+  return { text: verbose.text, language: verbose.language, segments }
 }
