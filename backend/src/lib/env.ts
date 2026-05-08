@@ -16,9 +16,6 @@ const Env = z.object({
   // on-demand path. Anthropic key is OPTIONAL: if present the curator
   // auto-selects Anthropic; if absent it falls back to OpenAI GPT-5 nano.
   ANTHROPIC_API_KEY: z.string().min(1).optional(),
-  // Gemini was the previous curator. Kept optional so existing Secrets
-  // Manager entries don't fail validation, but no longer wired in.
-  GOOGLE_GENAI_API_KEY: z.string().min(1).optional(),
   GOOGLE_OAUTH_CLIENT_ID: z.string().min(1),
   GOOGLE_OAUTH_CLIENT_SECRET: z.string().min(1),
   STRIPE_SECRET_KEY: z.string().min(1),

@@ -207,19 +207,7 @@ export class ApiStack extends Stack {
       description: 'Lambda Function URL for /v1/session/curate (bypasses API Gateway 30 s timeout). Set as VITE_CURATE_URL in extension/.env.local.',
     })
 
-    // ---- T10: session finalize / get / delete ----
-    const sessionFinalize = new NodejsFunction(this, 'SessFinFn', {
-      entry: path.join(__dirname, '../../src/handlers/session-finalize.ts'),
-      runtime: Runtime.NODEJS_20_X,
-      timeout: Duration.seconds(60),
-      memorySize: 1024,
-      environment: commonEnv,
-      vpc: props.vpc,
-    })
-    props.dbSecret.grantRead(sessionFinalize)
-    props.appSecret.grantRead(sessionFinalize)
-    props.bucket.grantReadWrite(sessionFinalize)
-
+    // ---- T10: session get / delete ----
     const sessionGet = new NodejsFunction(this, 'SessGetFn', {
       entry: path.join(__dirname, '../../src/handlers/session-get.ts'),
       runtime: Runtime.NODEJS_20_X,
@@ -247,11 +235,6 @@ export class ApiStack extends Stack {
     props.dbSecret.grantRead(sessionDelete)
     props.appSecret.grantRead(sessionDelete)
 
-    api.addRoutes({
-      path: '/v1/session/finalize',
-      methods: [HttpMethod.POST],
-      integration: new HttpLambdaIntegration('SFInt', sessionFinalize),
-    })
     api.addRoutes({
       path: '/v1/session',
       methods: [HttpMethod.GET],

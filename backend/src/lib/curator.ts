@@ -1,25 +1,10 @@
-// Rolling outline curator. Runs periodically (every ~30 s) over the full
-// transcript-so-far + the current outline and re-generates a structured,
-// hierarchical study outline.
-//
-// Why this is different from llm.ts (per-chunk note extraction):
-//   - llm.ts produces flat one-liners per chunk → "stream of bullets". Once
-//     written, never refined. Lacks hierarchy and re-interpretation.
-//   - curator.ts produces a structured tree (sections → key terms / examples
-//     / points) and REPLACES the previous tree on every run, so as more of
-//     the lecture is heard, the outline gets reorganised, terms get fuller
-//     definitions, and earlier sections get tightened.
-//
-// This matches how students actually take notes: you don't keep adding new
-// bullets forever; you periodically re-group, expand definitions, slot
-// examples under the right concept. Doing the same with the LLM gives the
-// student a polished, evolving outline instead of a chronological log.
-//
-// Trade-off: a curator run is more expensive than a chunk-extraction run
-// (input is the full transcript, not a 10 s slice). We mitigate by running
-// it every N chunks (e.g. 3 = ~30 s), not every chunk, so for a 1 h lecture
-// we go from ~360 LLM calls to ~120 — a net REDUCTION in call count even
-// though each call uses more tokens.
+// On-demand outline curator (Phase 6.1). Invoked by POST /v1/session/curate
+// when the user pauses, stops, ends the video, or hits "📝 ノートを生成".
+// Each call reads the full transcript-so-far + the previous outline and
+// returns a fresh, structured outline that REPLACES the prior version —
+// the model is free to reorganise, merge, rename, or drop sections.
+// No per-chunk path: the streaming hot path only handles STT and transcript
+// broadcast; outline generation runs only when the user asks for it.
 
 import OpenAI from 'openai'
 
