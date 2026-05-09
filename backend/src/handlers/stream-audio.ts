@@ -61,10 +61,34 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   const body = Body.parse(JSON.parse(event.body || '{}'))
   const userPlan = payload.plan
   const quota = await checkQuota(payload.sub, userPlan)
+  // Build the QuotaSnapshot the extension consumes (matches the shape
+  // returned by /v1/auth/me — see auth-me.ts). The same shape is also
+  // re-emitted post-recordUsage so the frontend's quota state stays
+  // current chunk-by-chunk; without this the QuotaBanner in App.tsx
+  // can't tell when the user crosses the 90% threshold and the
+  // upgrade nudge never appears.
+  const buildSnapshot = (used: number, limit: number, plan: typeof userPlan) => ({
+    used_secs: used,
+    limit_secs: limit,
+    remaining_secs: Math.max(0, limit - used),
+    percent_used: Math.min(100, Math.round((used / Math.max(1, limit)) * 100)),
+    plan,
+  })
   if (!quota.allowed) {
     return {
       statusCode: 402,
-      body: JSON.stringify({ error: 'quota_exceeded', remaining_secs: 0 }),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        error: 'quota_exceeded',
+        remaining_secs: 0,
+        // Snapshot the content script needs to (a) flip the modal's
+        // blocking banner and (b) call stopCaptureLocal cleanly. The
+        // earlier response omitted this field which silently broke
+        // both code paths — the user sat in a "still recording"
+        // illusion while every chunk 402'd until they manually
+        // stopped capture.
+        quota: buildSnapshot(quota.used, quota.limit, userPlan),
+      }),
     }
   }
 
@@ -119,7 +143,14 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   }
 
   if (transcriptText.length === 0) {
-    return ok(sessionId, { chunk_error: chunkError ?? 'empty_transcript' })
+    // Empty / failed-STT chunks don't trigger recordUsage, so the
+    // pre-charge snapshot is still accurate. Forward it so the modal's
+    // QuotaBanner stays current even on dead-air sessions where every
+    // chunk is silent.
+    return ok(sessionId, {
+      chunk_error: chunkError ?? 'empty_transcript',
+      quota: buildSnapshot(quota.used, quota.limit, userPlan),
+    })
   }
 
   // ── 3. Append transcript + live broadcast ───────────────────────────────
@@ -149,8 +180,18 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
 
   await recordUsage(payload.sub, Math.ceil(body.duration_sec))
 
+  // Re-snapshot AFTER recordUsage so the frontend sees the post-charge
+  // state. percent_used updates here are what drive the QuotaBanner's
+  // 90% / 100% threshold transitions (see App.tsx's quota_update
+  // SP_BROADCAST handler). The pre-charge snapshot from line above
+  // would always trail by one chunk and miss the threshold crossing
+  // on the very chunk that crossed it.
+  const charged = quota.used + Math.ceil(body.duration_sec)
+  const liveSnapshot = buildSnapshot(charged, quota.limit, userPlan)
+
   return ok(sessionId, {
     transcript_preview: transcriptText.slice(0, 80),
+    quota: liveSnapshot,
     ...(chunkError ? { chunk_error: chunkError } : {}),
   })
 }
