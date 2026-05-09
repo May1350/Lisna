@@ -75,18 +75,43 @@ export function QuotaExhaustedIdle({ user, quota, onUpgrade, upgrading }: Props)
         </div>
         <div className="mt-1 text-[11px] text-gray-400">{T.quota.reset_note}</div>
 
-        {/* CTA — only for free users. Pro users see the info-only
-            card above; rendering a dead upgrade button for them
-            would be misleading. */}
+        {/* Pro upgrade chunk — adds the price + 2 key features
+            inline so the user doesn't have to leave the modal to
+            check what they're paying for. Visual brand chunk
+            (indigo bordered box) mirrors PlanSection's upgrade
+            card semiotic so the two surfaces feel consistent
+            without duplicating the full bullets list. We pick
+            features 1+2 (the 60× scale and long-lecture
+            confidence) — feature 3 (cooldown) is less load-
+            bearing in the crisis context and would push the card
+            taller without adding decision value. Strings reuse
+            T.options.plan_pro_* so the price / copy stay in one
+            place across both surfaces. */}
         {!isPro && (
-          <button
-            type="button"
-            onClick={onUpgrade}
-            disabled={upgrading}
-            className="mt-5 w-full rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white text-sm font-medium px-4 py-3 transition"
-          >
-            {upgrading ? T.quotaExhausted.upgrade_busy : T.quotaExhausted.upgrade_cta}
-          </button>
+          <>
+            <div className="mt-5 rounded-lg border border-indigo-200 bg-indigo-50/40 px-4 py-3">
+              <div className="flex items-baseline justify-between gap-2 mb-1.5">
+                <span className="text-lg font-semibold text-indigo-900 leading-none tracking-tight">
+                  {T.options.plan_pro_price}
+                </span>
+                <span className="text-[11px] text-indigo-700/70 shrink-0">
+                  {T.options.plan_pro_priceNote}
+                </span>
+              </div>
+              <ul className="text-xs text-gray-700 space-y-1">
+                <li>{T.options.plan_pro_feature1}</li>
+                <li>{T.options.plan_pro_feature2}</li>
+              </ul>
+            </div>
+            <button
+              type="button"
+              onClick={onUpgrade}
+              disabled={upgrading}
+              className="mt-3 w-full rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white text-sm font-medium px-4 py-3 transition"
+            >
+              {upgrading ? T.quotaExhausted.upgrade_busy : T.quotaExhausted.upgrade_cta}
+            </button>
+          </>
         )}
       </div>
     </div>

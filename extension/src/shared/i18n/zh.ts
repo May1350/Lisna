@@ -107,7 +107,7 @@ export const zh: Translations = {
   },
   quotaExhausted: {
     free_title: '本月 30 分钟限额已用尽',
-    free_body: '新的语音采集已暂停。\n已有笔记仍可查看与重新生成。\n\n升级到 Pro 即可扩展至每月 30 小时。',
+    free_body: '新的语音采集已暂停。\n已有笔记仍可查看与重新生成。',
     upgrade_cta: '升级到 Pro ¥980/月',
     upgrade_busy: '加载中…',
     pro_title: '本月 30 小时限额已用尽',

@@ -107,7 +107,7 @@ export const ja: Translations = {
   },
   quotaExhausted: {
     free_title: '月間 30 分制限に達しました',
-    free_body: '新規の音声収録は停止しています。\n過去のノートは引き続き閲覧・再生成できます。\n\nPro プランなら月 30 時間まで利用可能です。',
+    free_body: '新規の音声収録は停止しています。\n過去のノートは引き続き閲覧・再生成できます。',
     upgrade_cta: 'Pro にアップグレード ¥980/月',
     upgrade_busy: '準備中…',
     pro_title: '月間 30 時間制限に達しました',

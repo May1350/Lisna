@@ -108,7 +108,7 @@ export const en: Translations = {
   },
   quotaExhausted: {
     free_title: 'Monthly 30-minute limit reached',
-    free_body: 'New audio capture is paused.\nExisting notes can still be viewed and regenerated.\n\nPro extends this to 30 hours per month.',
+    free_body: 'New audio capture is paused.\nExisting notes can still be viewed and regenerated.',
     upgrade_cta: 'Upgrade to Pro ¥980/mo',
     upgrade_busy: 'Loading…',
     pro_title: 'Monthly 30-hour limit reached',

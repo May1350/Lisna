@@ -108,7 +108,7 @@ export const ko: Translations = {
   },
   quotaExhausted: {
     free_title: '월간 30분 한도에 도달했습니다',
-    free_body: '새로운 음성 수집은 중단되었습니다.\n이전에 만든 노트는 그대로 열람·재생성할 수 있습니다.\n\nPro 플랜은 월 30시간까지 이용 가능합니다.',
+    free_body: '새로운 음성 수집은 중단되었습니다.\n이전에 만든 노트는 그대로 열람·재생성할 수 있습니다.',
     upgrade_cta: 'Pro로 업그레이드 ¥980/월',
     upgrade_busy: '준비 중…',
     pro_title: '월간 30시간 한도에 도달했습니다',
