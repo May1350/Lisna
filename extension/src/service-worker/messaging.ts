@@ -24,6 +24,27 @@ export async function handle(req: SwRequest, _sender?: chrome.runtime.MessageSen
         await switchAccount()
         return { ok: true, data: null }
       }
+      case 'OPEN_SIDE_PANEL': {
+        // chrome.sidePanel.open requires (a) a windowId or tabId and
+        // (b) a recent user gesture. The user clicked the modal-header
+        // shortcut → chrome.runtime.sendMessage carries the gesture
+        // context through to this handler on Chrome 116+. We resolve
+        // the active window and delegate. If the call fails (older
+        // Chrome / gesture expired) we report it back; the modal
+        // surfaces nothing — the toolbar icon click is still the
+        // canonical fallback.
+        try {
+          const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+          if (tab?.windowId === undefined) {
+            return { ok: false, error: 'no active window' }
+          }
+          await chrome.sidePanel.open({ windowId: tab.windowId })
+          return { ok: true, data: null }
+        } catch (e) {
+          console.warn('[SW] sidePanel.open failed', e)
+          return { ok: false, error: e instanceof Error ? e.message : String(e) }
+        }
+      }
       case 'AUTH_GET_USER': {
         const u = await getUser()
         return { ok: true, data: u }

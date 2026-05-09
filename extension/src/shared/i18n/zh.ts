@@ -110,6 +110,8 @@ export const zh: Translations = {
     notLoggedIn: '未登录',
     settingsTitle: '设置',
     settingsAria: '打开设置',
+    openSidePanelTitle: '打开历史记录',
+    openSidePanelAria: '打开侧边栏(历史记录)',
     closeTitle: '关闭',
     closeAria: '关闭',
     logoutTooltip: '退出登录',

@@ -111,6 +111,8 @@ export const en: Translations = {
     notLoggedIn: 'Not signed in',
     settingsTitle: 'Settings',
     settingsAria: 'Open settings',
+    openSidePanelTitle: 'Open history',
+    openSidePanelAria: 'Open side panel (history)',
     closeTitle: 'Close',
     closeAria: 'Close',
     logoutTooltip: 'Sign out',

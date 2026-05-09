@@ -19,6 +19,12 @@ export type SwRequest =
   // getAuthToken({interactive:false}) silently returns the same account
   // and the user can't actually switch.
   | { type: 'AUTH_SWITCH_ACCOUNT' }
+  // From the in-page modal header — opens the Chrome side panel for
+  // the active window so the user can check past lectures (history)
+  // without leaving the video page. SW resolves the windowId + calls
+  // chrome.sidePanel.open which requires a user gesture; the gesture
+  // is preserved through chrome.runtime.sendMessage on Chrome 116+.
+  | { type: 'OPEN_SIDE_PANEL' }
   | { type: 'AUTH_GET_USER' }
   // Quick-disable from the inline button's × affordance. SW sets
   // sh.enabled=false + sh.disabledUntil=now+durationHours and creates a

@@ -110,6 +110,8 @@ export const ja: Translations = {
     notLoggedIn: '未ログイン',
     settingsTitle: '設定',
     settingsAria: '設定を開く',
+    openSidePanelTitle: '履歴を開く',
+    openSidePanelAria: 'サイドパネル(履歴)を開く',
     closeTitle: '閉じる',
     closeAria: '閉じる',
     logoutTooltip: 'ログアウト',

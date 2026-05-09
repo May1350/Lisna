@@ -126,6 +126,8 @@ export interface Translations {
     notLoggedIn: string                  // "未ログイン"
     settingsTitle: string                // "設定"
     settingsAria: string                 // "設定を開く"
+    openSidePanelTitle: string           // "サイドパネルを開く" — shortcut to Chrome side panel from modal header (embed-only)
+    openSidePanelAria: string            // "サイドパネルを開く"
     closeTitle: string                   // "閉じる"
     closeAria: string                    // "閉じる"
     logoutTooltip: string                // "ログアウト"

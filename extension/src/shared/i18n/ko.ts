@@ -111,6 +111,8 @@ export const ko: Translations = {
     notLoggedIn: '로그인 안 됨',
     settingsTitle: '설정',
     settingsAria: '설정 열기',
+    openSidePanelTitle: '히스토리 열기',
+    openSidePanelAria: '사이드 패널(히스토리) 열기',
     closeTitle: '닫기',
     closeAria: '닫기',
     logoutTooltip: '로그아웃',

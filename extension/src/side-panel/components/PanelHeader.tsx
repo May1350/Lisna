@@ -76,6 +76,49 @@ function Avatar({ user }: { user: User }) {
 // in BOTH the side-panel (account view) and the in-page modal so
 // users always have one click away from the settings, regardless of
 // which surface they're in.
+// Embed-only shortcut to the Chrome side panel (history surface).
+// chrome.sidePanel.open requires a recent user gesture and a windowId,
+// neither of which we can resolve synchronously from inside the modal
+// iframe — so we forward to the SW which queries the active window
+// and calls open. Chrome 116+ propagates the gesture through
+// chrome.runtime.sendMessage so the call is allowed.
+function OpenSidePanelButton() {
+  const T = useT()
+  const open = () => {
+    chrome.runtime.sendMessage({ type: 'OPEN_SIDE_PANEL' }).catch((e) => {
+      console.warn('[panel-header] OPEN_SIDE_PANEL message failed:', e?.message ?? e)
+    })
+  }
+  return (
+    <button
+      type="button"
+      onClick={open}
+      title={T.panelHeader.openSidePanelTitle}
+      aria-label={T.panelHeader.openSidePanelAria}
+      className="w-7 h-7 flex items-center justify-center rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition"
+    >
+      <SidePanelIcon />
+    </button>
+  )
+}
+
+// Heroicons-style outline: a panel with a vertical divider on its
+// right edge — visual metaphor for "page + sidebar". Stroke width and
+// rounding match the GearIcon language so the right cluster reads as
+// a coherent group.
+function SidePanelIcon() {
+  return (
+    <svg
+      width="16" height="16" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="3" y="4.5" width="18" height="15" rx="2" />
+      <line x1="15" y1="4.5" x2="15" y2="19.5" />
+    </svg>
+  )
+}
+
 function SettingsButton() {
   const T = useT()
   const open = () => {
@@ -227,6 +270,11 @@ export function PanelHeader({
         {isEmbed && typeof playbackSpeed === 'number' && typeof onSpeedChange === 'function' && (
           <SpeedSelector current={playbackSpeed} onChange={onSpeedChange} />
         )}
+        {/* In-page modal only: shortcut to the Chrome side panel so
+         *  the user can check past lectures without leaving the
+         *  current video. Side-panel surface itself never needs to
+         *  open itself, so we hide this in account view. */}
+        {isEmbed && <OpenSidePanelButton />}
         <SettingsButton />
         {showToggle && (
           <label
