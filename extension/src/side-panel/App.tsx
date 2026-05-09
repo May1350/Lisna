@@ -1003,7 +1003,15 @@ export default function App() {
           onLogout={onLogout}
           liveRemainingSecs={liveRemainingSecs}
         />
-        <QuotaBanner user={user} quota={quota} blocked={quotaBlocked} onUpgrade={onUpgrade} />
+        {/* QuotaBanner is suppressed when the QuotaExhaustedIdle card
+            below would render — that card now embeds its own
+            progress bar + reset note, so showing the compact banner
+            above it would be a duplicate "you're at the limit"
+            message stacked on the same screen. The banner stays for
+            every other render path (warn 90-99%, blocked + has-content). */}
+        {!(!hasContent && quota && (quota.percent_used >= 100 || quotaBlocked)) && (
+          <QuotaBanner user={user} quota={quota} blocked={quotaBlocked} onUpgrade={onUpgrade} />
+        )}
         {curating && !hasContent ? (
           <CuratingState />
         ) : !hasContent ? (
@@ -1015,7 +1023,7 @@ export default function App() {
           // saved data (hasContent), the regular flow renders below;
           // their captures-disabled signal lives inside SessionControls.
           (quota && (quota.percent_used >= 100 || quotaBlocked)) ? (
-            <QuotaExhaustedIdle user={user} onUpgrade={onUpgrade} upgrading={upgrading} />
+            <QuotaExhaustedIdle user={user} quota={quota} onUpgrade={onUpgrade} upgrading={upgrading} />
           ) : (
             // Render IdleSessionState as soon as the modal mounts — do
             // NOT wait for sessionId. The canonical session_id only

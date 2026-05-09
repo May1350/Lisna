@@ -1,20 +1,36 @@
-import type { User } from '../../shared/types'
+import type { User, QuotaSnapshot } from '../../shared/types'
 import { useT } from '../../shared/i18n'
 
-// Replaces IdleSessionState when the user is at their monthly audio
-// quota AND this URL has no saved notes / transcripts. The default
-// idle copy ("press play and we'll curate") is misleading here —
-// pressing play would just produce zero captions because every chunk
-// 402's. Show a clear "limit reached, here's the upgrade path"
-// surface instead.
+// Single self-contained card shown when the user is at their monthly
+// audio cap AND this URL has no saved notes. Replaces the previous
+// "QuotaBanner above + idle text below" stack which read as two
+// separate-but-identical messages. Now: ONE bordered card with the
+// limit headline, an explanation, the progress bar (so the "you've
+// maxed at 100%" visual signal is preserved), and a single
+// upgrade CTA. App.tsx hides the QuotaBanner whenever this card
+// renders to avoid the duplication.
 //
-// For URLs that DO have saved notes, this component is NOT used —
-// the regular modal renders so the user can still read / regenerate
-// existing content. The capture-disabled signal lives inline in
-// SessionControls (gray inactive button) for that case.
+// For URLs that DO have saved notes, the card is NOT used — the
+// regular modal renders so the user can still read / regenerate
+// existing content, and the capture-disabled signal lives inline in
+// SessionControls (gray inactive button).
+
+function formatMinutes(secs: number, T: ReturnType<typeof useT>): string {
+  const mins = Math.floor(secs / 60)
+  const rem = secs % 60
+  if (mins === 0) return `${rem}${T.common.seconds}`
+  if (rem === 0) return `${mins}${T.common.minutes}`
+  return `${mins}${T.common.minutes}${rem}${T.common.seconds}`
+}
 
 interface Props {
   user: User | null
+  /** Live quota snapshot for the in-card progress bar. Optional so
+   *  the card still renders correctly during the brief gap before
+   *  /v1/auth/me lands; the bar just stays at the value implied by
+   *  the user's plan when missing (clamped to 100% since this card
+   *  only appears when exhausted anyway). */
+  quota?: QuotaSnapshot | null
   /** Triggers the same Stripe Checkout flow as the Options page Plan
    *  section. Passed in so this component stays presentational. */
   onUpgrade: () => void
@@ -24,46 +40,54 @@ interface Props {
   upgrading: boolean
 }
 
-export function QuotaExhaustedIdle({ user, onUpgrade, upgrading }: Props) {
+export function QuotaExhaustedIdle({ user, quota, onUpgrade, upgrading }: Props) {
   const T = useT()
   const isPro = user?.plan === 'pro'
+  const limitSecs = quota?.limit_secs ?? (isPro ? 30 * 60 * 60 : 30 * 60)
+  const usedDisplay = quota ? Math.min(quota.used_secs, limitSecs) : limitSecs
 
-  // Pro users theoretically can hit the 30 h/month ceiling. No
-  // upgrade path exists for them — we just explain the reset and
-  // hide the button rather than showing a dead "upgrade" CTA.
-  if (isPro) {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center px-6 py-10 text-center text-gray-700">
-        <div className="max-w-sm">
-          <p className="text-base font-semibold text-gray-900 mb-3">
-            {T.quotaExhausted.pro_title}
-          </p>
-          <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-line">
-            {T.quotaExhausted.pro_body}
-          </p>
-        </div>
-      </div>
-    )
-  }
-
-  // Free user — show the upgrade card.
   return (
-    <div className="flex-1 flex flex-col items-center justify-center px-6 py-10 text-gray-700">
-      <div className="max-w-sm w-full">
+    <div className="flex-1 flex items-start justify-center px-4 pt-6">
+      <div className="w-full max-w-sm rounded-xl border border-gray-200 bg-white px-5 py-5 shadow-sm">
+        {/* Headline — single short phrase, no emoji. Plan-aware so
+            Pro users at the 30 h ceiling don't see free-tier copy. */}
         <p className="text-base font-semibold text-gray-900 mb-2">
-          {T.quotaExhausted.free_title}
+          {isPro ? T.quotaExhausted.pro_title : T.quotaExhausted.free_title}
         </p>
-        <p className="text-sm text-gray-600 leading-relaxed mb-5 whitespace-pre-line">
-          {T.quotaExhausted.free_body}
+        {/* Body — what the user CAN still do. Critical for trust
+            (the regular modal red-banner used to imply the whole
+            feature broke). */}
+        <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-line mb-4">
+          {isPro ? T.quotaExhausted.pro_body : T.quotaExhausted.free_body}
         </p>
-        <button
-          type="button"
-          onClick={onUpgrade}
-          disabled={upgrading}
-          className="w-full rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white text-sm font-medium px-4 py-3 transition"
-        >
-          {upgrading ? T.quotaExhausted.upgrade_busy : T.quotaExhausted.upgrade_cta}
-        </button>
+
+        {/* Progress bar — same visual language as QuotaBanner's compact
+            variant so users have a single mental model for "where am I
+            on the meter". Always full red when this card renders. */}
+        <div className="relative h-1.5 w-full rounded-full bg-gray-100 overflow-hidden">
+          <div className="absolute inset-y-0 left-0 right-0 bg-red-500 rounded-full" />
+        </div>
+        <div className="flex items-center justify-between mt-1.5 text-[11px] text-gray-500 tabular-nums">
+          <span>
+            {formatMinutes(usedDisplay, T)} / {formatMinutes(limitSecs, T)}
+          </span>
+          <span className="font-medium">100%</span>
+        </div>
+        <div className="mt-1 text-[11px] text-gray-400">{T.quota.reset_note}</div>
+
+        {/* CTA — only for free users. Pro users see the info-only
+            card above; rendering a dead upgrade button for them
+            would be misleading. */}
+        {!isPro && (
+          <button
+            type="button"
+            onClick={onUpgrade}
+            disabled={upgrading}
+            className="mt-5 w-full rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white text-sm font-medium px-4 py-3 transition"
+          >
+            {upgrading ? T.quotaExhausted.upgrade_busy : T.quotaExhausted.upgrade_cta}
+          </button>
+        )}
       </div>
     </div>
   )
