@@ -203,7 +203,15 @@ export function OutlineView({ outline, slides = [], onJump, displayTitle, outlin
   }, [outline.sections.length])
 
   return (
-    <div ref={outerRef} className={`flex-1 flex min-h-0 transition-colors duration-700 ${flashing ? 'bg-terra-tint' : 'bg-transparent'}`}>
+    // overflow-hidden on the outer + min-h-0 prevents the rail/scroll
+    // pair from pushing the App's flex-col parent past its min-h-
+    // screen — without it, the App body itself scrolls when notes
+    // exceed viewport height and the rail (a flex sibling, not a
+    // fixed surface) scrolls away with it. With overflow-hidden the
+    // outer container is height-bounded, the inner scroll handles
+    // overflow on its own, and the rail stays put because nothing
+    // is moving its flex slot.
+    <div ref={outerRef} className={`flex-1 flex min-h-0 overflow-hidden transition-colors duration-700 ${flashing ? 'bg-terra-tint' : 'bg-transparent'}`}>
       {showRail && (
         <SectionRail
           sections={outline.sections}
@@ -214,7 +222,13 @@ export function OutlineView({ outline, slides = [], onJump, displayTitle, outlin
           onToggleWide={toggleRailCollapsed}
         />
       )}
-      <div ref={scrollContainerRef} className="lisna-scroll flex-1 overflow-y-auto px-3 py-3 space-y-4 min-w-0">
+      {/* relative is critical: section.offsetTop (used by both the
+          active-tracking scroll listener and the rail/quiz click
+          handlers) returns the offset to the nearest positioned
+          ancestor. Without `relative` here, offsetTop measures
+          against some far-up ancestor (or the viewport) and the
+          jump math + active-section detection both go wrong. */}
+      <div ref={scrollContainerRef} className="lisna-scroll relative flex-1 overflow-y-auto px-3 py-3 space-y-4 min-w-0">
       <div className="flex items-baseline justify-between gap-2">
         {(displayTitle?.trim() || outline.title) && (
           <h2 className="text-base font-bold text-ink-900 leading-snug tracking-headline-tight">
