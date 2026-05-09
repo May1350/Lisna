@@ -1,6 +1,14 @@
 import { defineManifest } from '@crxjs/vite-plugin'
 import pkg from './package.json'
 
+// CWS rejects manifests that include the `key` field — it assigns its
+// own extension ID at publish time. For local dev we want a stable ID
+// so the chrome-extension:// origin matches the GCP OAuth client's
+// authorized origins. The CWS_BUILD env var lets us build a
+// store-ready bundle that omits `key` while keeping dev builds
+// reproducible.
+const isCwsBuild = process.env.CWS_BUILD === '1'
+
 export default defineManifest({
   manifest_version: 3,
   name: 'Lisna',
@@ -8,7 +16,12 @@ export default defineManifest({
   // Derived ID: idbgminbpkbiippdncoooeelijagfggp
   // Register this ID in GCP → OAuth 클라이언트 → 승인된 원본:
   //   chrome-extension://idbgminbpkbiippdncoooeelijagfggp
-  key: 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtWMU1uIh/76E+yqhOl4JanGQdasyOFJ7SFLgHjnX2qCnFj7pd9/m6vKklEN4JlqRY+ZQrRPYDNI2GwTIlqM7hjsQ+voT+Z4si0xhvvUtEtNW1JM5gldi52Krme25TIyEQ6lenbSA/LUwnKuRsfyXNileyWhiM+AEYPbM5DUJ0cX3ynt47+d8UhQ2l6B8XZmKMbQXkKRV7FqENq1eNIblmjijwRUxpD2SUkKbDhQbhPjsH/OswftoHeUAEGKl0AXUZKAod6skHVHlwjEDj6gE6TU+5lK2185mH12s0DwEXZZwbu6XyG5agpxCjNY4aa3QLISDXiYWiDrKvRhx6AYadQIDAQAB',
+  // OMITTED for CWS_BUILD=1 — store assigns its own ID, and the OAuth
+  // client's authorized origins must be updated post-publish to include
+  // the CWS-assigned chrome-extension:// origin.
+  ...(isCwsBuild ? {} : {
+    key: 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtWMU1uIh/76E+yqhOl4JanGQdasyOFJ7SFLgHjnX2qCnFj7pd9/m6vKklEN4JlqRY+ZQrRPYDNI2GwTIlqM7hjsQ+voT+Z4si0xhvvUtEtNW1JM5gldi52Krme25TIyEQ6lenbSA/LUwnKuRsfyXNileyWhiM+AEYPbM5DUJ0cX3ynt47+d8UhQ2l6B8XZmKMbQXkKRV7FqENq1eNIblmjijwRUxpD2SUkKbDhQbhPjsH/OswftoHeUAEGKl0AXUZKAod6skHVHlwjEDj6gE6TU+5lK2185mH12s0DwEXZZwbu6XyG5agpxCjNY4aa3QLISDXiYWiDrKvRhx6AYadQIDAQAB',
+  }),
   description: '講義や会議をリアルタイムで聴き取り、構造化されたノートを自動生成するAIアシスタント',
   version: pkg.version,
   // Chrome Web Store requires homepage_url. Used as Privacy/Terms link in
