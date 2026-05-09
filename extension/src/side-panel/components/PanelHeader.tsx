@@ -5,21 +5,23 @@ import { useT, interpolate } from '../../shared/i18n'
 
 // ── Avatar helpers ────────────────────────────────────────────────────
 //
-// 6-step palette in the cool/violet family. All gradients are within the
-// Lisna brand vicinity so the surface stays cohesive, but distinct
-// enough that a user juggling two Google accounts can tell at a glance
-// which one is currently signed in (directly addresses the "wrong
-// account → wrong plan" trap that drove the recent account-switch UX).
+// Free-plan accounts pick a stable warm-earthtone gradient via email
+// hash so a user juggling two Google accounts can tell at a glance
+// which one is currently signed in. The palette is intentionally
+// muted — variety enough to distinguish accounts without competing
+// with the Pro avatar's clean ink-900 + terra ring (so Pro always
+// reads as the "premium" surface regardless of email hash).
 //
-// Pro plan ALWAYS uses palette[0] (indigo) so the paid tier reads as a
-// consistent visual identity regardless of the user's email hash.
+// Pro plan rendering bypasses this palette entirely (see Avatar
+// component): solid ink-900 fill + terra ring. That fixed-Pro look
+// also doubles as the brand's strongest visual signal.
 const AVATAR_PALETTE: ReadonlyArray<readonly [string, string]> = [
-  ['#6366f1', '#8b5cf6'],  // indigo → violet (Pro default)
-  ['#3b82f6', '#6366f1'],  // blue → indigo
-  ['#8b5cf6', '#a855f7'],  // violet → purple
-  ['#06b6d4', '#3b82f6'],  // cyan → blue
-  ['#a855f7', '#ec4899'],  // purple → pink
-  ['#0ea5e9', '#8b5cf6'],  // sky → violet
+  ['#8B6F47', '#A37B53'],  // gold
+  ['#4F7C5C', '#3D6149'],  // sage
+  ['#5B2A4D', '#7B3D6A'],  // aubergine
+  ['#6B4423', '#8C5A33'],  // mocha
+  ['#5A4A3F', '#3D332C'],  // warm gray
+  ['#7C5832', '#A37B53'],  // bronze
 ]
 
 // djb2-style string hash. We don't need cryptographic strength — only
@@ -32,7 +34,8 @@ function hashSeed(s: string): number {
 }
 
 function avatarPalette(user: User): readonly [string, string] {
-  if (user.plan === 'pro') return AVATAR_PALETTE[0]
+  // Pro is rendered separately (solid ink-900 + terra ring) — this
+  // helper is only consulted for free-plan accounts.
   return AVATAR_PALETTE[hashSeed(user.email) % AVATAR_PALETTE.length]
 }
 
@@ -48,20 +51,36 @@ function avatarInitial(user: User): string {
 }
 
 function Avatar({ user }: { user: User }) {
-  const [from, to] = avatarPalette(user)
   const initial = avatarInitial(user)
   const isPro = user.plan === 'pro'
+  if (isPro) {
+    // Pro: solid ink-900 + terra ring — distinctive and matches the
+    // design system's brand reservation rule (terra signals
+    // value-bearing payment surfaces).
+    return (
+      <div
+        className="w-7 h-7 shrink-0 rounded-full flex items-center justify-center text-paper-100 text-[12.5px] font-semibold select-none leading-none"
+        style={{
+          background: 'var(--ink-900)',
+          boxShadow: '0 0 0 1.5px var(--paper-100), 0 0 0 3px var(--terra-soft), 0 1px 4px rgba(194,65,12,0.25)',
+        }}
+        aria-hidden="true"
+        title={user.email}
+      >
+        {initial}
+      </div>
+    )
+  }
+  // Free: muted earthtone gradient hashed off email so multi-account
+  // users can disambiguate at a glance. No ring — keeps the Pro
+  // ring pattern unique to paid users.
+  const [from, to] = avatarPalette(user)
   return (
     <div
-      className="w-7 h-7 shrink-0 rounded-full flex items-center justify-center text-white text-[12.5px] font-semibold select-none leading-none"
+      className="w-7 h-7 shrink-0 rounded-full flex items-center justify-center text-paper-100 text-[12.5px] font-semibold select-none leading-none"
       style={{
         background: `linear-gradient(135deg, ${from}, ${to})`,
-        // Pro: a soft indigo ring sits 1.5 px outside the avatar so the
-        // paid tier reads as elevated without changing layout. Free:
-        // just a subtle drop shadow for definition against white.
-        boxShadow: isPro
-          ? '0 0 0 1.5px #ffffff, 0 0 0 3px rgba(165,180,252,0.7), 0 1px 4px rgba(99,102,241,0.4)'
-          : '0 1px 2px rgba(15,23,42,0.15)',
+        boxShadow: '0 1px 2px rgba(26, 22, 20, 0.15)',
       }}
       aria-hidden="true"
       title={user.email}
@@ -230,9 +249,11 @@ export function PanelHeader({
   // banner agree visually as the user gets closer to the wall.
   const remainingClass = (() => {
     if (!showLiveRemaining || liveRemainingSecs == null) return ''
-    if (liveRemainingSecs <= 60) return 'bg-red-100 text-red-800'      // <1 min
-    if (liveRemainingSecs <= 300) return 'bg-amber-100 text-amber-800' // <5 min
-    return 'bg-gray-100 text-gray-700'
+    // Same ramp QuotaBanner uses (DESIGN.md §3.3) so the modal pill
+    // and the banner agree as the user crosses each threshold.
+    if (liveRemainingSecs <= 60) return 'bg-warn-red/10 text-warn-red'        // <1 min
+    if (liveRemainingSecs <= 300) return 'bg-warn-amber/10 text-warn-amber'   // <5 min
+    return 'bg-paper-300 text-ink-700'
   })()
   const isAccountView = !isEmbed
   const showToggle =
@@ -253,20 +274,20 @@ export function PanelHeader({
                 // remaining-quota chip when the free user is approaching
                 // the wall. Account toggles (ON/OFF, logout) live in the
                 // Chrome native side panel surface, not here.
-                <span className="text-[11px] text-gray-500 flex items-center gap-1.5 mt-0.5">
+                <span className="text-[11px] text-ink-500 flex items-center gap-1.5 mt-0.5">
                   <span
                     className="w-1.5 h-1.5 rounded-full shrink-0"
                     style={{
-                      background: user.plan === 'pro' ? '#6366f1' : '#94a3b8',
-                      boxShadow: user.plan === 'pro' ? '0 0 0 2px rgba(99,102,241,0.18)' : 'none',
+                      background: user.plan === 'pro' ? 'var(--terra)' : 'var(--ink-300)',
+                      boxShadow: user.plan === 'pro' ? '0 0 0 2px var(--terra-soft)' : 'none',
                     }}
                   />
-                  <span className={user.plan === 'pro' ? 'text-indigo-600 font-medium' : ''}>
+                  <span className={user.plan === 'pro' ? 'text-terra-700 font-medium' : ''}>
                     {user.plan === 'pro' ? T.quota.plan_pro : T.quota.plan_free}
                   </span>
                   {showLiveRemaining && (
                     <span
-                      className={`px-1.5 py-[1px] rounded font-mono tabular-nums text-[10px] font-medium ${remainingClass}`}
+                      className={`px-1.5 py-[1px] rounded-sm font-mono tabular-nums text-[10px] font-medium ${remainingClass}`}
                       title={T.quota.remainingTooltip}
                     >
                       {T.panelHeader.remainingPrefix} {formatMmSs(liveRemainingSecs!)}

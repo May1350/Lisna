@@ -112,6 +112,22 @@ export function OutlineView({ outline, slides = [], onJump, displayTitle, outlin
     )
   }
 
+  // Compact mode (DESIGN.md §7 C2) — toggle that hides everything
+  // except TLDR / Take / important points. Local state only; the
+  // user's choice resets per session because the appropriate density
+  // depends on what they're doing right now (skimming vs deep-reading)
+  // and a sticky preference would feel wrong on a different lecture.
+  const [compact, setCompact] = useState(false)
+
+  // Section refs so the Quiz roll-up's "→ NN" buttons can scroll to
+  // the source section (the scroll container is an inner overflow,
+  // not the window — native #anchor jumps would scroll the page
+  // around the iframe instead).
+  const sectionRefs = useRef<(HTMLElement | null)[]>([])
+  const scrollToSection = (i: number) => {
+    sectionRefs.current[i]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
   return (
     <div className={`lisna-scroll flex-1 overflow-y-auto px-3 py-3 space-y-4 transition-colors duration-700 ${flashing ? 'bg-terra-tint' : 'bg-transparent'}`}>
       <div className="flex items-baseline justify-between gap-2">
@@ -120,11 +136,45 @@ export function OutlineView({ outline, slides = [], onJump, displayTitle, outlin
             {displayTitle?.trim() || outline.title}
           </h2>
         )}
-        {outlineUpdatedAt != null && (
-          <RefreshIndicator at={outlineUpdatedAt} />
-        )}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* Compact toggle — exam-cram view per DESIGN.md §7 C2.
+              Hidden when the outline has no sections (no point
+              compacting an empty surface). Active state mirrors the
+              "selected" aesthetic of soft pill buttons (DESIGN.md
+              §3.1) — ink-900 fill when compact, paper-200 surface
+              with paper-edge border when not. */}
+          {outline.sections.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setCompact(c => !c)}
+              className={
+                'inline-flex items-center gap-1 text-[10px] font-medium font-mono uppercase tracking-eyebrow px-2 py-1 rounded transition-colors ' +
+                (compact
+                  ? 'bg-ink-900 text-paper-100'
+                  : 'bg-paper-200 text-ink-700 hover:bg-paper-300 border border-paper-edge')
+              }
+              title={T.outline.compactToggleTitle}
+              aria-pressed={compact}
+            >
+              {T.outline.compactToggle}
+            </button>
+          )}
+          {outlineUpdatedAt != null && (
+            <RefreshIndicator at={outlineUpdatedAt} />
+          )}
+        </div>
       </div>
-      <SectionList outline={outline} slides={slides} onJump={onJump} />
+      <SectionList
+        outline={outline}
+        slides={slides}
+        onJump={onJump}
+        compact={compact}
+        sectionRefs={sectionRefs}
+      />
+      <QuizRollup
+        sections={outline.sections}
+        onJumpToSection={scrollToSection}
+      />
       {/* SectionList memoizes the per-section slide bucketing so we
           don't re-traverse both arrays on every parent render. */}
     </div>
@@ -139,10 +189,14 @@ function SectionList({
   outline,
   slides,
   onJump,
+  compact,
+  sectionRefs,
 }: {
   outline: Outline
   slides: SlideItem[]
   onJump?: (ts: number) => void
+  compact: boolean
+  sectionRefs: React.MutableRefObject<(HTMLElement | null)[]>
 }) {
   const buckets = useMemo(
     () => bucketSlides(outline.sections, slides),
@@ -156,9 +210,66 @@ function SectionList({
           section={section}
           slides={buckets[i]}
           onJump={onJump}
+          compact={compact}
+          sectionRef={(el) => { sectionRefs.current[i] = el }}
+          index={i}
         />
       ))}
     </>
+  )
+}
+
+// Quiz roll-up — DESIGN.md §7 C5. Aggregates every section's
+// check_question into a single end-of-notes review block. Each item
+// links back to its source section via scrollIntoView so a quick
+// review is one click away. Hidden entirely when no section has a
+// check_question (avoids the empty "Review Questions" header on
+// short lectures).
+function QuizRollup({
+  sections,
+  onJumpToSection,
+}: {
+  sections: Outline['sections']
+  onJumpToSection: (idx: number) => void
+}) {
+  const T = useT()
+  const items = sections
+    .map((s, i) => ({ section: s, index: i }))
+    .filter(({ section }) => section.check_question?.trim())
+  if (items.length === 0) return null
+  return (
+    <section className="rounded-[10px] border border-paper-edge bg-paper-200 px-4 py-3">
+      <div className="flex items-baseline gap-2 mb-2.5">
+        <span className="text-[10px] font-mono uppercase tracking-eyebrow text-ink-500 font-semibold">
+          {T.outline.quizLabel}
+        </span>
+        <span className="text-[10px] font-mono text-ink-300">
+          {items.length} {items.length === 1 ? T.outline.quizCountSingular : T.outline.quizCountPlural}
+        </span>
+      </div>
+      <ol className="m-0 p-0 list-none [counter-reset:q]">
+        {items.map(({ section, index }) => (
+          <li
+            key={`q-${index}`}
+            className="flex gap-2.5 items-start py-2 border-t border-dashed border-paper-edge first:border-t-0 first:pt-0 text-xs text-ink-700 leading-relaxed [counter-increment:q]"
+          >
+            <span
+              className="flex-shrink-0 min-w-[20px] pt-px font-mono text-[10px] font-semibold text-ink-300 tracking-wide before:content-['Q'_counter(q)]"
+              aria-hidden="true"
+            />
+            <span className="flex-1">{section.check_question}</span>
+            <button
+              type="button"
+              onClick={() => onJumpToSection(index)}
+              className="flex-shrink-0 inline-flex items-center font-mono text-[10px] text-ink-500 hover:text-paper-100 hover:bg-ink-900 rounded px-1.5 py-0.5 transition-colors"
+              title={T.outline.quizJumpTitle}
+            >
+              → {String(index + 1).padStart(2, '0')}
+            </button>
+          </li>
+        ))}
+      </ol>
+    </section>
   )
 }
 
@@ -238,29 +349,75 @@ function SectionBlock({
   section,
   slides = [],
   onJump,
+  compact = false,
+  sectionRef,
+  index,
 }: {
   section: OutlineSection
   slides?: SlideItem[]
   onJump?: (ts: number) => void
+  /** When true (Compact toggle, DESIGN.md §7 C2), hides everything
+   *  except heading + takeaway + important points. Lets the user
+   *  switch to an exam-cram view without losing the underlying
+   *  data. */
+  compact?: boolean
+  /** Forwarded so the parent can scroll to this section from the
+   *  Quiz roll-up's "→ NN" button. */
+  sectionRef?: (el: HTMLElement | null) => void
+  /** Position in the section list. Kept for future Section Rail
+   *  (DESIGN.md §7 A1) — A1 will need it to map dot index to
+   *  section. Currently unused but threaded through so adding the
+   *  rail later is just CSS / a sibling component. */
+  index?: number
 }) {
   const T = useT()
+  // Section collapse state (DESIGN.md §7 D2 — chevron in heading
+  // row, default expanded). Local state per-section: a collapse
+  // pattern that's about to be undone after the user reads the
+  // heading shouldn't survive the modal closing. ▼ when expanded /
+  // ▶ when collapsed (tree disclosure pattern from DESIGN.md §3.5).
+  const [collapsed, setCollapsed] = useState(false)
   // Phase 6 optional fields (takeaway / related_terms / check_question)
   // are now part of the typed OutlineSection — no more `as` cast. UI
   // renders them as plain text; the markdown export pipeline handles
   // their wikilink/callout formatting separately.
   return (
-    <section className="space-y-2">
+    <section
+      className="space-y-2"
+      ref={sectionRef}
+      data-section-index={index}
+    >
       <div className="flex items-baseline justify-between gap-2">
-        <h3 className="text-sm font-semibold text-ink-900 leading-snug">
+        <h3 className="text-sm font-semibold text-ink-900 leading-snug flex-1">
           {section.heading}
         </h3>
         <TsButton ts={section.ts} onJump={onJump} />
+        <button
+          type="button"
+          onClick={() => setCollapsed(c => !c)}
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? T.outline.expandSectionAria : T.outline.collapseSectionAria}
+          title={collapsed ? T.outline.expandSectionTitle : T.outline.collapseSectionTitle}
+          className="shrink-0 w-5 h-5 flex items-center justify-center text-ink-300 hover:text-ink-700 hover:bg-paper-200 rounded transition-colors"
+        >
+          <svg
+            width="12" height="12" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"
+            aria-hidden="true"
+            style={{ transition: 'transform 220ms ease', transform: collapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }}
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </button>
       </div>
 
-      {slides.length > 0 && <SlideStrip slides={slides} onJump={onJump} />}
+      {collapsed ? null : <>
+
+      {slides.length > 0 && !compact && <SlideStrip slides={slides} onJump={onJump} />}
 
       {/* Takeaway = warm emphasis card per DESIGN.md §2.1.1
-          (terra-tint surface + terra-soft border + terra leftbar). */}
+          (terra-tint surface + terra-soft border + terra leftbar).
+          Always shown; this is the section's most important content. */}
       {section.takeaway && (
         <div className="bg-terra-tint border border-terra-soft border-l-[3px] border-l-terra px-2.5 py-1.5 rounded-md-design">
           <p className="text-xs text-ink-900 leading-snug font-medium">
@@ -270,7 +427,7 @@ function SectionBlock({
         </div>
       )}
 
-      {section.summary && !section.takeaway && (
+      {!compact && section.summary && !section.takeaway && (
         <p className="text-xs text-ink-700 leading-relaxed">
           {section.summary}
         </p>
@@ -278,8 +435,9 @@ function SectionBlock({
 
       {/* Key terms — neutral paper card with subtle dashed dividers
           between entries. Per DESIGN.md §4.2 the term name carries
-          the visual weight, definition stays readable but quieter. */}
-      {section.key_terms.length > 0 && (
+          the visual weight, definition stays readable but quieter.
+          Hidden in compact mode (DESIGN.md §7 C2). */}
+      {!compact && section.key_terms.length > 0 && (
         <ul className="space-y-1.5">
           {section.key_terms.map((kt, i) => (
             <li
@@ -302,9 +460,12 @@ function SectionBlock({
           highlighter (solid block, box-decoration-break clone) on
           the body text per DESIGN.md §5.4. Regular points use a
           small ink-200 dot. */}
+      {/* Points — Compact mode keeps important points (highlighter),
+          drops regular ones. Important point = essence; regular
+          point = evidence. The exam-cram view wants essence only. */}
       {section.points.length > 0 && (
         <ul className="space-y-1">
-          {section.points.map((p, i) => (
+          {section.points.filter(p => compact ? p.important : true).map((p, i) => (
             <li
               key={`${p.text.slice(0, 24)}-${i}`}
               className="text-xs leading-relaxed flex gap-2 items-baseline"
@@ -336,7 +497,7 @@ function SectionBlock({
         </ul>
       )}
 
-      {section.examples.length > 0 && (
+      {!compact && section.examples.length > 0 && (
         <div className="space-y-1">
           <div className="text-[10px] font-mono uppercase tracking-eyebrow text-ink-300 font-medium">
             {T.outline.examples_inline}
@@ -373,8 +534,9 @@ function SectionBlock({
 
       {/* Check_question card — neutral paper-200 surface so it reads
           as supplementary, not as competing emphasis with the Take
-          card. */}
-      {section.check_question && (
+          card. Hidden in compact mode (the Quiz roll-up at the
+          bottom already aggregates these for review). */}
+      {!compact && section.check_question && (
         <div className="bg-paper-200 border border-paper-edge px-2.5 py-1.5 rounded-md-design">
           <p className="text-xs text-ink-700 leading-snug">
             <span className="text-[10px] font-mono uppercase tracking-eyebrow text-ink-500 font-semibold mr-1.5">{T.outline.confirm_label}</span>
@@ -382,6 +544,8 @@ function SectionBlock({
           </p>
         </div>
       )}
+
+      </>}
     </section>
   )
 }

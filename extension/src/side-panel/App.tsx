@@ -119,8 +119,8 @@ function humanizeCurateError(reason: string, T: Translations): string {
 function PostSessionHint() {
   const T = useT()
   return (
-    <div className="mx-3 mb-1 bg-indigo-50 text-gray-800 text-xs px-3 py-2 rounded leading-relaxed">
-      <span className="font-semibold text-indigo-700">{T.postSession.title}</span>{' '}
+    <div className="mx-3 mb-1 bg-terra-tint border border-terra-soft text-ink-900 text-xs px-3 py-2 rounded-[10px] leading-relaxed">
+      <span className="font-semibold text-terra-700">{T.postSession.title}</span>{' '}
       {T.postSession.hint}
     </div>
   )
@@ -1107,12 +1107,12 @@ export default function App() {
             <button
               onClick={() => onTriggerCurate(hasContent)}
               disabled={curating}
-              className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white text-xs font-medium py-2 px-3 rounded-lg transition flex items-center justify-center gap-1.5"
+              className="w-full bg-ink-900 hover:bg-ink-700 disabled:bg-ink-200 disabled:text-ink-500 text-paper-100 text-xs font-medium py-2 px-3 rounded-[10px] transition-colors flex items-center justify-center gap-1.5"
               title={T.curate.button_title}
             >
               {curating ? (
                 <>
-                  <span className="inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <span className="inline-block w-3 h-3 border-2 border-paper-100/30 border-t-paper-100 rounded-full animate-spin" />
                   {T.curate.button_busy}
                 </>
               ) : (

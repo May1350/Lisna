@@ -202,6 +202,17 @@ export interface Translations {
     lightboxNextAria: string             // "次のスライド"
     lightboxJump: string                 // "▶ 動画のこの場面へ"
     lightboxClose: string                // "閉じる"
+    // ── DESIGN.md §7 follow-up features ─────────────────────
+    compactToggle: string                // "Compact" — exam-cram view button label
+    compactToggleTitle: string           // tooltip when not active
+    quizLabel: string                    // "Review Questions" — quiz roll-up header
+    quizCountSingular: string            // "question"
+    quizCountPlural: string              // "questions"
+    quizJumpTitle: string                // tooltip on the → NN link
+    expandSectionAria: string            // "section-collapse aria-label expand"
+    collapseSectionAria: string          // "section-collapse aria-label collapse"
+    expandSectionTitle: string           // "click to expand"
+    collapseSectionTitle: string         // "click to collapse"
   }
 
   // ── Speed selector ─────────────────────────────────────────────

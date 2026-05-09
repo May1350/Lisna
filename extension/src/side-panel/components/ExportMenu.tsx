@@ -162,7 +162,7 @@ export function ExportMenu(props: Props) {
       <button
         onClick={onClickPrimary}
         disabled={busy || (format === 'zip' && zipDisabled)}
-        className="flex-1 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 disabled:text-gray-500 text-white text-xs font-medium py-2 px-3 rounded-l-lg transition flex items-center justify-center gap-1.5"
+        className="flex-1 bg-ink-900 hover:bg-ink-700 disabled:bg-ink-200 disabled:text-ink-500 text-paper-100 text-xs font-medium py-2 px-3 rounded-l-[10px] transition-colors flex items-center justify-center gap-1.5"
       >
         {busy ? (
           T.export.busy
@@ -180,7 +180,7 @@ export function ExportMenu(props: Props) {
         ref={triggerRef}
         onClick={() => setOpen(o => !o)}
         disabled={busy}
-        className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 disabled:text-gray-500 text-white text-xs font-medium py-2 px-2 rounded-r-lg border-l border-emerald-500/40 transition"
+        className="bg-ink-900 hover:bg-ink-700 disabled:bg-ink-200 disabled:text-ink-500 text-paper-100 text-xs font-medium py-2 px-2 rounded-r-[10px] border-l border-paper-100/15 transition-colors"
         aria-label={T.export.formatPickerAria}
       >
         ▾
@@ -189,7 +189,7 @@ export function ExportMenu(props: Props) {
       {open && (
         <div
           ref={popoverRef}
-          className="absolute bottom-full mb-2 right-0 bg-white border border-gray-200 rounded-lg shadow-xl overflow-hidden min-w-[280px] z-10"
+          className="absolute bottom-full mb-2 right-0 bg-paper-100 border border-paper-edge rounded-[10px] shadow-card overflow-hidden min-w-[280px] z-10"
           onClick={(e) => e.stopPropagation()}
         >
           {((['zip', 'html', ...(obsidianReady ? ['obsidian'] : [])] as ExportFormat[])).map(f => {
@@ -199,14 +199,14 @@ export function ExportMenu(props: Props) {
                 key={f}
                 disabled={disabled}
                 onClick={() => { if (disabled) return; setFormat(f); setOpen(false) }}
-                className={`w-full px-3 py-2 text-left text-xs hover:bg-gray-50 flex items-start gap-2 transition disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white ${
-                  format === f ? 'bg-emerald-50' : ''
+                className={`w-full px-3 py-2 text-left text-xs hover:bg-paper-200 flex items-start gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-paper-100 ${
+                  format === f ? 'bg-paper-200' : ''
                 }`}
               >
                 <span className="mt-0.5 shrink-0">{labels[f].icon}</span>
                 <span className="flex flex-col gap-0.5 min-w-0">
-                  <span className="font-medium text-gray-900">{labels[f].menu}</span>
-                  <span className="text-[10px] text-gray-500">{labels[f].subtitle}</span>
+                  <span className="font-medium text-ink-900">{labels[f].menu}</span>
+                  <span className="text-[10px] text-ink-500">{labels[f].subtitle}</span>
                 </span>
               </button>
             )
