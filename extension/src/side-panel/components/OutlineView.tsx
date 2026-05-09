@@ -119,17 +119,75 @@ export function OutlineView({ outline, slides = [], onJump, displayTitle, outlin
   // and a sticky preference would feel wrong on a different lecture.
   const [compact, setCompact] = useState(false)
 
-  // Section refs so the Quiz roll-up's "→ NN" buttons can scroll to
-  // the source section (the scroll container is an inner overflow,
-  // not the window — native #anchor jumps would scroll the page
-  // around the iframe instead).
+  // Section refs so the Quiz roll-up's "→ NN" buttons + the Section
+  // Rail's dot/label clicks can scroll to the source section (the
+  // scroll container is an inner overflow, not the window — native
+  // #anchor jumps would scroll the page around the iframe instead).
   const sectionRefs = useRef<(HTMLElement | null)[]>([])
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null)
+  const outerRef = useRef<HTMLDivElement | null>(null)
   const scrollToSection = (i: number) => {
-    sectionRefs.current[i]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    const target = sectionRefs.current[i]
+    const container = scrollContainerRef.current
+    if (!target || !container) return
+    container.scrollTo({ top: target.offsetTop - 8, behavior: 'smooth' })
   }
 
+  // Modal-width awareness for the Section Rail wide mode (DESIGN.md
+  // §7 A1). Watches OUR own outer container — works in both the
+  // in-page modal (resizable iframe) and Chrome's side panel
+  // (user-resizable column). Above 460px we have room to render the
+  // rail as a labeled mini-TOC instead of the compact dot column.
+  const [outerWidth, setOuterWidth] = useState(0)
+  useEffect(() => {
+    if (!outerRef.current) return
+    const el = outerRef.current
+    const ro = new ResizeObserver((entries) => {
+      for (const e of entries) setOuterWidth(e.contentRect.width)
+    })
+    ro.observe(el)
+    setOuterWidth(el.getBoundingClientRect().width)
+    return () => ro.disconnect()
+  }, [])
+  const isWide = outerWidth >= 460
+  // Rail only renders for outlines long enough to need orientation —
+  // 1-2 sections fit on a single screen so the rail is just chrome.
+  const showRail = outline.sections.length >= 3
+
+  // Active section tracking — last section whose offsetTop crossed
+  // a fixed line above the viewport top, with bottom-of-scroll
+  // snap so the final section's dot still lights up at scroll end.
+  const [activeIdx, setActiveIdx] = useState(0)
+  useEffect(() => {
+    const el = scrollContainerRef.current
+    if (!el) return
+    const update = () => {
+      const trigger = el.scrollTop + 80
+      let idx = 0
+      for (let i = 0; i < outline.sections.length; i++) {
+        const s = sectionRefs.current[i]
+        if (s && s.offsetTop <= trigger) idx = i
+      }
+      const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 8
+      if (atBottom && outline.sections.length > 0) idx = outline.sections.length - 1
+      setActiveIdx(idx)
+    }
+    el.addEventListener('scroll', update, { passive: true })
+    update()
+    return () => el.removeEventListener('scroll', update)
+  }, [outline.sections.length])
+
   return (
-    <div className={`lisna-scroll flex-1 overflow-y-auto px-3 py-3 space-y-4 transition-colors duration-700 ${flashing ? 'bg-terra-tint' : 'bg-transparent'}`}>
+    <div ref={outerRef} className={`flex-1 flex min-h-0 transition-colors duration-700 ${flashing ? 'bg-terra-tint' : 'bg-transparent'}`}>
+      {showRail && (
+        <SectionRail
+          sections={outline.sections}
+          activeIdx={activeIdx}
+          wide={isWide}
+          onJump={scrollToSection}
+        />
+      )}
+      <div ref={scrollContainerRef} className="lisna-scroll flex-1 overflow-y-auto px-3 py-3 space-y-4 min-w-0">
       <div className="flex items-baseline justify-between gap-2">
         {(displayTitle?.trim() || outline.title) && (
           <h2 className="text-base font-bold text-ink-900 leading-snug tracking-headline-tight">
@@ -177,7 +235,112 @@ export function OutlineView({ outline, slides = [], onJump, displayTitle, outlin
       />
       {/* SectionList memoizes the per-section slide bucketing so we
           don't re-traverse both arrays on every parent render. */}
+      </div>
     </div>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Section Rail (DESIGN.md §7 A1)
+//
+// Sticky vertical mini-TOC on the left edge of the OutlineView. Two
+// modes triggered by the outer container's measured width:
+//
+//   Narrow (<460px): 18px-wide column of dots. Active dot fills with
+//   ink-900 + scales 1.5×; click jumps to that section. Visual sibling
+//   of the iOS Music app's "current track" rail or Linear's section
+//   navigation rail in narrow mode.
+//
+//   Wide (≥460px): 132px-wide column with 2-digit section number
+//   (mono) + heading text per row. Active row gets a paper-100
+//   background + terra leftbar + ink-900 bold heading. Hover lifts
+//   to paper-100 with the dot turning ink-700.
+//
+// The rail is INSIDE the OutlineView's outer flex container so it
+// sits next to the scroll area, NOT inside it. That way the rail
+// stays in place while the user scrolls — exactly the "always-on
+// orientation aid" the long-lecture annotations called for.
+// ────────────────────────────────────────────────────────────────────
+function SectionRail({
+  sections,
+  activeIdx,
+  wide,
+  onJump,
+}: {
+  sections: Outline['sections']
+  activeIdx: number
+  wide: boolean
+  onJump: (idx: number) => void
+}) {
+  if (wide) {
+    return (
+      <nav
+        aria-label="Sections"
+        className="shrink-0 w-[132px] py-3 pl-1 pr-1 overflow-y-auto lisna-scroll border-r border-paper-edge bg-paper-200"
+      >
+        <ul className="m-0 p-0 list-none space-y-px">
+          {sections.map((s, i) => {
+            const active = i === activeIdx
+            return (
+              <li key={`rail-${i}`}>
+                <button
+                  type="button"
+                  onClick={() => onJump(i)}
+                  aria-current={active ? 'true' : undefined}
+                  className={
+                    'group w-full flex items-center gap-2 px-2 py-1.5 text-left rounded transition-colors ' +
+                    (active
+                      ? 'bg-paper-100 text-ink-900 font-semibold shadow-[inset_2px_0_0_var(--terra)]'
+                      : 'text-ink-500 hover:bg-paper-100 hover:text-ink-900')
+                  }
+                  title={s.heading}
+                >
+                  <span
+                    className={'shrink-0 w-1.5 h-1.5 rounded-full ' + (active ? 'bg-terra' : 'bg-ink-200 group-hover:bg-ink-500')}
+                  />
+                  <span className={'shrink-0 text-[10px] font-mono tabular-nums tracking-wide ' + (active ? 'text-terra' : 'text-ink-300')}>
+                    {String(i + 1).padStart(2, '0')}
+                  </span>
+                  <span className="flex-1 min-w-0 text-[11.5px] leading-snug whitespace-nowrap overflow-hidden text-ellipsis">
+                    {s.heading}
+                  </span>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      </nav>
+    )
+  }
+  // Narrow — dot column
+  return (
+    <nav
+      aria-label="Sections"
+      className="shrink-0 w-[18px] py-3 flex flex-col items-center border-r border-paper-edge bg-paper-200"
+    >
+      {sections.map((_, i) => {
+        const active = i === activeIdx
+        return (
+          <button
+            key={`rail-dot-${i}`}
+            type="button"
+            onClick={() => onJump(i)}
+            aria-label={`Section ${i + 1}`}
+            aria-current={active ? 'true' : undefined}
+            className="my-[5px] flex items-center justify-center w-3 h-3 rounded-full focus:outline-none"
+          >
+            <span
+              className={
+                'block rounded-full transition-all ' +
+                (active
+                  ? 'bg-ink-900 w-[9px] h-[9px]'
+                  : 'bg-ink-200 hover:bg-ink-500 w-[6px] h-[6px]')
+              }
+            />
+          </button>
+        )
+      })}
+    </nav>
   )
 }
 

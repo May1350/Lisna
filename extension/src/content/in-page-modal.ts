@@ -136,15 +136,30 @@ function ensureStyle(): void {
   display: block;
   background: white;
 }
+/* SE corner resize grip. Tone matches the Concept 1+ design system
+ * (paper-edge default, terra on hover). Slightly larger hit target
+ * (18×18) than the previous transparent 16×16 so the handle is easier
+ * to grab. The visible "grip" is two thin diagonals drawn with linear
+ * gradients — light enough to not compete with the modal content,
+ * obvious enough that users know the corner is grabbable. */
 #${CONTAINER_ID} .__sh_resize_handle__ {
   position: absolute;
-  bottom: 0;
-  right: 0;
-  width: 16px;
-  height: 16px;
+  bottom: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
   cursor: nwse-resize;
-  background: transparent;
+  background:
+    linear-gradient(135deg, transparent 0 60%, #E8E4DC 60% 65%, transparent 65% 78%, #E8E4DC 78% 83%, transparent 83%);
   z-index: 1;
+  opacity: 0.9;
+  transition: background 140ms ease, opacity 140ms ease;
+  border-radius: 0 0 12px 0;
+}
+#${CONTAINER_ID} .__sh_resize_handle__:hover {
+  background:
+    linear-gradient(135deg, transparent 0 55%, #C2410C 55%  62%, transparent 62% 75%, #C2410C 75% 82%, transparent 82%);
+  opacity: 1;
 }
 `
   document.documentElement.appendChild(style)
