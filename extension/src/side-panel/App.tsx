@@ -13,6 +13,7 @@ import { ExportMenu } from './components/ExportMenu'
 import { QuotaBanner } from './components/QuotaBanner'
 import { PanelHeader } from './components/PanelHeader'
 import { SessionControls } from './components/SessionControls'
+import { QuotaExhaustedIdle } from './components/QuotaExhaustedIdle'
 import { callApi, connectWs, getCurrentUser, logout, ApiError } from './api-client'
 import type { LiveTranscriptItem, Outline } from './api-client'
 import { useT } from '../shared/i18n'
@@ -307,6 +308,24 @@ export default function App() {
   useEffect(() => {
     if (consented !== true) return
     void getCurrentUser().then(setUser)
+    // Seed the quota state from /v1/auth/me on mount. Without this the
+    // modal had no idea about the user's quota until the FIRST audio
+    // chunk's response landed (~12 s into a session) — meaning the
+    // QuotaExhaustedIdle / SessionControls quota mode couldn't render
+    // for users who were already at 100% before they even pressed
+    // play. Failure is silent: quota stays null and the regular idle
+    // copy renders, which is the pre-fix behavior.
+    void callApi<{ user: User; quota: QuotaSnapshot }>('/v1/auth/me', 'GET')
+      .then(r => {
+        if (r.quota) {
+          setQuota(r.quota)
+          // Mirror to chrome.storage for the content script's
+          // pre-flight check (handleActivate skips startCapture when
+          // cached percent_used >= 100).
+          void chrome.storage.local.set({ 'sh.cachedQuota': { quota: r.quota, ts: Date.now() } })
+        }
+      })
+      .catch(() => { /* ignore — quota stays null, regular flow */ })
   }, [consented])
 
   // Keep the export-input ref in sync with the React state used by
@@ -514,6 +533,12 @@ export default function App() {
       case 'quota_update':
         if (!p.quota) return
         setQuota(p.quota)
+        // Cache for the content script's pre-flight check. handleActivate
+        // reads this synchronously from chrome.storage to decide whether
+        // to call startCapture or skip it (saves a wasted 10 s audio
+        // chunk and 402 dance every time the user clicks the inline
+        // button at quota = 100%).
+        void chrome.storage.local.set({ 'sh.cachedQuota': { quota: p.quota, ts: Date.now() } })
         // Re-sync the live-ticking remaining counter to the backend
         // authoritative value on every chunk. Drift between the
         // counter and reality is bounded by chunk cadence (~10 s).
@@ -526,6 +551,7 @@ export default function App() {
       case 'quota_exceeded':
         if (!p.quota) return
         setQuota(p.quota)
+        void chrome.storage.local.set({ 'sh.cachedQuota': { quota: p.quota, ts: Date.now() } })
         setLiveRemainingSecs(p.quota.remaining_secs)
         setQuotaBlocked(true)
         return
@@ -759,10 +785,22 @@ export default function App() {
     return () => window.clearTimeout(id)
   }, [curating])
 
+  // Stripe Checkout creation takes a few hundred ms — surface that as
+  // a busy state so the upgrade button (in QuotaBanner / QuotaExhaustedIdle
+  // / SessionControls quota mode) can disable itself and avoid the
+  // "did my click register?" double-press case. Resolves on either
+  // success (tab opens) or error (alert).
+  const [upgrading, setUpgrading] = useState(false)
   const onUpgrade = useCallback(async () => {
-    const r = await callApi<{ url: string }>('/v1/billing/checkout', 'POST', {})
-    chrome.tabs.create({ url: r.url })
-  }, [])
+    if (upgrading) return
+    setUpgrading(true)
+    try {
+      const r = await callApi<{ url: string }>('/v1/billing/checkout', 'POST', {})
+      chrome.tabs.create({ url: r.url })
+    } finally {
+      setUpgrading(false)
+    }
+  }, [upgrading])
 
   const onClose = useCallback(() => {
     if (isEmbed) {
@@ -969,16 +1007,27 @@ export default function App() {
         {curating && !hasContent ? (
           <CuratingState />
         ) : !hasContent ? (
-          // Render IdleSessionState as soon as the modal mounts — do
-          // NOT wait for sessionId. The canonical session_id only
-          // arrives after the FIRST chunk completes its STT roundtrip
-          // (~10 s of audio + ~1-2 s STT = ~12 s). Gating the idle
-          // state on sessionId means the user sees "処理中..." for 12 s
-          // even though the video is already playing and we already
-          // know the video state. The early video_state broadcasts in
-          // startCapture flow into `videoPlaying` immediately, so the
-          // pill flips to "🎙️ 録音中" the moment they press play.
-          <IdleSessionState videoPlaying={videoPlaying} />
+          // When the user has no saved data on this URL AND they're at
+          // their monthly cap, the default IdleSessionState ("press
+          // play and we'll curate") is misleading — pressing play
+          // would just produce zero captions. Replace with the
+          // explicit limit-reached + upgrade card. For users with any
+          // saved data (hasContent), the regular flow renders below;
+          // their captures-disabled signal lives inside SessionControls.
+          (quota && (quota.percent_used >= 100 || quotaBlocked)) ? (
+            <QuotaExhaustedIdle user={user} onUpgrade={onUpgrade} upgrading={upgrading} />
+          ) : (
+            // Render IdleSessionState as soon as the modal mounts — do
+            // NOT wait for sessionId. The canonical session_id only
+            // arrives after the FIRST chunk completes its STT roundtrip
+            // (~10 s of audio + ~1-2 s STT = ~12 s). Gating the idle
+            // state on sessionId means the user sees "処理中..." for 12 s
+            // even though the video is already playing and we already
+            // know the video state. The early video_state broadcasts in
+            // startCapture flow into `videoPlaying` immediately, so the
+            // pill flips to "🎙️ 録音中" the moment they press play.
+            <IdleSessionState videoPlaying={videoPlaying} />
+          )
         ) : (
           <OutlineView
             // Force remount when the session swaps (e.g. user
@@ -1066,15 +1115,40 @@ export default function App() {
           {/* Stop button only while capture is active. After session_ended
               (user-stop OR natural ended) we hide it but keep ExportMenu
               and 📝 ノートを生成 alive so the user can still produce
-              and export notes from the data captured so far. */}
-          {sessionId && isCapturing && (
-            <SessionControls
-              isCapturing={isCapturing}
-              videoPlaying={videoPlaying}
-              onSetPlay={onSetPlay}
-              onEnd={onEnd}
-            />
-          )}
+              and export notes from the data captured so far.
+              Special case: when the user has saved data on this URL
+              (sessionId set + hasContent) but is at their monthly cap,
+              SessionControls re-purposes this slot for a gray
+              captures-disabled card. The user gets ONE consistent
+              place that explains why captures aren't running, instead
+              of an empty space where the pause button used to be. */}
+          {sessionId && (() => {
+            const exhausted = !!quota && (quota.percent_used >= 100 || quotaBlocked)
+            if (isCapturing) {
+              return (
+                <SessionControls
+                  isCapturing={isCapturing}
+                  videoPlaying={videoPlaying}
+                  onSetPlay={onSetPlay}
+                  onEnd={onEnd}
+                />
+              )
+            }
+            if (exhausted && hasContent) {
+              return (
+                <SessionControls
+                  isCapturing={false}
+                  videoPlaying={videoPlaying}
+                  onSetPlay={onSetPlay}
+                  onEnd={onEnd}
+                  quotaExhausted
+                  userPlan={user?.plan}
+                  onUpgrade={onUpgrade}
+                />
+              )
+            }
+            return null
+          })()}
           {sessionId && hasContent && parentUrl && (
             <EditableFilename title={title} onChange={setTitle} fallback={TITLE_FALLBACK} />
           )}

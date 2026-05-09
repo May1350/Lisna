@@ -17,6 +17,20 @@ interface Props {
   // Permanent session-end. Stops the capture, runs the wrap-up curate,
   // hides this whole control row. Equivalent to the old "停止" button.
   onEnd: () => void
+  // Quota-exhausted "inactive" mode. When true (Free or Pro user is at
+  // their monthly cap and has saved data on this URL), this slot is
+  // re-purposed: instead of pause / resume / end controls, render a
+  // gray non-pulsing card explaining the limit. Shown regardless of
+  // videoPlaying — the user should see the cause whether they're
+  // actively trying to play or just left the modal open.
+  quotaExhausted?: boolean
+  // Drives the quota-exhausted card's CTA: free user gets "upgrade",
+  // pro user just sees the reset notice with no clickable button.
+  userPlan?: 'free' | 'pro'
+  // Triggered when the free-plan user clicks the gray button. Same
+  // Stripe Checkout flow used by the QuotaBanner upgrade button +
+  // Options page Plan section.
+  onUpgrade?: () => void
 }
 
 // Two-state session controls shown while capture is running:
@@ -36,9 +50,34 @@ interface Props {
 //
 // Hidden entirely when isCapturing is false (capture already wrapped up,
 // only ExportMenu remains).
-export function SessionControls({ isCapturing, videoPlaying, onSetPlay, onEnd }: Props) {
+export function SessionControls({ isCapturing, videoPlaying, onSetPlay, onEnd, quotaExhausted, userPlan, onUpgrade }: Props) {
   const T = useT()
   const [confirmingEnd, setConfirmingEnd] = useState(false)
+
+  // Quota-exhausted card. Renders even when isCapturing is false so the
+  // user sees a clear "captions disabled" surface in the same slot the
+  // pause/end controls would otherwise occupy. Pro users at the 30 h
+  // ceiling get an info-only variant (no clickable CTA).
+  if (quotaExhausted) {
+    const subCopy = userPlan === 'pro'
+      ? T.quotaExhausted.inline_sub_pro
+      : T.quotaExhausted.inline_sub_free
+    const clickable = userPlan !== 'pro' && !!onUpgrade
+    return (
+      <button
+        type="button"
+        onClick={clickable ? onUpgrade : undefined}
+        disabled={!clickable}
+        className={
+          'w-full rounded-lg border border-gray-300 bg-gray-100 px-4 py-3 text-left transition ' +
+          (clickable ? 'hover:bg-gray-200 cursor-pointer' : 'cursor-default')
+        }
+      >
+        <div className="text-sm font-medium text-gray-700">{T.quotaExhausted.inline_main}</div>
+        <div className="text-xs text-gray-500 mt-0.5">{subCopy}</div>
+      </button>
+    )
+  }
 
   if (!isCapturing) return null
 

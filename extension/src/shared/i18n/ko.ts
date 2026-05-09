@@ -106,6 +106,17 @@ export const ko: Translations = {
     blocked_meta: '사용 {used} / {limit}. 다음 달 1일에 리셋됩니다.',
     warn_label: '⚠️ 남은 사용량 {remaining} ({pct}% 사용)',
   },
+  quotaExhausted: {
+    free_title: '월간 30분 한도에 도달했습니다',
+    free_body: '새로운 음성 수집은 중단되었습니다.\n이전에 만든 노트는 그대로 열람·재생성할 수 있습니다.\n\nPro 플랜은 월 30시간까지 이용 가능합니다.',
+    upgrade_cta: 'Pro로 업그레이드 ¥980/월',
+    upgrade_busy: '준비 중…',
+    pro_title: '월간 30시간 한도에 도달했습니다',
+    pro_body: '다음 달 1일에 자동으로 리셋됩니다.\n그때까지 새로운 음성 수집은 중단됩니다.',
+    inline_main: '자동 자막 생성 중단',
+    inline_sub_free: '월간 한도 도달 — Pro로 계속 →',
+    inline_sub_pro: '다음 달에 자동으로 리셋됩니다',
+  },
   panelHeader: {
     notLoggedIn: '로그인 안 됨',
     settingsTitle: '설정',

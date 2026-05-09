@@ -155,6 +155,30 @@ function broadcastToFrames(message: unknown): void {
   })
 }
 
+// Fast pre-flight: read the quota snapshot the modal cached during a
+// recent session and decide whether starting a fresh capture is worth
+// it. Returns true when the user is at their monthly cap (we should
+// SKIP startCapture; the modal will render the explicit "limit
+// reached" surface). Returns false when there's no usable cache OR
+// the user has headroom — let startCapture run as before; the
+// existing 402-on-first-chunk path is the safety net for stale
+// caches.
+//
+// TTL is 5 min: longer than any single page-load → first-chunk gap
+// (~12 s) but short enough that a Pro upgrade taking effect doesn't
+// leave the user stuck behind a stale "exhausted" cache for hours.
+async function isQuotaExhaustedCached(): Promise<boolean> {
+  try {
+    const r = await chrome.storage.local.get('sh.cachedQuota')
+    const cached = r['sh.cachedQuota'] as { quota?: { percent_used?: number }; ts?: number } | undefined
+    if (!cached || typeof cached.ts !== 'number' || !cached.quota) return false
+    if (Date.now() - cached.ts > 5 * 60 * 1000) return false  // stale
+    return (cached.quota.percent_used ?? 0) >= 100
+  } catch {
+    return false
+  }
+}
+
 function handleActivate(): void {
   console.log(`[SH:${isTopFrame ? 'top' : 'iframe'}]`, location.host, 'handleActivate')
   // Synchronously tell the modal "we've started, audio is being collected,
@@ -167,6 +191,17 @@ function handleActivate(): void {
     type: 'SP_BROADCAST',
     payload: { type: 'session_pending' },
   })
+  // Defer the capture-start branch until we know whether the user has
+  // quota headroom. Modal mount happens unconditionally — we want them
+  // to see their saved notes / the upgrade card regardless.
+  const startCaptureIfAllowed = async (): Promise<void> => {
+    const exhausted = await isQuotaExhaustedCached()
+    if (exhausted) {
+      log('handleActivate: skipping startCapture — cached quota at 100%')
+      return
+    }
+    void startCapture(location.href)
+  }
   if (isTopFrame) {
     // Direct flow — modal in same frame, capture in same frame
     mountModal({
@@ -182,7 +217,7 @@ function handleActivate(): void {
       parentUrl: location.href,
     })
     setButtonStatus('hidden')
-    void startCapture(location.href)
+    void startCaptureIfAllowed()
   } else {
     // Iframe: ask the parent (top frame) to mount the modal; capture stays here
     // (we have the <video> element in this frame).
@@ -191,7 +226,7 @@ function handleActivate(): void {
       '*',
     )
     setButtonStatus('hidden')
-    void startCapture(location.href)
+    void startCaptureIfAllowed()
   }
 }
 

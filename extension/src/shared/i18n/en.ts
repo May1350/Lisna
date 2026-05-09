@@ -106,6 +106,17 @@ export const en: Translations = {
     blocked_meta: 'Used {used} / {limit}. Resets on the 1st of next month.',
     warn_label: '⚠️ {remaining} left ({pct}% used)',
   },
+  quotaExhausted: {
+    free_title: 'Monthly 30-minute limit reached',
+    free_body: 'New audio capture is paused.\nExisting notes can still be viewed and regenerated.\n\nPro extends this to 30 hours per month.',
+    upgrade_cta: 'Upgrade to Pro ¥980/mo',
+    upgrade_busy: 'Loading…',
+    pro_title: 'Monthly 30-hour limit reached',
+    pro_body: 'Resets automatically on the 1st of next month.\nNew audio capture is paused until then.',
+    inline_main: 'Auto-captions disabled',
+    inline_sub_free: 'Monthly limit reached — continue with Pro →',
+    inline_sub_pro: 'Resets automatically next month',
+  },
   panelHeader: {
     notLoggedIn: 'Not signed in',
     settingsTitle: 'Settings',

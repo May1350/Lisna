@@ -105,6 +105,17 @@ export const ja: Translations = {
     blocked_meta: '使用 {used} / {limit}. 来月 1 日にリセットされます。',
     warn_label: '⚠️ 残り {remaining} ({pct}% 使用)',
   },
+  quotaExhausted: {
+    free_title: '月間 30 分制限に達しました',
+    free_body: '新規の音声収録は停止しています。\n過去のノートは引き続き閲覧・再生成できます。\n\nPro プランなら月 30 時間まで利用可能です。',
+    upgrade_cta: 'Pro にアップグレード ¥980/月',
+    upgrade_busy: '準備中…',
+    pro_title: '月間 30 時間制限に達しました',
+    pro_body: '翌月 1 日に自動でリセットされます。\nそれまで新規の音声収録は停止します。',
+    inline_main: '自動字幕生成は停止中',
+    inline_sub_free: '月間制限に達しました — Pro で継続 →',
+    inline_sub_pro: '翌月に自動でリセットされます',
+  },
   panelHeader: {
     notLoggedIn: '未ログイン',
     settingsTitle: '設定',

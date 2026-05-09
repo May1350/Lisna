@@ -105,6 +105,17 @@ export const zh: Translations = {
     blocked_meta: '已使用 {used} / {limit}。下月 1 日重置。',
     warn_label: '⚠️ 剩余 {remaining}({pct}% 已使用)',
   },
+  quotaExhausted: {
+    free_title: '本月 30 分钟限额已用尽',
+    free_body: '新的语音采集已暂停。\n已有笔记仍可查看与重新生成。\n\n升级到 Pro 即可扩展至每月 30 小时。',
+    upgrade_cta: '升级到 Pro ¥980/月',
+    upgrade_busy: '加载中…',
+    pro_title: '本月 30 小时限额已用尽',
+    pro_body: '将在下月 1 日自动重置。\n在此之前新的语音采集将暂停。',
+    inline_main: '自动字幕生成已停止',
+    inline_sub_free: '已达每月限额 — 升级到 Pro 继续 →',
+    inline_sub_pro: '将于下月自动重置',
+  },
   panelHeader: {
     notLoggedIn: '未登录',
     settingsTitle: '设置',

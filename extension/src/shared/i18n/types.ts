@@ -120,6 +120,25 @@ export interface Translations {
     warn_label: string                   // "⚠️ 残り {remaining} ({pct}% 使用)"
   }
 
+  // ── Quota-exhausted modal surfaces (no emojis, plain text) ─────────
+  // Used by QuotaExhaustedIdle (replaces IdleSessionState when there's
+  // no saved data) and by SessionControls' inactive-gray-button mode
+  // (replaces the pause / end controls when there IS saved data).
+  // Two-tier copy: free user gets the upgrade CTA, Pro user gets the
+  // "wait until reset" message with no upgrade button.
+  quotaExhausted: {
+    free_title: string                   // "月間 30 分制限に達しました"
+    free_body: string                    // multiline; \n preserved via whitespace-pre-line
+    upgrade_cta: string                  // "Pro にアップグレード ¥980/月"
+    upgrade_busy: string                 // "準備中…"
+    pro_title: string                    // "月間 30 時間制限に達しました"
+    pro_body: string                     // explains automatic monthly reset
+    // Inline gray button copy (in SessionControls slot)
+    inline_main: string                  // "自動字幕生成は停止中"
+    inline_sub_free: string              // "月間制限に達しました — Pro で継続 →"
+    inline_sub_pro: string               // "翌月に自動でリセットされます"
+  }
+
   // ── Panel header ───────────────────────────────────────────────
   panelHeader: {
     notLoggedIn: string                  // "未ログイン"
