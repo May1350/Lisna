@@ -216,6 +216,13 @@ export const en: Translations = {
     deleteConfirmBody: "Delete this lecture? This can't be undone.",
     deleteConfirm: 'Delete',
     deleteFailed: "Couldn't delete this lecture.",
+    openSourceAria: 'Open source video',
+    notesViewer_back: 'Back to history',
+    notesViewer_loading: 'Loading notes…',
+    notesViewer_notFound: 'No notes have been generated for this lecture yet.',
+    notesViewer_noOutline: 'Recording exists, but notes have not been generated yet.',
+    notesViewer_loadFailed: "Couldn't load these notes.",
+    notesViewer_openSource: 'Open source video',
   },
   options: {
     pageTitle: 'Lisna Settings',

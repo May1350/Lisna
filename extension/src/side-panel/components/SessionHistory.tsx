@@ -3,10 +3,11 @@ import { callApi, ApiError } from '../api-client'
 import { useT, interpolate } from '../../shared/i18n'
 import type { Translations } from '../../shared/i18n'
 import { reportError } from '../../shared/errors'
+import { ExternalLinkIcon } from './icons'
 
 // Compact summary of a captured session — matches the backend
 // /v1/sessions response shape (sessions-list.ts).
-interface SessionSummary {
+export interface SessionSummary {
   id: string
   url: string
   title: string | null
@@ -30,14 +31,18 @@ interface Props {
   /** Called when a request returns 401, so the parent can drop user state
    *  and re-show the login screen. We render nothing in that case. */
   onAuthExpired?: () => void
+  /** Called when the user clicks a row to view its saved notes inline.
+   *  When omitted, the row falls back to opening the source URL in a
+   *  new tab (legacy behaviour). */
+  onView?: (session: SessionSummary) => void
 }
 
 // Side-panel session history list. The user's recent ~100 sessions,
-// most-recently-updated first. Click a row → opens the source URL
-// in a new tab; the existing /v1/session?url=… on-page-load hook
-// in App.tsx hydrates the modal with the cached outline + slides
-// so the user lands directly in their notes for that lecture.
-export function SessionHistory({ onAuthExpired }: Props) {
+// most-recently-updated first. Row click → onView(session) opens the
+// notes inline (NotesViewer takes over the side-panel surface). The
+// per-row external-link icon still opens the source URL in a new tab
+// for callers who want to jump back to the video.
+export function SessionHistory({ onAuthExpired, onView }: Props) {
   const T = useT()
   const [sessions, setSessions] = useState<SessionSummary[] | null>(null)
   const [error, setError] = useState<{ message: string; status?: number } | null>(null)
@@ -341,6 +346,7 @@ export function SessionHistory({ onAuthExpired }: Props) {
             T,
             isFlashing: flashId === s.id,
             isConfirming: confirmId === s.id,
+            onView,
             onRequestConfirm: () => setConfirmId(s.id),
             onCancelConfirm: () => setConfirmId(null),
             onConfirmDelete: () => void onDeleteConfirmed(s),
@@ -384,7 +390,7 @@ export function SessionHistory({ onAuthExpired }: Props) {
 // ── Subcomponents ─────────────────────────────────────────────────────
 
 function SessionRow({
-  session, T, isFlashing, isConfirming,
+  session, T, isFlashing, isConfirming, onView,
   onRequestConfirm, onCancelConfirm, onConfirmDelete,
   registerRef, onKeyNav, onFocus, tabIndex,
 }: {
@@ -392,6 +398,7 @@ function SessionRow({
   T: Translations
   isFlashing: boolean
   isConfirming: boolean
+  onView?: (session: SessionSummary) => void
   onRequestConfirm: () => void
   onCancelConfirm: () => void
   onConfirmDelete: () => void
@@ -400,7 +407,14 @@ function SessionRow({
   onFocus: () => void
   tabIndex: number
 }) {
-  const onOpen = () => {
+  // Primary row click → view notes inline. Falls back to opening the
+  // source URL if no onView handler is wired (lets this component
+  // continue to work standalone without NotesViewer plumbing).
+  const onPrimary = () => {
+    if (onView) onView(session)
+    else void chrome.tabs.create({ url: session.url, active: true })
+  }
+  const onOpenSource = () => {
     void chrome.tabs.create({ url: session.url, active: true })
   }
   const title = session.title?.trim() || T.sidePanel.historyTitle_untitled
@@ -420,11 +434,11 @@ function SessionRow({
       {/* Main button — sibling, NOT nested with the trash icon. */}
       <button
         ref={registerRef}
-        onClick={onOpen}
+        onClick={onPrimary}
         onKeyDown={onKeyNav}
         onFocus={onFocus}
         tabIndex={tabIndex}
-        className="w-full px-3 py-2.5 pr-10 text-left hover:bg-gray-50 transition flex flex-col gap-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-1"
+        className="w-full px-3 py-2.5 pr-16 text-left hover:bg-gray-50 transition flex flex-col gap-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-1"
       >
         <span className="text-xs font-medium text-gray-900 line-clamp-2">{title}</span>
         {/* Hide the meta line while inline-confirm is showing. */}
@@ -441,6 +455,24 @@ function SessionRow({
           </>
         )}
       </button>
+
+      {/* Per-row open-source-video icon — primary click is now "view
+          notes", so this keeps source-video access one click away
+          without overloading the row. Sibling of the trash icon. */}
+      {!isConfirming && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            onOpenSource()
+          }}
+          aria-label={T.sidePanel.openSourceAria}
+          title={T.sidePanel.openSourceAria}
+          className="absolute top-2 right-9 p-1 rounded text-gray-400 hover:text-indigo-600 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 max-[360px]:opacity-100 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-1"
+        >
+          <ExternalLinkIcon size={14} />
+        </button>
+      )}
 
       {/* Per-row trash icon — sibling, hover-revealed. */}
       {!isConfirming && (

@@ -6,7 +6,8 @@ import { exportZip, pushToObsidian } from './lib/export'
 import { ConsentModal } from './components/ConsentModal'
 import { LoginScreen } from './components/LoginScreen'
 import { OutlineView } from './components/OutlineView'
-import { SessionHistory } from './components/SessionHistory'
+import { SessionHistory, type SessionSummary } from './components/SessionHistory'
+import { NotesViewer } from './components/NotesViewer'
 import { LiveTranscript } from './components/LiveTranscript'
 import { ExportMenu } from './components/ExportMenu'
 import { QuotaBanner } from './components/QuotaBanner'
@@ -265,6 +266,11 @@ export default function App() {
   }>({ parentUrl: null, sessionId: null, title: '', slides: [] })
   const [enabled, setEnabledState] = useState<boolean>(true)
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(2)
+  // Side-panel only: when set, the side panel renders NotesViewer for
+  // this session instead of the SessionHistory list. Cleared by the
+  // viewer's "back" action. Null in embed context (the modal has its
+  // own session-driven outline rendering).
+  const [viewingSession, setViewingSession] = useState<SessionSummary | null>(null)
 
   // Two contexts share this app:
   //   - embed:      iframe modal injected into the page (?embed=1&parentUrl=…)
@@ -1019,6 +1025,20 @@ export default function App() {
   // existing-session lookup isn't useful here.
   if (!user) return <LoginScreen onSuccess={(r) => setUser(r.user)} />
 
+  // Notes viewer takes over the whole side panel surface when the user
+  // has clicked into a history row. Mounted as its own subtree (no
+  // shared header/banner) so the back button + lecture title can act
+  // as the only chrome — keeps the read-mode reading-friendly.
+  if (viewingSession) {
+    return (
+      <NotesViewer
+        session={viewingSession}
+        onBack={() => setViewingSession(null)}
+        onAuthExpired={() => { setUser(null); setViewingSession(null) }}
+      />
+    )
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
       <PanelHeader
@@ -1047,7 +1067,10 @@ export default function App() {
           ))
         })()}
       </div>
-      <SessionHistory onAuthExpired={() => setUser(null)} />
+      <SessionHistory
+        onAuthExpired={() => setUser(null)}
+        onView={setViewingSession}
+      />
     </div>
   )
 }

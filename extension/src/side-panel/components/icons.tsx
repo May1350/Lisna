@@ -94,6 +94,40 @@ export function PhotoIcon({ size = 12, className }: IconProps) {
   )
 }
 
+// Left-pointing chevron. Used as the back button in NotesViewer.
+export function BackIcon({ size = 14, className }: IconProps) {
+  return (
+    <svg
+      width={size} height={size} viewBox="0 0 24 24"
+      {...STROKE_PROPS}
+      className={className}
+      aria-hidden="true"
+      style={{ display: 'inline-block', verticalAlign: '-2px', flexShrink: 0 }}
+    >
+      <polyline points="15 6 9 12 15 18" />
+    </svg>
+  )
+}
+
+// Square + outgoing arrow. Used on session-history rows to open the
+// source video URL in a new tab (the row's primary action is now
+// "view notes" — this icon keeps source-video access one click away).
+export function ExternalLinkIcon({ size = 14, className }: IconProps) {
+  return (
+    <svg
+      width={size} height={size} viewBox="0 0 24 24"
+      {...STROKE_PROPS}
+      className={className}
+      aria-hidden="true"
+      style={{ display: 'inline-block', verticalAlign: '-2px', flexShrink: 0 }}
+    >
+      <path d="M14 4h6v6" />
+      <line x1="20" y1="4" x2="11" y2="13" />
+      <path d="M19 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5" />
+    </svg>
+  )
+}
+
 // Four-point sparkle. Replaces ✨ on inline-button onboarding and
 // related "starred / featured" surfaces. Smaller default (12) since
 // it's almost always inline with body text.

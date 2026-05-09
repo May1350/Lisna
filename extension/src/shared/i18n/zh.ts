@@ -215,6 +215,13 @@ export const zh: Translations = {
     deleteConfirmBody: '删除此讲座?此操作无法撤销。',
     deleteConfirm: '删除',
     deleteFailed: '删除失败。请重试。',
+    openSourceAria: '打开原视频',
+    notesViewer_back: '返回历史',
+    notesViewer_loading: '正在加载笔记…',
+    notesViewer_notFound: '这节课还没有生成笔记。',
+    notesViewer_noOutline: '已有录音,但笔记尚未生成。',
+    notesViewer_loadFailed: '无法加载笔记。',
+    notesViewer_openSource: '打开原视频',
   },
   options: {
     pageTitle: 'Lisna 设置',

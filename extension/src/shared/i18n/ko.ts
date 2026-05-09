@@ -216,6 +216,13 @@ export const ko: Translations = {
     deleteConfirmBody: '이 강의를 삭제할까요? 되돌릴 수 없습니다.',
     deleteConfirm: '삭제',
     deleteFailed: '삭제에 실패했어요. 다시 시도해주세요.',
+    openSourceAria: '원본 영상 열기',
+    notesViewer_back: '기록으로 돌아가기',
+    notesViewer_loading: '노트를 불러오는 중…',
+    notesViewer_notFound: '이 강의의 노트는 아직 생성되지 않았어요.',
+    notesViewer_noOutline: '녹음은 있지만 노트는 아직 생성되지 않았어요.',
+    notesViewer_loadFailed: '노트를 불러오지 못했어요.',
+    notesViewer_openSource: '원본 영상 열기',
   },
   options: {
     pageTitle: 'Lisna 설정',

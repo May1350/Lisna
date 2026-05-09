@@ -215,6 +215,13 @@ export const ja: Translations = {
     deleteConfirmBody: 'この講義を削除しますか?この操作は取り消せません。',
     deleteConfirm: '削除',
     deleteFailed: '削除に失敗しました。再試行してください。',
+    openSourceAria: '元の動画を開く',
+    notesViewer_back: '履歴に戻る',
+    notesViewer_loading: 'ノートを読み込み中…',
+    notesViewer_notFound: 'この講義のノートはまだ生成されていません。',
+    notesViewer_noOutline: '録音はありますが、ノートはまだ生成されていません。',
+    notesViewer_loadFailed: 'ノートの読み込みに失敗しました。',
+    notesViewer_openSource: '元の動画を開く',
   },
   options: {
     pageTitle: 'Lisna 設定',

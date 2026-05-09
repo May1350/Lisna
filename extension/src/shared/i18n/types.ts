@@ -246,6 +246,15 @@ export interface Translations {
     deleteConfirmBody: string            // body text in inline confirm strip
     deleteConfirm: string                // destructive confirm button label
     deleteFailed: string                 // toast/inline message on delete API failure
+    // Per-row "open source video" icon button (sibling of trash icon)
+    openSourceAria: string               // aria-label / title for the external-link icon
+    // NotesViewer (history row click → renders the saved outline in side panel)
+    notesViewer_back: string             // back button label
+    notesViewer_loading: string          // skeleton/loading copy
+    notesViewer_notFound: string         // session row exists in history but /v1/session?url= returned null
+    notesViewer_noOutline: string        // session exists but outline is null (recording only)
+    notesViewer_loadFailed: string       // API call failed
+    notesViewer_openSource: string       // header button — open source URL at the timestamp
   }
 
   // ── Options page ───────────────────────────────────────────────
