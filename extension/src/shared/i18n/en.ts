@@ -102,9 +102,9 @@ export const en: Translations = {
     plan_pro: 'Pro plan',
     remainingTooltip: 'Remaining time this month (live)',
     upgradeButton: 'Upgrade to Pro',
-    blocked_label: '⛔ Monthly quota exhausted',
-    blocked_meta: 'Used {used} / {limit}. Resets on the 1st of next month.',
-    warn_label: '⚠️ {remaining} left ({pct}% used)',
+    blocked_label: 'Monthly limit reached',
+    warn_label: 'Approaching monthly limit',
+    reset_note: 'Resets on the 1st of next month',
   },
   quotaExhausted: {
     free_title: 'Monthly 30-minute limit reached',

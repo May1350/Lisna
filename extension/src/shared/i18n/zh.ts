@@ -101,9 +101,9 @@ export const zh: Translations = {
     plan_pro: 'Pro 套餐',
     remainingTooltip: '本月剩余时长 (实时)',
     upgradeButton: '升级到 Pro',
-    blocked_label: '⛔ 本月使用额度已用完',
-    blocked_meta: '已使用 {used} / {limit}。下月 1 日重置。',
-    warn_label: '⚠️ 剩余 {remaining}({pct}% 已使用)',
+    blocked_label: '本月使用上限已达',
+    warn_label: '接近本月使用上限',
+    reset_note: '下月 1 日自动重置',
   },
   quotaExhausted: {
     free_title: '本月 30 分钟限额已用尽',

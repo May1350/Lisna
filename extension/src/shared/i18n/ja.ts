@@ -101,9 +101,9 @@ export const ja: Translations = {
     plan_pro: 'Pro プラン',
     remainingTooltip: '今月の残り時間 (リアルタイム)',
     upgradeButton: 'Pro にアップグレード',
-    blocked_label: '⛔ 月間使用枠を使い切りました',
-    blocked_meta: '使用 {used} / {limit}. 来月 1 日にリセットされます。',
-    warn_label: '⚠️ 残り {remaining} ({pct}% 使用)',
+    blocked_label: '月間使用量の上限に達しました',
+    warn_label: '月間使用量の上限に近づいています',
+    reset_note: '翌月 1 日に自動リセット',
   },
   quotaExhausted: {
     free_title: '月間 30 分制限に達しました',

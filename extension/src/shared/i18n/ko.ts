@@ -102,9 +102,9 @@ export const ko: Translations = {
     plan_pro: 'Pro 플랜',
     remainingTooltip: '이번 달 남은 시간 (실시간)',
     upgradeButton: 'Pro로 업그레이드',
-    blocked_label: '⛔ 월간 사용량을 모두 소진했어요',
-    blocked_meta: '사용 {used} / {limit}. 다음 달 1일에 리셋됩니다.',
-    warn_label: '⚠️ 남은 사용량 {remaining} ({pct}% 사용)',
+    blocked_label: '월간 사용량 한도 도달',
+    warn_label: '월간 사용량 한도에 근접',
+    reset_note: '다음 달 1일에 자동 리셋',
   },
   quotaExhausted: {
     free_title: '월간 30분 한도에 도달했습니다',

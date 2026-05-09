@@ -114,10 +114,11 @@ export interface Translations {
     plan_pro: string                     // "Pro プラン"
     remainingTooltip: string             // "今月の残り時間 (リアルタイム)"
     upgradeButton: string                // "Pro にアップグレード"
-    // Banner-specific copy
-    blocked_label: string                // "⛔ 月間使用枠を使い切りました"
-    blocked_meta: string                 // "使用 {used} / {limit}. 来月 1 日にリセットされます。"
-    warn_label: string                   // "⚠️ 残り {remaining} ({pct}% 使用)"
+    // Banner headlines (no emojis, single short phrase — usage
+    // numbers live in the bar caption underneath, not the headline)
+    blocked_label: string                // "月間使用量の上限に達しました"
+    warn_label: string                   // "月間使用量の上限に近づいています"
+    reset_note: string                   // "翌月 1 日に自動リセット"
   }
 
   // ── Quota-exhausted modal surfaces (no emojis, plain text) ─────────
