@@ -52,8 +52,8 @@ export const ja: Translations = {
     fallback: '講義ノート',
   },
   postSession: {
-    title: '✓ 録音は終了しました。',
-    hint: 'ノートを更新したい場合は「📝 ノートを再生成」を、保存する場合は下の「⬇ .zip / 🌐 .html」をクリックしてください。',
+    title: '✓ 録音終了。',
+    hint: 'ノートを再生成するか、下のボタンで保存してください。',
   },
   controls: {
     pause: '⏸ 一時停止',

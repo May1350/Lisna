@@ -53,8 +53,8 @@ export const ko: Translations = {
     fallback: '강의 노트',
   },
   postSession: {
-    title: '✓ 녹음이 종료되었습니다.',
-    hint: '노트를 다시 만들고 싶으면 「📝 노트 재생성」을, 저장하려면 아래의 「⬇ .zip / 🌐 .html」을 클릭해주세요.',
+    title: '✓ 녹음 완료.',
+    hint: '노트를 재생성하거나, 아래 버튼으로 저장하세요.',
   },
   controls: {
     pause: '⏸ 일시정지',

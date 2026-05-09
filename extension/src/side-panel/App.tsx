@@ -103,8 +103,8 @@ function humanizeCurateError(reason: string, T: Translations): string {
 function PostSessionHint() {
   const T = useT()
   return (
-    <div className="mx-3 mb-1 bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs px-3 py-2 rounded leading-relaxed">
-      {T.postSession.title}<br />
+    <div className="mx-3 mb-1 bg-indigo-50 text-gray-800 text-xs px-3 py-2 rounded leading-relaxed">
+      <span className="font-semibold text-indigo-700">{T.postSession.title}</span>{' '}
       {T.postSession.hint}
     </div>
   )

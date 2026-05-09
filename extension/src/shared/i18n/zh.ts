@@ -52,8 +52,8 @@ export const zh: Translations = {
     fallback: '讲座笔记',
   },
   postSession: {
-    title: '✓ 录音已结束。',
-    hint: '如需更新笔记,请点击「📝 重新生成笔记」;如需保存,请点击下方的「⬇ .zip / 🌐 .html」。',
+    title: '✓ 录音结束。',
+    hint: '重新生成笔记,或点击下方按钮保存。',
   },
   controls: {
     pause: '⏸ 暂停',

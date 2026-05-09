@@ -54,7 +54,7 @@ export const en: Translations = {
   },
   postSession: {
     title: '✓ Recording finished.',
-    hint: 'To refresh the notes, click "📝 Regenerate notes". To save, use the ⬇ .zip / 🌐 .html buttons below.',
+    hint: 'Regenerate the notes, or save with the buttons below.',
   },
   controls: {
     pause: '⏸ Pause',

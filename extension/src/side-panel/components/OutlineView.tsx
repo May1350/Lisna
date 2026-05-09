@@ -113,7 +113,7 @@ export function OutlineView({ outline, slides = [], onJump, displayTitle, outlin
   }
 
   return (
-    <div className={`flex-1 overflow-y-auto px-3 py-3 space-y-4 transition-colors duration-700 ${flashing ? 'bg-blue-50/60' : 'bg-transparent'}`}>
+    <div className={`flex-1 overflow-y-auto px-3 py-3 space-y-4 transition-colors duration-700 ${flashing ? 'bg-indigo-50/60' : 'bg-transparent'}`}>
       <div className="flex items-baseline justify-between gap-2">
         {(displayTitle?.trim() || outline.title) && (
           <h2 className="text-base font-bold text-gray-900 leading-snug">
@@ -249,7 +249,7 @@ function SectionBlock({
   // renders them as plain text; the markdown export pipeline handles
   // their wikilink/callout formatting separately.
   return (
-    <section className="space-y-2 border-l-2 border-blue-200 pl-3">
+    <section className="space-y-2">
       <div className="flex items-baseline justify-between gap-2">
         <h3 className="text-sm font-semibold text-gray-900 leading-snug">
           {section.heading}
@@ -260,9 +260,9 @@ function SectionBlock({
       {slides.length > 0 && <SlideStrip slides={slides} onJump={onJump} />}
 
       {section.takeaway && (
-        <div className="bg-blue-50/60 border-l-2 border-blue-300 pl-2 pr-2 py-1 rounded-r">
-          <p className="text-xs text-gray-800 leading-snug">
-            <span className="text-[10px] uppercase tracking-wider text-blue-500 font-medium mr-1">{T.outline.summary_label}</span>
+        <div className="bg-indigo-50 px-2.5 py-1.5 rounded">
+          <p className="text-xs text-gray-900 leading-snug font-medium">
+            <span className="text-[10px] uppercase tracking-wider text-indigo-700 font-semibold mr-1.5">{T.outline.summary_label}</span>
             {section.takeaway}
           </p>
         </div>
@@ -279,10 +279,10 @@ function SectionBlock({
           {section.key_terms.map((kt, i) => (
             <li
               key={`${kt.term}-${i}`}
-              className="bg-amber-50 border border-amber-100 rounded px-2 py-1.5 text-xs"
+              className="bg-violet-50 rounded px-2 py-1.5 text-xs"
             >
               <div className="flex items-baseline justify-between gap-2">
-                <span className="font-semibold text-amber-900">{kt.term}</span>
+                <span className="font-semibold text-violet-700">{kt.term}</span>
                 <TsButton ts={kt.ts} onJump={onJump} />
               </div>
               <div className="text-gray-700 mt-0.5 leading-relaxed">
@@ -296,11 +296,18 @@ function SectionBlock({
       {section.points.length > 0 && (
         <ul className="space-y-1">
           {section.points.map((p, i) => (
-            <li key={`${p.text.slice(0, 24)}-${i}`} className="text-xs leading-relaxed flex gap-2">
-              <span className={p.important ? 'text-amber-600 shrink-0' : 'text-gray-400 shrink-0'}>
+            <li
+              key={`${p.text.slice(0, 24)}-${i}`}
+              className={
+                p.important
+                  ? 'text-xs leading-relaxed flex gap-2 items-baseline bg-yellow-100 rounded px-2 py-1 -mx-1'
+                  : 'text-xs leading-relaxed flex gap-2 items-baseline'
+              }
+            >
+              <span className={p.important ? 'text-yellow-700 shrink-0 font-semibold' : 'text-gray-400 shrink-0'}>
                 {p.important ? '★' : '•'}
               </span>
-              <span className={p.important ? 'text-gray-900 font-medium' : 'text-gray-700'}>
+              <span className={p.important ? 'text-gray-900 font-semibold flex-1' : 'text-gray-700 flex-1'}>
                 {p.text}
               </span>
               <TsButton ts={p.ts} onJump={onJump} />
@@ -331,7 +338,7 @@ function SectionBlock({
           {section.related_terms.map((term, i) => (
             <span
               key={`${term}-${i}`}
-              className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded font-medium"
+              className="text-[10px] bg-violet-50 text-violet-700 px-1.5 py-0.5 rounded font-semibold"
               title={T.outline.relatedTermsTitle}
             >
               {term}
@@ -341,9 +348,9 @@ function SectionBlock({
       )}
 
       {section.check_question && (
-        <div className="bg-purple-50/60 border-l-2 border-purple-300 pl-2 pr-2 py-1 rounded-r">
+        <div className="bg-yellow-50 px-2.5 py-1.5 rounded">
           <p className="text-xs text-gray-800 leading-snug">
-            <span className="text-[10px] uppercase tracking-wider text-purple-500 font-medium mr-1">{T.outline.confirm_label}</span>
+            <span className="text-[10px] uppercase tracking-wider text-yellow-700 font-semibold mr-1.5">{T.outline.confirm_label}</span>
             {section.check_question}
           </p>
         </div>
@@ -360,7 +367,7 @@ function TsButton({ ts, onJump }: { ts: number; onJump?: (ts: number) => void })
   return (
     <button
       onClick={() => onJump(ts)}
-      className="text-[10px] text-gray-400 hover:text-blue-600 font-mono shrink-0 transition-colors"
+      className="text-[10px] text-gray-400 hover:text-indigo-600 font-mono shrink-0 transition-colors"
       title={T.outline.tsBackTitle}
     >
       {fmtTs(ts)}
