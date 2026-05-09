@@ -175,6 +175,14 @@ export function SessionHistory({ onAuthExpired }: Props) {
         onAuthExpired?.()
         return
       }
+      // 404 = "already deleted (e.g. another tab beat us to it) or never
+      // existed". Backend collapses both to 404 to avoid leaking which.
+      // From the user's perspective the row is gone — the optimistic
+      // removal we already did is the correct end state. Suppress the
+      // rollback + error toast.
+      if (e instanceof ApiError && e.status === 404) {
+        return
+      }
       // Re-insert at original (absolute) index + flash + report toast.
       setSessions(prev => {
         if (!prev) return prev

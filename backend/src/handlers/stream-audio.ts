@@ -111,12 +111,17 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     text: transcriptEntry.text,
   }).catch(e => console.warn('[stream-audio] live transcript broadcast failed:', e))
 
+  // Defense-in-depth: explicit user_id filter even though sessionId came
+  // from the CAS upsert above (which is keyed on (user_id, url_hash) so
+  // ownership is already guaranteed). The explicit AND survives future
+  // refactors that might separate the upsert from this UPDATE — matches
+  // the pattern in stream-slide.ts.
   await query(
     `UPDATE sessions
        SET transcripts = COALESCE(transcripts, '[]'::jsonb) || $1::jsonb,
            updated_at  = NOW()
-     WHERE id = $2`,
-    [JSON.stringify([transcriptEntry]), sessionId],
+     WHERE id = $2 AND user_id = $3`,
+    [JSON.stringify([transcriptEntry]), sessionId, payload.sub],
   )
 
   await recordUsage(payload.sub, Math.ceil(body.duration_sec))

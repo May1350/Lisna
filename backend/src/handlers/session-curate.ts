@@ -113,9 +113,14 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     // (rather than reusing the lock UPDATE's RETURNING) because the
     // jsonb fields are heavy and there's no point pulling them
     // through the lock acquisition path.
+    // Defense-in-depth: explicit user_id filter. The lock CAS above
+    // already verified ownership atomically, but pinning every read on
+    // (id, user_id) makes the property local to each SQL site and
+    // survives future refactors that might split the lock acquisition
+    // from the read.
     const rows = await query<{ transcripts: TranscriptEntry[]; outline: Outline | null }>(
-      `SELECT transcripts, outline FROM sessions WHERE id = $1`,
-      [body.session_id],
+      `SELECT transcripts, outline FROM sessions WHERE id = $1 AND user_id = $2`,
+      [body.session_id, payload.sub],
     )
     const transcripts = rows[0]?.transcripts ?? []
     const previousOutline = rows[0]?.outline ?? null
@@ -161,8 +166,9 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
 
     // Persist + broadcast.
     await query(
-      `UPDATE sessions SET outline = $1::jsonb, updated_at = NOW() WHERE id = $2`,
-      [JSON.stringify(outline), body.session_id],
+      `UPDATE sessions SET outline = $1::jsonb, updated_at = NOW()
+       WHERE id = $2 AND user_id = $3`,
+      [JSON.stringify(outline), body.session_id, payload.sub],
     )
     void sendToSession(body.session_id, {
       type: 'outline_updated',
@@ -181,8 +187,8 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     // error rather than let it mask the real response/exception path.
     try {
       await query(
-        `UPDATE sessions SET curate_lock_at = NULL WHERE id = $1`,
-        [body.session_id],
+        `UPDATE sessions SET curate_lock_at = NULL WHERE id = $1 AND user_id = $2`,
+        [body.session_id, payload.sub],
       )
     } catch (e) {
       // eslint-disable-next-line no-console
