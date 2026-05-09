@@ -280,6 +280,8 @@ export const ja: Translations = {
     plan_usageThisMonth: '今月の使用量',
     plan_resetMonthly: '毎月 1 日にリセット',
     plan_pro_header: 'Pro プランで広く長く使う',
+    plan_pro_price: '¥980 / 月',
+    plan_pro_priceNote: '月額 ・ いつでも解約可',
     plan_pro_feature1: '✓ 月 30 時間 (Free の 60 倍)',
     plan_pro_feature2: '✓ 長時間講義 (90分超) も安心して録音',
     plan_pro_feature3: '✓ ノート再生成のクールダウン短縮 (30 秒 → 5 秒)',

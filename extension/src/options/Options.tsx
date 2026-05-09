@@ -97,13 +97,45 @@ export function Options() {
     })
   }, [])
 
+  // Pre-fetched Stripe Checkout URL — kicked off as soon as a Free
+  // user lands on this page so the click → tab transition can be
+  // synchronous (popup blockers refuse window.open after an awaited
+  // fetch in the click handler). 30-min freshness is well below
+  // Stripe's 24 h session expiry and bounds dashboard noise.
+  const [prefetchedUrl, setPrefetchedUrl] = useState<{ url: string; at: number } | null>(null)
+  const PREFETCH_TTL_MS = 30 * 60 * 1000
+
+  // Fire the pre-fetch once we know the user is Free. Re-runs if plan
+  // flips back to free (cancellation flow). The /v1/billing/checkout
+  // call itself creates a Stripe Checkout Session — which expires in
+  // 24 h on Stripe's side; orphaned sessions cost nothing.
+  useEffect(() => {
+    if (!me || me.user.plan !== 'free') return
+    let cancelled = false
+    void callApi<{ url: string }>('/v1/billing/checkout', 'POST', {})
+      .then(r => { if (!cancelled) setPrefetchedUrl({ url: r.url, at: Date.now() }) })
+      .catch(() => { /* will fall through to lazy fetch on click */ })
+    return () => { cancelled = true }
+  }, [me?.user.plan])
+
   const onUpgrade = async () => {
+    // Hot path: pre-fetched URL is fresh → open synchronously inside
+    // the click handler. Synchronous = browser preserves the user
+    // gesture and the popup blocker doesn't fire. ~0 ms perceived.
+    if (prefetchedUrl && Date.now() - prefetchedUrl.at < PREFETCH_TTL_MS) {
+      window.open(prefetchedUrl.url, '_blank', 'noopener,noreferrer')
+      // Stale the cached URL so a follow-up click triggers a fresh
+      // session (Stripe sessions are single-use after payment).
+      setPrefetchedUrl(null)
+      return
+    }
+    // Cold path: pre-fetch failed or is stale → fall back to the
+    // original spinner-aware flow. Note: window.open AFTER an await
+    // can be popup-blocked on some browsers, but the spinner UX
+    // already cues the user to allow popups if needed.
     setUpgrading(true)
     try {
       const r = await callApi<{ url: string }>('/v1/billing/checkout', 'POST', {})
-      // Open Stripe Checkout in a NEW tab so the user can come back
-      // to this page after paying. window.location.assign would
-      // navigate away and lose the in-progress page state.
       window.open(r.url, '_blank', 'noopener,noreferrer')
     } catch (e) {
       alert(T.options.plan_upgradeFailPrefix + (e instanceof Error ? e.message : 'unknown'))
@@ -598,8 +630,20 @@ function PlanSection({
 
       {!isPro && (
         <div className="rounded-lg border border-indigo-200 bg-indigo-50/40 p-4">
-          <div className="flex items-baseline justify-between mb-3">
+          <div className="flex items-baseline justify-between mb-2">
             <span className="text-sm font-semibold text-indigo-900">{T.options.plan_pro_header}</span>
+          </div>
+          {/* Price line — prominent enough to set expectations before the
+           *  user has to click "upgrade", but not in red/gold/orange to
+           *  avoid the "predatory upsell" feel. Indigo follows the brand
+           *  hue, the smaller note keeps the line legible. */}
+          <div className="mb-4">
+            <div className="text-2xl font-semibold text-indigo-900 leading-none tracking-tight">
+              {T.options.plan_pro_price}
+            </div>
+            <div className="text-[11px] text-indigo-700/70 mt-1">
+              {T.options.plan_pro_priceNote}
+            </div>
           </div>
           <ul className="text-xs text-gray-700 space-y-1.5 mb-4">
             <li>{T.options.plan_pro_feature1}</li>

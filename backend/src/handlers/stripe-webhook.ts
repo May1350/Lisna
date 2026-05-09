@@ -24,9 +24,21 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       const s = evt.data.object as Stripe.Checkout.Session
       const userId = s.client_reference_id
       const subscriptionId = typeof s.subscription === 'string' ? s.subscription : s.subscription?.id
+      // s.customer arrives populated whether we passed `customer` or
+      // `customer_email` to checkout.sessions.create — when it's the
+      // latter, Stripe auto-created the customer during the session
+      // and surfaces the new ID here. Persist it so subsequent upgrade
+      // attempts use the existing customer (avoiding duplicates).
+      const customerId = typeof s.customer === 'string' ? s.customer : s.customer?.id
       if (userId && subscriptionId) {
-        await query(`UPDATE users SET plan = 'pro', stripe_subscription_id = $1 WHERE id = $2`,
-          [subscriptionId, userId])
+        await query(
+          `UPDATE users
+             SET plan = 'pro',
+                 stripe_subscription_id = $1,
+                 stripe_customer_id = COALESCE(stripe_customer_id, $2)
+           WHERE id = $3`,
+          [subscriptionId, customerId ?? null, userId],
+        )
       }
       break
     }

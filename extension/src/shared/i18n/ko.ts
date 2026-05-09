@@ -278,6 +278,8 @@ export const ko: Translations = {
     plan_usageThisMonth: '이번 달 사용량',
     plan_resetMonthly: '매월 1일 리셋',
     plan_pro_header: 'Pro 플랜으로 더 길게, 더 넉넉하게',
+    plan_pro_price: '¥980 / 월',
+    plan_pro_priceNote: '월 결제 ・ 언제든 해지 가능',
     plan_pro_feature1: '✓ 월 30시간 (Free의 60배)',
     plan_pro_feature2: '✓ 긴 강의 (90분 초과)도 안심하고 녹음',
     plan_pro_feature3: '✓ 노트 재생성 쿨다운 단축 (30초 → 5초)',

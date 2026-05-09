@@ -277,6 +277,8 @@ export const zh: Translations = {
     plan_usageThisMonth: '本月使用量',
     plan_resetMonthly: '每月 1 日重置',
     plan_pro_header: '使用 Pro 套餐,更长更自由',
+    plan_pro_price: '¥980 / 月',
+    plan_pro_priceNote: '按月计费 · 随时取消',
     plan_pro_feature1: '✓ 每月 30 小时 (Free 套餐的 60 倍)',
     plan_pro_feature2: '✓ 长时间讲座 (90 分钟以上) 也可放心录制',
     plan_pro_feature3: '✓ 笔记重新生成的冷却时间缩短 (30 秒 → 5 秒)',

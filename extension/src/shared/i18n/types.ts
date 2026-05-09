@@ -310,6 +310,8 @@ export interface Translations {
     plan_usageThisMonth: string          // "今月の使用量"
     plan_resetMonthly: string            // "毎月 1 日にリセット"
     plan_pro_header: string              // "Pro プランで広く長く使う"
+    plan_pro_price: string               // "¥980 / 月" (price stays JPY for all locales — pricing is JPY in Stripe)
+    plan_pro_priceNote: string           // tiny note under the price ("月額 / billed monthly / 월 결제 / 按月计费")
     plan_pro_feature1: string
     plan_pro_feature2: string
     plan_pro_feature3: string

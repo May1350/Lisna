@@ -278,6 +278,8 @@ export const en: Translations = {
     plan_usageThisMonth: 'This month',
     plan_resetMonthly: 'Resets on the 1st of each month',
     plan_pro_header: 'Go further with Pro',
+    plan_pro_price: '¥980 / month',
+    plan_pro_priceNote: 'Billed monthly · Cancel anytime',
     plan_pro_feature1: '✓ 30 hours/month (60× the Free plan)',
     plan_pro_feature2: '✓ Confidently record long lectures (90+ min)',
     plan_pro_feature3: '✓ Faster regeneration cooldown (30s → 5s)',

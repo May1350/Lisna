@@ -25,25 +25,36 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     `SELECT email, stripe_customer_id FROM users WHERE id = $1`, [payload.sub]
   )
   if (userRows.length === 0) return { statusCode: 404, body: 'user not found' }
-  let customerId = userRows[0].stripe_customer_id
-  if (!customerId) {
-    const c = await stripe.customers.create({ email: userRows[0].email, metadata: { user_id: payload.sub } })
-    customerId = c.id
-    await query(`UPDATE users SET stripe_customer_id = $1 WHERE id = $2`, [customerId, payload.sub])
-  }
+  const existingCustomerId = userRows[0].stripe_customer_id
 
   // Read the public-facing site root from env. Set in CDK as
   // PUBLIC_WEB_BASE_URL (commonEnv) so success/cancel pages are reachable.
   const baseUrl = process.env.PUBLIC_WEB_BASE_URL ?? 'https://lisna-may1350s-projects.vercel.app'
-  const session = await stripe.checkout.sessions.create({
+
+  // First-time upgraders: pass `customer_email` instead of `customer`.
+  // Stripe auto-creates a customer record DURING checkout (only when
+  // the user actually pays), and the resulting customer ID arrives on
+  // the `checkout.session.completed` webhook for us to persist. This
+  // saves a full ~500-1000 ms `stripe.customers.create` round-trip
+  // through NAT on every first upgrade. Repeat upgraders (already
+  // have a customer ID) keep using `customer` so we don't create
+  // duplicates with the same email.
+  const sessionParams: Stripe.Checkout.SessionCreateParams = {
     mode: 'subscription',
-    customer: customerId,
     line_items: [{ price: process.env.STRIPE_PRICE_PRO, quantity: 1 }],
     success_url: `${baseUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${baseUrl}/cancel`,
     locale: 'ja',
     client_reference_id: payload.sub,
-  })
+    metadata: { user_id: payload.sub },
+  }
+  if (existingCustomerId) {
+    sessionParams.customer = existingCustomerId
+  } else {
+    sessionParams.customer_email = userRows[0].email
+    sessionParams.customer_creation = 'always'
+  }
+  const session = await stripe.checkout.sessions.create(sessionParams)
 
   return {
     statusCode: 200,
