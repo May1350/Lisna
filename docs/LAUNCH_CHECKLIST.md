@@ -31,21 +31,25 @@ verification.
    instant for individual sellers in JP)
 3. Once activated, the dashboard top bar flips from "Test mode" to live
 
-### Step 1.2 — Create the live Pro product
+### Step 1.2 — ✅ Live Pro product (already created via MCP, 2026-05-09)
 
-**If the connected MCP is in live mode**, I can create this for you in
-one shot — confirm and I'll run:
-```
-create_product { name: "Lisna Pro", description: "月額プラン — 月 30 時間まで音声要約" }
-create_price   { product: <id>, currency: "jpy", unit_amount: 980, recurring: { interval: "month" } }
-```
-Returns `price_live_xxxxx` — that's the new `STRIPE_PRICE_PRO`.
+Created via the connected Stripe MCP (confirmed live mode:
+`retrieve_balance` returned `"livemode":true` against an empty JPY
+balance):
 
-**Otherwise, in the dashboard**:
+```
+Product: prod_UU1uOHr6j4KTJK   "Lisna Pro"
+Price:   price_1TV3r2BNdzPnDZiu4BuQvJkq   ¥980/month recurring, livemode
+```
+
+**⇒ this is the value for `STRIPE_PRICE_PRO` in step 1.5.**
+
+If you ever need to recreate (e.g., changing the price or rolling
+keys), the dashboard equivalent is:
 1. Products → + Add product
-2. Name: `Lisna Pro`, Description: `月額プラン — 月 30 時間まで音声要約`
+2. Name: `Lisna Pro`, Description: `月額プラン — 月 30 時間まで音声要約 / Monthly plan with up to 30 hours of audio summarization`
 3. Pricing model: `Recurring`, Price: `¥980 JPY`, Billing period: `Monthly`
-4. Save → copy the price ID (`price_live_xxxxx`)
+4. Save → copy the new price ID
 
 ### Step 1.3 — Generate the live secret key
 1. Developers → API keys → "Create restricted key" (preferred over the
@@ -69,34 +73,53 @@ Returns `price_live_xxxxx` — that's the new `STRIPE_PRICE_PRO`.
 4. Save → reveal the signing secret (`whsec_...`)
 
 ### Step 1.5 — Push values into AWS Secrets Manager
-Run this from any machine with the `studyhelper-dev` IAM creds:
+Run this from any machine with the `studyhelper-dev` IAM creds. The
+Pro price ID is pre-filled (created via MCP in step 1.2); fill in the
+two values you obtained in steps 1.3 and 1.4:
 
 ```bash
-# Replace the placeholders with the values from steps 1.2–1.4.
-LIVE_PRICE='price_live_REPLACE'
-LIVE_SECRET='rk_live_REPLACE'
-LIVE_WHSEC='whsec_REPLACE'
+# 1.3 → 1.4 inputs:
+export LIVE_SECRET='rk_live_REPLACE_ME'        # from step 1.3
+export LIVE_WHSEC='whsec_REPLACE_ME'           # from step 1.4
+export LIVE_PRICE='price_1TV3r2BNdzPnDZiu4BuQvJkq'  # already created
 
-aws secretsmanager get-secret-value \
-  --region ap-northeast-1 --secret-id studyhelper/app \
-  --query SecretString --output text \
-| python3 -c "
+# Read → modify → write the JSON blob in one shot. Stays as-is on
+# OPENAI/GROQ/JWT/etc. — only touches the three Stripe keys.
+NEW=$(aws secretsmanager get-secret-value \
+        --region ap-northeast-1 --secret-id studyhelper/app \
+        --query SecretString --output text \
+      | python3 -c "
 import json, sys, os
 d = json.loads(sys.stdin.read())
 d['STRIPE_SECRET_KEY']     = os.environ['LIVE_SECRET']
 d['STRIPE_WEBHOOK_SECRET'] = os.environ['LIVE_WHSEC']
 d['STRIPE_PRICE_PRO']      = os.environ['LIVE_PRICE']
 print(json.dumps(d))
-" \
-| LIVE_SECRET="$LIVE_SECRET" LIVE_WHSEC="$LIVE_WHSEC" LIVE_PRICE="$LIVE_PRICE" \
-  xargs -0 -I{} aws secretsmanager update-secret \
-    --region ap-northeast-1 --secret-id studyhelper/app \
-    --secret-string "{}"
+")
+
+aws secretsmanager update-secret \
+  --region ap-northeast-1 --secret-id studyhelper/app \
+  --secret-string "$NEW"
 ```
 
-(The pipeline reads the existing secret, replaces only the three Stripe
-keys, and writes the merged JSON back — leaves OPENAI/GROQ/JWT/etc.
-untouched.)
+**Verify** (shows redacted values to confirm the swap landed):
+```bash
+aws secretsmanager get-secret-value --region ap-northeast-1 \
+  --secret-id studyhelper/app --query SecretString --output text \
+| python3 -c "
+import json, sys
+d = json.loads(sys.stdin.read())
+for k in ('STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'STRIPE_PRICE_PRO'):
+    v = d.get(k, '')
+    print(f'{k}: {v[:8]}...{v[-4:] if len(v) > 12 else \"\"}')"
+```
+
+Expected output:
+```
+STRIPE_SECRET_KEY: rk_live_...XXXX  (or sk_live_...XXXX)
+STRIPE_WEBHOOK_SECRET: whsec_...XXXX
+STRIPE_PRICE_PRO: price_1TV...vJkq
+```
 
 ### Step 1.6 — Roll the Lambdas
 Lambdas read the secret at cold-start. Force a refresh:
