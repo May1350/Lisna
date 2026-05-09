@@ -49,6 +49,13 @@ export interface Outline {
   related_lectures?: string[] // adjacent lectures or external concepts that link from this one
 }
 
+/** Output language code accepted by the curator.
+ *  - 'auto' = detect from the transcript (mirrors the extension's
+ *    "Follow lecture language" option).
+ *  - explicit codes force that language regardless of transcript.
+ *  Stays in sync with NoteLanguageCode in extension/src/shared/i18n/types.ts. */
+export type NoteLang = 'auto' | 'ja' | 'en' | 'ko' | 'zh'
+
 export interface CuratorRequest {
   /** Whole transcript so far, time-bucketed per chunk so the LLM can
    * estimate timestamps for each insight. */
@@ -63,9 +70,82 @@ export interface CuratorRequest {
    * gets a clean rewrite opportunity even if it's been too conservative
    * about touching old sections in the incremental runs. */
   forceFullRewrite?: boolean
+  /** Output language for user-visible string fields in the outline
+   *  (heading / summary / definitions / examples / points / etc).
+   *  'auto' (default) auto-detects from transcript content. The base
+   *  Japanese-authored prompt stays — the OUTPUT LANGUAGE OVERRIDE
+   *  header takes precedence over its embedded "日本語で" rule. */
+  outputLang?: NoteLang
 }
 
-const SYSTEM_PROMPT = `あなたは大学生のために講義の「生きたノート (Living Document)」を作成・**書き換える**アシスタントです。
+// Map a NoteLang code to the human name used in the prompt override.
+function langDisplayName(lang: Exclude<NoteLang, 'auto'>): string {
+  switch (lang) {
+    case 'ja': return 'Japanese (日本語)'
+    case 'en': return 'English'
+    case 'ko': return 'Korean (한국어)'
+    case 'zh': return 'Chinese (中文)'
+  }
+}
+
+// Best-effort transcript language detection. Counts script ranges in the
+// first ~2000 chars. Hiragana/katakana presence is the JP signal (kanji
+// alone is ambiguous because Japanese and Chinese share them). Hangul
+// is the KO signal. CJK ideographs without any kana / hangul = ZH.
+// Otherwise English. Good enough for the auto path; users with edge
+// cases (multilingual lectures) can pick an explicit language in
+// Options.
+export function detectOutputLang(text: string): Exclude<NoteLang, 'auto'> {
+  const sample = text.slice(0, 2000)
+  let hira = 0, kata = 0, hangul = 0, cjk = 0, latin = 0
+  for (let i = 0; i < sample.length; i++) {
+    const c = sample.charCodeAt(i)
+    if (c >= 0x3040 && c <= 0x309F) hira++
+    else if (c >= 0x30A0 && c <= 0x30FF) kata++
+    else if (c >= 0xAC00 && c <= 0xD7A3) hangul++
+    else if (c >= 0x4E00 && c <= 0x9FFF) cjk++
+    else if ((c >= 0x41 && c <= 0x5A) || (c >= 0x61 && c <= 0x7A)) latin++
+  }
+  // Threshold ~1% of sample. Tiny single-word stragglers (e.g. one
+  // katakana loanword in an English transcript) shouldn't flip the
+  // language away from the dominant script.
+  const minScript = Math.max(10, Math.floor(sample.length * 0.01))
+  if (hira + kata >= minScript) return 'ja'
+  if (hangul >= minScript) return 'ko'
+  if (cjk >= minScript) return 'zh'
+  if (latin > 0) return 'en'
+  return 'ja'  // empty/unknown fallback — keep legacy behaviour
+}
+
+function buildSystemPrompt(outputLang: Exclude<NoteLang, 'auto'>): string {
+  const langName = langDisplayName(outputLang)
+  // The override block sits ABOVE the legacy Japanese instructions and
+  // explicitly overrides the embedded "日本語で簡潔に" rule. Without this
+  // header the model defaults to Japanese output regardless of the user's
+  // "Note language" setting (the original bug).
+  const override = `★★★ OUTPUT LANGUAGE OVERRIDE — HIGHEST PRIORITY ★★★
+ALL user-visible string fields in your JSON output MUST be in ${langName}.
+This includes: title, course, lecturer, tldr, related_lectures[],
+sections[].heading, sections[].summary, sections[].takeaway,
+sections[].check_question, sections[].related_terms[],
+sections[].key_terms[].term, sections[].key_terms[].definition,
+sections[].examples[].text, sections[].points[].text.
+
+The instructions below are written in Japanese for legacy reasons but
+DO NOT influence the output language. If any rule below says
+"日本語で" or similar, IGNORE it — this header overrides it.
+
+If the lecture transcript is in a different language than ${langName},
+TRANSLATE the relevant content into ${langName} when writing the note.
+Proper nouns, formulas, and cited specific phrases may be kept in the
+original language when translation would lose meaning.
+★★★
+
+`
+  return override + LEGACY_PROMPT_BODY
+}
+
+const LEGACY_PROMPT_BODY = `あなたは大学生のために講義の「生きたノート (Living Document)」を作成・**書き換える**アシスタントです。
 学生がこのノートだけを見て試験勉強できるレベルの質を目指します。
 このノートは試験のためだけでなく、学生が「最も覚えるべき・忘れたくない」内容を後で読み返すためのものです。
 
@@ -100,7 +180,7 @@ const SYSTEM_PROMPT = `あなたは大学生のために講義の「生きたノ
 1. **階層を保つ**: 複数チャンクで述べられた概念はマージして 1 つのセクションに
 2. **講師の論理の流れ**: 導入 → 定義 → 例 → 含意 → 結論 などを反映
 3. **重複削除**: 同じことが 2 つのセクションに書かれていたら 1 つに集約
-4. **凝縮**: text は日本語で簡潔に(1 行 80 文字以内)
+4. **凝縮**: text は簡潔に(目安: CJK 1 行 80 文字 / 英語なら 60 単語以内). 出力言語はヘッダーの OUTPUT LANGUAGE OVERRIDE に従うこと.
 5. **important: true は控えめに**(定義 / 公式 / 結論 / 明示的に強調された箇所のみ)
 6. **ts は整数秒**(bucketedTranscript の時刻情報から推定)
 7. **空疎な発話のみ**(「えー」「あー」「ですよね」だけ)の場合のみ空 sections を返す。それ以外は必ず構造化する
@@ -318,7 +398,7 @@ function parseOutlineJson(text: string): Outline {
   }
 }
 
-async function generateOpenAI(modelName: string, userPrompt: string): Promise<Outline> {
+async function generateOpenAI(modelName: string, userPrompt: string, systemPrompt: string): Promise<Outline> {
   // GPT-5 family (nano / mini / standard) only supports the default
   // temperature (1) — sending any other value 400s with
   // "Unsupported value: 'temperature' does not support 0.3 with this
@@ -327,7 +407,7 @@ async function generateOpenAI(modelName: string, userPrompt: string): Promise<Ou
   const res = await openaiClient().chat.completions.create({
     model: modelName,
     messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
     ],
     response_format: { type: 'json_object' },
@@ -336,7 +416,7 @@ async function generateOpenAI(modelName: string, userPrompt: string): Promise<Ou
   return parseOutlineJson(res.choices[0]?.message?.content ?? '{}')
 }
 
-async function generateAnthropic(modelName: string, userPrompt: string): Promise<Outline> {
+async function generateAnthropic(modelName: string, userPrompt: string, systemPrompt: string): Promise<Outline> {
   // Anthropic SDK uses messages.create. System prompt is a top-level
   // field. We don't have an explicit JSON-mode flag like OpenAI's
   // response_format; rely on the system prompt's "JSON のみ" rule plus
@@ -345,7 +425,7 @@ async function generateAnthropic(modelName: string, userPrompt: string): Promise
     model: modelName,
     max_tokens: 4096,
     temperature: 0.3,
-    system: SYSTEM_PROMPT,
+    system: systemPrompt,
     messages: [{ role: 'user', content: userPrompt }],
   })
   // Anthropic returns content as an array of blocks. We only ask for text.
@@ -354,9 +434,9 @@ async function generateAnthropic(modelName: string, userPrompt: string): Promise
   return parseOutlineJson(text)
 }
 
-async function generateOnce(provider: Provider, modelName: string, userPrompt: string): Promise<Outline> {
-  if (provider === 'anthropic') return generateAnthropic(modelName, userPrompt)
-  return generateOpenAI(modelName, userPrompt)
+async function generateOnce(provider: Provider, modelName: string, userPrompt: string, systemPrompt: string): Promise<Outline> {
+  if (provider === 'anthropic') return generateAnthropic(modelName, userPrompt, systemPrompt)
+  return generateOpenAI(modelName, userPrompt, systemPrompt)
 }
 
 function normaliseSection(s: Partial<OutlineSection>): OutlineSection {
@@ -418,12 +498,23 @@ ${transcriptText}${droppedNote}
 previousOutline (前の試案 — 自由に書き直し / 再分類 / マージ / 削除すること):
 ${previousOutlineJson}`
 
+  // Resolve the output language. 'auto' (and undefined) → detect from
+  // the included transcript text. Caller can also pass an explicit code
+  // when the user picked one in Options.
+  const requested: NoteLang = req.outputLang ?? 'auto'
+  const resolvedLang: Exclude<NoteLang, 'auto'> = requested === 'auto'
+    ? detectOutputLang(included.map(b => b.text).join(' '))
+    : requested
+  const systemPrompt = buildSystemPrompt(resolvedLang)
+  // eslint-disable-next-line no-console
+  console.log('[curator] outputLang resolved', { requested, resolvedLang })
+
   const choice = selectModels()
   // Try primary with retries, then drop to fallback on terminal failure.
   let lastErr: unknown
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     try {
-      return await generateOnce(choice.provider, choice.primary, userPrompt)
+      return await generateOnce(choice.provider, choice.primary, userPrompt, systemPrompt)
     } catch (e) {
       lastErr = e
       if (attempt === MAX_ATTEMPTS - 1 || !isRetryable(e)) break
@@ -436,7 +527,7 @@ ${previousOutlineJson}`
   if (lastErr && isRetryable(lastErr)) {
     // eslint-disable-next-line no-console
     console.warn(`[curator] ${choice.primary} exhausted; falling back to ${choice.fallback}`)
-    return await generateOnce(choice.provider, choice.fallback, userPrompt)
+    return await generateOnce(choice.provider, choice.fallback, userPrompt, systemPrompt)
   }
   throw lastErr
 }

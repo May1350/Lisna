@@ -869,7 +869,22 @@ async function startCapture(url: string): Promise<void> {
     // it can swap to a "ノート生成中…" state. The modal receives this
     // via window.postMessage from this content frame.
     broadcastToFrames({ source: 'sh-frame', type: 'CURATING', reason })
-    chrome.runtime.sendMessage({
+    // Resolve the user's "Note language" preference (Options page) and
+    // include it in the curate body. The backend curator otherwise
+    // defaults to its hardcoded Japanese output regardless of the
+    // lecture language — this is what makes "Follow lecture language
+    // (auto)" actually do something. Read directly from chrome.storage
+    // (the i18n module isn't loaded in content scripts).
+    void (async () => {
+      let noteLang: 'auto' | 'ja' | 'en' | 'ko' | 'zh' = 'auto'
+      try {
+        const r = await chrome.storage.local.get('sh.noteLang')
+        const stored = r['sh.noteLang']
+        if (stored === 'auto' || stored === 'ja' || stored === 'en' || stored === 'ko' || stored === 'zh') {
+          noteLang = stored
+        }
+      } catch { /* fall through to 'auto' */ }
+      chrome.runtime.sendMessage({
       type: 'API_FETCH',
       method: 'POST',
       // Lambda Function URL bypasses API Gateway HTTP API's hard 30 s
@@ -879,7 +894,7 @@ async function startCapture(url: string): Promise<void> {
       // sessions but will 503 on long ones.
       path: '/v1/session/curate',
       absoluteUrl: CURATE_URL || undefined,
-      body: { session_id: session.id, full_rewrite: reason === 'manual_full' },
+      body: { session_id: session.id, full_rewrite: reason === 'manual_full', note_lang: noteLang },
     }).then((r: unknown) => {
       // Backend response shapes:
       //   200 { outline: {...} }                            ← success
@@ -931,6 +946,7 @@ async function startCapture(url: string): Promise<void> {
       })
       broadcastToFrames({ source: 'sh-frame', type: 'CURATE_FAILED', reason })
     }).finally(() => { curateInFlight = false })
+    })()
   }
 
   // Note generation is now EXPLICIT-ONLY:

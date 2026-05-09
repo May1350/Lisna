@@ -32,6 +32,12 @@ const Body = z.object({
   // gets a fresh-perspective rebuild (used by the manual "regenerate"
   // button in the modal).
   full_rewrite: z.boolean().optional(),
+  // Output language for the generated note. Mirrors the extension's
+  // "Note language" Options control (NoteLanguageCode in
+  // shared/i18n/types.ts). When absent or 'auto' the curator detects
+  // from the transcript. Older extension builds that don't send this
+  // field still work — the curator falls back to auto.
+  note_lang: z.enum(['auto', 'ja', 'en', 'ko', 'zh']).optional(),
 })
 
 interface TranscriptEntry { ts: number; text: string }
@@ -149,6 +155,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
         bucketedTranscript: transcripts,
         previousOutline,
         forceFullRewrite: body.full_rewrite ?? false,
+        outputLang: body.note_lang ?? 'auto',
       })
     } catch (e) {
       // eslint-disable-next-line no-console
