@@ -59,39 +59,47 @@ function CuratingState() {
 // curate on pause / end) or hit the manual button below.
 function IdleSessionState({ videoPlaying }: { videoPlaying: boolean | null }) {
   const T = useT()
+  // Idle hero per DESIGN.md (Concept 1+) — no emoji, mono uppercase
+  // eyebrow with state-keyed status dot, body copy in token color.
+  // Three states: recording (ok-green pulse), paused (ink-500), waiting
+  // (ink-300). Body line shown only when there's something to say
+  // beyond the eyebrow itself.
+  let dotColor = 'bg-ink-300'
+  let label = T.capture.waiting
+  let body: React.ReactNode = null
+  let pulsing = false
   if (videoPlaying === false) {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center px-6 py-10 text-center text-gray-700">
-        <div className="text-3xl mb-3">⏸</div>
-        <p className="text-sm font-medium">{T.capture.pausedTitle}</p>
-        <p className="text-xs text-gray-500 mt-1 max-w-xs leading-relaxed">
-          {T.capture.pausedHint}
-        </p>
-      </div>
-    )
-  }
-  if (videoPlaying === true) {
-    // recordingHint may contain a literal "\n" — render with <br/>.
+    dotColor = 'bg-ink-500'
+    label = T.capture.pausedTitle
+    body = T.capture.pausedHint
+  } else if (videoPlaying === true) {
+    dotColor = 'bg-ok-green'
+    pulsing = true
+    label = T.capture.recordingTitle
     const lines = T.capture.recordingHint.split('\n')
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center px-6 py-10 text-center text-gray-700">
-        <div className="text-3xl mb-3">🎙️</div>
-        <p className="text-sm font-medium">{T.capture.recordingTitle}</p>
-        <p className="text-xs text-gray-500 mt-1 max-w-xs leading-relaxed">
-          {lines.map((line, i) => (
-            <span key={i}>
-              {line}
-              {i < lines.length - 1 && <br />}
-            </span>
-          ))}
-        </p>
-      </div>
-    )
+    body = lines.map((line, i) => (
+      <span key={i}>
+        {line}
+        {i < lines.length - 1 && <br />}
+      </span>
+    ))
   }
   return (
-    <div className="flex-1 flex flex-col items-center justify-center px-6 py-10 text-center text-gray-500">
-      <div className="text-3xl mb-3">⏳</div>
-      <p className="text-sm">{T.capture.waiting}</p>
+    <div className="flex-1 flex flex-col items-center justify-center px-6 py-10 text-center">
+      <div className="flex items-center gap-2 mb-3">
+        <span
+          className={`inline-block w-1.5 h-1.5 rounded-full ${dotColor} ${pulsing ? 'animate-pulse' : ''}`}
+          aria-hidden
+        />
+        <span className="text-[10px] font-mono uppercase tracking-eyebrow text-ink-500">
+          {label}
+        </span>
+      </div>
+      {body && (
+        <p className="text-xs text-ink-500 max-w-xs leading-relaxed">
+          {body}
+        </p>
+      )}
     </div>
   )
 }
@@ -315,17 +323,33 @@ export default function App() {
     // for users who were already at 100% before they even pressed
     // play. Failure is silent: quota stays null and the regular idle
     // copy renders, which is the pre-fix behavior.
+    // Step 1: fall back to the cached quota snapshot immediately so
+    // QuotaExhaustedIdle can render before /v1/auth/me lands. Without
+    // this, users at 100% see IdleSessionState ("waiting for video")
+    // for 200-500 ms while the auth-me round-trip is in flight — and
+    // permanently if that call silently fails (token expiry, transient
+    // network, etc). Cache lifetime ~30 min: long enough to bridge
+    // network blips, short enough that a Pro upgrade taking effect
+    // doesn't keep the user pinned behind a stale "exhausted" surface.
+    void chrome.storage.local.get('sh.cachedQuota').then((r) => {
+      const cached = r['sh.cachedQuota'] as { quota?: QuotaSnapshot; ts?: number } | undefined
+      if (!cached?.quota || typeof cached.ts !== 'number') return
+      if (Date.now() - cached.ts > 30 * 60 * 1000) return
+      setQuota((prev) => prev ?? cached.quota!)
+    })
+    // Step 2: fresh fetch overwrites the cached fallback. Errors are
+    // logged so a future debug pass can see auth-me failures (the
+    // earlier silent-catch hid this from us).
     void callApi<{ user: User; quota: QuotaSnapshot }>('/v1/auth/me', 'GET')
       .then(r => {
         if (r.quota) {
           setQuota(r.quota)
-          // Mirror to chrome.storage for the content script's
-          // pre-flight check (handleActivate skips startCapture when
-          // cached percent_used >= 100).
           void chrome.storage.local.set({ 'sh.cachedQuota': { quota: r.quota, ts: Date.now() } })
         }
       })
-      .catch(() => { /* ignore — quota stays null, regular flow */ })
+      .catch((e) => {
+        console.warn('[App] /v1/auth/me failed; relying on cached quota if any', e instanceof Error ? e.message : e)
+      })
   }, [consented])
 
   // Keep the export-input ref in sync with the React state used by

@@ -149,10 +149,15 @@ export function OutlineView({ outline, slides = [], onJump, displayTitle, outlin
     setOuterWidth(el.getBoundingClientRect().width)
     return () => ro.disconnect()
   }, [])
-  const isWide = outerWidth >= 460
-  // Rail only renders for outlines long enough to need orientation —
-  // 1-2 sections fit on a single screen so the rail is just chrome.
-  const showRail = outline.sections.length >= 3
+  // Wide mode threshold lowered from 460 to 420 so realistically-sized
+  // modals (Chrome side panel default ~360, in-page modal default
+  // ~min(viewport*0.32, 480)) can actually reach the labeled mini-TOC
+  // mode. Above 420 the rail expands into a 132 px text column.
+  const isWide = outerWidth >= 420
+  // Rail visibility threshold lowered from 3 → 2 so even short
+  // lectures get an orientation aid. With 1 section the rail has no
+  // navigation value so it stays hidden.
+  const showRail = outline.sections.length >= 2
 
   // Active section tracking — last section whose offsetTop crossed
   // a fixed line above the viewport top, with bottom-of-scroll
@@ -194,34 +199,49 @@ export function OutlineView({ outline, slides = [], onJump, displayTitle, outlin
             {displayTitle?.trim() || outline.title}
           </h2>
         )}
-        <div className="flex items-center gap-1.5 shrink-0">
-          {/* Compact toggle — exam-cram view per DESIGN.md §7 C2.
-              Hidden when the outline has no sections (no point
-              compacting an empty surface). Active state mirrors the
-              "selected" aesthetic of soft pill buttons (DESIGN.md
-              §3.1) — ink-900 fill when compact, paper-200 surface
-              with paper-edge border when not. */}
-          {outline.sections.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setCompact(c => !c)}
-              className={
-                'inline-flex items-center gap-1 text-[10px] font-medium font-mono uppercase tracking-eyebrow px-2 py-1 rounded transition-colors ' +
-                (compact
-                  ? 'bg-ink-900 text-paper-100'
-                  : 'bg-paper-200 text-ink-700 hover:bg-paper-300 border border-paper-edge')
-              }
-              title={T.outline.compactToggleTitle}
-              aria-pressed={compact}
-            >
-              {T.outline.compactToggle}
-            </button>
-          )}
-          {outlineUpdatedAt != null && (
-            <RefreshIndicator at={outlineUpdatedAt} />
-          )}
-        </div>
+        {outlineUpdatedAt != null && (
+          <RefreshIndicator at={outlineUpdatedAt} />
+        )}
       </div>
+      {/* Meta-row: section/important counts on the left, Compact
+          toggle on the right. Replaces the previous "Compact button
+          stranded next to the refresh indicator" layout. Mockup
+          notes-v2.html shows this row immediately under the title
+          + TLDR. */}
+      {outline.sections.length > 0 && (
+        <div className="flex items-center gap-3 text-[10px] font-mono tabular-nums text-ink-500 tracking-wide -mt-1">
+          <span><span className="text-ink-900 font-medium">{outline.sections.length}</span> {outline.sections.length === 1 ? T.outline.metaSectionsOne : T.outline.metaSectionsMany}</span>
+          {(() => {
+            const importantCount = outline.sections.reduce(
+              (sum, s) => sum + s.points.filter(p => p.important).length,
+              0,
+            )
+            return importantCount > 0 ? (
+              <span><span className="text-ink-900 font-medium">{importantCount}</span> {T.outline.metaHighlights}</span>
+            ) : null
+          })()}
+          <span className="flex-1" />
+          <button
+            type="button"
+            onClick={() => setCompact(c => !c)}
+            className={
+              'inline-flex items-center gap-1 text-[10px] font-medium font-mono uppercase tracking-eyebrow px-2 py-[3px] rounded transition-colors ' +
+              (compact
+                ? 'bg-ink-900 text-paper-100 border border-ink-900'
+                : 'bg-paper-200 text-ink-700 hover:bg-paper-300 border border-paper-edge')
+            }
+            title={T.outline.compactToggleTitle}
+            aria-pressed={compact}
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
+              <line x1="4" y1="6" x2="20" y2="6" />
+              <line x1="4" y1="12" x2="14" y2="12" />
+              <line x1="4" y1="18" x2="10" y2="18" />
+            </svg>
+            {T.outline.compactToggle}
+          </button>
+        </div>
+      )}
       <SectionList
         outline={outline}
         slides={slides}

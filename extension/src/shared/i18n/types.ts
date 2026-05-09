@@ -203,6 +203,9 @@ export interface Translations {
     lightboxJump: string                 // "▶ 動画のこの場面へ"
     lightboxClose: string                // "閉じる"
     // ── DESIGN.md §7 follow-up features ─────────────────────
+    metaSectionsOne: string              // "section" (singular) — meta-row counter label
+    metaSectionsMany: string             // "sections" (plural)
+    metaHighlights: string               // "highlights" — count of important points
     compactToggle: string                // "Compact" — exam-cram view button label
     compactToggleTitle: string           // tooltip when not active
     quizLabel: string                    // "Review Questions" — quiz roll-up header
