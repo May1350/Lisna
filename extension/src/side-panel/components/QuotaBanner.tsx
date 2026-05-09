@@ -71,7 +71,12 @@ export function QuotaBanner({ user, quota, onUpgrade, blocked }: Props) {
       </div>
       <div className="flex items-center justify-between mt-1.5 text-[11px] text-gray-500 tabular-nums">
         <span>
-          {formatMinutes(quota.used_secs, T)} / {formatMinutes(quota.limit_secs, T)}
+          {/* Clamp the displayed used-secs to the limit. Backend can
+              record one chunk past the boundary (recordUsage fires
+              after the chunk that pushed us over), so used_secs is
+              often "30분 1초" or similar at 100%. The trailing seconds
+              read as noise — the bar already says "full". */}
+          {formatMinutes(Math.min(quota.used_secs, quota.limit_secs), T)} / {formatMinutes(quota.limit_secs, T)}
         </span>
         <span className="font-medium">{Math.min(100, pct)}%</span>
       </div>
