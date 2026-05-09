@@ -6,6 +6,17 @@ const KEYS = {
   CONSENT: 'sh.consent.v1',
   PLAYBACK: 'sh.playback',
   ENABLED: 'sh.enabled',
+  // Auto-re-enable timer set when the user clicks the inline button's
+  // quick-disable affordance (×). Stored as the absolute epoch ms at
+  // which the extension should turn back on. Cleared when the user
+  // manually toggles ON in the side panel, or when the alarm fires.
+  // Side-panel toggles do NOT touch this — those are intentional and
+  // should stay off until the user changes their mind.
+  DISABLED_UNTIL: 'sh.disabledUntil',
+  // User-configurable duration (hours) for the inline-button × quick
+  // disable. Default 24h covers the "today only" use case. Configurable
+  // 1h ~ 168h (7d) via Options.
+  DISABLE_DURATION_H: 'sh.disableDurationHours',
   AUTO_DOWNLOAD: 'sh.autoDownload',
   // First-time inline-button discovery: gates the pulsing onboarding
   // tooltip ("👈 ここをクリックで録音開始") so it only shows on the
@@ -65,6 +76,32 @@ export async function getEnabled(): Promise<boolean> {
 }
 export async function setEnabled(v: boolean): Promise<void> {
   await chrome.storage.local.set({ [KEYS.ENABLED]: v })
+}
+
+// Disabled-until timestamp (epoch ms). Optional — set only after a
+// quick-disable from the inline button × affordance, cleared on
+// re-enable (alarm fires, manual toggle, or storage cleanup).
+export async function getDisabledUntil(): Promise<number | null> {
+  const r = await chrome.storage.local.get(KEYS.DISABLED_UNTIL)
+  const v = r[KEYS.DISABLED_UNTIL]
+  return typeof v === 'number' ? v : null
+}
+export async function setDisabledUntil(v: number | null): Promise<void> {
+  if (v == null) await chrome.storage.local.remove(KEYS.DISABLED_UNTIL)
+  else await chrome.storage.local.set({ [KEYS.DISABLED_UNTIL]: v })
+}
+
+// Disable-timer duration in hours. Default 24. Bounds [1, 168] (7 days).
+const DISABLE_DURATION_DEFAULT = 24
+export async function getDisableDurationHours(): Promise<number> {
+  const r = await chrome.storage.local.get(KEYS.DISABLE_DURATION_H)
+  const v = r[KEYS.DISABLE_DURATION_H]
+  if (typeof v !== 'number' || !Number.isFinite(v)) return DISABLE_DURATION_DEFAULT
+  return Math.min(168, Math.max(1, Math.floor(v)))
+}
+export async function setDisableDurationHours(h: number): Promise<void> {
+  const clamped = Math.min(168, Math.max(1, Math.floor(h)))
+  await chrome.storage.local.set({ [KEYS.DISABLE_DURATION_H]: clamped })
 }
 
 // Auto-download zip when the session ends. Default off — user has to
@@ -137,5 +174,3 @@ export function onEnabledChange(callback: (enabled: boolean) => void): () => voi
   chrome.storage.onChanged.addListener(listener)
   return () => chrome.storage.onChanged.removeListener(listener)
 }
-
-export const STORAGE_KEYS = KEYS

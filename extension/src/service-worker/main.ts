@@ -1,7 +1,7 @@
-import { handle } from './messaging'
-import { updateBadge } from './notify'
+import { handle, REENABLE_ALARM } from './messaging'
+import { updateBadge, broadcastEnabledChange } from './notify'
 import type { SwRequest } from '../shared/types'
-import { getEnabled } from '../shared/storage'
+import { getEnabled, getDisabledUntil, setEnabled, setDisabledUntil } from '../shared/storage'
 
 chrome.runtime.onInstalled.addListener(async () => {
   console.log('[SW] installed')
@@ -19,10 +19,38 @@ chrome.runtime.onInstalled.addListener(async () => {
 })
 
 chrome.runtime.onStartup?.addListener(async () => {
+  // Catch-up: if the user opened Chrome after the disable window
+  // already passed (e.g. they closed Chrome at hour 0 and reopened at
+  // hour 25), the chrome.alarm may not have fired. Re-enable here so
+  // they don't see a stale OFF state.
+  await maybeAutoReenable()
   const enabled = await getEnabled()
   await updateBadge(enabled)
   warmupBackend('startup')
 })
+
+// chrome.alarms.onAlarm fires the moment our scheduled `when` is reached
+// even if the SW is asleep — Chrome wakes the SW for the listener call.
+chrome.alarms?.onAlarm.addListener(async (alarm) => {
+  if (alarm.name !== REENABLE_ALARM) return
+  await reenable('alarm')
+})
+
+async function maybeAutoReenable(): Promise<void> {
+  const until = await getDisabledUntil()
+  if (until == null) return
+  if (Date.now() < until) return    // still in the disable window
+  await reenable('catchup')
+}
+
+async function reenable(reason: 'alarm' | 'catchup'): Promise<void> {
+  console.log('[SW] auto re-enable', reason)
+  await setEnabled(true)
+  await setDisabledUntil(null)
+  try { await chrome.alarms.clear(REENABLE_ALARM) } catch { /* may already be cleared */ }
+  await updateBadge(true)
+  await broadcastEnabledChange(true)
+}
 
 // Best-effort Lambda pre-warm. Triggers on extension install / browser
 // startup and again on demand from content scripts that detect a video.

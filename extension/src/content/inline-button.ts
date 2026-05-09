@@ -12,6 +12,7 @@ const STYLE_ID = '__sh_inline_button_style__'
 const ROOT_ID = '__sh_inline_button_root__'
 const STOP_ID = '__sh_inline_button_stop__'
 const TOOLTIP_ID = '__sh_inline_button_tooltip__'
+const DISABLE_ID = '__sh_inline_button_disable__'
 
 const SPARKLE_SVG = `
 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -136,6 +137,80 @@ function ensureStyle(): void {
   from { opacity: 0; transform: translateX(8px); }
   to   { opacity: 1; transform: translateX(0); }
 }
+
+/* Quick-disable × badge. Sits in the top-left of the main button
+ * group, slightly overlapping. Hidden by default; revealed when the
+ * pointer hovers anywhere over the button group. Click → message SW
+ * to set sh.enabled=false + schedule re-enable alarm. The user gets
+ * a top-of-viewport toast confirming the duration so the action
+ * isn't silent. */
+.__sh_disable_btn__ {
+  position: absolute;
+  z-index: 1000000;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 9999px;
+  background: rgba(15, 23, 42, 0.96);
+  color: rgba(255,255,255,0.9);
+  font: 700 11px/18px -apple-system, "Hiragino Sans", "Apple SD Gothic Neo", sans-serif;
+  text-align: center;
+  cursor: pointer;
+  user-select: none;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+  opacity: 0;
+  transform: scale(0.85);
+  transition: opacity 160ms ease, transform 160ms ease, background-color 160ms ease;
+  pointer-events: none;
+}
+/* Reveal when hovering the main button OR the disable badge itself.
+ * Both selectors needed because the badge sits OUTSIDE the main
+ * button's bounding box, so :hover on the main button alone won't
+ * keep it visible while the cursor moves toward it. */
+.__sh_btn__:hover ~ .__sh_disable_btn__,
+.__sh_disable_btn__:hover {
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
+}
+.__sh_disable_btn__:hover {
+  background: rgba(220, 38, 38, 0.95);
+}
+
+/* Top-of-viewport toast for confirmation of quick-disable. */
+.__sh_toast__ {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 92vw;
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.96);
+  color: white;
+  font: 500 13px/1.4 -apple-system, "Hiragino Sans", "Apple SD Gothic Neo", "Segoe UI", sans-serif;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.35);
+  animation: __sh_toast_in__ 220ms cubic-bezier(0.16,1,0.3,1) both;
+}
+.__sh_toast__ button {
+  background: transparent;
+  color: #93c5fd;
+  border: 0;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font: 600 12px/1 inherit;
+}
+.__sh_toast__ button:hover { background: rgba(147,197,253,0.18); }
+@keyframes __sh_toast_in__ {
+  from { opacity: 0; transform: translate(-50%, -8px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
 `
   document.documentElement.appendChild(style)
 }
@@ -184,6 +259,7 @@ export function mountInlineButton(
   // currentHandle.unmount().
   document.getElementById(ROOT_ID)?.remove()
   document.getElementById(STOP_ID)?.remove()
+  document.getElementById(DISABLE_ID)?.remove()
 
   // Look up locale strings ONCE at mount. The inline button is a
   // non-React content-script DOM tree; it doesn't subscribe to
@@ -200,6 +276,20 @@ export function mountInlineButton(
   btn.setAttribute('aria-label', T_init.inlineButton.activate)
   btn.innerHTML = SPARKLE_SVG
   document.body.appendChild(btn)
+
+  // Quick-disable × badge — sits in the top-left corner of the main
+  // button, hidden until the user hovers over the button group.
+  // Mounted as a sibling of `btn` (not a child) so its hover state is
+  // independent and the click can be handled separately from the
+  // main activation click. CSS reveals it via `.__sh_btn__:hover ~ ...`.
+  const disableBtn = document.createElement('button')
+  disableBtn.id = DISABLE_ID
+  disableBtn.className = '__sh_disable_btn__'
+  disableBtn.type = 'button'
+  disableBtn.textContent = '×'
+  disableBtn.title = T_init.inlineButton.disable_tooltip
+  disableBtn.setAttribute('aria-label', T_init.inlineButton.disable_aria)
+  document.body.appendChild(disableBtn)
 
   let state: InlineButtonState = 'idle'
   let stopBtn: HTMLButtonElement | null = null
@@ -230,6 +320,22 @@ export function mountInlineButton(
   }
   btn.addEventListener('click', handleClick)
 
+  // Quick-disable click — message SW to set sh.enabled=false +
+  // schedule re-enable alarm. The SW broadcasts the change; our
+  // sibling storage.onChanged listener in content/index.ts unmounts
+  // this very button, so we don't need to manually clean up here.
+  // Show a confirmation toast first so the action isn't silent.
+  const handleDisableClick = (e: MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    chrome.runtime.sendMessage({ type: 'DISABLE_TEMPORARILY' }, (resp) => {
+      if (chrome.runtime.lastError) return
+      const hours = resp?.data?.hours ?? 24
+      showDisableToast(hours)
+    })
+  }
+  disableBtn.addEventListener('click', handleDisableClick)
+
   let scheduled = false
   const updatePosition = (): void => {
     if (state === 'hidden') return
@@ -237,9 +343,11 @@ export function mountInlineButton(
     if (rect.width <= 0 || rect.height <= 0) {
       btn.style.display = 'none'
       if (stopBtn) stopBtn.style.display = 'none'
+      disableBtn.style.display = 'none'
       return
     }
     btn.style.display = ''
+    disableBtn.style.display = ''
     const inset = 8
     const w = btn.offsetWidth || 36
     const h = btn.offsetHeight || 36
@@ -247,7 +355,21 @@ export function mountInlineButton(
     // viewport.
     const rightEdge = Math.min(rect.right, window.innerWidth)
     const mainLeft = window.scrollX + Math.max(0, rightEdge - inset - w)
-    const mainTop = window.scrollY + Math.max(0, rect.top) + inset
+    // Position vertically. Preferred: just ABOVE the video frame (outside)
+    // so the button never covers lecture content. Falls back to inside-top
+    // when the video sits at the page top with no clearance above.
+    //
+    // The clamp `Math.max(0, rect.top)` that previously pinned the button
+    // to viewport top during scroll is intentionally gone: the button now
+    // scrolls naturally with the video and disappears when the video is
+    // fully out of view, matching user expectation. A "follower" pinned
+    // to the viewport felt like nag-UI on pages that weren't even
+    // lectures.
+    const aboveTop = rect.top - h - GAP
+    const useAbove = aboveTop >= GAP    // need at least one GAP of clearance above
+    const mainTop = useAbove
+      ? window.scrollY + aboveTop
+      : window.scrollY + rect.top + inset
     btn.style.top = `${mainTop}px`
     btn.style.left = `${mainLeft}px`
 
@@ -265,6 +387,14 @@ export function mountInlineButton(
         stopBtn.style.left = `${mainLeft}px`
       }
     }
+
+    // Quick-disable × badge — top-left corner of the main button,
+    // overlapping by ~6px so it reads as a sub-action of the main
+    // button rather than a free-floating control. Hidden by default
+    // (CSS opacity 0); revealed on hover of the main button.
+    disableBtn.style.top = `${mainTop - 6}px`
+    disableBtn.style.left = `${mainLeft - 6}px`
+    disableBtn.style.display = ''
 
     // Onboarding tooltip — anchored to the LEFT of the main button so
     // the speech-bubble arrow points at the button. Shows the
@@ -376,6 +506,7 @@ export function mountInlineButton(
     if (s === 'hidden') {
       btn.style.display = 'none'
       if (stopBtn) stopBtn.style.display = 'none'
+      disableBtn.style.display = 'none'
       return
     }
     btn.style.display = ''
@@ -406,6 +537,8 @@ export function mountInlineButton(
     resizeObs?.disconnect()
     btn.removeEventListener('click', handleClick)
     btn.remove()
+    disableBtn.removeEventListener('click', handleDisableClick)
+    disableBtn.remove()
     removeStopBtn()
     // Clear the module-level handle if WE are the current one. If a newer
     // mount has already replaced us, leave the new handle alone.
@@ -415,4 +548,32 @@ export function mountInlineButton(
   const handle: InlineButtonHandle = { setStatus, unmount }
   currentHandle = handle
   return handle
+}
+
+// Top-of-viewport confirmation toast for the quick-disable action.
+// Auto-dismisses after 5 s. The "되돌리기" / "Undo" link cancels the
+// disable by re-toggling sh.enabled=true via TOGGLE_ENABLED — which
+// also clears disabledUntil + the alarm in the SW handler. Keeps the
+// action reversible without the user having to find the side panel.
+const TOAST_ID = '__sh_inline_button_toast__'
+function showDisableToast(hours: number): void {
+  ensureStyle()
+  document.getElementById(TOAST_ID)?.remove()
+  const T = t()
+  const wrap = document.createElement('div')
+  wrap.id = TOAST_ID
+  wrap.className = '__sh_toast__'
+  const span = document.createElement('span')
+  span.textContent = T.inlineButton.disabled_toast.replace('{hours}', String(hours))
+  const undoBtn = document.createElement('button')
+  undoBtn.type = 'button'
+  undoBtn.textContent = T.inlineButton.disabled_undo
+  undoBtn.addEventListener('click', () => {
+    chrome.runtime.sendMessage({ type: 'TOGGLE_ENABLED', enabled: true })
+    wrap.remove()
+  })
+  wrap.appendChild(span)
+  wrap.appendChild(undoBtn)
+  document.body.appendChild(wrap)
+  window.setTimeout(() => { wrap.remove() }, 5000)
 }

@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import {
   getPlaybackSpeed, setPlaybackSpeed,
   getAutoDownload, setAutoDownload,
+  getDisableDurationHours, setDisableDurationHours,
   getObsidianConfig, setObsidianConfig, type ObsidianConfig,
 } from '../shared/storage'
 import { testObsidianConnection } from '../side-panel/lib/export'
@@ -37,7 +38,9 @@ export function Options() {
   const SPEED_OPTIONS = buildSpeedOptions(T)
   const [speed, setSpeed] = useState<'auto' | number>('auto')
   const [autoDl, setAutoDl] = useState(false)
+  const [disableHours, setDisableHours] = useState<number>(24)
   const [loggingOut, setLoggingOut] = useState(false)
+  const [switchingAccount, setSwitchingAccount] = useState(false)
   const [me, setMe] = useState<{ user: User; quota: QuotaSnapshot } | null>(null)
   const [upgrading, setUpgrading] = useState(false)
   const [obsidian, setObsidian] = useState<ObsidianConfig>({ apiUrl: DEFAULT_OBSIDIAN_URL, apiKey: '', folder: '', autoSync: false })
@@ -76,6 +79,7 @@ export function Options() {
       .catch(() => { /* ignore — surface only on real interaction */ })
     void getPlaybackSpeed().then(setSpeed)
     void getAutoDownload().then(setAutoDl)
+    void getDisableDurationHours().then(setDisableHours)
     void getObsidianConfig().then(c => {
       // First-run hydration: persist the default URL so the API call
       // works the moment the user pastes their API key. Without this
@@ -93,13 +97,45 @@ export function Options() {
     })
   }, [])
 
+  // Pre-fetched Stripe Checkout URL — kicked off as soon as a Free
+  // user lands on this page so the click → tab transition can be
+  // synchronous (popup blockers refuse window.open after an awaited
+  // fetch in the click handler). 30-min freshness is well below
+  // Stripe's 24 h session expiry and bounds dashboard noise.
+  const [prefetchedUrl, setPrefetchedUrl] = useState<{ url: string; at: number } | null>(null)
+  const PREFETCH_TTL_MS = 30 * 60 * 1000
+
+  // Fire the pre-fetch once we know the user is Free. Re-runs if plan
+  // flips back to free (cancellation flow). The /v1/billing/checkout
+  // call itself creates a Stripe Checkout Session — which expires in
+  // 24 h on Stripe's side; orphaned sessions cost nothing.
+  useEffect(() => {
+    if (!me || me.user.plan !== 'free') return
+    let cancelled = false
+    void callApi<{ url: string }>('/v1/billing/checkout', 'POST', {})
+      .then(r => { if (!cancelled) setPrefetchedUrl({ url: r.url, at: Date.now() }) })
+      .catch(() => { /* will fall through to lazy fetch on click */ })
+    return () => { cancelled = true }
+  }, [me?.user.plan])
+
   const onUpgrade = async () => {
+    // Hot path: pre-fetched URL is fresh → open synchronously inside
+    // the click handler. Synchronous = browser preserves the user
+    // gesture and the popup blocker doesn't fire. ~0 ms perceived.
+    if (prefetchedUrl && Date.now() - prefetchedUrl.at < PREFETCH_TTL_MS) {
+      window.open(prefetchedUrl.url, '_blank', 'noopener,noreferrer')
+      // Stale the cached URL so a follow-up click triggers a fresh
+      // session (Stripe sessions are single-use after payment).
+      setPrefetchedUrl(null)
+      return
+    }
+    // Cold path: pre-fetch failed or is stale → fall back to the
+    // original spinner-aware flow. Note: window.open AFTER an await
+    // can be popup-blocked on some browsers, but the spinner UX
+    // already cues the user to allow popups if needed.
     setUpgrading(true)
     try {
       const r = await callApi<{ url: string }>('/v1/billing/checkout', 'POST', {})
-      // Open Stripe Checkout in a NEW tab so the user can come back
-      // to this page after paying. window.location.assign would
-      // navigate away and lose the in-progress page state.
       window.open(r.url, '_blank', 'noopener,noreferrer')
     } catch (e) {
       alert(T.options.plan_upgradeFailPrefix + (e instanceof Error ? e.message : 'unknown'))
@@ -138,6 +174,10 @@ export function Options() {
     setAutoDl(v)
     await setAutoDownload(v)
   }
+  const onDisableHoursChange = async (h: number) => {
+    setDisableHours(h)
+    await setDisableDurationHours(h)
+  }
   const onLogout = async () => {
     setLoggingOut(true)
     try {
@@ -145,6 +185,19 @@ export function Options() {
       alert(T.options.logout_done)
     } finally {
       setLoggingOut(false)
+    }
+  }
+  // Sign-out + clear Chrome's cached OAuth tokens. Used when the user
+  // is on the wrong Google account (e.g. paid as A@... but Chrome is
+  // signed in as B@...) — without the cache wipe the next login would
+  // silently re-grab the same Google account.
+  const onSwitchAccount = async () => {
+    setSwitchingAccount(true)
+    try {
+      await chrome.runtime.sendMessage({ type: 'AUTH_SWITCH_ACCOUNT' })
+      alert(T.options.switchAccount_done)
+    } finally {
+      setSwitchingAccount(false)
     }
   }
 
@@ -220,6 +273,24 @@ export function Options() {
             </span>
           </span>
         </label>
+      </section>
+
+      <section className="mb-8">
+        <h2 className="font-semibold mb-2">{T.options.section_disableTimer}</h2>
+        <p className="text-sm text-gray-600 mb-4 leading-relaxed">
+          {T.options.disableTimer_hint}
+        </p>
+        <select
+          value={disableHours}
+          onChange={(e) => void onDisableHoursChange(Number(e.target.value))}
+          className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-200 bg-white"
+        >
+          {[1, 4, 12, 24, 72, 168].map(h => (
+            <option key={h} value={h}>
+              {interpolate(T.options.disableTimer_label_hours, { n: h })}
+            </option>
+          ))}
+        </select>
       </section>
 
       <section className="mb-8">
@@ -395,7 +466,17 @@ export function Options() {
             <span className="text-sm">
               {T.options.obsidian_autoSync}
               <span className="block text-xs text-gray-500 mt-0.5">
-                {T.options.obsidian_autoSync_hint}
+                {/* Inline brand mark — splits the locale string on the
+                    {icon} placeholder so each language can position the
+                    Obsidian gem wherever the sentence structure
+                    demands. The placeholder pattern mirrors the
+                    {path} substitution in obsidian_folder_pathPreview. */}
+                {T.options.obsidian_autoSync_hint.split('{icon}').map((part, i, arr) => (
+                  <Fragment key={i}>
+                    {part}
+                    {i < arr.length - 1 && <ObsidianMark size={12} />}
+                  </Fragment>
+                ))}
               </span>
             </span>
           </label>
@@ -409,6 +490,14 @@ export function Options() {
             <span className="inline-block w-3 h-3 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin align-[-2px] mr-1.5" />
             {T.options.plan_loading}
           </p>
+        ) : !me.quota ? (
+          // Defense-in-depth: an older backend deploy (or a transient
+          // partial response) may return `{ user }` without the `quota`
+          // field. Without this guard PlanSection accesses
+          // `quota.used_secs` on undefined → React unmounts → blank
+          // page. Fall back to plan-only rendering so the rest of the
+          // Options surface stays usable.
+          <p className="text-sm text-gray-500">{T.options.plan_loading}</p>
         ) : (
           <PlanSection
             plan={me.user.plan}
@@ -421,15 +510,50 @@ export function Options() {
       </section>
 
       <section>
-        <h2 className="font-semibold mb-2">{T.options.section_account}</h2>
-        <button
-          type="button"
-          onClick={onLogout}
-          disabled={loggingOut}
-          className="px-4 py-2 rounded border border-gray-300 hover:bg-gray-50 disabled:opacity-50"
-        >
-          {loggingOut ? T.options.logout_busy : T.options.logout}
-        </button>
+        <h2 className="font-semibold mb-3">{T.options.section_account}</h2>
+
+        {/* Identity card — shows the email + name of whichever Google
+         *  account is currently signed in. Critical surface: Pro users
+         *  whose Chrome is signed into a different Google account would
+         *  otherwise silently see Free-plan limits without realising
+         *  they're on the wrong account. Putting the email front and
+         *  centre makes the mismatch impossible to miss. */}
+        {me?.user && (
+          <div className="rounded-lg border border-gray-200 bg-white p-3 mb-3">
+            <div className="text-[11px] font-medium text-gray-500 uppercase tracking-wide mb-1">
+              {T.options.account_currentLabel}
+            </div>
+            <div className="text-sm font-semibold text-gray-900 break-all">
+              {me.user.email}
+            </div>
+            {me.user.name && (
+              <div className="text-xs text-gray-600 mt-0.5">{me.user.name}</div>
+            )}
+          </div>
+        )}
+
+        <p className="text-xs text-gray-600 mb-3 leading-relaxed">
+          {T.options.account_emailHint}
+        </p>
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={onSwitchAccount}
+            disabled={switchingAccount || loggingOut}
+            className="px-4 py-2 text-sm rounded border border-indigo-300 bg-indigo-50 text-indigo-800 hover:bg-indigo-100 disabled:opacity-50"
+          >
+            {switchingAccount ? T.options.switchAccount_busy : T.options.switchAccount}
+          </button>
+          <button
+            type="button"
+            onClick={onLogout}
+            disabled={loggingOut || switchingAccount}
+            className="px-4 py-2 text-sm rounded border border-gray-300 hover:bg-gray-50 disabled:opacity-50"
+          >
+            {loggingOut ? T.options.logout_busy : T.options.logout}
+          </button>
+        </div>
       </section>
     </div>
   )
@@ -506,8 +630,20 @@ function PlanSection({
 
       {!isPro && (
         <div className="rounded-lg border border-indigo-200 bg-indigo-50/40 p-4">
-          <div className="flex items-baseline justify-between mb-3">
+          <div className="flex items-baseline justify-between mb-2">
             <span className="text-sm font-semibold text-indigo-900">{T.options.plan_pro_header}</span>
+          </div>
+          {/* Price line — prominent enough to set expectations before the
+           *  user has to click "upgrade", but not in red/gold/orange to
+           *  avoid the "predatory upsell" feel. Indigo follows the brand
+           *  hue, the smaller note keeps the line legible. */}
+          <div className="mb-4">
+            <div className="text-2xl font-semibold text-indigo-900 leading-none tracking-tight">
+              {T.options.plan_pro_price}
+            </div>
+            <div className="text-[11px] text-indigo-700/70 mt-1">
+              {T.options.plan_pro_priceNote}
+            </div>
           </div>
           <ul className="text-xs text-gray-700 space-y-1.5 mb-4">
             <li>{T.options.plan_pro_feature1}</li>

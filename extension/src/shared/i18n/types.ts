@@ -39,6 +39,10 @@ export interface Translations {
     onboarding: string                   // "ここをクリックで録音開始 →"
     processing: string                   // "処理中 — クリックでモーダルを再表示"
     stop: string                          // "停止"
+    disable_tooltip: string              // hover title on the × badge — generic, no {hours} (we can't read it sync at mount)
+    disable_aria: string                 // aria-label for screen readers
+    disabled_toast: string               // confirmation toast body ("Lisna は {hours} 時間オフになりました")
+    disabled_undo: string                // undo link inside the toast ("元に戻す")
   }
 
   // ── Modal capture states (IdleSessionState) ────────────────────
@@ -110,10 +114,6 @@ export interface Translations {
     plan_free: string                    // "Free プラン"
     plan_pro: string                     // "Pro プラン"
     remainingTooltip: string             // "今月の残り時間 (リアルタイム)"
-    warn50: string                       // "今月の使用量が 50% を超えました"
-    warn80: string
-    warn95: string
-    blocked: string                      // "今月の使用量が上限に達しました"
     upgradeButton: string                // "Pro にアップグレード"
     // Banner-specific copy
     blocked_label: string                // "⛔ 月間使用枠を使い切りました"
@@ -126,6 +126,8 @@ export interface Translations {
     notLoggedIn: string                  // "未ログイン"
     settingsTitle: string                // "設定"
     settingsAria: string                 // "設定を開く"
+    openSidePanelTitle: string           // "サイドパネルを開く" — shortcut to Chrome side panel from modal header (embed-only)
+    openSidePanelAria: string            // "サイドパネルを開く"
     closeTitle: string                   // "閉じる"
     closeAria: string                    // "閉じる"
     logoutTooltip: string                // "ログアウト"
@@ -191,7 +193,7 @@ export interface Translations {
 
   // ── Login screen ───────────────────────────────────────────────
   login: {
-    title: string                        // "Study-Helper"
+    title: string                        // "Lisna"
     tagline: string                      // "講義動画をリアルタイムで\n要約・整理します"
     button: string                       // "Google でログイン"
     busy: string                         // "サインイン中…"
@@ -216,22 +218,48 @@ export interface Translations {
   sidePanel: {
     inlineHint: string                   // "動画ページで ✨ アイコン を..."
     historyHeader: string                // "履歴 ({n})"
-    historyEmpty: string                 // "まだ録音した講義がありません。..."
+    historyEmpty: string                 // "まだ録音した講義がありません。..." (legacy single-line; new path uses historyEmpty_title/_body)
+    historyEmpty_title: string           // bold heading for empty state
+    historyEmpty_body: string            // softer body line below the heading
     historyLoading: string               // "履歴を読み込み中…"
     historyFetchFailed: string           // "履歴の取得に失敗しました: "
+    historyFetchFailedAgain: string      // copy after 3 consecutive failures
     historyTitle_untitled: string        // "(無題のノート)"
     historyMeta_withOutline: string      // "📝 ノート ✓"
-    historyMeta_withSlides: string       // "📷 {n}"
     historyMeta_recordOnly: string       // "録音のみ"
     historyMeta_slidesOnly: string       // "📷 {n} 枚"
     historyMeta_outline_withSlides: string // "📝 ノート ✓  📷 {n}"
     relativeDate: { now: string; minAgo: string; hrAgo: string; dayAgo: string }
     inlineHintIcon: string               // "✨ アイコン"
+    // Search / filter
+    searchPlaceholder: string            // input placeholder when ≥8 sessions
+    searchEmpty: string                  // "No lectures match {q}"
+    searchClear: string                  // "Clear"
+    // Time grouping headers (visible when ≥5 sessions and no search)
+    timeGroup_today: string
+    timeGroup_yesterday: string
+    timeGroup_thisWeek: string
+    timeGroup_thisMonth: string
+    timeGroup_earlier: string
+    // Per-row delete (inline confirm)
+    deleteAria: string                   // aria-label for trash icon
+    deleteConfirmBody: string            // body text in inline confirm strip
+    deleteConfirm: string                // destructive confirm button label
+    deleteFailed: string                 // toast/inline message on delete API failure
+    // Per-row "open source video" icon button (sibling of trash icon)
+    openSourceAria: string               // aria-label / title for the external-link icon
+    // NotesViewer (history row click → renders the saved outline in side panel)
+    notesViewer_back: string             // back button label
+    notesViewer_loading: string          // skeleton/loading copy
+    notesViewer_notFound: string         // session row exists in history but /v1/session?url= returned null
+    notesViewer_noOutline: string        // session exists but outline is null (recording only)
+    notesViewer_loadFailed: string       // API call failed
+    notesViewer_openSource: string       // header button — open source URL at the timestamp
   }
 
   // ── Options page ───────────────────────────────────────────────
   options: {
-    pageTitle: string                    // "Study-Helper 設定"
+    pageTitle: string                    // "Lisna 設定"
     section_language: string             // "言語"
     label_systemLanguage: string         // "システム言語"
     label_noteLanguage: string           // "ノート生成言語"
@@ -242,6 +270,9 @@ export interface Translations {
     exportHint: string                   // "講義が終わったら、ノートとスライドを..."
     autoDownloadLabel: string            // "講義終了時に自動で .zip をダウンロードする"
     autoDownloadHint: string             // "手動で「⬇ .zip」ボタンを..."
+    section_disableTimer: string         // "一時オフ時間 / 잠시 끄기 시간"
+    disableTimer_hint: string            // explanation of × badge auto-resume timer
+    disableTimer_label_hours: string     // "{n} 時間 / {n} 시간 / etc" — interpolated
     section_obsidian: string             // "Obsidian 連携"
     obsidian_intro: string
     obsidian_setupHeader: string         // "セットアップ手順"
@@ -290,6 +321,8 @@ export interface Translations {
     plan_usageThisMonth: string          // "今月の使用量"
     plan_resetMonthly: string            // "毎月 1 日にリセット"
     plan_pro_header: string              // "Pro プランで広く長く使う"
+    plan_pro_price: string               // "¥980 / 月" (price stays JPY for all locales — pricing is JPY in Stripe)
+    plan_pro_priceNote: string           // tiny note under the price ("月額 / billed monthly / 월 결제 / 按月计费")
     plan_pro_feature1: string
     plan_pro_feature2: string
     plan_pro_feature3: string
@@ -299,9 +332,14 @@ export interface Translations {
     plan_upgrade_busy: string            // "準備中…"
     plan_upgradeFailPrefix: string
     section_account: string              // "アカウント"
+    account_currentLabel: string         // "ログイン中のアカウント"
+    account_emailHint: string            // "Pro にアップグレードしたアカウントと違う場合は…"
     logout: string                       // "ログアウト"
     logout_busy: string                  // "ログアウト中…"
     logout_done: string                  // "ログアウトしました。"
+    switchAccount: string                // "別の Google アカウントでログイン"
+    switchAccount_busy: string           // "切り替え中…"
+    switchAccount_done: string           // "ログアウトしました。サイドパネルから別のアカウントで…"
   }
 
   // ── Curate failure reason map (humanised in the modal) ─────────
@@ -312,7 +350,22 @@ export interface Translations {
     curator_failed: string
     no_outline_returned: string
     curate_cooldown: string
+    curate_in_progress: string           // backend lock held by concurrent curate
     fallback: string                     // unknown reason fallback
+  }
+
+  // ── ErrorToast translation map (regex match on backend message → friendly copy) ──
+  errorToast: {
+    unauthorized: string                  // HTTP 401 / unauthorized / invalid token
+    forbidden: string                     // HTTP 403
+    rateLimit: string                     // HTTP 429 / rate limit
+    server: string                        // HTTP 5xx
+    quotaExceeded: string                 // quota / limit reached / exceeded
+    audioCapture: string                  // no audio / getUserMedia / mic permission
+    permission: string                    // permission denied / NotAllowed
+    network: string                       // network / fetch / failed to fetch
+    oauthCancelled: string                // sign-in cancelled / oauth cancel
+    timeout: string                       // aborted / timeout
   }
 
   // ── Error boundary ─────────────────────────────────────────────

@@ -10,6 +10,14 @@ interface Props {
   onSuccess: (result: LoginResult) => void
 }
 
+// Resolve the Lisna brand icon at module-load time. Same artwork as
+// the toolbar action / chrome://extensions tile (declared once in
+// manifest.config.ts under public/icons/). Module-level constant
+// instead of useMemo avoids a per-mount chrome.runtime call when
+// the modal opens; the URL is stable for the lifetime of the
+// extension install.
+const LOGO_URL = chrome.runtime.getURL('public/icons/icon128.png')
+
 // Centered welcome screen shown when the user is unauthed. Vertically
 // centered in the viewport (was top-aligned with vast empty space
 // below) and the Google login button uses the official multicolour
@@ -34,9 +42,13 @@ export function LoginScreen({ currentUrl, onSuccess }: Props) {
   const privacyLines = T.login.privacyNote.split('\n')
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-8 py-10 text-center bg-gradient-to-b from-white to-gray-50">
-      <div className="w-14 h-14 mb-5 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg flex items-center justify-center text-white text-2xl">
-        ✨
-      </div>
+      <img
+        src={LOGO_URL}
+        alt={T.login.title}
+        width={56}
+        height={56}
+        className="w-14 h-14 mb-5 rounded-2xl shadow-lg"
+      />
       <h1 className="text-xl font-bold text-gray-900 mb-1.5">{T.login.title}</h1>
       <p className="text-sm text-gray-600 mb-7 leading-relaxed max-w-[260px]">
         {taglineLines.map((line, i) => (

@@ -1,10 +1,11 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   exportZip, exportHtml, pushToObsidian,
   type ExportInput,
 } from '../lib/export'
 import { getObsidianConfig } from '../../shared/storage'
 import { ObsidianMark } from './ObsidianMark'
+import { DownloadIcon, GlobeIcon } from './icons'
 import { useT, interpolate } from '../../shared/i18n'
 
 // ExportMenu — two-option export surface.
@@ -46,10 +47,61 @@ export function ExportMenu(props: Props) {
     void getObsidianConfig().then(c => setObsidianReady(!!c.apiUrl && !!c.apiKey))
   }, [])
 
+  // Stable id for the most-recent flash() timer. Rapid successive
+  // exports must NOT stack timers — each new flash supersedes the
+  // previous one (otherwise an older `setTransient(null)` could fire
+  // 1.6 s after a newer flash, blanking the just-displayed message).
+  // Cleared on unmount as well so a flash that's still pending when
+  // the menu closes can't run setTransient on an unmounted component.
+  const flashTimerRef = useRef<number | null>(null)
   const flash = (msg: string, ms = 1600) => {
+    if (flashTimerRef.current !== null) {
+      window.clearTimeout(flashTimerRef.current)
+    }
     setTransient(msg)
-    window.setTimeout(() => setTransient(null), ms)
+    flashTimerRef.current = window.setTimeout(() => {
+      flashTimerRef.current = null
+      setTransient(null)
+    }, ms)
   }
+  useEffect(() => {
+    return () => {
+      if (flashTimerRef.current !== null) {
+        window.clearTimeout(flashTimerRef.current)
+        flashTimerRef.current = null
+      }
+    }
+  }, [])
+
+  // Outside-click + Escape dismissal for the format-picker popover.
+  // The popover is anchored next to the ▾ button; a document-level
+  // mousedown handler closes it when the user clicks anywhere outside
+  // the popover or its trigger. Listeners are only attached while
+  // open=true so we're not paying for them on every render.
+  // The triggerRef exclusion prevents a click on ▾ from racing the
+  // toggle: without it, mousedown would close via outside-click and
+  // the subsequent click would toggle back open.
+  const popoverRef = useRef<HTMLDivElement | null>(null)
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
+  useEffect(() => {
+    if (!open) return
+    const onMouseDown = (e: MouseEvent) => {
+      const target = e.target as Node | null
+      if (!target) return
+      if (popoverRef.current?.contains(target)) return
+      if (triggerRef.current?.contains(target)) return
+      setOpen(false)
+    }
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onMouseDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onMouseDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
 
   const onClickPrimary = async () => {
     if (busy) return
@@ -76,13 +128,13 @@ export function ExportMenu(props: Props) {
   // Disable .zip when there are no slides — a zip with just the .md
   // and no images is silly. Plain .html remains the right answer.
   const zipDisabled = props.slides.length === 0
-  // Each label carries its own icon node so the Obsidian variant can
-  // render the brand mark inline without polluting the string with an
-  // emoji approximation. Other formats keep their existing emoji
-  // since those are universal (download arrow, globe).
+  // Each label carries its own icon node — outline SVGs that follow
+  // currentColor (so they read as part of the surrounding text)
+  // instead of emoji glyphs whose OS-rendered colors clashed with
+  // the indigo / violet / yellow brand palette.
   const labels: Record<ExportFormat, { icon: ReactNode; primary: string; menu: string; subtitle: string }> = {
     zip: {
-      icon: <span aria-hidden="true">⬇</span>,
+      icon: <DownloadIcon size={14} />,
       primary: T.export.zip.primary,
       menu: T.export.zip.menu,
       subtitle: zipDisabled
@@ -90,7 +142,7 @@ export function ExportMenu(props: Props) {
         : interpolate(T.export.zip.subtitle_withSlides, { n: props.slides.length }),
     },
     html: {
-      icon: <span aria-hidden="true">🌐</span>,
+      icon: <GlobeIcon size={14} />,
       primary: T.export.html.primary,
       menu: T.export.html.menu,
       subtitle: props.slides.length > 0
@@ -125,6 +177,7 @@ export function ExportMenu(props: Props) {
       </button>
 
       <button
+        ref={triggerRef}
         onClick={() => setOpen(o => !o)}
         disabled={busy}
         className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 disabled:text-gray-500 text-white text-xs font-medium py-2 px-2 rounded-r-lg border-l border-emerald-500/40 transition"
@@ -135,6 +188,7 @@ export function ExportMenu(props: Props) {
 
       {open && (
         <div
+          ref={popoverRef}
           className="absolute bottom-full mb-2 right-0 bg-white border border-gray-200 rounded-lg shadow-xl overflow-hidden min-w-[280px] z-10"
           onClick={(e) => e.stopPropagation()}
         >

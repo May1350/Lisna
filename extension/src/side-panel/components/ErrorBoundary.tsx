@@ -1,5 +1,6 @@
 import { Component, type ReactNode, type ErrorInfo } from 'react'
 import { t } from '../../shared/i18n'
+import { reportError } from '../../shared/errors'
 
 // React error boundary covering the entire side-panel / modal tree.
 // Without this, an uncaught render error in any descendant blanks out
@@ -27,6 +28,12 @@ export class ErrorBoundary extends Component<Props, State> {
   componentDidCatch(error: Error, info: ErrorInfo): void {
     // eslint-disable-next-line no-console
     console.error('[SH:error-boundary] React render failure:', error, info)
+    void reportError(error, {
+      context: 'react-error-boundary',
+      severity: 'fatal',
+      metadata: { componentStack: info.componentStack },
+      silent: true, // boundary already shows fallback UI; toast would be redundant
+    })
   }
 
   reset = (): void => {

@@ -1,44 +1,64 @@
+import type { APIGatewayProxyHandlerV2 } from 'aws-lambda'
 import Stripe from 'stripe'
-import { withAuth } from '../lib/auth.js'
+import { verifyJwt } from '../lib/auth.js'
 import { query } from '../lib/db.js'
+import { loadAppSecrets } from '../lib/env.js'
 
-export const handler = withAuth(async (_event, payload) => {
-  // Plan-mandated apiVersion '2025-09-30.acacia'. The currently-installed
-  // Stripe SDK has moved its single-literal type to a newer version
-  // ('2026-04-22.dahlia'), but our integration was tested against the
-  // 2025-09 snapshot and needs to keep that exact wire format. Cast
-  // through `unknown` to bypass the narrow union type — this is the
-  // canonical pattern when the SDK's literal type drifts ahead of the
-  // operator-specified API version that you've already verified works.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const stripe = new Stripe(
-    process.env.STRIPE_SECRET_KEY!,
-    { apiVersion: '2025-09-30.acacia' as any },
-  )
+export const handler: APIGatewayProxyHandlerV2 = async (event) => {
+  await loadAppSecrets()
+  const auth = event.headers.authorization || event.headers.Authorization
+  if (!auth?.startsWith('Bearer ')) return { statusCode: 401, body: 'unauthorized' }
+  let payload
+  try { payload = await verifyJwt(auth.slice(7)) }
+  catch { return { statusCode: 401, body: 'invalid' } }
+
+  // Do NOT pin apiVersion — use whatever version the installed Stripe
+  // SDK was built against. We previously pinned to '2025-09-30.acacia'
+  // which Stripe deprecated, taking down all upgrades with a 400
+  // "Invalid Stripe API version". The canonical Stripe-recommended
+  // pattern is "upgrade SDK ⇒ upgrade pinned version together"; the
+  // simplest expression of that is to let the SDK default. When we
+  // bump `stripe@^N` in package.json we get the SDK's then-current
+  // pinned version automatically and the typings stay in sync.
+  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)
   const userRows = await query<{ email: string; stripe_customer_id: string | null }>(
     `SELECT email, stripe_customer_id FROM users WHERE id = $1`, [payload.sub]
   )
   if (userRows.length === 0) return { statusCode: 404, body: 'user not found' }
-  let customerId = userRows[0].stripe_customer_id
-  if (!customerId) {
-    const c = await stripe.customers.create({ email: userRows[0].email, metadata: { user_id: payload.sub } })
-    customerId = c.id
-    await query(`UPDATE users SET stripe_customer_id = $1 WHERE id = $2`, [customerId, payload.sub])
-  }
+  const existingCustomerId = userRows[0].stripe_customer_id
 
-  const session = await stripe.checkout.sessions.create({
+  // Read the public-facing site root from env. Set in CDK as
+  // PUBLIC_WEB_BASE_URL (commonEnv) so success/cancel pages are reachable.
+  const baseUrl = process.env.PUBLIC_WEB_BASE_URL ?? 'https://lisna-may1350s-projects.vercel.app'
+
+  // First-time upgraders: pass `customer_email` instead of `customer`.
+  // Stripe auto-creates a customer record DURING checkout (only when
+  // the user actually pays), and the resulting customer ID arrives on
+  // the `checkout.session.completed` webhook for us to persist. This
+  // saves a full ~500-1000 ms `stripe.customers.create` round-trip
+  // through NAT on every first upgrade. Repeat upgraders (already
+  // have a customer ID) keep using `customer` so we don't create
+  // duplicates with the same email.
+  const sessionParams: Stripe.Checkout.SessionCreateParams = {
     mode: 'subscription',
-    customer: customerId,
     line_items: [{ price: process.env.STRIPE_PRICE_PRO, quantity: 1 }],
-    success_url: 'https://study-helper.example.com/success?session_id={CHECKOUT_SESSION_ID}',
-    cancel_url: 'https://study-helper.example.com/cancel',
+    success_url: `${baseUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${baseUrl}/cancel`,
     locale: 'ja',
     client_reference_id: payload.sub,
-  })
+    metadata: { user_id: payload.sub },
+  }
+  if (existingCustomerId) {
+    sessionParams.customer = existingCustomerId
+  } else {
+    sessionParams.customer_email = userRows[0].email
+    sessionParams.customer_creation = 'always'
+  }
+  const session = await stripe.checkout.sessions.create(sessionParams)
 
   return {
     statusCode: 200,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url: session.url }),
   }
-})
+}

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Outline, OutlineSection } from '../api-client'
 import type { SlideItem } from '../../shared/types'
-import { useT, interpolate } from '../../shared/i18n'
+import { useT, interpolate, getLang } from '../../shared/i18n'
 
 // Renders the curated lecture outline produced by the backend's curator
 // pass. The outline is REPLACED on every curator run (every ~30 s of
@@ -42,6 +42,19 @@ interface Props {
    *  edit immediately so the H1 here matches what the export will
    *  produce. Falls back to outline.title when omitted. */
   displayTitle?: string
+  /** Last-updated timestamp (epoch ms) for the displayed outline.
+   *  Single source of truth — App.tsx sets it from sessions.updated_at
+   *  on hydrate (when an outline already exists) and to Date.now() on
+   *  every fresh curate completion (HTTP response, WS broadcast, or
+   *  postMessage forward). null means "no outline yet" — indicator
+   *  is hidden. The component used to derive its own refreshedAt
+   *  with a "first content arrival" branch keyed on this prop, but
+   *  that mishandled the case where a session row had a recent
+   *  updated_at (from audio chunks) and a NULL outline column — the
+   *  first curate's outline arrival would inherit the audio-chunk
+   *  timestamp instead of stamping NOW. Lifting authority to App.tsx
+   *  fixed it cleanly. */
+  outlineUpdatedAt?: number | null
 }
 
 // Bucket slides by section. Each section i with ts T_i owns slides
@@ -63,35 +76,33 @@ function bucketSlides(sections: OutlineSection[], slides: SlideItem[]): SlideIte
   return buckets
 }
 
-export function OutlineView({ outline, slides = [], onJump, displayTitle }: Props) {
+export function OutlineView({ outline, slides = [], onJump, displayTitle, outlineUpdatedAt }: Props) {
   const T = useT()
-  // Track "the outline was just refreshed" so we can flash a brief visual
-  // signal — the curator rewrites the whole document each run, and without
-  // a cue the user can't tell that earlier sections were just rewritten.
-  // The effect runs only when `outline` reference changes (React's
-  // dependency check), so the JSON.stringify diff is the only reliable
-  // way to detect "actual content change vs no-op redelivery". An
-  // earlier reference-equality shortcut was dead code — App.tsx
-  // deserialises a fresh object from each WS / postMessage delivery.
-  const [refreshedAt, setRefreshedAt] = useState<number | null>(null)
+  // Flash a brief visual cue whenever the outline content actually
+  // changes — the curator rewrites the whole document each run, and
+  // without this signal the user can't tell that earlier sections
+  // were just rewritten. The JSON.stringify diff filters out no-op
+  // redeliveries (WS reconnect can replay the same outline; that
+  // shouldn't flash). The first non-null outline arrival skips the
+  // flash so re-opening a modal on a previously-saved note doesn't
+  // pretend something just changed. Timestamp display is decoupled
+  // from this — the indicator pulls from the outlineUpdatedAt prop
+  // directly, so user-triggered regenerates with byte-identical JSON
+  // (gpt-4o-mini deterministic on unchanged inputs) still update the
+  // visible "X分前" reading even though no flash fires.
+  const [flashing, setFlashing] = useState(false)
   const lastSerialisedRef = useRef<string>('')
   useEffect(() => {
     if (!outline) return
     const serialised = JSON.stringify(outline)
     if (serialised === lastSerialisedRef.current) return
+    const isFirst = lastSerialisedRef.current === ''
     lastSerialisedRef.current = serialised
-    setRefreshedAt(Date.now())
-  }, [outline])
-
-  // Auto-clear the flash class after the animation has played so future
-  // updates re-trigger it.
-  const [flashing, setFlashing] = useState(false)
-  useEffect(() => {
-    if (refreshedAt === null) return
+    if (isFirst) return  // hydrating into the modal — content didn't "just change"
     setFlashing(true)
     const t = window.setTimeout(() => setFlashing(false), 800)
     return () => window.clearTimeout(t)
-  }, [refreshedAt])
+  }, [outline])
 
   if (!outline || outline.sections.length === 0) {
     return (
@@ -102,15 +113,15 @@ export function OutlineView({ outline, slides = [], onJump, displayTitle }: Prop
   }
 
   return (
-    <div className={`flex-1 overflow-y-auto px-3 py-3 space-y-4 transition-colors duration-700 ${flashing ? 'bg-blue-50/60' : 'bg-transparent'}`}>
+    <div className={`flex-1 overflow-y-auto px-3 py-3 space-y-4 transition-colors duration-700 ${flashing ? 'bg-indigo-50/60' : 'bg-transparent'}`}>
       <div className="flex items-baseline justify-between gap-2">
         {(displayTitle?.trim() || outline.title) && (
           <h2 className="text-base font-bold text-gray-900 leading-snug">
             {displayTitle?.trim() || outline.title}
           </h2>
         )}
-        {refreshedAt !== null && (
-          <RefreshIndicator at={refreshedAt} />
+        {outlineUpdatedAt != null && (
+          <RefreshIndicator at={outlineUpdatedAt} />
         )}
       </div>
       <SectionList outline={outline} slides={slides} onJump={onJump} />
@@ -151,27 +162,65 @@ function SectionList({
   )
 }
 
-// Renders "X seconds ago" / "X分前" relative to the last refresh. Stops
-// ticking after 10 minutes since the absolute time becomes more useful
-// than a rolling counter and the interval was leaking CPU+battery on
-// long-idle modal sessions.
+// Maps our internal language codes to BCP 47 locales for Intl.DateTimeFormat.
+// Without this, `new Intl.DateTimeFormat('ja')` works but `'ko'` / `'zh'`
+// pick the platform default which can render the wrong calendar / month
+// abbreviation. Pinning to the country form gives the user the exact
+// glyphs they see in the rest of the modal.
+const BCP47: Record<'ja' | 'en' | 'ko' | 'zh', string> = {
+  ja: 'ja-JP',
+  en: 'en-US',
+  ko: 'ko-KR',
+  zh: 'zh-CN',
+}
+
+// Locale-aware absolute time. Drops the year when the timestamp is in
+// the same calendar year as "now" — for a returning-user reading a
+// note from last week, "10月3日 14:32" is plenty; "2026年" prefix is
+// noise. Falls back to the full form across years.
+function formatAbsolute(ts: number): string {
+  const d = new Date(ts)
+  const now = new Date()
+  const locale = BCP47[getLang()]
+  const sameYear = d.getFullYear() === now.getFullYear()
+  return new Intl.DateTimeFormat(locale, {
+    year: sameYear ? undefined : 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(d)
+}
+
+// Renders the outline's last-update time. Two display modes:
+//   - within 24 h: relative ("X分前") with the existing tick loop so the
+//     label stays accurate as time elapses.
+//   - 24 h or older: absolute date+time. Once a note is "yesterday or
+//     before" the relative form ("48時間前") is harder to map to a real
+//     calendar moment than just showing the date, and we can stop the
+//     tick interval entirely (saves CPU/battery on long-idle modals).
+//
+// Re-evaluated when `at` changes — fresh curate / WS update flips the
+// indicator back to the rolling-counter mode if the new timestamp is
+// recent.
 function RefreshIndicator({ at }: { at: number }) {
   const T = useT()
-  const STOP_TICKING_AFTER_SECS = 600
+  const ABSOLUTE_AFTER_SECS = 86_400  // 24 h
   const [, setTick] = useState(0)
   useEffect(() => {
     const initialAgo = Math.floor((Date.now() - at) / 1000)
-    if (initialAgo > STOP_TICKING_AFTER_SECS) return
+    if (initialAgo >= ABSOLUTE_AFTER_SECS) return
     const id = window.setInterval(() => {
       const ago = Math.floor((Date.now() - at) / 1000)
       setTick(t => t + 1)
-      if (ago > STOP_TICKING_AFTER_SECS) window.clearInterval(id)
-    }, 5000)
+      if (ago >= ABSOLUTE_AFTER_SECS) window.clearInterval(id)
+    }, 30_000)
     return () => window.clearInterval(id)
   }, [at])
   const ago = Math.floor((Date.now() - at) / 1000)
   let label: string
-  if (ago < 5) label = T.outline.refresh_just
+  if (ago >= ABSOLUTE_AFTER_SECS) label = formatAbsolute(at)
+  else if (ago < 5) label = T.outline.refresh_just
   else if (ago < 60) label = interpolate(T.outline.refresh_secAgo, { n: ago })
   else if (ago < 3600) label = interpolate(T.outline.refresh_minAgo, { n: Math.floor(ago / 60) })
   else label = interpolate(T.outline.refresh_hrAgo, { n: Math.floor(ago / 3600) })
@@ -200,7 +249,7 @@ function SectionBlock({
   // renders them as plain text; the markdown export pipeline handles
   // their wikilink/callout formatting separately.
   return (
-    <section className="space-y-2 border-l-2 border-blue-200 pl-3">
+    <section className="space-y-2">
       <div className="flex items-baseline justify-between gap-2">
         <h3 className="text-sm font-semibold text-gray-900 leading-snug">
           {section.heading}
@@ -211,9 +260,9 @@ function SectionBlock({
       {slides.length > 0 && <SlideStrip slides={slides} onJump={onJump} />}
 
       {section.takeaway && (
-        <div className="bg-blue-50/60 border-l-2 border-blue-300 pl-2 pr-2 py-1 rounded-r">
-          <p className="text-xs text-gray-800 leading-snug">
-            <span className="text-[10px] uppercase tracking-wider text-blue-500 font-medium mr-1">{T.outline.summary_label}</span>
+        <div className="bg-indigo-50 px-2.5 py-1.5 rounded">
+          <p className="text-xs text-gray-900 leading-snug font-medium">
+            <span className="text-[10px] uppercase tracking-wider text-indigo-700 font-semibold mr-1.5">{T.outline.summary_label}</span>
             {section.takeaway}
           </p>
         </div>
@@ -230,10 +279,10 @@ function SectionBlock({
           {section.key_terms.map((kt, i) => (
             <li
               key={`${kt.term}-${i}`}
-              className="bg-amber-50 border border-amber-100 rounded px-2 py-1.5 text-xs"
+              className="bg-violet-50 rounded px-2 py-1.5 text-xs"
             >
               <div className="flex items-baseline justify-between gap-2">
-                <span className="font-semibold text-amber-900">{kt.term}</span>
+                <span className="font-semibold text-violet-700">{kt.term}</span>
                 <TsButton ts={kt.ts} onJump={onJump} />
               </div>
               <div className="text-gray-700 mt-0.5 leading-relaxed">
@@ -247,11 +296,18 @@ function SectionBlock({
       {section.points.length > 0 && (
         <ul className="space-y-1">
           {section.points.map((p, i) => (
-            <li key={`${p.text.slice(0, 24)}-${i}`} className="text-xs leading-relaxed flex gap-2">
-              <span className={p.important ? 'text-amber-600 shrink-0' : 'text-gray-400 shrink-0'}>
+            <li
+              key={`${p.text.slice(0, 24)}-${i}`}
+              className={
+                p.important
+                  ? 'text-xs leading-relaxed flex gap-2 items-baseline bg-yellow-100 rounded px-2 py-1 -mx-1'
+                  : 'text-xs leading-relaxed flex gap-2 items-baseline'
+              }
+            >
+              <span className={p.important ? 'text-yellow-700 shrink-0 font-semibold' : 'text-gray-400 shrink-0'}>
                 {p.important ? '★' : '•'}
               </span>
-              <span className={p.important ? 'text-gray-900 font-medium' : 'text-gray-700'}>
+              <span className={p.important ? 'text-gray-900 font-semibold flex-1' : 'text-gray-700 flex-1'}>
                 {p.text}
               </span>
               <TsButton ts={p.ts} onJump={onJump} />
@@ -282,7 +338,7 @@ function SectionBlock({
           {section.related_terms.map((term, i) => (
             <span
               key={`${term}-${i}`}
-              className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded font-medium"
+              className="text-[10px] bg-violet-50 text-violet-700 px-1.5 py-0.5 rounded font-semibold"
               title={T.outline.relatedTermsTitle}
             >
               {term}
@@ -292,9 +348,9 @@ function SectionBlock({
       )}
 
       {section.check_question && (
-        <div className="bg-purple-50/60 border-l-2 border-purple-300 pl-2 pr-2 py-1 rounded-r">
+        <div className="bg-yellow-50 px-2.5 py-1.5 rounded">
           <p className="text-xs text-gray-800 leading-snug">
-            <span className="text-[10px] uppercase tracking-wider text-purple-500 font-medium mr-1">{T.outline.confirm_label}</span>
+            <span className="text-[10px] uppercase tracking-wider text-yellow-700 font-semibold mr-1.5">{T.outline.confirm_label}</span>
             {section.check_question}
           </p>
         </div>
@@ -311,7 +367,7 @@ function TsButton({ ts, onJump }: { ts: number; onJump?: (ts: number) => void })
   return (
     <button
       onClick={() => onJump(ts)}
-      className="text-[10px] text-gray-400 hover:text-blue-600 font-mono shrink-0 transition-colors"
+      className="text-[10px] text-gray-400 hover:text-indigo-600 font-mono shrink-0 transition-colors"
       title={T.outline.tsBackTitle}
     >
       {fmtTs(ts)}

@@ -38,6 +38,12 @@ export interface LoginResult {
     id: string
     slides: SlideItem[]
     outline: OutlineShape | null
+    // ISO 8601 timestamp from sessions.updated_at — the actual last
+    // time the outline (or any session field) was modified server-
+    // side. Drives the modal's "X分前" indicator instead of the
+    // modal-open time. Optional for backward compatibility with
+    // older backend deploys that don't include the field.
+    updated_at?: string
     // Legacy `notes` field is still in the backend response shape but
     // unused since Phase 6.1 — see api-client.ts for the rationale.
   } | null
@@ -80,7 +86,25 @@ export async function loginWithGoogle(currentUrl?: string): Promise<LoginResult>
       ...(currentUrl ? { current_url: currentUrl } : {}),
     }),
   })
-  if (!r.ok) throw new Error('login failed: ' + r.status)
+  if (!r.ok) {
+    // Surface the backend's structured `{error: "..."}` reason instead
+    // of showing only the HTTP status. The user-facing LoginScreen
+    // takes whatever Error.message we throw and renders it as the
+    // failure label; "login failed: 400" alone gave operators nothing
+    // to diagnose with. Best-effort body parse — fall back to status
+    // if the response isn't JSON or doesn't carry an error field.
+    let detail = ''
+    try {
+      const body = await r.text()
+      if (body) {
+        try {
+          const parsed = JSON.parse(body) as { error?: unknown }
+          if (typeof parsed.error === 'string' && parsed.error) detail = parsed.error
+        } catch { detail = body.slice(0, 200) }
+      }
+    } catch { /* response already consumed; ignore */ }
+    throw new Error(`login failed: ${r.status}${detail ? ` — ${detail}` : ''}`)
+  }
   const data = await r.json() as {
     token: string
     user: User
@@ -88,6 +112,7 @@ export async function loginWithGoogle(currentUrl?: string): Promise<LoginResult>
       id: string
       slides: SlideItem[]
       outline: OutlineShape | null
+      updated_at?: string
     } | null
   }
   await setToken(data.token)
@@ -98,6 +123,33 @@ export async function loginWithGoogle(currentUrl?: string): Promise<LoginResult>
 export async function logout(): Promise<void> {
   await setToken(null)
   await setUser(null)
+}
+
+/**
+ * Hard reset for "switch Google account". Clears the backend session
+ * AND every cached OAuth token Chrome holds for this extension. Without
+ * the cache wipe, the next getAuthToken({interactive:false}) silently
+ * returns whichever Google account Chrome is signed into → the user
+ * lands right back on the same account they wanted to leave.
+ *
+ * After this call, the next loginWithGoogle() will go through
+ * getAuthToken({interactive:true}). For Chrome profiles with multiple
+ * Google accounts added (Add another account), this surfaces the
+ * account picker. For single-account Chrome profiles, the user still
+ * needs to add the target account at the Chrome level — there's no
+ * Google account in Chrome that we don't know about.
+ */
+export async function switchAccount(): Promise<void> {
+  await setToken(null)
+  await setUser(null)
+  await new Promise<void>((resolve) => {
+    chrome.identity.clearAllCachedAuthTokens(() => {
+      // We intentionally don't surface chrome.runtime.lastError here —
+      // a missing-cache error is benign and means we're already in the
+      // desired clean state.
+      resolve()
+    })
+  })
 }
 
 export async function authedFetch(

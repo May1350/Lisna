@@ -19,7 +19,6 @@ const Body = z.object({
   message: 'either id_token or access_token is required',
 })
 
-interface NoteRow { ts: number; text: string; important: boolean }
 interface SlideRow { ts: number; ocr_text?: string; image_key?: string }
 interface OutlineRow { title: string; sections: unknown[] }
 
@@ -38,21 +37,29 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       ? await verifyGoogleIdToken(id_token)
       : await verifyGoogleAccessToken(access_token!)
 
-    const existing = await query<{ id: string; plan: 'free' | 'pro' }>(
-      `SELECT id, plan FROM users WHERE google_sub = $1`, [g.sub]
+    // Single round-trip upsert: insert if new, refresh email/display_name on
+    // returning users so profile changes (Google name update, email migration)
+    // propagate without a separate UPDATE path.
+    //
+    // NOTE: do NOT add `updated_at = NOW()` here. The users table schema
+    // (migrations/001_initial.sql) only has `created_at`. Postgres parses
+    // the whole statement before evaluating ON CONFLICT, so referencing
+    // a non-existent column 400s every login — including first-time
+    // sign-ups where ON CONFLICT never fires. If "when was this user
+    // last refreshed?" becomes a need, add an explicit migration first
+    // (`ALTER TABLE users ADD COLUMN updated_at TIMESTAMPTZ NOT NULL
+    // DEFAULT NOW()`) and only then re-introduce the SET line.
+    const upserted = await query<{ id: string; plan: 'free' | 'pro' }>(
+      `INSERT INTO users (google_sub, email, display_name)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (google_sub) DO UPDATE
+         SET email = EXCLUDED.email,
+             display_name = EXCLUDED.display_name
+       RETURNING id, plan`,
+      [g.sub, g.email, g.name ?? null]
     )
-    let userId: string
-    let plan: 'free' | 'pro' = 'free'
-    if (existing.length > 0) {
-      userId = existing[0].id
-      plan = existing[0].plan
-    } else {
-      const inserted = await query<{ id: string }>(
-        `INSERT INTO users (google_sub, email, display_name) VALUES ($1, $2, $3) RETURNING id`,
-        [g.sub, g.email, g.name ?? null]
-      )
-      userId = inserted[0].id
-    }
+    const userId = upserted[0].id
+    const plan = upserted[0].plan
 
     // 90 days. Personal study tool — long TTL is fine; it just means the user
     // re-authenticates with Google ~quarterly instead of weekly. Keeps the
@@ -62,12 +69,17 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     // Optional eager-load: if the caller passed current_url, look up the
     // existing session for that (user, url) pair in the same Lambda invocation
     // so the modal can render notes immediately without GET /v1/session.
-    let currentSession: { id: string; notes: NoteRow[]; slides: SlideRow[]; outline: OutlineRow | null } | null = null
+    // updated_at lets the modal show the actual last-edit time of the
+    // outline (set by curate/stream handlers via NOW()) instead of
+    // re-stamping to "just now" every time the modal hydrates a saved
+    // session. pg returns TIMESTAMP as Date; JSON.stringify emits an
+    // ISO string the client parses with new Date(...).getTime().
+    let currentSession: { id: string; slides: SlideRow[]; outline: OutlineRow | null; updated_at: Date } | null = null
     if (current_url) {
       try {
         const urlHash = createHash('sha256').update(normalizeUrl(current_url)).digest('hex')
-        const sessRow = await query<{ id: string; notes: NoteRow[]; slides: SlideRow[]; outline: OutlineRow | null }>(
-          `SELECT id, notes, slides, outline FROM sessions WHERE user_id = $1 AND url_hash = $2`,
+        const sessRow = await query<{ id: string; slides: SlideRow[]; outline: OutlineRow | null; updated_at: Date }>(
+          `SELECT id, slides, outline, updated_at FROM sessions WHERE user_id = $1 AND url_hash = $2`,
           [userId, urlHash],
         )
         if (sessRow.length > 0) currentSession = sessRow[0]
@@ -87,9 +99,20 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       }),
     }
   } catch (e) {
+    // Without this breadcrumb the previous version returned 400 with no
+    // CloudWatch trace — production debugging had to go through the
+    // extension's user-facing toast (which only had the HTTP status,
+    // not the message). When login fails, the operator now has both:
+    // 1) the backend log (here) with full message + stack, 2) the
+    // extension's LoginScreen showing the response body's {error}.
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error('[auth-google] login failed', {
+      msg,
+      stack: e instanceof Error ? e.stack : undefined,
+    })
     return {
       statusCode: 400,
-      body: JSON.stringify({ error: e instanceof Error ? e.message : 'unknown' }),
+      body: JSON.stringify({ error: msg }),
     }
   }
 }

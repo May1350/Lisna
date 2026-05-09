@@ -3,16 +3,22 @@ import pkg from './package.json'
 
 export default defineManifest({
   manifest_version: 3,
-  name: 'Study-Helper',
-  // Chrome Web Store displays this in search results + listing card.
-  // Capped at 132 chars (Chrome's hard limit). Front-load the core
-  // value (リアルタイム要約) and the niche (講義動画).
-  description: '講義動画をリアルタイムで要約・整理する AI 学習アシスタント。スライド自動キャプチャと Obsidian 連携対応。',
+  name: 'Lisna',
+  // Fixed extension ID key — ensures identical ID across all machines/installs.
+  // Derived ID: idbgminbpkbiippdncoooeelijagfggp
+  // Register this ID in GCP → OAuth 클라이언트 → 승인된 원본:
+  //   chrome-extension://idbgminbpkbiippdncoooeelijagfggp
+  key: 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtWMU1uIh/76E+yqhOl4JanGQdasyOFJ7SFLgHjnX2qCnFj7pd9/m6vKklEN4JlqRY+ZQrRPYDNI2GwTIlqM7hjsQ+voT+Z4si0xhvvUtEtNW1JM5gldi52Krme25TIyEQ6lenbSA/LUwnKuRsfyXNileyWhiM+AEYPbM5DUJ0cX3ynt47+d8UhQ2l6B8XZmKMbQXkKRV7FqENq1eNIblmjijwRUxpD2SUkKbDhQbhPjsH/OswftoHeUAEGKl0AXUZKAod6skHVHlwjEDj6gE6TU+5lK2185mH12s0DwEXZZwbu6XyG5agpxCjNY4aa3QLISDXiYWiDrKvRhx6AYadQIDAQAB',
+  description: '講義や会議をリアルタイムで聴き取り、構造化されたノートを自動生成するAIアシスタント',
   version: pkg.version,
+  // Chrome Web Store requires homepage_url. Used as Privacy/Terms link in
+  // store listing and the extension's chrome://extensions detail page.
+  // TODO: replace with custom domain (lisna.ai etc.) once acquired.
+  homepage_url: 'https://lisna-may1350s-projects.vercel.app',
   // No `default_locale` — we don't use chrome.i18n / __MSG_*__ message references
   // (all UI strings are inline plain Japanese). Setting default_locale without a
   // matching `_locales/<lang>/messages.json` makes Chrome reject the extension.
-  permissions: ['storage', 'sidePanel', 'identity', 'tabs'],
+  permissions: ['storage', 'sidePanel', 'identity', 'tabs', 'alarms'],
   host_permissions: ['<all_urls>'],
   // OAuth2 client used by chrome.identity.getAuthToken — Chrome Extension
   // type credential pointed at this extension's ID. Lets us skip the
@@ -22,7 +28,12 @@ export default defineManifest({
     client_id: '820197116751-p3bgg6nac677qkfq6tmi6j7afnnca4ak.apps.googleusercontent.com',
     scopes: ['openid', 'email', 'profile'],
   },
-  action: { default_title: 'Study-Helper' },
+  icons: {
+    16: 'public/icons/icon16.png',
+    48: 'public/icons/icon48.png',
+    128: 'public/icons/icon128.png',
+  },
+  action: { default_title: 'Lisna', default_icon: 'public/icons/icon128.png' },
   side_panel: { default_path: 'src/side-panel/index.html' },
   options_ui: { page: 'src/options/index.html', open_in_tab: true },
   background: {

@@ -1,21 +1,10 @@
-// On-demand outline curator. Invoked by /v1/session/curate when the user
-// pauses the lecture, the video ends, or they hit the manual "ノートを
-// 生成" button. Reads the FULL transcript-so-far + the current outline
-// and re-generates a structured, hierarchical study outline.
-//
-// History: Phase 4 ran this as a "rolling" curator firing every ~30 s
-// during playback (~120 calls/h on a 1-h lecture). Phase 6.1 (2026-04-29)
-// pivoted to on-demand because (a) the user almost never wants the
-// outline mid-playback — they want it when they STOP to review, and
-// (b) on-demand cuts curator calls from ~120/h to 1-3/h, slashing LLM
-// cost by ~95%, while improving quality because the model sees the
-// complete transcript instead of a 16 K-char tail window.
-//
-// Output is the full curated tree (sections → key_terms / examples /
-// points / takeaway / check_question / related_terms), REPLACING the
-// previous tree wholesale. The previousOutline param lets the model
-// stay consistent with prior structure when the user re-curates after
-// adding more transcript.
+// On-demand outline curator (Phase 6.1). Invoked by POST /v1/session/curate
+// when the user pauses, stops, ends the video, or hits "📝 ノートを生成".
+// Each call reads the full transcript-so-far + the previous outline and
+// returns a fresh, structured outline that REPLACES the prior version —
+// the model is free to reorganise, merge, rename, or drop sections.
+// No per-chunk path: the streaming hot path only handles STT and transcript
+// broadcast; outline generation runs only when the user asks for it.
 
 import OpenAI from 'openai'
 
@@ -60,8 +49,6 @@ export interface Outline {
   related_lectures?: string[] // adjacent lectures or external concepts that link from this one
 }
 
-export type CuratorLanguage = 'auto' | 'ja' | 'en' | 'ko' | 'zh'
-
 export interface CuratorRequest {
   /** Whole transcript so far, time-bucketed per chunk so the LLM can
    * estimate timestamps for each insight. */
@@ -76,14 +63,6 @@ export interface CuratorRequest {
    * gets a clean rewrite opportunity even if it's been too conservative
    * about touching old sections in the incremental runs. */
   forceFullRewrite?: boolean
-  /** Output language for the generated outline (Phase i18n).
-   *   - 'auto'  → match the transcript's source language (LLM detects)
-   *   - 'ja' / 'en' / 'ko' / 'zh' → force the output to that language
-   *
-   * Key terms / proper nouns / numbers stay in their original form;
-   * only the prose (definitions, summaries, points, etc.) is translated.
-   * Defaults to 'auto' when the request omits it. */
-  targetLanguage?: CuratorLanguage
 }
 
 const SYSTEM_PROMPT = `あなたは大学生のために講義の「生きたノート (Living Document)」を作成・**書き換える**アシスタントです。
@@ -206,56 +185,6 @@ const SYSTEM_PROMPT = `あなたは大学生のために講義の「生きたノ
 
 ★ 再度確認: previousOutline をそっくりそのまま返してはいけない。新しい transcript を踏まえて、各セクションの内容・構造・順序を **必ず吟味して書き直す**。`
 
-// Per-language output instruction. Appended to the base SYSTEM_PROMPT
-// so the model knows what language to write the prose in. Key terms,
-// proper nouns, numbers, formulas stay in source form (a Japanese
-// lecture's "持続可能性" stays as 持続可能性 even in a Korean output —
-// for both vocabulary preservation AND so Obsidian wikilinks stay
-// consistent across notes; explained below).
-function languageInstruction(target: CuratorLanguage | undefined): string {
-  switch (target) {
-    case 'auto':
-    case undefined:
-    case null as unknown as undefined:
-      return ''
-    case 'ja':
-      return `\n\n★★★ 出力言語: 日本語 ★★★\nすべての prose (heading / summary / takeaway / definition / point.text / example.text / check_question) を日本語で書く。`
-    case 'en':
-      return `\n\n★★★ OUTPUT LANGUAGE: ENGLISH ★★★\n
-Write ALL prose fields (heading / summary / takeaway / definition / point.text / example.text / check_question / tldr / related_lectures / related_terms) in clear, concise English suitable for university students.
-
-Critical preservation rules:
-1. Key terms (key_terms[i].term) — KEEP IN THE ORIGINAL LANGUAGE OF THE LECTURE. If the lecture is Japanese and the term is "持続可能性", keep "持続可能性" as the term. The English translation goes inline in the definition: \`definition: "Sustainability — the capacity to maintain ... 持続可能性"\`. This preserves Obsidian wikilink consistency across a student's notes.
-2. Proper nouns / company names / cited works — keep verbatim.
-3. Quoted phrases from the transcript — keep in the original language inside quotation marks, then explain in English.
-4. Numbers, dates, formulas — preserve exactly as spoken.
-
-The course / lecturer fields should also stay in the original language so they match across notes and wikilink correctly.`
-    case 'ko':
-      return `\n\n★★★ 출력 언어: 한국어 ★★★\n
-모든 prose 필드 (heading / summary / takeaway / definition / point.text / example.text / check_question / tldr / related_lectures / related_terms) 를 한국어로 작성한다. 자연스러운 한국어 학술/강의 노트 톤. 존댓말은 사용하지 말고 명사형/평서문 위주의 학습노트 스타일.
-
-★ 보존 규칙 (중요):
-1. **key_term.term 은 강의의 원어 그대로 유지.** 강의가 일본어이고 용어가 「持続可能性」이면 term 도 「持続可能性」그대로. 한국어 번역은 definition 안에 inline 으로 병기: \`definition: "지속가능성 — 환경/사회/경제의 균형을 유지하며..."\`. Obsidian wikilink 일관성과 원어 어휘 학습을 위한 의도적 결정.
-2. 고유명사 / 기업명 / 인용 — 그대로 유지.
-3. transcript 인용구는 원어 그대로 따옴표로, 옆에 한국어 설명.
-4. 숫자, 날짜, 공식 — 강의 그대로.
-
-course / lecturer 필드는 원어 유지 (강의 wikilink 일관성).`
-    case 'zh':
-      return `\n\n★★★ 输出语言: 简体中文 ★★★\n
-所有 prose 字段 (heading / summary / takeaway / definition / point.text / example.text / check_question / tldr / related_lectures / related_terms) 用简体中文撰写。学术笔记风格,简洁清晰。避免繁体字。
-
-★ 保留规则 (重要):
-1. **key_term.term 保留讲座的原始语言。** 如果讲座是日语,术语 "持続可能性" 保持原样;中文翻译写在 definition 里: \`definition: "可持续性 — 在环境、社会、经济三方面保持平衡..."\`。这是为了保持 Obsidian wikilink 在多个笔记之间的一致性,也方便学生学习原始术语。
-2. 专有名词 / 公司名 / 引用 — 原样保留。
-3. transcript 引用语保留原语言加引号,旁边附中文解释。
-4. 数字、日期、公式 — 严格按讲座原文。
-
-course / lecturer 字段保留原语言 (wikilink 一致性)。`
-  }
-}
-
 // Phase 6.2 (2026-04-29 후반): provider abstraction.
 //
 // Why we have a multi-provider curator now:
@@ -372,23 +301,6 @@ function isRetryable(e: unknown): boolean {
     || msg.includes('overloaded') || msg.includes('high demand') || msg.includes('service unavailable')
 }
 
-// Curator-emitted course / lecturer placeholders that should be treated
-// as "not extracted" rather than as real entity names. The prompt says
-// "不明なら省略" but LLMs frequently emit a placeholder anyway. Without
-// this scrub these placeholders end up as wikilink targets in Obsidian
-// (`[[不明]]`) and pollute the graph with a fake hub aggregating every
-// lecture where extraction failed.
-const PLACEHOLDER_VALUES = new Set([
-  '不明', 'unknown', 'n/a', 'na', '-', '—', 'なし', '未定', 'unspecified',
-])
-function scrubPlaceholder(s: unknown): string | undefined {
-  if (typeof s !== 'string') return undefined
-  const trimmed = s.trim()
-  if (!trimmed) return undefined
-  if (PLACEHOLDER_VALUES.has(trimmed.toLowerCase())) return undefined
-  return trimmed
-}
-
 function parseOutlineJson(text: string): Outline {
   // Anthropic occasionally wraps JSON in markdown fences despite our
   // explicit "JSON のみ" instruction; strip them defensively.
@@ -397,8 +309,8 @@ function parseOutlineJson(text: string): Outline {
   return {
     title: typeof parsed.title === 'string' ? parsed.title : '',
     sections: Array.isArray(parsed.sections) ? parsed.sections.map(normaliseSection) : [],
-    course: scrubPlaceholder(parsed.course),
-    lecturer: scrubPlaceholder(parsed.lecturer),
+    course: typeof parsed.course === 'string' && parsed.course.trim() ? parsed.course.trim() : undefined,
+    lecturer: typeof parsed.lecturer === 'string' && parsed.lecturer.trim() ? parsed.lecturer.trim() : undefined,
     tldr: typeof parsed.tldr === 'string' && parsed.tldr.trim() ? parsed.tldr.trim() : undefined,
     related_lectures: Array.isArray(parsed.related_lectures)
       ? parsed.related_lectures.filter((s): s is string => typeof s === 'string' && !!s.trim()).map(s => s.trim())
@@ -406,7 +318,7 @@ function parseOutlineJson(text: string): Outline {
   }
 }
 
-async function generateOpenAI(modelName: string, systemPrompt: string, userPrompt: string): Promise<Outline> {
+async function generateOpenAI(modelName: string, userPrompt: string): Promise<Outline> {
   // GPT-5 family (nano / mini / standard) only supports the default
   // temperature (1) — sending any other value 400s with
   // "Unsupported value: 'temperature' does not support 0.3 with this
@@ -415,7 +327,7 @@ async function generateOpenAI(modelName: string, systemPrompt: string, userPromp
   const res = await openaiClient().chat.completions.create({
     model: modelName,
     messages: [
-      { role: 'system', content: systemPrompt },
+      { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user', content: userPrompt },
     ],
     response_format: { type: 'json_object' },
@@ -424,7 +336,7 @@ async function generateOpenAI(modelName: string, systemPrompt: string, userPromp
   return parseOutlineJson(res.choices[0]?.message?.content ?? '{}')
 }
 
-async function generateAnthropic(modelName: string, systemPrompt: string, userPrompt: string): Promise<Outline> {
+async function generateAnthropic(modelName: string, userPrompt: string): Promise<Outline> {
   // Anthropic SDK uses messages.create. System prompt is a top-level
   // field. We don't have an explicit JSON-mode flag like OpenAI's
   // response_format; rely on the system prompt's "JSON のみ" rule plus
@@ -433,7 +345,7 @@ async function generateAnthropic(modelName: string, systemPrompt: string, userPr
     model: modelName,
     max_tokens: 4096,
     temperature: 0.3,
-    system: systemPrompt,
+    system: SYSTEM_PROMPT,
     messages: [{ role: 'user', content: userPrompt }],
   })
   // Anthropic returns content as an array of blocks. We only ask for text.
@@ -442,9 +354,9 @@ async function generateAnthropic(modelName: string, systemPrompt: string, userPr
   return parseOutlineJson(text)
 }
 
-async function generateOnce(provider: Provider, modelName: string, systemPrompt: string, userPrompt: string): Promise<Outline> {
-  if (provider === 'anthropic') return generateAnthropic(modelName, systemPrompt, userPrompt)
-  return generateOpenAI(modelName, systemPrompt, userPrompt)
+async function generateOnce(provider: Provider, modelName: string, userPrompt: string): Promise<Outline> {
+  if (provider === 'anthropic') return generateAnthropic(modelName, userPrompt)
+  return generateOpenAI(modelName, userPrompt)
 }
 
 function normaliseSection(s: Partial<OutlineSection>): OutlineSection {
@@ -506,19 +418,12 @@ ${transcriptText}${droppedNote}
 previousOutline (前の試案 — 自由に書き直し / 再分類 / マージ / 削除すること):
 ${previousOutlineJson}`
 
-  // Compose the per-call system prompt: base prompt (in Japanese, the
-  // canonical authoring language) + a target-language postscript when
-  // the user has chosen a non-auto note language. The postscript
-  // explicitly preserves key_term.term in the lecture's source language
-  // for Obsidian wikilink consistency across notes.
-  const fullSystemPrompt = SYSTEM_PROMPT + languageInstruction(req.targetLanguage)
-
   const choice = selectModels()
   // Try primary with retries, then drop to fallback on terminal failure.
   let lastErr: unknown
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     try {
-      return await generateOnce(choice.provider, choice.primary, fullSystemPrompt, userPrompt)
+      return await generateOnce(choice.provider, choice.primary, userPrompt)
     } catch (e) {
       lastErr = e
       if (attempt === MAX_ATTEMPTS - 1 || !isRetryable(e)) break
@@ -531,7 +436,7 @@ ${previousOutlineJson}`
   if (lastErr && isRetryable(lastErr)) {
     // eslint-disable-next-line no-console
     console.warn(`[curator] ${choice.primary} exhausted; falling back to ${choice.fallback}`)
-    return await generateOnce(choice.provider, choice.fallback, fullSystemPrompt, userPrompt)
+    return await generateOnce(choice.provider, choice.fallback, userPrompt)
   }
   throw lastErr
 }

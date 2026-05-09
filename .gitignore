@@ -16,5 +16,4 @@ cdk.out/
 extension/dist/
 backend/dist/
 web/.next/
-*.zip
-.claude/
+.vercel

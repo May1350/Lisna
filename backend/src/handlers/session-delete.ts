@@ -1,27 +1,37 @@
-import { withAuth } from '../lib/auth.js'
+import type { APIGatewayProxyHandlerV2 } from 'aws-lambda'
+import { verifyJwt } from '../lib/auth.js'
 import { query } from '../lib/db.js'
+import { loadAppSecrets } from '../lib/env.js'
 
-export const handler = withAuth(async (event, payload) => {
+export const handler: APIGatewayProxyHandlerV2 = async (event) => {
+  await loadAppSecrets()
+  const auth = event.headers.authorization || event.headers.Authorization
+  if (!auth?.startsWith('Bearer ')) return { statusCode: 401, body: 'unauthorized' }
+  let payload
+  try { payload = await verifyJwt(auth.slice(7)) }
+  catch { return { statusCode: 401, body: 'invalid token' } }
+
   const id = event.pathParameters?.id
   if (!id) return { statusCode: 400, body: 'missing id' }
-  // Soft-delete the session, scoped to the calling user. The previous
-  // version returned 204 even when the row didn't exist or belonged to
-  // another user — opaque to clients trying to detect bad ids. We now
-  // check rowCount and return 404 when no row matched, which matches
-  // typical REST conventions and helps clients surface a real error.
-  const result = await query<{ id: string }>(
-    `UPDATE sessions
-        SET status = 'deleted'
-      WHERE id = $1 AND user_id = $2
-      RETURNING id`,
+  // RETURNING id distinguishes "actually deleted (owned, existed, status
+  // wasn't already 'deleted')" from "no-op (foreign uuid / nonexistent /
+  // already deleted)". Both non-deleted cases collapse to 404 — we
+  // intentionally do NOT distinguish them so a probe can't tell whether
+  // a uuid belongs to another user. Matches the audit's defense-in-depth
+  // recommendation and gives the frontend a reliable "really deleted"
+  // signal vs "we did nothing" — the latter is safe to ignore client-side.
+  const r = await query<{ id: string }>(
+    `UPDATE sessions SET status = 'deleted'
+       WHERE id = $1 AND user_id = $2 AND status != 'deleted'
+       RETURNING id`,
     [id, payload.sub],
   )
-  if (result.length === 0) {
+  if (r.length === 0) {
     return {
       statusCode: 404,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'session not found' }),
+      body: JSON.stringify({ error: 'not_found' }),
     }
   }
   return { statusCode: 204, body: '' }
-})
+}

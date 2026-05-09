@@ -327,8 +327,16 @@ function wrapAsAudioBuffer(samples: Float32Array, sampleRate: number): AudioBuff
 
 export async function blobToBase64(b: Blob): Promise<string> {
   const buf = await b.arrayBuffer()
-  let s = ''
   const bytes = new Uint8Array(buf)
-  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i])
-  return btoa(s)
+  // Each WAV chunk is ~320 KB (16 kHz × 16-bit × 10 s). The naive
+  // `btoa(String.fromCharCode(...bytes))` form rebuilds the string one
+  // character at a time and dominates the chunk-emit hot path. Chunking
+  // into 32 KB windows is ~10× faster while producing the byte-identical
+  // base64 output.
+  const CHUNK = 0x8000
+  let binary = ''
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + CHUNK)))
+  }
+  return btoa(binary)
 }

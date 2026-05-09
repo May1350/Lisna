@@ -1,8 +1,11 @@
-import { withAuth } from '../lib/auth.js'
+import type { APIGatewayProxyHandlerV2 } from 'aws-lambda'
+import { verifyJwt } from '../lib/auth.js'
 import { transcribeChunk } from '../lib/stt.js'
 import { checkQuota, recordUsage } from '../lib/quota.js'
 import { sendToSession } from '../lib/ws-broadcast.js'
 import { query } from '../lib/db.js'
+import { loadAppSecrets } from '../lib/env.js'
+import { isWarmup, warmupResponse } from '../lib/warmup.js'
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
 
@@ -44,88 +47,23 @@ function normalizeUrl(u: string): string {
   return url.toString()
 }
 
-// Whisper / gpt-4o-transcribe both hallucinate stock phrases on silent or
-// near-silent audio (paused video, music gaps, room tone). These outputs
-// are training-data artifacts — usually English subtitles overlaid on
-// silent shots in YouTube. If we let them through they pollute the live
-// caption strip with "[02:12] you" repeating forever, and worse, the
-// curator treats them as real lecture content.
-//
-// Heuristic: lowercase + strip whitespace/punctuation, compare against a
-// known-bad set. If the transcript is JUST the hallucination phrase
-// (after trim), drop it. Mixed real + phrase falls through unchanged.
-const STT_HALLUCINATIONS = new Set([
-  'you',
-  'youyou',
-  'youyouyou',
-  'youyouyouyou',
-  'thanks',
-  'thankyou',
-  'thanksforwatching',
-  'thankyouforwatching',
-  'thankyouforwatchingthisvideo',
-  'pleasesubscribe',
-  'subscribetomychannel',
-  'bye',
-  'byebye',
-  'okay',
-  'ok',
-  'mm',
-  'hmm',
-  'uhhuh',
-  'silence',
-  'music',
-  'applause',
-  'laughter',
-  // CJK silence / interjection artifacts
-  'ご視聴ありがとうございました',
-  'ご清聴ありがとうございました',
-  '聞いてくださってありがとうございます',
-  '음악',
-  '感谢观看',
-  '请订阅',
-])
+export const handler: APIGatewayProxyHandlerV2 = async (event) => {
+  if (isWarmup(event)) return warmupResponse()
+  await loadAppSecrets()
+  const auth = event.headers.authorization || event.headers.Authorization
+  if (!auth?.startsWith('Bearer ')) return { statusCode: 401, body: 'unauthorized' }
 
-function isStuckHallucination(raw: string): boolean {
-  // Strip [bracket/parenthesis] markers, whitespace, ASCII punctuation, and
-  // lower-case the result. Also collapse repeated tokens like "you you you".
-  const cleaned = raw
-    .toLowerCase()
-    .replace(/[\[\](){}♪。、,.\-_!?:;'"]/g, '')
-    .replace(/\s+/g, '')
-  if (cleaned.length === 0) return true
-  if (STT_HALLUCINATIONS.has(cleaned)) return true
-  // "youyouyouyou..." — same word repeated. Detect by stripping a single
-  // repeated unit and checking the remainder.
-  for (const unit of ['you', 'thanks', 'bye', 'mm', 'hmm', 'okay']) {
-    if (cleaned.length >= unit.length * 2 && cleaned.replace(new RegExp(`(${unit})+`, 'g'), '') === '') {
-      return true
-    }
-  }
-  return false
-}
+  let payload
+  try { payload = await verifyJwt(auth.slice(7)) }
+  catch { return { statusCode: 401, body: 'invalid token' } }
 
-export const handler = withAuth(async (event, payload) => {
   const body = Body.parse(JSON.parse(event.body || '{}'))
   const userPlan = payload.plan
   const quota = await checkQuota(payload.sub, userPlan)
-  // Helper: pack the full quota snapshot into a structure the modal can
-  // reason about (used / limit / remaining + percentage). Returned on
-  // BOTH success and 402 responses so the frontend can render tiered
-  // warnings (50% → 80% → 95% → 100% blocking) instead of a binary
-  // "everything fine" / "everything broken" experience.
-  const quotaSnapshot = {
-    used_secs: quota.used,
-    limit_secs: quota.limit,
-    remaining_secs: quota.remainingSecs,
-    percent_used: Math.min(100, Math.round((quota.used / Math.max(1, quota.limit)) * 100)),
-    plan: userPlan,
-  }
   if (!quota.allowed) {
     return {
       statusCode: 402,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'quota_exceeded', quota: quotaSnapshot }),
+      body: JSON.stringify({ error: 'quota_exceeded', remaining_secs: 0 }),
     }
   }
 
@@ -147,12 +85,10 @@ export const handler = withAuth(async (event, payload) => {
 
   // ── 2. STT (best-effort) ────────────────────────────────────────────────
   let transcriptText = ''
-  let segments: { start: number; end: number; text: string }[] = []
   let chunkError: string | undefined
   try {
     const transcript = await transcribeChunk(audioBuf, body.mime)
     transcriptText = transcript.text.trim()
-    segments = transcript.segments
   } catch (e) {
     chunkError = 'stt_failed'
     // eslint-disable-next-line no-console
@@ -160,103 +96,41 @@ export const handler = withAuth(async (event, payload) => {
   }
 
   if (transcriptText.length === 0) {
-    return ok(sessionId, {
-      chunk_error: chunkError ?? 'empty_transcript',
-      quota: quotaSnapshot,
-    })
+    return ok(sessionId, { chunk_error: chunkError ?? 'empty_transcript' })
   }
 
-  // Whisper hallucination guard at the CHUNK level — catches the
-  // common case where the entire chunk is one stock phrase. We re-run
-  // it per-segment below to also catch mixed chunks where only some
-  // segments are hallucinations.
-  if (isStuckHallucination(transcriptText)) {
-    // eslint-disable-next-line no-console
-    console.info('[stream-audio] dropping STT hallucination:', JSON.stringify(transcriptText))
-    return ok(sessionId, {
-      chunk_error: 'silence_hallucination',
-      quota: quotaSnapshot,
-    })
+  // ── 3. Append transcript + live broadcast ───────────────────────────────
+  const transcriptEntry: TranscriptEntry = {
+    ts: Math.round(body.start_time_sec),
+    text: transcriptText,
   }
 
-  // ── 3. Build per-segment transcript entries ─────────────────────────────
-  // Whisper returns 3-7 sentence-bounded segments per 10 s chunk with
-  // sub-chunk start/end times. Promoting each segment to its own
-  // transcript entry gives the curator (and the user clicking
-  // timestamps) ~2-3 s granularity instead of the old 10 s chunk
-  // boundary. If the STT backend returned an empty segment list (some
-  // providers do for very short chunks), fall back to a single
-  // chunk-level entry so the pipeline still produces something.
-  const fallbackSegment = { start: 0, end: body.duration_sec, text: transcriptText }
-  const rawSegments = segments.length > 0 ? segments : [fallbackSegment]
-
-  const cleanEntries: TranscriptEntry[] = []
-  let droppedSegments = 0
-  for (const seg of rawSegments) {
-    const text = seg.text.trim()
-    if (text.length === 0) continue
-    if (isStuckHallucination(text)) { droppedSegments++; continue }
-    cleanEntries.push({
-      ts: Math.round(body.start_time_sec + Math.max(0, seg.start)),
-      text,
-    })
-  }
-
-  if (cleanEntries.length === 0) {
-    // Every segment was either empty or a hallucination — treat as a
-    // silence chunk and don't bill quota.
-    // eslint-disable-next-line no-console
-    console.info('[stream-audio] all segments dropped as hallucination/empty', { droppedSegments })
-    return ok(sessionId, {
-      chunk_error: 'silence_hallucination',
-      quota: quotaSnapshot,
-    })
-  }
-
-  // ── 4. Live broadcast + DB append ───────────────────────────────────────
-  // Send all segments in a single WS message. The frontend handler
-  // appends `items` in order to its ring buffer. Doing it as one
-  // message instead of N is cheaper (one PostToConnection vs N) and
-  // avoids any out-of-order delivery edge cases.
   void sendToSession(sessionId, {
     type: 'transcript_chunk',
-    items: cleanEntries,
-    // Keep ts/text for legacy frontend builds that read the singular
-    // shape — set to the FIRST segment so they at least see something
-    // sensible. New clients prefer `items` and ignore these.
-    ts: cleanEntries[0].ts,
-    text: cleanEntries[0].text,
+    ts: transcriptEntry.ts,
+    text: transcriptEntry.text,
   }).catch(e => console.warn('[stream-audio] live transcript broadcast failed:', e))
 
+  // Defense-in-depth: explicit user_id filter even though sessionId came
+  // from the CAS upsert above (which is keyed on (user_id, url_hash) so
+  // ownership is already guaranteed). The explicit AND survives future
+  // refactors that might separate the upsert from this UPDATE — matches
+  // the pattern in stream-slide.ts.
   await query(
     `UPDATE sessions
        SET transcripts = COALESCE(transcripts, '[]'::jsonb) || $1::jsonb,
            updated_at  = NOW()
-     WHERE id = $2`,
-    [JSON.stringify(cleanEntries), sessionId],
+     WHERE id = $2 AND user_id = $3`,
+    [JSON.stringify([transcriptEntry]), sessionId, payload.sub],
   )
 
-  const recordedSecs = Math.ceil(body.duration_sec)
-  await recordUsage(payload.sub, recordedSecs)
-
-  // Refresh the snapshot post-record so the client sees the up-to-date
-  // counter that includes THIS chunk's seconds. Cheap recompute (single
-  // arithmetic, no extra DB roundtrip) — quota.used is the pre-record
-  // value, so we just add what we just wrote.
-  const usedAfter = quota.used + recordedSecs
-  const quotaSnapshotAfter = {
-    ...quotaSnapshot,
-    used_secs: usedAfter,
-    remaining_secs: Math.max(0, quota.limit - usedAfter),
-    percent_used: Math.min(100, Math.round((usedAfter / Math.max(1, quota.limit)) * 100)),
-  }
+  await recordUsage(payload.sub, Math.ceil(body.duration_sec))
 
   return ok(sessionId, {
     transcript_preview: transcriptText.slice(0, 80),
-    quota: quotaSnapshotAfter,
     ...(chunkError ? { chunk_error: chunkError } : {}),
   })
-})
+}
 
 function ok(sessionId: string, extra: Record<string, unknown>) {
   return {

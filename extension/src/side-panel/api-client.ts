@@ -2,6 +2,22 @@ import { WS_URL } from '../shared/config'
 import type { SlideItem, User } from '../shared/types'
 import { getToken } from '../shared/storage'
 
+/** Error thrown by callApi on a non-2xx response. Preserves the parsed
+ *  body and HTTP status so callers can surface structured backend
+ *  signals — e.g. /v1/session/curate's 409 body
+ *  `{error: 'curate_in_progress'}` lets the modal show the localised
+ *  hint instead of the generic "HTTP 409: ..." fallback. */
+export class ApiError extends Error {
+  status?: number
+  data?: unknown
+  constructor(message: string, status?: number, data?: unknown) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.data = data
+  }
+}
+
 export async function callApi<T = unknown>(
   path: string,
   method: string,
@@ -15,7 +31,7 @@ export async function callApi<T = unknown>(
     body,
     absoluteUrl: options.absoluteUrl,
   })
-  if (!r.ok) throw new Error(r.error)
+  if (!r.ok) throw new ApiError(r.error, r.status, r.data)
   return r.data as T
 }
 
@@ -24,7 +40,17 @@ export interface LoginResult {
   currentSession: {
     id: string
     slides: SlideItem[]
-    outline: Outline | null
+    // Curated outline for this URL. Optional + nullable so older
+    // backend builds (and freshly-created sessions with no curate
+    // run yet) still parse without explicit casts. Hoisted into
+    // this type so callers don't need a `(x as { outline?: ... })`
+    // assertion to read it.
+    outline?: Outline | null
+    // ISO 8601 last-update timestamp from the DB. Used to show the
+    // real "X分前" on the outline indicator when the modal hydrates
+    // a previously-curated session. Optional so older backend
+    // builds that don't include the field still parse.
+    updated_at?: string
     // Note: backend still returns `notes` (legacy per-chunk bullets)
     // but the modal no longer renders them — Phase 6.1 made the
     // outline the single source of truth. Field omitted here so it
@@ -112,14 +138,46 @@ export interface WsListeners {
    *  single message, so callers should append all items in order. */
   onTranscript: (items: LiveTranscriptItem[]) => void
   onOutline: (outline: Outline) => void
+  /** Fired when the connection is permanently gone (clean close OR
+   *  reconnect attempts exhausted). Callers should stop expecting
+   *  live updates and rely on HTTP-fallback paths. */
   onClose: () => void
+  /** Fired when reconnection state changes. Lets the modal surface a
+   *  "live updates paused" hint while the backoff is in flight. */
+  onReconnect?: (state: { attempt: number; nextDelayMs: number }) => void
 }
 
-export async function connectWs(sessionId: string, listeners: WsListeners): Promise<WebSocket> {
+/** Handle returned by connectWs; call .close() on cleanup to stop any
+ *  pending reconnect timer and fully tear down. Idempotent. */
+export interface WsHandle {
+  close(): void
+}
+
+// Reconnect schedule: 1 s, 2 s, 4 s, 8 s, 16 s, 30 s. After the 6th
+// failed attempt we give up — at that point the backend / network is
+// genuinely down and continuing to retry burns battery without
+// helping. The HTTP fallback path in content/index.ts already covers
+// curate-completion delivery, so a permanently-dead WS just means the
+// modal misses live transcripts and slides until the user refreshes.
+const RECONNECT_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000]
+
+export async function connectWs(sessionId: string, listeners: WsListeners): Promise<WsHandle> {
   const token = await getToken()
   const url = `${WS_URL}?token=${encodeURIComponent(token!)}&session_id=${sessionId}`
-  const ws = new WebSocket(url)
-  ws.onmessage = (e) => {
+
+  let ws: WebSocket | null = null
+  let attempt = 0
+  let reconnectTimer: number | null = null
+  // closed=true after the caller's .close() runs. Guards against late
+  // onclose fires triggering another reconnect after teardown.
+  let closed = false
+
+  const dispatch = (e: MessageEvent): void => {
+    // Any message arriving on the socket means the connection is
+    // healthy — reset the backoff so the next disconnect starts from
+    // attempt 0. Without this a flap would keep escalating delays
+    // toward 30 s even between brief outages.
+    attempt = 0
     try {
       const msg = JSON.parse(e.data)
       if (msg.type === 'transcript_chunk') {
@@ -141,10 +199,62 @@ export async function connectWs(sessionId: string, listeners: WsListeners): Prom
         const s = msg.slide as { ts: number; key: string; url: string }
         listeners.onSlide({ ts: s.ts, key: s.key, url: s.url })
       }
-    } catch { /* ignore */ }
+    } catch { /* ignore malformed frames */ }
   }
-  ws.onclose = () => listeners.onClose()
-  return ws
+
+  const open = (): void => {
+    if (closed) return
+    const sock = new WebSocket(url)
+    ws = sock
+    sock.onmessage = dispatch
+    // Some browsers / network conditions fire onerror without a
+    // following onclose (e.g. an immediate handshake rejection).
+    // Force-closing here ensures the onclose path always runs and
+    // schedules the reconnect — without this the modal silently
+    // falls into permanent-idle on those error variants.
+    sock.onerror = () => {
+      try { sock.close() } catch { /* already closing */ }
+    }
+    sock.onclose = (e) => {
+      if (ws === sock) ws = null
+      if (closed) return
+      // Clean closes (1000 normal, 1001 going-away) are intentional —
+      // either we asked for it or the server gracefully shut down.
+      // No reconnect; surface as terminal.
+      if (e.code === 1000 || e.code === 1001) {
+        listeners.onClose()
+        return
+      }
+      if (attempt >= RECONNECT_DELAYS_MS.length) {
+        // Backoff exhausted. Stop trying; the user can refresh the
+        // page (or close+reopen the modal) to get a fresh socket.
+        listeners.onClose()
+        return
+      }
+      const delay = RECONNECT_DELAYS_MS[attempt]
+      attempt++
+      listeners.onReconnect?.({ attempt, nextDelayMs: delay })
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = null
+        open()
+      }, delay)
+    }
+  }
+
+  open()
+  return {
+    close(): void {
+      closed = true
+      if (reconnectTimer !== null) {
+        window.clearTimeout(reconnectTimer)
+        reconnectTimer = null
+      }
+      // 1000 = normal closure. Tells the server (and our own onclose
+      // path) this is intentional, so no reconnect is scheduled.
+      try { ws?.close(1000) } catch { /* already closing */ }
+      ws = null
+    },
+  }
 }
 
 // Note: an earlier `jumpToTimestamp` helper and a `triggerCurate` helper
