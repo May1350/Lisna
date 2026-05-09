@@ -7,9 +7,10 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   await loadAppSecrets()
   const sig = event.headers['stripe-signature']
   if (!sig || !event.body) return { statusCode: 400, body: 'missing signature' }
-  // Plan-mandated apiVersion '2025-09-30.acacia'; this Stripe SDK rev's typings list
-  // a different code-name suffix for that date so we cast to satisfy the union.
-  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2025-09-30.acacia' as any })
+  // Do NOT pin apiVersion — see stripe-checkout.ts for the rationale.
+  // tl;dr: pin caused a production outage when Stripe deprecated
+  // '2025-09-30.acacia'. SDK default tracks the SDK install.
+  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)
 
   let evt: Stripe.Event
   try {
