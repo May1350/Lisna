@@ -5,7 +5,11 @@
   "private": true,
   "scripts": {
     "dev": "vite",
+    "prebuild": "bash scripts/sync-env-from-cdk.sh --check",
     "build": "tsc --noEmit && vite build",
+    "build:sync-env": "bash scripts/sync-env-from-cdk.sh && pnpm build",
+    "sync-env": "bash scripts/sync-env-from-cdk.sh",
+    "verify-env": "bash scripts/sync-env-from-cdk.sh --check",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
