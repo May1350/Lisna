@@ -5,6 +5,7 @@ import {
 } from '../lib/export'
 import { getObsidianConfig } from '../../shared/storage'
 import { ObsidianMark } from './ObsidianMark'
+import { DownloadIcon, GlobeIcon } from './icons'
 import { useT, interpolate } from '../../shared/i18n'
 
 // ExportMenu — two-option export surface.
@@ -127,13 +128,13 @@ export function ExportMenu(props: Props) {
   // Disable .zip when there are no slides — a zip with just the .md
   // and no images is silly. Plain .html remains the right answer.
   const zipDisabled = props.slides.length === 0
-  // Each label carries its own icon node so the Obsidian variant can
-  // render the brand mark inline without polluting the string with an
-  // emoji approximation. Other formats keep their existing emoji
-  // since those are universal (download arrow, globe).
+  // Each label carries its own icon node — outline SVGs that follow
+  // currentColor (so they read as part of the surrounding text)
+  // instead of emoji glyphs whose OS-rendered colors clashed with
+  // the indigo / violet / yellow brand palette.
   const labels: Record<ExportFormat, { icon: ReactNode; primary: string; menu: string; subtitle: string }> = {
     zip: {
-      icon: <span aria-hidden="true">⬇</span>,
+      icon: <DownloadIcon size={14} />,
       primary: T.export.zip.primary,
       menu: T.export.zip.menu,
       subtitle: zipDisabled
@@ -141,7 +142,7 @@ export function ExportMenu(props: Props) {
         : interpolate(T.export.zip.subtitle_withSlides, { n: props.slides.length }),
     },
     html: {
-      icon: <span aria-hidden="true">🌐</span>,
+      icon: <GlobeIcon size={14} />,
       primary: T.export.html.primary,
       menu: T.export.html.menu,
       subtitle: props.slides.length > 0
