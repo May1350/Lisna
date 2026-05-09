@@ -17,3 +17,5 @@ extension/dist/
 backend/dist/
 web/.next/
 .vercel
+lisna-extension.zip
+.claude/

@@ -330,6 +330,7 @@ export const en: Translations = {
     curate_cooldown: 'Too many generation requests. Wait briefly and try again.',
     curate_in_progress: 'Another note generation is already in progress. Try again once it finishes.',
     fallback: 'Note generation failed. Try "Regenerate notes" again.',
+    reportButton: '💡 Report',
   },
   errorToast: {
     unauthorized: 'Your session has expired. Please sign in again.',

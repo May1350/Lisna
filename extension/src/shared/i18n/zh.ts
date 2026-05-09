@@ -329,6 +329,7 @@ export const zh: Translations = {
     curate_cooldown: '生成请求过于频繁。请稍候片刻再重试。',
     curate_in_progress: '已有一个笔记生成任务正在进行中。请等结束后再试。',
     fallback: '笔记生成失败。请点击「重新生成笔记」再试一次。',
+    reportButton: '💡 报告',
   },
   errorToast: {
     unauthorized: '登录已过期。请重新登录。',

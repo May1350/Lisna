@@ -16,7 +16,21 @@ import { SessionControls } from './components/SessionControls'
 import { callApi, connectWs, getCurrentUser, logout, ApiError } from './api-client'
 import type { LiveTranscriptItem, Outline } from './api-client'
 import { useT } from '../shared/i18n'
+import { setFeedbackPrefill } from '../shared/feedback-prefill'
 import type { Translations } from '../shared/i18n'
+
+// Curate-error reasons where a "💡 Report" CTA actually adds value.
+// Whitelisted (not blacklisted) so adding new reasons later requires
+// an explicit decision: most new reasons trend toward
+// user-resolvable (auth, quota, "no transcripts yet") and surfacing
+// a feedback CTA on those would just create noise. Reasons in this
+// list have one trait in common: the user reads the message, can't
+// act on it, and we genuinely benefit from a per-occurrence report.
+const ERROR_REPORTABLE = new Set<string>([
+  'curator_failed',     // LLM blew up — opaque to user, valuable signal for us
+  'timeout_no_signal',  // backend never came back — could be a real bug
+  'request_failed',     // network/HTTP failure — could be transient OR real
+])
 
 // Big-square spinner shown when the user has triggered curate but no
 // outline exists yet (first generation). Once an outline is in place the
@@ -957,8 +971,40 @@ export default function App() {
           />
         )}
         {curateError && (
-          <div className="mx-3 mb-1 bg-red-50 border border-red-200 text-red-800 text-xs px-3 py-2 rounded">
-            {humanizeCurateError(curateError, T)}
+          <div className="mx-3 mb-1 bg-red-50 border border-red-200 text-red-800 text-xs px-3 py-2 rounded flex items-start gap-2">
+            <span className="flex-1">{humanizeCurateError(curateError, T)}</span>
+            {ERROR_REPORTABLE.has(curateError) && (
+              <button
+                type="button"
+                onClick={() => {
+                  // Build a prefilled bug report with everything we know
+                  // about the failure. Anything sensitive (transcript
+                  // content) stays local — only the error code, time, and
+                  // the lecture URL ride along. The user reviews + edits
+                  // before pressing Send on the Options page.
+                  const ts = new Date().toLocaleString()
+                  const lines = [
+                    `[Auto] curate error: ${curateError}`,
+                    `When: ${ts}`,
+                    sessionId ? `Session: ${sessionId}` : null,
+                    '',
+                    '----',
+                    '',
+                  ].filter(Boolean).join('\n')
+                  void (async () => {
+                    await setFeedbackPrefill({
+                      category: 'bug',
+                      message: lines,
+                      contextUrl: parentUrl ?? undefined,
+                    })
+                    await chrome.runtime.sendMessage({ type: 'OPEN_OPTIONS_PAGE' })
+                  })()
+                }}
+                className="shrink-0 text-[11px] font-medium text-red-700 hover:text-red-900 underline whitespace-nowrap"
+              >
+                {T.curateError.reportButton}
+              </button>
+            )}
           </div>
         )}
         {sessionId && isCapturing && (

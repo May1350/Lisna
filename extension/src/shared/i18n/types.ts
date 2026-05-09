@@ -367,6 +367,9 @@ export interface Translations {
     curate_cooldown: string
     curate_in_progress: string           // backend lock held by concurrent curate
     fallback: string                     // unknown reason fallback
+    // CTA on error banners that aren't user-resolvable. Only shown for
+    // a small whitelist of reasons (see ERROR_REPORTABLE in App.tsx).
+    reportButton: string                 // "💡 報告する" / "💡 Report"
   }
 
   // ── ErrorToast translation map (regex match on backend message → friendly copy) ──

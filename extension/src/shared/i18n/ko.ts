@@ -330,6 +330,7 @@ export const ko: Translations = {
     curate_cooldown: '생성 요청이 너무 많아요. 잠시 기다린 후 다시 시도해주세요.',
     curate_in_progress: '이미 노트를 만들고 있어요. 완료된 후 다시 시도해주세요.',
     fallback: '노트 생성에 실패했어요. 「노트 재생성」을 눌러 다시 시도해주세요.',
+    reportButton: '💡 신고하기',
   },
   errorToast: {
     unauthorized: '인증이 만료되었어요. 다시 로그인해주세요.',

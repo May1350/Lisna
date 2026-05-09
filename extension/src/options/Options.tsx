@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import {
   getPlaybackSpeed, setPlaybackSpeed,
   getAutoDownload, setAutoDownload,
@@ -8,6 +8,7 @@ import {
 import { testObsidianConnection } from '../side-panel/lib/export'
 import { callApi } from '../side-panel/api-client'
 import { ObsidianMark } from '../side-panel/components/ObsidianMark'
+import { consumeFeedbackPrefill } from '../shared/feedback-prefill'
 import type { User, QuotaSnapshot } from '../shared/types'
 import { useT, interpolate, getLang, getNoteLang, setLang, setNoteLang, type LanguageCode, type NoteLanguageCode } from '../shared/i18n'
 import type { Translations } from '../shared/i18n'
@@ -54,6 +55,12 @@ export function Options() {
   const [fbCategory, setFbCategory] = useState<'bug' | 'feature_request' | 'other'>('feature_request')
   const [fbMessage, setFbMessage] = useState('')
   const [fbStatus, setFbStatus] = useState<{ kind: 'idle' | 'sending' | 'ok' | 'error'; message?: string }>({ kind: 'idle' })
+  const [fbContextUrl, setFbContextUrl] = useState<string | undefined>(undefined)
+  // Anchored on the Feedback section so a prefill from an error
+  // banner can scroll into view. Without this the user would land at
+  // the top of the Options page and have to find the populated form
+  // themselves — same friction we were trying to remove.
+  const feedbackSectionRef = useRef<HTMLElement | null>(null)
   // Language picker state. Hydrated from i18n module (which itself is
   // already bootstrapped from chrome.storage at app start).
   const [systemLang, setSystemLangState] = useState<LanguageCode>(getLang())
@@ -63,6 +70,29 @@ export function Options() {
   // this, switching language in the picker leaves the tab still showing
   // the previous language's title until the user reloads.
   useEffect(() => { document.title = T.options.pageTitle }, [T.options.pageTitle])
+
+  // Consume any feedback prefill written by an error banner before the
+  // user navigated here. Reading + deleting in one go means the form
+  // only auto-populates once; a future visit to Options shows an empty
+  // form unless a fresh prefill was written. Done in a separate effect
+  // (not the bigger fetcher below) because it's mount-only with no
+  // deps, and we want the form populated as early as possible so the
+  // user doesn't see an empty textarea flash before the prefill lands.
+  useEffect(() => {
+    void consumeFeedbackPrefill().then(p => {
+      if (!p) return
+      setFbCategory(p.category)
+      setFbMessage(p.message)
+      setFbContextUrl(p.contextUrl)
+      // Defer scroll one frame so the section's actual layout has
+      // settled (the section depends on translations + Plan section
+      // height which fetch async). scrollIntoView before mount paints
+      // would land on a stale offset.
+      requestAnimationFrame(() => {
+        feedbackSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      })
+    })
+  }, [])
 
   const onChangeSystemLang = async (lang: LanguageCode) => {
     setSystemLangState(lang)
@@ -198,9 +228,16 @@ export function Options() {
         message: trimmed,
         ext_version: version,
         user_agent: navigator.userAgent.slice(0, 512),
+        // Forward the prefill's context URL when present (set by an
+        // error-banner CTA in App.tsx). The form deliberately does NOT
+        // expose this as an editable field — making the URL silent
+        // metadata keeps the form simple, and prefilled URLs are
+        // always lecture URLs which the user already knows they sent.
+        ...(fbContextUrl ? { context_url: fbContextUrl } : {}),
       })
       setFbStatus({ kind: 'ok' })
       setFbMessage('')
+      setFbContextUrl(undefined)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       setFbStatus({ kind: 'error', message: msg })
@@ -272,6 +309,75 @@ export function Options() {
             </select>
           </label>
         </div>
+      </section>
+
+      {/* Feedback section — placed right after Language so it stays
+          discoverable without a scroll. Earlier we tucked it between
+          Plan and Account; that buried it below the Obsidian + Plan
+          blocks and made the form effectively invisible at launch.
+          See chrome.runtime.openOptionsPage handoff in App.tsx /
+          shared/feedback-prefill.ts for the prefill path used by
+          error banners. */}
+      <section className="mb-8" ref={feedbackSectionRef}>
+        <h2 className="font-semibold mb-2">{T.options.section_feedback}</h2>
+        <p className="text-xs text-gray-500 mb-3">{T.options.feedback_intro}</p>
+
+        <label className="block text-xs text-gray-700 mb-1">
+          {T.options.feedback_categoryLabel}
+        </label>
+        <select
+          value={fbCategory}
+          onChange={(e) => setFbCategory(e.target.value as 'bug' | 'feature_request' | 'other')}
+          disabled={fbStatus.kind === 'sending'}
+          className="block w-full rounded border border-gray-300 px-2 py-1.5 text-sm mb-3 bg-white"
+        >
+          <option value="feature_request">{T.options.feedback_category_feature}</option>
+          <option value="bug">{T.options.feedback_category_bug}</option>
+          <option value="other">{T.options.feedback_category_other}</option>
+        </select>
+
+        <label className="block text-xs text-gray-700 mb-1">
+          {T.options.feedback_messageLabel}
+        </label>
+        <textarea
+          value={fbMessage}
+          onChange={(e) => {
+            setFbMessage(e.target.value.slice(0, 2000))
+            // Edits clear stale success / error state so a second send
+            // doesn't show the prior outcome banner.
+            if (fbStatus.kind !== 'idle' && fbStatus.kind !== 'sending') {
+              setFbStatus({ kind: 'idle' })
+            }
+          }}
+          disabled={fbStatus.kind === 'sending'}
+          rows={5}
+          maxLength={2000}
+          placeholder={T.options.feedback_messagePlaceholder}
+          className="block w-full rounded border border-gray-300 px-2 py-1.5 text-sm mb-1 resize-y"
+        />
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-[11px] text-gray-400">
+            {interpolate(T.options.feedback_charCount, { n: fbMessage.length })}
+          </span>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => void onSubmitFeedback()}
+          disabled={fbStatus.kind === 'sending' || fbMessage.trim().length === 0}
+          className="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+        >
+          {fbStatus.kind === 'sending' ? T.options.feedback_submit_busy : T.options.feedback_submit}
+        </button>
+
+        {fbStatus.kind === 'ok' && (
+          <p className="text-xs text-emerald-700 mt-2">{T.options.feedback_thanks}</p>
+        )}
+        {fbStatus.kind === 'error' && (
+          <p className="text-xs text-red-600 mt-2">
+            {T.options.feedback_failPrefix}{fbStatus.message ?? ''}
+          </p>
+        )}
       </section>
 
       <section className="mb-8">
@@ -542,73 +648,6 @@ export function Options() {
             upgrading={upgrading}
             T={T}
           />
-        )}
-      </section>
-
-      {/* Feedback section — POSTs to /v1/feedback. Lives between Plan
-          and Account because: (a) it's an explicit action surface like
-          the upgrade button above, and (b) putting it after Account
-          would push it below the logout button which feels odd
-          (logout = end of flow). */}
-      <section className="mb-8">
-        <h2 className="font-semibold mb-2">{T.options.section_feedback}</h2>
-        <p className="text-xs text-gray-500 mb-3">{T.options.feedback_intro}</p>
-
-        <label className="block text-xs text-gray-700 mb-1">
-          {T.options.feedback_categoryLabel}
-        </label>
-        <select
-          value={fbCategory}
-          onChange={(e) => setFbCategory(e.target.value as 'bug' | 'feature_request' | 'other')}
-          disabled={fbStatus.kind === 'sending'}
-          className="block w-full rounded border border-gray-300 px-2 py-1.5 text-sm mb-3 bg-white"
-        >
-          <option value="feature_request">{T.options.feedback_category_feature}</option>
-          <option value="bug">{T.options.feedback_category_bug}</option>
-          <option value="other">{T.options.feedback_category_other}</option>
-        </select>
-
-        <label className="block text-xs text-gray-700 mb-1">
-          {T.options.feedback_messageLabel}
-        </label>
-        <textarea
-          value={fbMessage}
-          onChange={(e) => {
-            setFbMessage(e.target.value.slice(0, 2000))
-            // Edits clear stale success / error state so a second send
-            // doesn't show the prior outcome banner.
-            if (fbStatus.kind !== 'idle' && fbStatus.kind !== 'sending') {
-              setFbStatus({ kind: 'idle' })
-            }
-          }}
-          disabled={fbStatus.kind === 'sending'}
-          rows={5}
-          maxLength={2000}
-          placeholder={T.options.feedback_messagePlaceholder}
-          className="block w-full rounded border border-gray-300 px-2 py-1.5 text-sm mb-1 resize-y"
-        />
-        <div className="flex items-center justify-between mb-3">
-          <span className="text-[11px] text-gray-400">
-            {interpolate(T.options.feedback_charCount, { n: fbMessage.length })}
-          </span>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => void onSubmitFeedback()}
-          disabled={fbStatus.kind === 'sending' || fbMessage.trim().length === 0}
-          className="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-        >
-          {fbStatus.kind === 'sending' ? T.options.feedback_submit_busy : T.options.feedback_submit}
-        </button>
-
-        {fbStatus.kind === 'ok' && (
-          <p className="text-xs text-emerald-700 mt-2">{T.options.feedback_thanks}</p>
-        )}
-        {fbStatus.kind === 'error' && (
-          <p className="text-xs text-red-600 mt-2">
-            {T.options.feedback_failPrefix}{fbStatus.message ?? ''}
-          </p>
         )}
       </section>
 

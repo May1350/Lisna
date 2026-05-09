@@ -25,6 +25,10 @@ export type SwRequest =
   // chrome.sidePanel.open which requires a user gesture; the gesture
   // is preserved through chrome.runtime.sendMessage on Chrome 116+.
   | { type: 'OPEN_SIDE_PANEL' }
+  // Surfaces the Options page Feedback form from any extension context.
+  // Used by error-banner CTAs in App.tsx that have already written a
+  // prefill via shared/feedback-prefill.ts.
+  | { type: 'OPEN_OPTIONS_PAGE' }
   | { type: 'AUTH_GET_USER' }
   // Quick-disable from the inline button's × affordance. SW sets
   // sh.enabled=false + sh.disabledUntil=now+durationHours and creates a

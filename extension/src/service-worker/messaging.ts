@@ -55,6 +55,21 @@ export async function handle(req: SwRequest, sender?: chrome.runtime.MessageSend
           return { ok: false, error: e instanceof Error ? e.message : String(e) }
         }
       }
+      case 'OPEN_OPTIONS_PAGE': {
+        // Used by error-banner "report" CTAs (App.tsx) to surface the
+        // Options page Feedback form. Routing through the SW (vs.
+        // calling chrome.runtime.openOptionsPage directly from the
+        // caller) keeps the call available from contexts where that
+        // API isn't reliably exposed — namely the in-page-modal
+        // iframe loaded into a host page.
+        try {
+          await chrome.runtime.openOptionsPage()
+          return { ok: true, data: null }
+        } catch (e) {
+          console.warn('[SW] openOptionsPage failed', { err: e instanceof Error ? e.message : e })
+          return { ok: false, error: e instanceof Error ? e.message : String(e) }
+        }
+      }
       case 'AUTH_GET_USER': {
         const u = await getUser()
         return { ok: true, data: u }
