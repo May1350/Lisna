@@ -86,7 +86,25 @@ export async function loginWithGoogle(currentUrl?: string): Promise<LoginResult>
       ...(currentUrl ? { current_url: currentUrl } : {}),
     }),
   })
-  if (!r.ok) throw new Error('login failed: ' + r.status)
+  if (!r.ok) {
+    // Surface the backend's structured `{error: "..."}` reason instead
+    // of showing only the HTTP status. The user-facing LoginScreen
+    // takes whatever Error.message we throw and renders it as the
+    // failure label; "login failed: 400" alone gave operators nothing
+    // to diagnose with. Best-effort body parse — fall back to status
+    // if the response isn't JSON or doesn't carry an error field.
+    let detail = ''
+    try {
+      const body = await r.text()
+      if (body) {
+        try {
+          const parsed = JSON.parse(body) as { error?: unknown }
+          if (typeof parsed.error === 'string' && parsed.error) detail = parsed.error
+        } catch { detail = body.slice(0, 200) }
+      }
+    } catch { /* response already consumed; ignore */ }
+    throw new Error(`login failed: ${r.status}${detail ? ` — ${detail}` : ''}`)
+  }
   const data = await r.json() as {
     token: string
     user: User

@@ -91,9 +91,20 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       }),
     }
   } catch (e) {
+    // Without this breadcrumb the previous version returned 400 with no
+    // CloudWatch trace — production debugging had to go through the
+    // extension's user-facing toast (which only had the HTTP status,
+    // not the message). When login fails, the operator now has both:
+    // 1) the backend log (here) with full message + stack, 2) the
+    // extension's LoginScreen showing the response body's {error}.
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error('[auth-google] login failed', {
+      msg,
+      stack: e instanceof Error ? e.stack : undefined,
+    })
     return {
       statusCode: 400,
-      body: JSON.stringify({ error: e instanceof Error ? e.message : 'unknown' }),
+      body: JSON.stringify({ error: msg }),
     }
   }
 }
