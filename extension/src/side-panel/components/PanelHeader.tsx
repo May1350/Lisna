@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import type { User } from '../../shared/types'
 import { SpeedSelector } from './SpeedSelector'
 import { useT, interpolate } from '../../shared/i18n'
@@ -77,14 +78,42 @@ function Avatar({ user }: { user: User }) {
 // users always have one click away from the settings, regardless of
 // which surface they're in.
 // Embed-only shortcut to the Chrome side panel (history surface).
-// chrome.sidePanel.open requires a recent user gesture and a windowId,
-// neither of which we can resolve synchronously from inside the modal
-// iframe — so we forward to the SW which queries the active window
-// and calls open. Chrome 116+ propagates the gesture through
-// chrome.runtime.sendMessage so the call is allowed.
+// chrome.sidePanel.open requires a recent user gesture AND a windowId.
+// Two-pronged approach for reliability:
+//   1) Pre-fetch windowId on mount so the click handler can call
+//      chrome.sidePanel.open() SYNCHRONOUSLY from inside the click —
+//      gesture chain intact, no SW round-trip, no chance of gesture
+//      timeout. Modal iframe is at chrome-extension://… so chrome.*
+//      APIs (including sidePanel) are usable here directly.
+//   2) Fall back to SW message if direct call rejects (older Chrome,
+//      gesture-window edge cases). The SW handler also tries
+//      sender.tab.windowId before falling back to chrome.tabs.query.
 function OpenSidePanelButton() {
   const T = useT()
+  const windowIdRef = useRef<number | undefined>(undefined)
+
+  useEffect(() => {
+    if (typeof chrome === 'undefined' || !chrome.windows?.getCurrent) return
+    chrome.windows.getCurrent().then(w => {
+      if (w?.id !== undefined && w.id !== chrome.windows.WINDOW_ID_NONE) {
+        windowIdRef.current = w.id
+      }
+    }).catch(() => { /* fall back to SW path on click */ })
+  }, [])
+
   const open = () => {
+    const wid = windowIdRef.current
+    if (wid !== undefined && chrome.sidePanel?.open) {
+      // Synchronous-from-click: best chance of gesture preservation.
+      chrome.sidePanel.open({ windowId: wid }).catch((e) => {
+        console.warn('[panel-header] direct sidePanel.open failed; falling back to SW:', e?.message ?? e)
+        chrome.runtime.sendMessage({ type: 'OPEN_SIDE_PANEL' }).catch((e2) => {
+          console.warn('[panel-header] OPEN_SIDE_PANEL SW fallback also failed:', e2?.message ?? e2)
+        })
+      })
+      return
+    }
+    // No cached windowId yet (mount race) — let SW resolve and open.
     chrome.runtime.sendMessage({ type: 'OPEN_SIDE_PANEL' }).catch((e) => {
       console.warn('[panel-header] OPEN_SIDE_PANEL message failed:', e?.message ?? e)
     })

@@ -9,7 +9,7 @@ import { API_BASE_URL } from '../shared/config'
 // in service-worker/main.ts so a typo can't desync the two.
 export const REENABLE_ALARM = 'lisna.reenable'
 
-export async function handle(req: SwRequest, _sender?: chrome.runtime.MessageSender): Promise<SwResponse> {
+export async function handle(req: SwRequest, sender?: chrome.runtime.MessageSender): Promise<SwResponse> {
   try {
     switch (req.type) {
       case 'AUTH_LOGIN': {
@@ -25,23 +25,33 @@ export async function handle(req: SwRequest, _sender?: chrome.runtime.MessageSen
         return { ok: true, data: null }
       }
       case 'OPEN_SIDE_PANEL': {
-        // chrome.sidePanel.open requires (a) a windowId or tabId and
-        // (b) a recent user gesture. The user clicked the modal-header
-        // shortcut → chrome.runtime.sendMessage carries the gesture
-        // context through to this handler on Chrome 116+. We resolve
-        // the active window and delegate. If the call fails (older
-        // Chrome / gesture expired) we report it back; the modal
-        // surfaces nothing — the toolbar icon click is still the
-        // canonical fallback.
+        // chrome.sidePanel.open requires (a) windowId or tabId AND
+        // (b) a recent user gesture. The PanelHeader's primary path
+        // calls sidePanel.open() directly from the click handler
+        // inside the modal iframe (gesture chain intact); we only
+        // see this message as the fallback path when that fails.
+        //
+        // Resolution order for windowId:
+        //   1. sender.tab.windowId — most reliable, directly tied to
+        //      the calling iframe's tab.
+        //   2. chrome.tabs.query({active, currentWindow}) — fallback
+        //      for environments where sender.tab is unset for
+        //      extension-iframe senders.
         try {
-          const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-          if (tab?.windowId === undefined) {
+          let windowId = sender?.tab?.windowId
+          if (windowId === undefined) {
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+            windowId = tab?.windowId
+          }
+          if (windowId === undefined) {
+            console.warn('[SW] OPEN_SIDE_PANEL: no windowId resolvable', { senderTab: sender?.tab })
             return { ok: false, error: 'no active window' }
           }
-          await chrome.sidePanel.open({ windowId: tab.windowId })
+          await chrome.sidePanel.open({ windowId })
+          console.log('[SW] OPEN_SIDE_PANEL ok', { windowId })
           return { ok: true, data: null }
         } catch (e) {
-          console.warn('[SW] sidePanel.open failed', e)
+          console.warn('[SW] sidePanel.open failed', { err: e instanceof Error ? e.message : e })
           return { ok: false, error: e instanceof Error ? e.message : String(e) }
         }
       }
