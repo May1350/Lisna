@@ -13,6 +13,7 @@ function normalizeUrl(u: string): string {
 }
 
 interface SlideRow { ts: number; key: string }
+interface TranscriptRow { ts: number; text: string }
 
 export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   if (isWarmup(event)) return warmupResponse()
@@ -33,6 +34,14 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     notes: unknown
     slides: SlideRow[]
     outline: Outline | null
+    // Persisted live-caption history. The modal restores its
+    // LiveTranscript surface from this on reopen / page reload — the
+    // legacy response shape only sent slides + outline, so users who
+    // closed the side panel mid-lecture lost everything they had read.
+    // Always returned as an array so the consumer doesn't have to
+    // null-check; older rows that pre-date the column default get the
+    // jsonb default '[]'.
+    transcripts: TranscriptRow[]
     status: string
     // pg's node-postgres returns timestamp columns as Date objects by
     // default. The earlier `created_at: string` annotation was wishful
@@ -42,8 +51,11 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     updated_at: Date
     url_original: string
   }>(
-    `SELECT id, notes, slides, outline, status, created_at, updated_at, url_original FROM sessions
-     WHERE user_id = $1 AND url_hash = $2 AND status != 'deleted'`,
+    `SELECT id, notes, slides, outline,
+            COALESCE(transcripts, '[]'::jsonb) AS transcripts,
+            status, created_at, updated_at, url_original
+       FROM sessions
+      WHERE user_id = $1 AND url_hash = $2 AND status != 'deleted'`,
     [payload.sub, urlHash]
   )
   const session = rows[0] ?? null

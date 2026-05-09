@@ -575,7 +575,16 @@ export default function App() {
         // renders only `outline` now, so we ignore that field. See
         // backend/src/handlers/session-get.ts for the full shape.
         const r = await callApi<{
-          session: { id: string; slides: SlideItem[]; outline: Outline | null; updated_at?: string } | null
+          session: {
+            id: string
+            slides: SlideItem[]
+            outline: Outline | null
+            // Persisted live captions. Optional in the type so older
+            // backends (pre-Phase 7) and brand-new sessions without
+            // any audio yet are tolerated without a runtime guard.
+            transcripts?: LiveTranscriptItem[]
+            updated_at?: string
+          } | null
         }>(
           `/v1/session?url=${encodeURIComponent(parentUrl)}`, 'GET'
         )
@@ -583,6 +592,23 @@ export default function App() {
           setSessionId(r.session.id)
           setSlides(r.session.slides || [])
           setOutline(r.session.outline ?? null)
+          // Hydrate the LiveTranscript surface from the persisted
+          // backend state. Without this, closing the modal mid-lecture
+          // and reopening it (or page-reloading) wiped every caption
+          // the user had been reading even though the data was safe in
+          // the DB. Cap to the same RING_CAP the WS path uses (60) so
+          // sessions with thousands of segments don't render a
+          // monstrous list — older items fall off the front, mirroring
+          // the live behaviour. We slice from the end (latest items
+          // win) to match what the user would have seen had they
+          // stayed in the modal.
+          if (r.session.transcripts && r.session.transcripts.length > 0) {
+            const RING_CAP = 60
+            const items = r.session.transcripts
+            setTranscripts(items.length > RING_CAP ? items.slice(-RING_CAP) : items)
+          } else {
+            setTranscripts([])
+          }
           // Carry the DB's updated_at so the indicator shows the real
           // last-edit time of this saved note instead of "now". Only
           // use the server timestamp when an OUTLINE actually exists

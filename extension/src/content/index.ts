@@ -658,6 +658,120 @@ async function startCapture(url: string): Promise<void> {
     pendingSlides: [],
   }
   let chunksSent = 0
+  // ── In-flight retry queue ─────────────────────────────────────────────
+  // Stashes audio chunks whose POST failed with a *network exception*
+  // (the SW.sendMessage promise threw, meaning the request never got
+  // off the device). On the next successful POST we drain this queue
+  // so transient wifi blinks don't lose 10-30 s of audio.
+  //
+  // We deliberately do NOT enqueue chunks that received an HTTP error
+  // (5xx after retry, 4xx, etc.). Reason: the server may have already
+  // processed the chunk and the response just got lost on the way back
+  // — re-sending would write the same transcript twice into
+  // sessions.transcripts. Network-throw is the one case we can be
+  // confident the request never reached Lambda, so re-send is safe.
+  //
+  // Cap: 6 chunks ≈ 60 s of audio at ~320 KB each ≈ 1.9 MB. Beyond
+  // that we drop the oldest (FIFO) — the user's outage is long enough
+  // that perfect recovery is no longer realistic, and unbounded growth
+  // would risk page-tab memory pressure.
+  interface PendingChunk {
+    startTimeSec: number
+    durationSec: number
+    audio_b64: string
+    mime: string
+  }
+  const pendingChunks: PendingChunk[] = []
+  const MAX_PENDING_CHUNKS = 6
+  let draining = false  // single-flight guard so two drain cycles don't race on the queue
+
+  type ChunkOk = {
+    ok: true
+    data: {
+      added?: number
+      transcript_preview?: string
+      session_id: string
+      quota?: QuotaSnapshot
+      chunk_error?: string
+    }
+  }
+  type ChunkErr = { ok: false; error: string; status?: number; data?: { error?: string; quota?: QuotaSnapshot } }
+
+  const isTransient5xx = (resp: ChunkOk | ChunkErr | undefined): boolean =>
+    !!resp && !resp.ok && typeof resp.status === 'number' && resp.status >= 500 && resp.status < 600
+
+  // Single SW round-trip — caller decides whether to retry / enqueue.
+  const sendChunkOnce = (p: PendingChunk): Promise<ChunkOk | ChunkErr | undefined> =>
+    chrome.runtime.sendMessage({
+      type: 'API_FETCH',
+      method: 'POST',
+      path: '/v1/stream/audio',
+      body: {
+        session_id: session.id,
+        url,
+        start_time_sec: p.startTimeSec,
+        duration_sec: p.durationSec,
+        audio_b64: p.audio_b64,
+        mime: p.mime,
+      },
+    }) as Promise<ChunkOk | ChunkErr | undefined>
+
+  // Best-effort drain of the backlog. Runs after a successful live
+  // chunk so we know connectivity is restored. One in-flight at a
+  // time (draining flag) so a delayed second trigger doesn't pop the
+  // same item twice. Stops on first failure — the next live chunk's
+  // success will trigger another drain attempt.
+  const drainPending = async (): Promise<void> => {
+    if (draining) return
+    if (pendingChunks.length === 0) return
+    draining = true
+    try {
+      while (pendingChunks.length > 0) {
+        if (session.stopped || session.abort.signal.aborted) return
+        const head = pendingChunks[0]
+        let res: ChunkOk | ChunkErr | undefined
+        try {
+          res = await sendChunkOnce(head)
+        } catch {
+          // Still offline. Leave queue intact for next live chunk.
+          log('drainPending: network still failing; keeping queue', { remaining: pendingChunks.length })
+          return
+        }
+        if (res?.ok) {
+          pendingChunks.shift()
+          log('drainPending: replayed queued chunk', { remaining: pendingChunks.length })
+          continue
+        }
+        // Non-2xx response. 4xx (other than 402 quota — capture is
+        // about to stop anyway) means the request will never succeed
+        // however many times we replay it (auth gone, ZodError, etc.)
+        // — drop it. 5xx leaves the chunk in the queue; the next live
+        // chunk's success path will retry.
+        if (res && res.status && res.status >= 400 && res.status < 500 && res.status !== 402) {
+          pendingChunks.shift()
+          warn('drainPending: dropping queued chunk on permanent 4xx', { status: res.status, remaining: pendingChunks.length })
+          continue
+        }
+        // 5xx or empty response → leave in queue.
+        log('drainPending: backend not ready; pausing drain', { status: res?.status, remaining: pendingChunks.length })
+        return
+      }
+    } finally {
+      draining = false
+    }
+  }
+
+  const enqueueChunk = (p: PendingChunk): void => {
+    if (pendingChunks.length >= MAX_PENDING_CHUNKS) {
+      const dropped = pendingChunks.shift()
+      warn('pending queue full; dropping oldest', {
+        droppedTs: dropped?.startTimeSec,
+        queueCap: MAX_PENDING_CHUNKS,
+      })
+    }
+    pendingChunks.push(p)
+    log('chunk enqueued for retry', { startTimeSec: p.startTimeSec, queueLen: pendingChunks.length })
+  }
 
   try {
     capture = new AudioCapture(activeVideo, async (chunk) => {
@@ -667,40 +781,19 @@ async function startCapture(url: string): Promise<void> {
       chunksSent += 1
       log('audio chunk produced', { n: chunksSent, durationSec: chunk.durationSec, blobSize: chunk.blob.size, mime: chunk.mime })
       const b64 = await blobToBase64(chunk.blob)
-      type ChunkOk = {
-        ok: true
-        data: {
-          added?: number
-          transcript_preview?: string
-          session_id: string
-          quota?: QuotaSnapshot
-          chunk_error?: string
-        }
+      const payload: PendingChunk = {
+        startTimeSec: chunk.startTimeSec,
+        durationSec: chunk.durationSec,
+        audio_b64: b64,
+        mime: chunk.mime,
       }
-      type ChunkErr = { ok: false; error: string; status?: number; data?: { error?: string; quota?: QuotaSnapshot } }
       // Single retry with 1.5s backoff for transient 5xx. Observed in
       // production: API Gateway → VPC Lambda occasionally returns 503
       // even though the Lambda itself succeeds (CloudWatch shows clean
       // invocations). About 1 in 5 chunks affected on cold-network
       // moments. A single retry recovers virtually all of them and the
       // delay is hidden inside the 10 s chunk cadence.
-      const sendChunk = async (): Promise<ChunkOk | ChunkErr | undefined> => {
-        return await chrome.runtime.sendMessage({
-          type: 'API_FETCH',
-          method: 'POST',
-          path: '/v1/stream/audio',
-          body: {
-            session_id: session.id,
-            url,
-            start_time_sec: chunk.startTimeSec,
-            duration_sec: chunk.durationSec,
-            audio_b64: b64,
-            mime: chunk.mime,
-          },
-        }) as ChunkOk | ChunkErr | undefined
-      }
-      const isTransient5xx = (resp: typeof r): boolean =>
-        !!resp && !resp.ok && typeof resp.status === 'number' && resp.status >= 500 && resp.status < 600
+      const sendChunk = (): Promise<ChunkOk | ChunkErr | undefined> => sendChunkOnce(payload)
       let r: ChunkOk | ChunkErr | undefined
       try {
         r = await sendChunk()
@@ -723,7 +816,12 @@ async function startCapture(url: string): Promise<void> {
           if (session.stopped || session.abort.signal.aborted) return
         }
       } catch (e) {
-        warn('audio chunk sendMessage threw', e)
+        // Network exception — request never reached Lambda. Stash for
+        // replay on the next successful chunk's drain. We are
+        // confident there's no server-side write to dedup against,
+        // so re-sending later is safe (no double-INSERT risk).
+        warn('audio chunk sendMessage threw — enqueueing for retry', e)
+        enqueueChunk(payload)
         return
       }
 
@@ -782,6 +880,15 @@ async function startCapture(url: string): Promise<void> {
           payload: { type: 'quota_update', quota: r.data.quota },
         })
         broadcastToFrames({ source: 'sh-frame', type: 'QUOTA_UPDATE', quota: r.data.quota })
+      }
+
+      // Live chunk just succeeded → connectivity is restored. Drain
+      // any chunks that were queued during a previous outage. Fire
+      // and forget: the live chunk cadence is 10 s, draining a few
+      // ~1 s POSTs in the background is well within that window. A
+      // single-flight guard inside drainPending prevents racing.
+      if (r?.ok && pendingChunks.length > 0) {
+        void drainPending()
       }
     })
     capture.start()
@@ -1014,6 +1121,20 @@ async function startCapture(url: string): Promise<void> {
     activeVideo?.removeEventListener('pause', earlyOnPause)
     triggerAbort.abort()
     if (session.canonicalAdopted) {
+      // Last-chance flush of any chunks we couldn't deliver mid-session
+      // (network blinked) BEFORE we trigger curate. Otherwise the
+      // outline is generated from a transcript that's missing the last
+      // few minutes of the lecture. Best-effort: if the network is
+      // still down, the chunks stay enqueued and eventually fall off
+      // when the tab closes. We do NOT await — curate doesn't need to
+      // wait for backlog to land (the backend re-reads transcripts at
+      // curate time, so a late drain that arrives during a curate
+      // would just need another curate triggered manually). Logging
+      // makes the failure mode visible.
+      if (pendingChunks.length > 0) {
+        log('session ending with pending chunks; attempting final drain', { remaining: pendingChunks.length })
+        void drainPending()
+      }
       // Final curate produces the wrap-up outline from everything we
       // captured. Same trigger for both natural-end and user-stop —
       // the user's intent in either case is "give me the notes now".
