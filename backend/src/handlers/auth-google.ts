@@ -40,13 +40,21 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     // Single round-trip upsert: insert if new, refresh email/display_name on
     // returning users so profile changes (Google name update, email migration)
     // propagate without a separate UPDATE path.
+    //
+    // NOTE: do NOT add `updated_at = NOW()` here. The users table schema
+    // (migrations/001_initial.sql) only has `created_at`. Postgres parses
+    // the whole statement before evaluating ON CONFLICT, so referencing
+    // a non-existent column 400s every login — including first-time
+    // sign-ups where ON CONFLICT never fires. If "when was this user
+    // last refreshed?" becomes a need, add an explicit migration first
+    // (`ALTER TABLE users ADD COLUMN updated_at TIMESTAMPTZ NOT NULL
+    // DEFAULT NOW()`) and only then re-introduce the SET line.
     const upserted = await query<{ id: string; plan: 'free' | 'pro' }>(
       `INSERT INTO users (google_sub, email, display_name)
        VALUES ($1, $2, $3)
        ON CONFLICT (google_sub) DO UPDATE
          SET email = EXCLUDED.email,
-             display_name = EXCLUDED.display_name,
-             updated_at = NOW()
+             display_name = EXCLUDED.display_name
        RETURNING id, plan`,
       [g.sub, g.email, g.name ?? null]
     )
