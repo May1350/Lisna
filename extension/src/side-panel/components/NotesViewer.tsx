@@ -85,7 +85,7 @@ export function NotesViewer({ session, onBack, onAuthExpired }: Props) {
     || T.sidePanel.historyTitle_untitled
 
   return (
-    <div className="flex flex-col h-screen bg-white">
+    <div className="flex flex-col h-screen bg-paper-100">
       <Header
         title={headerTitle}
         backLabel={T.sidePanel.notesViewer_back}
@@ -127,18 +127,18 @@ function Header({
   onOpenSource: () => void
 }) {
   return (
-    <div className="sticky top-0 z-10 flex items-center gap-2 px-3 py-2 bg-white/95 backdrop-blur border-b border-gray-200">
+    <div className="sticky top-0 z-10 flex items-center gap-2 px-3 py-2 bg-white/95 backdrop-blur border-b border-paper-edge">
       <button
         type="button"
         onClick={onBack}
         aria-label={backLabel}
         title={backLabel}
-        className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:text-indigo-600 rounded hover:bg-gray-100 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+        className="flex items-center gap-1 px-2 py-1 text-xs text-ink-700 hover:text-ink-900 rounded hover:bg-paper-300 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-terra"
       >
         <BackIcon size={14} />
         <span>{backLabel}</span>
       </button>
-      <span className="flex-1 text-xs font-medium text-gray-900 truncate" title={title}>
+      <span className="flex-1 text-xs font-medium text-ink-900 truncate" title={title}>
         {title}
       </span>
       <button
@@ -146,7 +146,7 @@ function Header({
         onClick={onOpenSource}
         aria-label={openLabel}
         title={openLabel}
-        className="p-1 rounded text-gray-400 hover:text-indigo-600 hover:bg-gray-100 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+        className="p-1 rounded text-ink-300 hover:text-ink-900 hover:bg-paper-300 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-terra"
       >
         <ExternalLinkIcon size={14} />
       </button>
@@ -157,13 +157,13 @@ function Header({
 function LoadingBlock({ copy }: { copy: string }) {
   return (
     <div className="px-4 py-6">
-      <div className="text-xs text-gray-500 mb-3">{copy}</div>
+      <div className="text-xs text-ink-500 mb-3">{copy}</div>
       <div className="space-y-2">
-        <div className="h-3 w-2/3 bg-gray-200 rounded animate-pulse" />
-        <div className="h-3 w-5/6 bg-gray-200 rounded animate-pulse" />
-        <div className="h-3 w-1/2 bg-gray-200 rounded animate-pulse" />
-        <div className="h-3 w-3/4 bg-gray-200 rounded animate-pulse" />
-        <div className="h-3 w-2/3 bg-gray-200 rounded animate-pulse" />
+        <div className="h-3 w-2/3 bg-ink-200 rounded animate-pulse" />
+        <div className="h-3 w-5/6 bg-ink-200 rounded animate-pulse" />
+        <div className="h-3 w-1/2 bg-ink-200 rounded animate-pulse" />
+        <div className="h-3 w-3/4 bg-ink-200 rounded animate-pulse" />
+        <div className="h-3 w-2/3 bg-ink-200 rounded animate-pulse" />
       </div>
     </div>
   )
@@ -178,11 +178,11 @@ function EmptyBlock({
 }) {
   return (
     <div className="flex flex-col items-center justify-center text-center px-6 py-12 gap-3">
-      <p className="text-xs text-gray-600">{copy}</p>
+      <p className="text-xs text-ink-700">{copy}</p>
       <button
         type="button"
         onClick={onBack}
-        className="text-xs text-indigo-600 hover:text-indigo-700 underline-offset-2 hover:underline"
+        className="text-xs text-ink-900 hover:text-terra-700 underline-offset-2 hover:underline"
       >
         {backLabel}
       </button>

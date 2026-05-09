@@ -68,15 +68,18 @@ export function ErrorToast() {
           key={t.id}
           className={`pointer-events-auto rounded-lg shadow-lg px-3 py-2.5 text-xs flex items-start gap-2 ${
             t.severity === 'warning'
-              ? 'bg-amber-50 border border-amber-200 text-amber-900'
+              ? 'bg-warn-amber/10 border border-warn-amber/40 text-ink-900'
               : t.severity === 'fatal'
-              ? 'bg-red-50 border border-red-300 text-red-900'
-              : 'bg-red-50 border border-red-200 text-red-900'
+              ? 'bg-warn-red/5 border border-warn-red/40 text-warn-red'
+              : 'bg-warn-red/5 border border-warn-red/30 text-warn-red'
           }`}
         >
-          <span className="text-base leading-none mt-0.5">
-            {t.severity === 'warning' ? '⚠️' : '❌'}
-          </span>
+          <span
+            className={`inline-block w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${
+              t.severity === 'warning' ? 'bg-warn-amber' : 'bg-warn-red'
+            }`}
+            aria-hidden
+          />
           <div className="flex-1 leading-relaxed break-words">
             {translate(t.message, T)}
           </div>

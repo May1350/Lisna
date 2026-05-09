@@ -282,11 +282,11 @@ export function Options() {
         <h2 className="font-semibold mb-2">{T.options.section_language}</h2>
         <div className="space-y-3">
           <label className="block">
-            <span className="block text-xs text-gray-700 mb-1">{T.options.label_systemLanguage}</span>
+            <span className="block text-xs text-ink-700 mb-1">{T.options.label_systemLanguage}</span>
             <select
               value={systemLang}
               onChange={(e) => void onChangeSystemLang(e.target.value as LanguageCode)}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-200 bg-white"
+              className="w-full px-3 py-2 text-sm border border-paper-edge rounded focus:outline-none focus:border-ink-900 focus:ring-1 focus:ring-ink-900/15 bg-paper-100"
             >
               <option value="ja">{T.languageNames.ja}</option>
               <option value="en">{T.languageNames.en}</option>
@@ -295,11 +295,11 @@ export function Options() {
             </select>
           </label>
           <label className="block">
-            <span className="block text-xs text-gray-700 mb-1">{T.options.label_noteLanguage}</span>
+            <span className="block text-xs text-ink-700 mb-1">{T.options.label_noteLanguage}</span>
             <select
               value={noteLang}
               onChange={(e) => void onChangeNoteLang(e.target.value as NoteLanguageCode)}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-200 bg-white"
+              className="w-full px-3 py-2 text-sm border border-paper-edge rounded focus:outline-none focus:border-ink-900 focus:ring-1 focus:ring-ink-900/15 bg-paper-100"
             >
               <option value="auto">{T.options.noteLanguage_auto}</option>
               <option value="ja">{T.languageNames.ja}</option>
@@ -320,23 +320,23 @@ export function Options() {
           error banners. */}
       <section className="mb-8" ref={feedbackSectionRef}>
         <h2 className="font-semibold mb-2">{T.options.section_feedback}</h2>
-        <p className="text-xs text-gray-500 mb-3">{T.options.feedback_intro}</p>
+        <p className="text-xs text-ink-500 mb-3">{T.options.feedback_intro}</p>
 
-        <label className="block text-xs text-gray-700 mb-1">
+        <label className="block text-xs text-ink-700 mb-1">
           {T.options.feedback_categoryLabel}
         </label>
         <select
           value={fbCategory}
           onChange={(e) => setFbCategory(e.target.value as 'bug' | 'feature_request' | 'other')}
           disabled={fbStatus.kind === 'sending'}
-          className="block w-full rounded border border-gray-300 px-2 py-1.5 text-sm mb-3 bg-white"
+          className="block w-full rounded border border-paper-edge px-2 py-1.5 text-sm mb-3 bg-paper-100"
         >
           <option value="feature_request">{T.options.feedback_category_feature}</option>
           <option value="bug">{T.options.feedback_category_bug}</option>
           <option value="other">{T.options.feedback_category_other}</option>
         </select>
 
-        <label className="block text-xs text-gray-700 mb-1">
+        <label className="block text-xs text-ink-700 mb-1">
           {T.options.feedback_messageLabel}
         </label>
         <textarea
@@ -353,10 +353,10 @@ export function Options() {
           rows={5}
           maxLength={2000}
           placeholder={T.options.feedback_messagePlaceholder}
-          className="block w-full rounded border border-gray-300 px-2 py-1.5 text-sm mb-1 resize-y"
+          className="block w-full rounded border border-paper-edge px-2 py-1.5 text-sm mb-1 resize-y"
         />
         <div className="flex items-center justify-between mb-3">
-          <span className="text-[11px] text-gray-400">
+          <span className="text-[11px] text-ink-300">
             {interpolate(T.options.feedback_charCount, { n: fbMessage.length })}
           </span>
         </div>
@@ -365,16 +365,16 @@ export function Options() {
           type="button"
           onClick={() => void onSubmitFeedback()}
           disabled={fbStatus.kind === 'sending' || fbMessage.trim().length === 0}
-          className="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+          className="rounded bg-ink-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-ink-700 disabled:bg-ink-200 disabled:cursor-not-allowed"
         >
           {fbStatus.kind === 'sending' ? T.options.feedback_submit_busy : T.options.feedback_submit}
         </button>
 
         {fbStatus.kind === 'ok' && (
-          <p className="text-xs text-emerald-700 mt-2">{T.options.feedback_thanks}</p>
+          <p className="text-xs text-ok-green mt-2">{T.options.feedback_thanks}</p>
         )}
         {fbStatus.kind === 'error' && (
-          <p className="text-xs text-red-600 mt-2">
+          <p className="text-xs text-warn-red mt-2">
             {T.options.feedback_failPrefix}{fbStatus.message ?? ''}
           </p>
         )}
@@ -382,7 +382,7 @@ export function Options() {
 
       <section className="mb-8">
         <h2 className="font-semibold mb-2">{T.options.section_speed}</h2>
-        <p className="text-sm text-gray-600 mb-4">{T.options.speedHint}</p>
+        <p className="text-sm text-ink-700 mb-4">{T.options.speedHint}</p>
         {SPEED_OPTIONS.map(o => (
           <label key={String(o.value)} className="flex gap-2 items-center mb-2">
             <input
@@ -398,7 +398,7 @@ export function Options() {
 
       <section className="mb-8">
         <h2 className="font-semibold mb-2">{T.options.section_export}</h2>
-        <p className="text-sm text-gray-600 mb-4">
+        <p className="text-sm text-ink-700 mb-4">
           {T.options.exportHint}
         </p>
         <label className="flex items-start gap-2">
@@ -410,7 +410,7 @@ export function Options() {
           />
           <span>
             {T.options.autoDownloadLabel}
-            <span className="block text-xs text-gray-500 mt-0.5">
+            <span className="block text-xs text-ink-500 mt-0.5">
               {T.options.autoDownloadHint}
             </span>
           </span>
@@ -419,13 +419,13 @@ export function Options() {
 
       <section className="mb-8">
         <h2 className="font-semibold mb-2">{T.options.section_disableTimer}</h2>
-        <p className="text-sm text-gray-600 mb-4 leading-relaxed">
+        <p className="text-sm text-ink-700 mb-4 leading-relaxed">
           {T.options.disableTimer_hint}
         </p>
         <select
           value={disableHours}
           onChange={(e) => void onDisableHoursChange(Number(e.target.value))}
-          className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-200 bg-white"
+          className="w-full px-3 py-2 text-sm border border-paper-edge rounded focus:outline-none focus:border-ink-900 focus:ring-1 focus:ring-ink-900/15 bg-paper-100"
         >
           {[1, 4, 12, 24, 72, 168].map(h => (
             <option key={h} value={h}>
@@ -439,17 +439,17 @@ export function Options() {
         <h2 className="font-semibold mb-2 flex items-center gap-2">
           <ObsidianMark size={20} />
           <span>{T.options.section_obsidian}</span>
-          <span className="text-xs font-normal text-gray-500">{T.common.beta}</span>
+          <span className="text-xs font-normal text-ink-500">{T.common.beta}</span>
         </h2>
-        <p className="text-sm text-gray-600 mb-4 leading-relaxed">
+        <p className="text-sm text-ink-700 mb-4 leading-relaxed">
           {T.options.obsidian_intro}
         </p>
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
-          <p className="text-xs font-semibold text-blue-900 mb-1.5">{T.options.obsidian_setupHeader}</p>
-          <ol className="text-xs text-blue-900 space-y-1 list-decimal list-inside leading-relaxed">
+        <div className="bg-paper-200 border border-paper-edge rounded-lg p-3 mb-4">
+          <p className="text-xs font-semibold text-ink-900 mb-1.5">{T.options.obsidian_setupHeader}</p>
+          <ol className="text-xs text-ink-900 space-y-1 list-decimal list-inside leading-relaxed">
             <li>
               {T.options.obsidian_step1}
-              <span className="block text-[10px] text-blue-700/70 mt-0.5">
+              <span className="block text-[10px] text-ink-500 mt-0.5">
                 {T.options.obsidian_step1_safemode}
               </span>
             </li>
@@ -461,7 +461,7 @@ export function Options() {
             </li>
             <li>{T.options.obsidian_step4}</li>
           </ol>
-          <p className="text-[10px] text-blue-700/70 mt-2 leading-relaxed">
+          <p className="text-[10px] text-ink-500 mt-2 leading-relaxed">
             <a href="https://github.com/coddingtonbear/obsidian-local-rest-api" target="_blank" rel="noopener noreferrer" className="underline">
               {T.options.obsidian_docs}
             </a>
@@ -471,7 +471,7 @@ export function Options() {
 
         <div className="space-y-3">
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">{T.options.obsidian_label_apiUrl}</label>
+            <label className="block text-xs font-medium text-ink-700 mb-1">{T.options.obsidian_label_apiUrl}</label>
             {urlEditable ? (
               <div className="flex items-center gap-2">
                 <input
@@ -479,59 +479,59 @@ export function Options() {
                   value={obsidian.apiUrl}
                   onChange={(e) => void onObsidianChange({ apiUrl: e.target.value })}
                   placeholder={DEFAULT_OBSIDIAN_URL}
-                  className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-200 font-mono"
+                  className="flex-1 px-3 py-2 text-sm border border-paper-edge rounded focus:outline-none focus:border-ink-900 focus:ring-1 focus:ring-ink-900/15 font-mono"
                 />
                 <button
                   type="button"
                   onClick={onUrlReset}
-                  className="text-xs text-gray-500 hover:text-gray-700 underline whitespace-nowrap"
+                  className="text-xs text-ink-500 hover:text-ink-700 underline whitespace-nowrap"
                   title={T.options.obsidian_url_resetTooltip}
                 >
                   {T.options.obsidian_url_reset}
                 </button>
               </div>
             ) : (
-              <div className="flex items-center justify-between gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded text-sm">
-                <code className="text-gray-700 font-mono">{obsidian.apiUrl || DEFAULT_OBSIDIAN_URL}</code>
+              <div className="flex items-center justify-between gap-2 px-3 py-2 bg-paper-200 border border-paper-edge rounded text-sm">
+                <code className="text-ink-700 font-mono">{obsidian.apiUrl || DEFAULT_OBSIDIAN_URL}</code>
                 <button
                   type="button"
                   onClick={onUrlEditClick}
-                  className="text-xs text-blue-600 hover:text-blue-800 underline whitespace-nowrap"
+                  className="text-xs text-ink-700 hover:text-ink-900 underline whitespace-nowrap"
                 >
                   {T.options.obsidian_url_edit}
                 </button>
               </div>
             )}
-            <p className="text-[11px] text-gray-500 mt-1">
+            <p className="text-[11px] text-ink-500 mt-1">
               {T.options.obsidian_apiUrl_default_note}
             </p>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">{T.options.obsidian_label_apiKey}</label>
+            <label className="block text-xs font-medium text-ink-700 mb-1">{T.options.obsidian_label_apiKey}</label>
             <input
               type="password"
               value={obsidian.apiKey}
               onChange={(e) => void onObsidianChange({ apiKey: e.target.value })}
               placeholder={T.options.obsidian_apiKey_placeholder}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-200 font-mono"
+              className="w-full px-3 py-2 text-sm border border-paper-edge rounded focus:outline-none focus:border-ink-900 focus:ring-1 focus:ring-ink-900/15 font-mono"
               autoComplete="off"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">
-              {T.options.obsidian_label_folder} <span className="text-gray-400 font-normal">{T.options.obsidian_folder_optional}</span>
+            <label className="block text-xs font-medium text-ink-700 mb-1">
+              {T.options.obsidian_label_folder} <span className="text-ink-300 font-normal">{T.options.obsidian_folder_optional}</span>
             </label>
             <input
               type="text"
               value={obsidian.folder}
               onChange={(e) => void onObsidianChange({ folder: e.target.value })}
               placeholder={T.options.obsidian_folder_placeholder}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-200"
+              className="w-full px-3 py-2 text-sm border border-paper-edge rounded focus:outline-none focus:border-ink-900 focus:ring-1 focus:ring-ink-900/15"
             />
             <p
-              className="text-[11px] text-gray-500 mt-1"
+              className="text-[11px] text-ink-500 mt-1"
               dangerouslySetInnerHTML={{
                 // The path-preview template embeds an inline <u> tag.
                 // We feed the locale-specific template directly to the
@@ -549,14 +549,14 @@ export function Options() {
             />
 
             <details className="mt-2 group">
-              <summary className="cursor-pointer text-[11px] text-blue-600 hover:text-blue-800 select-none list-none flex items-center gap-1 w-fit">
+              <summary className="cursor-pointer text-[11px] text-ink-700 hover:text-ink-900 select-none list-none flex items-center gap-1 w-fit">
                 <span className="inline-block transition-transform group-open:rotate-90">▶</span>
                 {T.options.obsidian_folder_helpHeader}
               </summary>
-              <div className="mt-2 pl-4 pr-2 py-2.5 text-[11px] text-gray-700 bg-gray-50 border border-gray-200 rounded leading-relaxed space-y-2">
+              <div className="mt-2 pl-4 pr-2 py-2.5 text-[11px] text-ink-700 bg-paper-200 border border-paper-edge rounded leading-relaxed space-y-2">
                 <p>
                   <strong>1.</strong> {T.options.obsidian_folder_help_step1}
-                  <span className="block text-gray-500 mt-0.5">
+                  <span className="block text-ink-500 mt-0.5">
                     {T.options.obsidian_folder_help_step1_note}
                   </span>
                 </p>
@@ -566,8 +566,9 @@ export function Options() {
                 <p>
                   <strong>3.</strong> {T.options.obsidian_folder_help_step3}
                 </p>
-                <p className="pt-1 border-t border-gray-200 text-amber-800">
-                  ⚠️ {T.options.obsidian_folder_help_warning}
+                <p className="pt-1 border-t border-paper-edge text-warn-amber flex items-start gap-1.5">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-warn-amber mt-1.5 shrink-0" aria-hidden />
+                  <span>{T.options.obsidian_folder_help_warning}</span>
                 </p>
               </div>
             </details>
@@ -579,19 +580,19 @@ export function Options() {
                 type="button"
                 onClick={onTestObsidian}
                 disabled={!obsidian.apiUrl || !obsidian.apiKey || testStatus.kind === 'testing'}
-                className="px-3 py-1.5 text-xs rounded border border-gray-300 hover:bg-gray-50 disabled:opacity-50"
+                className="px-3 py-1.5 text-xs rounded border border-paper-edge hover:bg-paper-200 disabled:opacity-50"
               >
                 {testStatus.kind === 'testing' ? T.options.obsidian_test_busy : T.options.obsidian_test}
               </button>
               {testStatus.kind === 'ok' && (
-                <span className="text-xs text-emerald-700 font-medium">{T.options.obsidian_test_ok}</span>
+                <span className="text-xs text-ok-green font-medium">{T.options.obsidian_test_ok}</span>
               )}
               {testStatus.kind === 'error' && (
-                <span className="text-xs text-red-700 font-medium">{T.options.obsidian_test_fail}</span>
+                <span className="text-xs text-warn-red font-medium">{T.options.obsidian_test_fail}</span>
               )}
             </div>
             {testStatus.kind === 'error' && testStatus.message && (
-              <div className="mt-2 px-3 py-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded whitespace-pre-line leading-relaxed">
+              <div className="mt-2 px-3 py-2 text-xs text-warn-red bg-warn-red/5 border border-warn-red/30 rounded whitespace-pre-line leading-relaxed">
                 {testStatus.message}
               </div>
             )}
@@ -607,7 +608,7 @@ export function Options() {
             />
             <span className="text-sm">
               {T.options.obsidian_autoSync}
-              <span className="block text-xs text-gray-500 mt-0.5">
+              <span className="block text-xs text-ink-500 mt-0.5">
                 {/* Inline brand mark — splits the locale string on the
                     {icon} placeholder so each language can position the
                     Obsidian gem wherever the sentence structure
@@ -628,8 +629,8 @@ export function Options() {
       <section className="mb-8">
         <h2 className="font-semibold mb-3">{T.options.section_plan}</h2>
         {!me ? (
-          <p className="text-sm text-gray-500">
-            <span className="inline-block w-3 h-3 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin align-[-2px] mr-1.5" />
+          <p className="text-sm text-ink-500">
+            <span className="inline-block w-3 h-3 border-2 border-paper-edge border-t-gray-600 rounded-full animate-spin align-[-2px] mr-1.5" />
             {T.options.plan_loading}
           </p>
         ) : !me.quota ? (
@@ -639,7 +640,7 @@ export function Options() {
           // `quota.used_secs` on undefined → React unmounts → blank
           // page. Fall back to plan-only rendering so the rest of the
           // Options surface stays usable.
-          <p className="text-sm text-gray-500">{T.options.plan_loading}</p>
+          <p className="text-sm text-ink-500">{T.options.plan_loading}</p>
         ) : (
           <PlanSection
             plan={me.user.plan}
@@ -661,20 +662,20 @@ export function Options() {
          *  they're on the wrong account. Putting the email front and
          *  centre makes the mismatch impossible to miss. */}
         {me?.user && (
-          <div className="rounded-lg border border-gray-200 bg-white p-3 mb-3">
-            <div className="text-[11px] font-medium text-gray-500 uppercase tracking-wide mb-1">
+          <div className="rounded-lg border border-paper-edge bg-paper-100 p-3 mb-3">
+            <div className="text-[11px] font-medium text-ink-500 uppercase tracking-wide mb-1">
               {T.options.account_currentLabel}
             </div>
-            <div className="text-sm font-semibold text-gray-900 break-all">
+            <div className="text-sm font-semibold text-ink-900 break-all">
               {me.user.email}
             </div>
             {me.user.name && (
-              <div className="text-xs text-gray-600 mt-0.5">{me.user.name}</div>
+              <div className="text-xs text-ink-700 mt-0.5">{me.user.name}</div>
             )}
           </div>
         )}
 
-        <p className="text-xs text-gray-600 mb-3 leading-relaxed">
+        <p className="text-xs text-ink-700 mb-3 leading-relaxed">
           {T.options.account_emailHint}
         </p>
 
@@ -683,7 +684,7 @@ export function Options() {
             type="button"
             onClick={onSwitchAccount}
             disabled={switchingAccount || loggingOut}
-            className="px-4 py-2 text-sm rounded border border-indigo-300 bg-indigo-50 text-indigo-800 hover:bg-indigo-100 disabled:opacity-50"
+            className="px-4 py-2 text-sm rounded border border-terra-soft bg-terra-tint text-ink-900 hover:bg-terra-tint disabled:opacity-50"
           >
             {switchingAccount ? T.options.switchAccount_busy : T.options.switchAccount}
           </button>
@@ -691,7 +692,7 @@ export function Options() {
             type="button"
             onClick={onLogout}
             disabled={loggingOut || switchingAccount}
-            className="px-4 py-2 text-sm rounded border border-gray-300 hover:bg-gray-50 disabled:opacity-50"
+            className="px-4 py-2 text-sm rounded border border-paper-edge hover:bg-paper-200 disabled:opacity-50"
           >
             {loggingOut ? T.options.logout_busy : T.options.logout}
           </button>

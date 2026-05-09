@@ -41,11 +41,11 @@ function CuratingState() {
   return (
     <div className="flex-1 flex flex-col items-center justify-center px-6 py-10 text-center">
       <div className="relative w-12 h-12 mb-4">
-        <span className="absolute inset-0 rounded-full border-4 border-blue-100" />
-        <span className="absolute inset-0 rounded-full border-4 border-blue-500 border-t-transparent animate-spin" />
+        <span className="absolute inset-0 rounded-full border-4 border-paper-edge" />
+        <span className="absolute inset-0 rounded-full border-4 border-ink-900 border-t-transparent animate-spin" />
       </div>
-      <p className="text-sm font-medium text-gray-900">{T.curate.spinnerTitle}</p>
-      <p className="text-xs text-gray-500 mt-1 max-w-xs leading-relaxed">
+      <p className="text-sm font-medium text-ink-900">{T.curate.spinnerTitle}</p>
+      <p className="text-xs text-ink-500 mt-1 max-w-xs leading-relaxed">
         {T.curate.spinnerHint}<br />
         {T.curate.timeHint}
       </p>
@@ -169,7 +169,7 @@ function EditableFilename({
   if (editing) {
     return (
       <div className="flex items-center gap-1.5 text-xs">
-        <span className="text-gray-500 shrink-0">{T.export.fileName}</span>
+        <span className="text-ink-500 shrink-0">{T.export.fileName}</span>
         <input
           type="text"
           value={draft}
@@ -180,7 +180,7 @@ function EditableFilename({
             else if (e.key === 'Escape') cancel()
           }}
           autoFocus
-          className="flex-1 min-w-0 px-2 py-1 border border-blue-400 rounded text-xs focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-200"
+          className="flex-1 min-w-0 px-2 py-1 border border-ink-200 rounded text-xs focus:outline-none focus:border-ink-900 focus:ring-1 focus:ring-ink-900/15"
         />
       </div>
     )
@@ -189,12 +189,12 @@ function EditableFilename({
   return (
     <button
       onClick={() => setEditing(true)}
-      className="w-full flex items-center gap-1.5 text-xs text-left hover:bg-gray-100 rounded px-1 py-1 transition group"
+      className="w-full flex items-center gap-1.5 text-xs text-left hover:bg-paper-300 rounded px-1 py-1 transition group"
       title={T.export.fileNameTooltip}
     >
-      <span className="text-gray-500 shrink-0">{T.export.fileName}</span>
-      <span className="flex-1 min-w-0 truncate text-gray-900 font-medium">{title}</span>
-      <span className="opacity-0 group-hover:opacity-100 text-gray-400 transition">✎</span>
+      <span className="text-ink-500 shrink-0">{T.export.fileName}</span>
+      <span className="flex-1 min-w-0 truncate text-ink-900 font-medium">{title}</span>
+      <span className="opacity-0 group-hover:opacity-100 text-ink-300 transition">✎</span>
     </button>
   )
 }
@@ -1017,7 +1017,7 @@ export default function App() {
     const hasContent = !!outline?.sections.length
     const hasTranscripts = transcripts.length > 0
     return (
-      <div className="min-h-screen flex flex-col bg-gray-50">
+      <div className="min-h-screen flex flex-col bg-paper-200">
         <PanelHeader
           user={user}
           isEmbed
@@ -1078,7 +1078,7 @@ export default function App() {
           />
         )}
         {curateError && (
-          <div className="mx-3 mb-1 bg-red-50 border border-red-200 text-red-800 text-xs px-3 py-2 rounded flex items-start gap-2">
+          <div className="mx-3 mb-1 bg-warn-red/5 border border-warn-red/30 text-warn-red text-xs px-3 py-2 rounded flex items-start gap-2">
             <span className="flex-1">{humanizeCurateError(curateError, T)}</span>
             {ERROR_REPORTABLE.has(curateError) && (
               <button
@@ -1107,7 +1107,7 @@ export default function App() {
                     await chrome.runtime.sendMessage({ type: 'OPEN_OPTIONS_PAGE' })
                   })()
                 }}
-                className="shrink-0 text-[11px] font-medium text-red-700 hover:text-red-900 underline whitespace-nowrap"
+                className="shrink-0 text-[11px] font-medium text-warn-red hover:text-warn-red underline whitespace-nowrap"
               >
                 {T.curateError.reportButton}
               </button>
@@ -1218,7 +1218,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50">
+    <div className="min-h-screen flex flex-col bg-paper-200">
       <PanelHeader
         user={user}
         isEmbed={false}
@@ -1228,7 +1228,7 @@ export default function App() {
         onLogout={onLogout}
       />
       <QuotaBanner user={user} quota={quota} blocked={quotaBlocked} onUpgrade={onUpgrade} />
-      <div className="px-3 pt-3 pb-2 text-xs text-gray-600 leading-relaxed border-b border-gray-200">
+      <div className="px-3 pt-3 pb-2 text-xs text-ink-700 leading-relaxed border-b border-paper-edge">
         {(() => {
           // inlineHint contains "{icon}" — substitute the bold icon
           // span at the placeholder location. Split-and-render keeps

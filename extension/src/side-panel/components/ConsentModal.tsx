@@ -9,12 +9,12 @@ export function ConsentModal({ onAccept }: Props) {
   const [b, setB] = useState(false)
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl p-5 max-w-md max-h-[90vh] overflow-y-auto">
+      <div className="bg-paper-100 rounded-xl p-5 max-w-md max-h-[90vh] overflow-y-auto">
         <h2 className="text-lg font-bold mb-2">{T.consent.title}</h2>
-        <p className="text-sm text-gray-700 mb-3">
+        <p className="text-sm text-ink-700 mb-3">
           {T.consent.body}
         </p>
-        <ol className="text-sm text-gray-700 list-decimal pl-5 space-y-1 mb-3">
+        <ol className="text-sm text-ink-700 list-decimal pl-5 space-y-1 mb-3">
           <li>{T.consent.bullet_terms_institution}</li>
           <li>{T.consent.bullet_terms_content}</li>
           <li>{T.consent.bullet_terms_law}</li>
@@ -33,7 +33,7 @@ export function ConsentModal({ onAccept }: Props) {
         <button
           disabled={!(a && b)}
           onClick={onAccept}
-          className="w-full bg-blue-600 disabled:bg-gray-300 text-white py-2 rounded"
+          className="w-full bg-ink-900 disabled:bg-ink-200 text-white py-2 rounded"
         >{T.consent.accept}</button>
       </div>
     </div>

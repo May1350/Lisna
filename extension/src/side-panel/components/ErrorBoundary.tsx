@@ -54,18 +54,20 @@ export class ErrorBoundary extends Component<Props, State> {
       // page they're going to reload anyway.
       const T = t()
       return (
-        <div className="min-h-screen flex items-center justify-center px-6 py-10 bg-gray-50">
-          <div className="max-w-sm w-full bg-white border border-red-200 rounded-lg shadow-sm p-5">
-            <div className="text-2xl mb-2" aria-hidden="true">⚠️</div>
-            <h2 className="text-base font-semibold text-gray-900 mb-1">
-              {T.errorBoundary.title}
-            </h2>
-            <p className="text-xs text-gray-600 leading-relaxed mb-4">
+        <div className="min-h-screen flex items-center justify-center px-6 py-10 bg-paper-200">
+          <div className="max-w-sm w-full bg-paper-100 border border-warn-red/30 rounded-[14px] shadow-card p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-warn-red" aria-hidden />
+              <h2 className="text-base font-semibold text-ink-900 tracking-tight">
+                {T.errorBoundary.title}
+              </h2>
+            </div>
+            <p className="text-xs text-ink-700 leading-relaxed mb-4">
               {T.errorBoundary.body}
             </p>
-            <details className="text-[11px] text-gray-500 mb-4">
+            <details className="text-[11px] text-ink-500 mb-4">
               <summary className="cursor-pointer">{T.errorBoundary.detailsLabel}</summary>
-              <pre className="mt-2 px-2 py-1.5 bg-gray-50 border border-gray-200 rounded overflow-x-auto text-[10px] font-mono whitespace-pre-wrap break-words">
+              <pre className="mt-2 px-2 py-1.5 bg-paper-200 border border-paper-edge rounded overflow-x-auto text-[10px] font-mono whitespace-pre-wrap break-words">
                 {this.state.error.message}
                 {this.state.error.stack ? '\n\n' + this.state.error.stack.split('\n').slice(0, 6).join('\n') : ''}
               </pre>
@@ -74,14 +76,14 @@ export class ErrorBoundary extends Component<Props, State> {
               <button
                 type="button"
                 onClick={this.reload}
-                className="flex-1 px-3 py-2 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded transition"
+                className="flex-1 px-3 py-2 text-xs font-medium text-white bg-ink-900 hover:bg-ink-700 rounded transition"
               >
                 {T.errorBoundary.reload}
               </button>
               <button
                 type="button"
                 onClick={this.reset}
-                className="px-3 py-2 text-xs text-gray-700 border border-gray-300 hover:bg-gray-50 rounded transition"
+                className="px-3 py-2 text-xs text-ink-700 border border-paper-edge hover:bg-paper-200 rounded transition"
               >
                 {T.errorBoundary.ignore}
               </button>

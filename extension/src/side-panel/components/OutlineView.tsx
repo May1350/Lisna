@@ -881,14 +881,14 @@ function SlideStrip({ slides, onJump }: { slides: SlideItem[]; onJump?: (ts: num
             // strip would offset the lightbox's startIdx and the user
             // would land on the wrong slide.
             onClick={() => setOpenIdx(uniqSorted.findIndex(s => s.key === slide.key))}
-            className="shrink-0 group relative rounded overflow-hidden border border-gray-200 hover:border-blue-400 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-300"
+            className="shrink-0 group relative rounded overflow-hidden border border-paper-edge hover:border-ink-200 transition-colors focus:outline-none focus:ring-2 focus:ring-ink-900/20"
             title={interpolate(T.outline.slideThumbTitle, { ts: fmtTs(slide.ts) })}
           >
             <img
               src={slide.url}
               alt={`slide ${fmtTs(slide.ts)}`}
               loading="lazy"
-              className="block w-24 h-14 object-cover bg-gray-100"
+              className="block w-24 h-14 object-cover bg-paper-300"
               onError={() => {
                 // Presigned URLs expire after 1 h. Drop the whole
                 // button from the strip instead of showing a
@@ -1029,7 +1029,7 @@ function SlideLightbox({
             <button
               type="button"
               onClick={() => { onJump(slide.ts); onClose() }}
-              className="px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white font-medium"
+              className="px-3 py-1 rounded bg-ink-900 hover:bg-ink-900 text-white font-medium"
             >
               {T.outline.lightboxJump}
             </button>

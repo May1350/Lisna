@@ -16,19 +16,19 @@ export function SpeedSelector({ current, onChange }: Props) {
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="px-2 py-1 text-xs font-semibold rounded-md bg-gray-100 hover:bg-gray-200 text-gray-800 min-w-[40px]"
+        className="px-2 py-1 text-xs font-semibold rounded-md bg-paper-300 hover:bg-ink-200 text-ink-900 min-w-[40px]"
         title={T.speed.selectorTitle}
       >
         {current}×
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg py-1 z-50">
+        <div className="absolute right-0 top-full mt-1 bg-paper-100 border border-paper-edge rounded-md shadow-lg py-1 z-50">
           {SPEEDS.map(s => (
             <button
               key={s}
               type="button"
               onClick={() => { onChange(s); setOpen(false) }}
-              className={`block w-full text-left px-3 py-1 text-xs hover:bg-gray-100 ${current === s ? 'font-semibold text-blue-600' : 'text-gray-800'}`}
+              className={`block w-full text-left px-3 py-1 text-xs hover:bg-paper-300 ${current === s ? 'font-semibold text-ink-700' : 'text-ink-900'}`}
             >
               {s}×
             </button>

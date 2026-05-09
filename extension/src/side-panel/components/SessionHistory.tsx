@@ -267,7 +267,7 @@ export function SessionHistory({ onAuthExpired, onView }: Props) {
     <div ref={containerRef} className="flex-1 overflow-y-auto relative">
       {/* Background reload indicator (top thin bar). */}
       {reloading && showReloadBar && (
-        <div className="absolute top-0 left-0 right-0 h-0.5 bg-indigo-500 animate-pulse pointer-events-none z-10" />
+        <div className="absolute top-0 left-0 right-0 h-0.5 bg-ink-900 animate-pulse pointer-events-none z-10" />
       )}
 
       {/* Inline-card error variant: shown when we already have a list AND
@@ -281,7 +281,7 @@ export function SessionHistory({ onAuthExpired, onView }: Props) {
         />
       )}
 
-      <h3 className="px-3 pt-3 pb-1.5 text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
+      <h3 className="px-3 pt-3 pb-1.5 text-[11px] font-semibold text-ink-500 uppercase tracking-wide">
         {interpolate(T.sidePanel.historyHeader, { n: list.length })}
       </h3>
 
@@ -301,7 +301,7 @@ export function SessionHistory({ onAuthExpired, onView }: Props) {
             }}
             placeholder={T.sidePanel.searchPlaceholder}
             aria-label={T.sidePanel.searchPlaceholder}
-            className="w-[calc(100%-1.5rem)] h-7 pl-7 pr-3 py-1.5 mx-3 mt-1 text-xs rounded-md bg-gray-100 border border-transparent focus:bg-white focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 focus:outline-none transition"
+            className="w-[calc(100%-1.5rem)] h-7 pl-7 pr-3 py-1.5 mx-3 mt-1 text-xs rounded-md bg-paper-300 border border-transparent focus:bg-paper-100 focus:border-terra focus:ring-2 focus:ring-terra-soft focus:outline-none transition"
           />
           <SearchIcon />
         </div>
@@ -309,14 +309,14 @@ export function SessionHistory({ onAuthExpired, onView }: Props) {
 
       {/* Empty search result. */}
       {visibleSessions.length === 0 && query.trim() !== '' && (
-        <div className="text-xs text-gray-500 py-8 text-center px-3">
+        <div className="text-xs text-ink-500 py-8 text-center px-3">
           <p>{interpolate(T.sidePanel.searchEmpty, { q: query.trim() })}</p>
           <button
             onClick={() => {
               setQuery('')
               searchInputRef.current?.focus()
             }}
-            className="mt-2 text-xs text-indigo-600 hover:text-indigo-700 underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-1 rounded"
+            className="mt-2 text-xs text-ink-900 hover:text-terra-700 underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-terra focus-visible:ring-offset-1 rounded"
           >
             {T.sidePanel.searchClear}
           </button>
@@ -367,7 +367,7 @@ export function SessionHistory({ onAuthExpired, onView }: Props) {
               if (items.length === 0) return null
               return (
                 <div key={bucket}>
-                  <div className="px-3 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400 bg-gray-50/60">
+                  <div className="px-3 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wide text-ink-300 bg-paper-200/60">
                     {bucketLabel(bucket, T)}
                   </div>
                   <ul className="divide-y divide-gray-200">
@@ -427,7 +427,7 @@ function SessionRow({
         ? interpolate(T.sidePanel.historyMeta_slidesOnly, { n: session.slide_count })
         : T.sidePanel.historyMeta_recordOnly)
 
-  const flashClass = isFlashing ? 'bg-amber-50 ring-1 ring-amber-300' : ''
+  const flashClass = isFlashing ? 'bg-warn-amber/10 ring-1 ring-warn-amber/40' : ''
 
   return (
     <li className={`relative group ${flashClass}`}>
@@ -438,18 +438,18 @@ function SessionRow({
         onKeyDown={onKeyNav}
         onFocus={onFocus}
         tabIndex={tabIndex}
-        className="w-full px-3 py-2.5 pr-16 text-left hover:bg-gray-50 transition flex flex-col gap-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-1"
+        className="w-full px-3 py-2.5 pr-16 text-left hover:bg-paper-200 transition flex flex-col gap-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-terra focus-visible:ring-offset-1"
       >
-        <span className="text-xs font-medium text-gray-900 line-clamp-2">{title}</span>
+        <span className="text-xs font-medium text-ink-900 line-clamp-2">{title}</span>
         {/* Hide the meta line while inline-confirm is showing. */}
         {!isConfirming && (
           <>
-            <span className="text-[10px] text-gray-500 flex items-center gap-2">
+            <span className="text-[10px] text-ink-500 flex items-center gap-2">
               <span>{date}</span>
               <span>·</span>
               <span>{meta}</span>
             </span>
-            <span className="text-[10px] text-gray-400 truncate group-hover:text-indigo-600 transition">
+            <span className="text-[10px] text-ink-300 truncate group-hover:text-ink-900 transition">
               {hostnameOf(session.url)}
             </span>
           </>
@@ -468,7 +468,7 @@ function SessionRow({
           }}
           aria-label={T.sidePanel.openSourceAria}
           title={T.sidePanel.openSourceAria}
-          className="absolute top-2 right-9 p-1 rounded text-gray-400 hover:text-indigo-600 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 max-[360px]:opacity-100 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-1"
+          className="absolute top-2 right-9 p-1 rounded text-ink-300 hover:text-ink-900 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 max-[360px]:opacity-100 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-terra focus-visible:ring-offset-1"
         >
           <ExternalLinkIcon size={14} />
         </button>
@@ -484,7 +484,7 @@ function SessionRow({
           }}
           aria-label={T.sidePanel.deleteAria}
           title={T.sidePanel.deleteAria}
-          className="absolute top-2 right-2 p-1 rounded text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 max-[360px]:opacity-100 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-1"
+          className="absolute top-2 right-2 p-1 rounded text-ink-300 hover:text-warn-red opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 max-[360px]:opacity-100 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-terra focus-visible:ring-offset-1"
         >
           <TrashIcon />
         </button>
@@ -542,19 +542,19 @@ function ConfirmStrip({
 
   return (
     <div
-      className="bg-red-50 border-l-2 border-red-500 px-3 py-2 mx-0 mt-0 flex items-center gap-2"
+      className="bg-warn-red/5 border-l-2 border-warn-red px-3 py-2 mx-0 mt-0 flex items-center gap-2"
       onKeyDown={onKeyDown}
       role="alertdialog"
       aria-label={T.sidePanel.deleteConfirmBody}
     >
-      <p className="flex-1 text-[11px] text-red-800 leading-snug">
+      <p className="flex-1 text-[11px] text-warn-red leading-snug">
         {T.sidePanel.deleteConfirmBody}
       </p>
       <button
         ref={cancelRef}
         type="button"
         onClick={(e) => { e.stopPropagation(); onCancel() }}
-        className="bg-white border border-gray-300 text-gray-700 text-[11px] px-2 py-0.5 rounded hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-1"
+        className="bg-paper-100 border border-paper-edge text-ink-700 text-[11px] px-2 py-0.5 rounded hover:bg-paper-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-terra focus-visible:ring-offset-1"
       >
         {T.common.cancel}
       </button>
@@ -562,7 +562,7 @@ function ConfirmStrip({
         ref={confirmRef}
         type="button"
         onClick={(e) => { e.stopPropagation(); onConfirm() }}
-        className="bg-red-600 text-white text-[11px] px-2 py-0.5 rounded hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-1"
+        className="bg-warn-red text-white text-[11px] px-2 py-0.5 rounded hover:bg-warn-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn-red/40 focus-visible:ring-offset-1"
       >
         {T.sidePanel.deleteConfirm}
       </button>
@@ -576,9 +576,9 @@ function SkeletonList() {
       <ul className="divide-y divide-gray-200">
         {[0, 1, 2].map(i => (
           <li key={i} className="px-3 py-2.5">
-            <div className="h-3 w-3/4 bg-gray-200 rounded animate-pulse" />
-            <div className="h-2 w-1/2 mt-1.5 bg-gray-200 rounded animate-pulse" />
-            <div className="h-2 w-1/3 mt-1 bg-gray-200 rounded animate-pulse" />
+            <div className="h-3 w-3/4 bg-ink-200 rounded animate-pulse" />
+            <div className="h-2 w-1/2 mt-1.5 bg-ink-200 rounded animate-pulse" />
+            <div className="h-2 w-1/3 mt-1 bg-ink-200 rounded animate-pulse" />
           </li>
         ))}
       </ul>
@@ -600,17 +600,17 @@ function ErrorCard({
     : T.sidePanel.historyFetchFailed
   const detail = error.status ? `HTTP ${error.status} — ${error.message}` : error.message
   return (
-    <div className="mx-3 mt-3 p-3 rounded-md bg-red-50 border border-red-200 flex flex-col gap-2">
+    <div className="mx-3 mt-3 p-3 rounded-md bg-warn-red/5 border border-warn-red/30 flex flex-col gap-2">
       <div>
-        <p className="text-xs text-red-800">{headline}</p>
-        <p className="text-[10px] text-red-600 mt-1 font-mono break-all">{detail}</p>
+        <p className="text-xs text-warn-red">{headline}</p>
+        <p className="text-[10px] text-warn-red mt-1 font-mono break-all">{detail}</p>
       </div>
       {!exhausted && (
         <div className="flex justify-end">
           <button
             type="button"
             onClick={onRetry}
-            className="text-xs px-3 py-1 rounded bg-white border border-red-300 text-red-700 hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-1"
+            className="text-xs px-3 py-1 rounded bg-paper-100 border border-warn-red/40 text-warn-red hover:bg-warn-red/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn-red/40 focus-visible:ring-offset-1"
           >
             {T.common.retry}
           </button>
@@ -623,12 +623,12 @@ function ErrorCard({
 function EmptyState({ T }: { T: Translations }) {
   return (
     <div className="px-6 py-10 text-center">
-      <div className="flex justify-center mb-3 text-indigo-300">
+      <div className="flex justify-center mb-3 text-terra-soft">
         <DocumentSparkleIcon />
       </div>
-      <p className="text-sm font-medium text-gray-700">{T.sidePanel.historyEmpty_title}</p>
-      <p className="text-xs text-gray-500 leading-relaxed mt-1">{T.sidePanel.historyEmpty_body}</p>
-      <div className="mt-4 inline-flex items-center gap-1.5 bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full text-[11px]">
+      <p className="text-sm font-medium text-ink-700">{T.sidePanel.historyEmpty_title}</p>
+      <p className="text-xs text-ink-500 leading-relaxed mt-1">{T.sidePanel.historyEmpty_body}</p>
+      <div className="mt-4 inline-flex items-center gap-1.5 bg-terra-tint text-terra-700 px-2 py-0.5 rounded-full text-[11px]">
         <ArrowUpIcon />
         <span>{T.sidePanel.inlineHintIcon}</span>
       </div>
@@ -645,7 +645,7 @@ function SearchIcon() {
       width="14" height="14" viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"
       aria-hidden="true"
-      className="absolute left-[1.05rem] top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+      className="absolute left-[1.05rem] top-1/2 -translate-y-1/2 text-ink-300 pointer-events-none"
     >
       <circle cx="11" cy="11" r="7" />
       <path d="m20 20-3.35-3.35" />
@@ -697,7 +697,7 @@ function ArrowUpIcon() {
       width="12" height="12" viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"
       aria-hidden="true"
-      className="text-indigo-400"
+      className="text-terra"
     >
       <path d="M12 19V5" />
       <path d="m5 12 7-7 7 7" />
