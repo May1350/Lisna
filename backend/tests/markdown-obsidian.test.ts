@@ -205,10 +205,12 @@ describe('outlineToObsidianMarkdown', () => {
     expect(md).toContain('![](https://s3/key-c1.jpg?sig=4)')
 
     // Each section's slides must land in its own block (between the
-    // section heading and the next section's `---` divider).
-    const aBlock = md.split('## A')[1].split('---')[0]
-    const bBlock = md.split('## B')[1].split('---')[0]
-    const cBlock = md.split('## C')[1].split('---')[0]
+    // section heading and the next H2). The renderer doesn't emit `---`
+    // dividers — H2 underlines do the visual separation — so split on
+    // the next `\n## ` instead.
+    const aBlock = md.split('## A')[1].split(/\n## /)[0]
+    const bBlock = md.split('## B')[1].split(/\n## /)[0]
+    const cBlock = md.split('## C')[1].split(/\n## /)[0]
     expect(aBlock).toContain('![](https://s3/key-a1.jpg?sig=1)')
     expect(aBlock).not.toContain('![](https://s3/key-b1.jpg?sig=2)')
     expect(bBlock).toContain('![](https://s3/key-b1.jpg?sig=2)')
