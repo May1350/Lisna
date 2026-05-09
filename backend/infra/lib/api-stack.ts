@@ -214,6 +214,27 @@ export class ApiStack extends Stack {
       integration: new HttpLambdaIntegration('SCurateInt', sessionCurate),
     })
 
+    // ── User feedback (POST /v1/feedback) ───────────────────────────────
+    // Inserts to the feedbacks table and publishes a summary to the
+    // existing lisna-alerts SNS topic so the operator gets an email
+    // the moment it lands. Topic is created later in this stack — we
+    // wire grant + env var below right after the Topic is constructed.
+    const feedback = new NodejsFunction(this, 'FeedbackFn', {
+      entry: path.join(__dirname, '../../src/handlers/feedback.ts'),
+      runtime: Runtime.NODEJS_20_X,
+      timeout: Duration.seconds(10),
+      environment: commonEnv,
+      vpc: props.vpc,
+      logRetention: RetentionDays.ONE_MONTH,
+    })
+    props.dbSecret.grantRead(feedback)
+    props.appSecret.grantRead(feedback)
+    api.addRoutes({
+      path: '/v1/feedback',
+      methods: [HttpMethod.POST],
+      integration: new HttpLambdaIntegration('FbInt', feedback),
+    })
+
     // Lambda Function URL bypasses API Gateway HTTP API's hard 30 s
     // integration timeout — the curator can take 50–90 s on long
     // transcripts, which would 504 through API Gateway even though
@@ -374,6 +395,13 @@ export class ApiStack extends Stack {
       displayName: 'Lisna Alerts',
     })
     alertsTopic.addSubscription(new EmailSubscription(alertEmail))
+
+    // The feedback Lambda (declared earlier so it could be wired into
+    // the route table) reuses this same topic for user-submitted
+    // feedback notifications. Wire grant + env var here once the topic
+    // exists.
+    alertsTopic.grantPublish(feedback)
+    feedback.addEnvironment('ALERTS_TOPIC_ARN', alertsTopic.topicArn)
 
     // ── CloudWatch alarm: fatal client errors spike ────────────────────────
     // Counts log lines with severity = "fatal" emitted by error-report

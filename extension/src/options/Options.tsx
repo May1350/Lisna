@@ -45,6 +45,15 @@ export function Options() {
   const [upgrading, setUpgrading] = useState(false)
   const [obsidian, setObsidian] = useState<ObsidianConfig>({ apiUrl: DEFAULT_OBSIDIAN_URL, apiKey: '', folder: '', autoSync: false })
   const [testStatus, setTestStatus] = useState<{ kind: 'idle' | 'testing' | 'ok' | 'error'; message?: string }>({ kind: 'idle' })
+  // Feedback form state. Stays local to this component — there's no
+  // global subscription / persistence: a draft lost across reloads is
+  // acceptable for a one-shot send-and-forget surface, and persisting
+  // it would be a privacy footgun (auto-restored draft contains the
+  // user's complaint about a feature they may have already cooled off
+  // from).
+  const [fbCategory, setFbCategory] = useState<'bug' | 'feature_request' | 'other'>('feature_request')
+  const [fbMessage, setFbMessage] = useState('')
+  const [fbStatus, setFbStatus] = useState<{ kind: 'idle' | 'sending' | 'ok' | 'error'; message?: string }>({ kind: 'idle' })
   // Language picker state. Hydrated from i18n module (which itself is
   // already bootstrapped from chrome.storage at app start).
   const [systemLang, setSystemLangState] = useState<LanguageCode>(getLang())
@@ -169,6 +178,33 @@ export function Options() {
   const onSpeedChange = async (v: 'auto' | number) => {
     setSpeed(v)
     await setPlaybackSpeed(v)
+  }
+
+  const onSubmitFeedback = async () => {
+    const trimmed = fbMessage.trim()
+    if (trimmed.length === 0) {
+      setFbStatus({ kind: 'error', message: T.options.feedback_emptyError })
+      return
+    }
+    setFbStatus({ kind: 'sending' })
+    try {
+      // Pull extension version from the manifest at runtime so it stays
+      // truthful after future bumps without a code edit. ext_version is
+      // the only piece of context we attach automatically; the rest
+      // (URL, screenshots, transcripts) is the user's call.
+      const version = chrome.runtime.getManifest().version
+      await callApi<{ id: string }>('/v1/feedback', 'POST', {
+        category: fbCategory,
+        message: trimmed,
+        ext_version: version,
+        user_agent: navigator.userAgent.slice(0, 512),
+      })
+      setFbStatus({ kind: 'ok' })
+      setFbMessage('')
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setFbStatus({ kind: 'error', message: msg })
+    }
   }
   const onAutoDlChange = async (v: boolean) => {
     setAutoDl(v)
@@ -506,6 +542,73 @@ export function Options() {
             upgrading={upgrading}
             T={T}
           />
+        )}
+      </section>
+
+      {/* Feedback section — POSTs to /v1/feedback. Lives between Plan
+          and Account because: (a) it's an explicit action surface like
+          the upgrade button above, and (b) putting it after Account
+          would push it below the logout button which feels odd
+          (logout = end of flow). */}
+      <section className="mb-8">
+        <h2 className="font-semibold mb-2">{T.options.section_feedback}</h2>
+        <p className="text-xs text-gray-500 mb-3">{T.options.feedback_intro}</p>
+
+        <label className="block text-xs text-gray-700 mb-1">
+          {T.options.feedback_categoryLabel}
+        </label>
+        <select
+          value={fbCategory}
+          onChange={(e) => setFbCategory(e.target.value as 'bug' | 'feature_request' | 'other')}
+          disabled={fbStatus.kind === 'sending'}
+          className="block w-full rounded border border-gray-300 px-2 py-1.5 text-sm mb-3 bg-white"
+        >
+          <option value="feature_request">{T.options.feedback_category_feature}</option>
+          <option value="bug">{T.options.feedback_category_bug}</option>
+          <option value="other">{T.options.feedback_category_other}</option>
+        </select>
+
+        <label className="block text-xs text-gray-700 mb-1">
+          {T.options.feedback_messageLabel}
+        </label>
+        <textarea
+          value={fbMessage}
+          onChange={(e) => {
+            setFbMessage(e.target.value.slice(0, 2000))
+            // Edits clear stale success / error state so a second send
+            // doesn't show the prior outcome banner.
+            if (fbStatus.kind !== 'idle' && fbStatus.kind !== 'sending') {
+              setFbStatus({ kind: 'idle' })
+            }
+          }}
+          disabled={fbStatus.kind === 'sending'}
+          rows={5}
+          maxLength={2000}
+          placeholder={T.options.feedback_messagePlaceholder}
+          className="block w-full rounded border border-gray-300 px-2 py-1.5 text-sm mb-1 resize-y"
+        />
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-[11px] text-gray-400">
+            {interpolate(T.options.feedback_charCount, { n: fbMessage.length })}
+          </span>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => void onSubmitFeedback()}
+          disabled={fbStatus.kind === 'sending' || fbMessage.trim().length === 0}
+          className="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+        >
+          {fbStatus.kind === 'sending' ? T.options.feedback_submit_busy : T.options.feedback_submit}
+        </button>
+
+        {fbStatus.kind === 'ok' && (
+          <p className="text-xs text-emerald-700 mt-2">{T.options.feedback_thanks}</p>
+        )}
+        {fbStatus.kind === 'error' && (
+          <p className="text-xs text-red-600 mt-2">
+            {T.options.feedback_failPrefix}{fbStatus.message ?? ''}
+          </p>
         )}
       </section>
 

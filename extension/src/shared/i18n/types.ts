@@ -340,6 +340,21 @@ export interface Translations {
     switchAccount: string                // "別の Google アカウントでログイン"
     switchAccount_busy: string           // "切り替え中…"
     switchAccount_done: string           // "ログアウトしました。サイドパネルから別のアカウントで…"
+    // ── Feedback section (Options page) ─────────────────────────
+    section_feedback: string              // "フィードバック"
+    feedback_intro: string                // help text under the section header
+    feedback_categoryLabel: string        // "種類"
+    feedback_category_bug: string
+    feedback_category_feature: string
+    feedback_category_other: string
+    feedback_messageLabel: string         // "ご意見・ご要望"
+    feedback_messagePlaceholder: string
+    feedback_charCount: string            // "{n} / 2000"
+    feedback_submit: string
+    feedback_submit_busy: string
+    feedback_thanks: string               // "送信ありがとうございました。"
+    feedback_failPrefix: string           // "送信に失敗しました: "
+    feedback_emptyError: string           // "メッセージを入力してください。"
   }
 
   // ── Curate failure reason map (humanised in the modal) ─────────
