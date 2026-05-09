@@ -6,6 +6,7 @@ import { sendToSession } from '../lib/ws-broadcast.js'
 import { query } from '../lib/db.js'
 import { loadAppSecrets } from '../lib/env.js'
 import { isWarmup, warmupResponse } from '../lib/warmup.js'
+import { classifyUpstreamError, publishUpstreamAlert } from '../lib/upstream-alert.js'
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
 
@@ -90,9 +91,31 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     const transcript = await transcribeChunk(audioBuf, body.mime)
     transcriptText = transcript.text.trim()
   } catch (e) {
-    chunkError = 'stt_failed'
     // eslint-disable-next-line no-console
     console.warn('[stream-audio] STT failed; skipping chunk:', e instanceof Error ? e.message : e)
+    // Operator-side classification. If Groq's key is invalid or quota
+    // is hit, every chunk for every user fails the same way and the
+    // user sees zero captions. Surfacing a 503 here lets the modal
+    // show a "service issue" banner and lets the content script stop
+    // burning bandwidth on chunks that won't produce captions until
+    // the operator intervenes.
+    const upstream = classifyUpstreamError(e, 'groq')
+    if (upstream) {
+      void publishUpstreamAlert(upstream, 'stt').catch(err =>
+        console.warn('[stream-audio] upstream-alert publish failed:', err instanceof Error ? err.message : err)
+      )
+      return {
+        statusCode: 503,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          error: 'service_unavailable',
+          session_id: sessionId,
+          provider: upstream.provider,
+          kind: upstream.kind,
+        }),
+      }
+    }
+    chunkError = 'stt_failed'
   }
 
   if (transcriptText.length === 0) {

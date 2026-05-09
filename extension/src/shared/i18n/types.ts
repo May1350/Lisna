@@ -365,6 +365,11 @@ export interface Translations {
     no_outline_returned: string
     curate_cooldown: string
     curate_in_progress: string           // backend lock held by concurrent curate
+    // Backend classified the failure as an upstream LLM provider issue
+    // (Anthropic / OpenAI / Groq auth, quota, or sustained rate limit).
+    // Operator already received an SNS notification — copy here is a
+    // user-side reassurance, not a request for the user to take action.
+    service_unavailable: string
     fallback: string                     // unknown reason fallback
     // CTA on error banners that aren't user-resolvable. Only shown for
     // a small whitelist of reasons (see ERROR_REPORTABLE in App.tsx).

@@ -403,6 +403,16 @@ export class ApiStack extends Stack {
     alertsTopic.grantPublish(feedback)
     feedback.addEnvironment('ALERTS_TOPIC_ARN', alertsTopic.topicArn)
 
+    // Same plumbing for the Lambdas that classify upstream-LLM-failure
+    // (auth / quota / rate) and publish an URGENT alert so the
+    // operator hears about it before users start emailing about
+    // captions / notes being broken. lib/upstream-alert.ts reads
+    // ALERTS_TOPIC_ARN at call time.
+    alertsTopic.grantPublish(streamAudio)
+    streamAudio.addEnvironment('ALERTS_TOPIC_ARN', alertsTopic.topicArn)
+    alertsTopic.grantPublish(sessionCurate)
+    sessionCurate.addEnvironment('ALERTS_TOPIC_ARN', alertsTopic.topicArn)
+
     // ── CloudWatch alarm: fatal client errors spike ────────────────────────
     // Counts log lines with severity = "fatal" emitted by error-report
     // Lambda. Alarm fires when ≥ 5 fatals occur in any 10-min window — a

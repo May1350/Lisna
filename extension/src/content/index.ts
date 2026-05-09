@@ -843,6 +843,21 @@ async function startCapture(url: string): Promise<void> {
           broadcastToFrames({ source: 'sh-frame', type: 'QUOTA_EXCEEDED', quota: r.data.quota })
           stopCaptureLocal()
         }
+        // 503 service_unavailable = backend classified an upstream LLM
+        // failure (Groq STT auth/quota/rate). Operator was notified via
+        // SNS already; for the user we (a) surface a "service down"
+        // banner via the same curate_failed channel the modal already
+        // renders, and (b) stop capture immediately — every additional
+        // chunk would just hit the same upstream wall and waste audio.
+        if (r.status === 503 && r.data?.error === 'service_unavailable') {
+          warn('audio chunk: service_unavailable — stopping capture', { provider: (r.data as { provider?: string }).provider, kind: (r.data as { kind?: string }).kind })
+          fireAndForgetSend({
+            type: 'SP_BROADCAST',
+            payload: { type: 'curate_failed', reason: 'service_unavailable' },
+          })
+          broadcastToFrames({ source: 'sh-frame', type: 'CURATE_FAILED', reason: 'service_unavailable' })
+          stopCaptureLocal()
+        }
         return
       }
       log('audio chunk: backend ok', { added: r.data?.added, preview: r.data?.transcript_preview, canonicalSessionId: r.data?.session_id })

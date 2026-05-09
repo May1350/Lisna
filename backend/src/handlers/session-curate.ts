@@ -25,6 +25,7 @@ import { query } from '../lib/db.js'
 import { loadAppSecrets } from '../lib/env.js'
 import { isWarmup, warmupResponse } from '../lib/warmup.js'
 import { z } from 'zod'
+import { classifyUpstreamError, publishUpstreamAlert } from '../lib/upstream-alert.js'
 
 const Body = z.object({
   session_id: z.string().uuid(),
@@ -160,6 +161,31 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     } catch (e) {
       // eslint-disable-next-line no-console
       console.error('[session-curate] curator failed:', { reqId, durationMs: Date.now() - t0, err: e instanceof Error ? e.message : e, stack: e instanceof Error ? e.stack : undefined })
+      // Distinguish operator-side LLM failures (auth / quota / rate) from
+      // generic curator blow-ups. The former blocks every user globally
+      // until the operator rotates a key or tops up billing — they need
+      // an SNS-backed page-out, not "transient retry later".
+      const upstream = classifyUpstreamError(e)
+      if (upstream) {
+        // eslint-disable-next-line no-console
+        console.warn('[session-curate] upstream LLM failure classified:', upstream)
+        // Fire-and-forget; the user-facing 503 should not wait on SNS.
+        // Dedup is handled inside publishUpstreamAlert.
+        void publishUpstreamAlert(upstream, 'curate').catch(err =>
+          console.warn('[session-curate] upstream-alert publish failed:', err instanceof Error ? err.message : err)
+        )
+        return {
+          statusCode: 503,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            error: 'service_unavailable',
+            // Provider deliberately included so the modal CAN show it
+            // if we ever decide to. For now the i18n copy stays generic.
+            provider: upstream.provider,
+            kind: upstream.kind,
+          }),
+        }
+      }
       return {
         statusCode: 502,
         headers: { 'Content-Type': 'application/json' },

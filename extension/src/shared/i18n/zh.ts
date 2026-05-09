@@ -327,6 +327,7 @@ export const zh: Translations = {
     no_outline_returned: '返回的笔记为空。请确认录音内容后重试。',
     curate_cooldown: '生成请求过于频繁。请稍候片刻再重试。',
     curate_in_progress: '已有一个笔记生成任务正在进行中。请等结束后再试。',
+    service_unavailable: '服务器端出现临时问题,运营者已自动收到通知。请稍后再试。',
     fallback: '笔记生成失败。请点击「重新生成笔记」再试一次。',
     reportButton: '💡 报告',
   },

@@ -328,6 +328,7 @@ export const ko: Translations = {
     no_outline_returned: '노트가 비어 있는 채로 돌아왔어요. 녹음 내용을 확인하고 다시 시도해주세요.',
     curate_cooldown: '생성 요청이 너무 많아요. 잠시 기다린 후 다시 시도해주세요.',
     curate_in_progress: '이미 노트를 만들고 있어요. 완료된 후 다시 시도해주세요.',
+    service_unavailable: '서버 측에서 일시적인 문제가 발생했어요. 운영자에게 자동으로 알림이 전달됐습니다. 잠시 후 다시 시도해주세요.',
     fallback: '노트 생성에 실패했어요. 「노트 재생성」을 눌러 다시 시도해주세요.',
     reportButton: '💡 신고하기',
   },
