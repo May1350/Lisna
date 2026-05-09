@@ -5,7 +5,7 @@ import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs'
 import { HttpApi, HttpMethod, CorsHttpMethod } from 'aws-cdk-lib/aws-apigatewayv2'
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations'
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam'
-import { Alarm, ComparisonOperator, TreatMissingData, Metric } from 'aws-cdk-lib/aws-cloudwatch'
+import { Alarm, ComparisonOperator, TreatMissingData, Metric, Dashboard, GraphWidget, SingleValueWidget } from 'aws-cdk-lib/aws-cloudwatch'
 import { SnsAction } from 'aws-cdk-lib/aws-cloudwatch-actions'
 import { MetricFilter, FilterPattern, RetentionDays } from 'aws-cdk-lib/aws-logs'
 import { Topic } from 'aws-cdk-lib/aws-sns'
@@ -497,6 +497,187 @@ export class ApiStack extends Stack {
         },
       ],
     })
+
+    // ── Operational dashboard: single pane of glass for week-1 post-launch ─
+    // Surfaces invocation/error counts per Lambda group, latency for the slow
+    // handlers, RDS health, and API Gateway / WS traffic. Alarms still SNS
+    // out via the topic above; this dashboard is for at-a-glance triage so
+    // the operator doesn't have to click through 10+ log groups.
+    const dashboardPeriod = Duration.minutes(5)
+    const dashboard = new Dashboard(this, 'OpsDashboard', {
+      dashboardName: 'lisna-operations',
+    })
+
+    // Row 1 — Lambda invocation health (4 widgets, width 6 each)
+    const authWidget = new GraphWidget({
+      title: 'Auth handlers — invocations & errors',
+      width: 6,
+      left: [
+        authGoogle.metricInvocations({ period: dashboardPeriod, statistic: 'Sum' }),
+        authMe.metricInvocations({ period: dashboardPeriod, statistic: 'Sum' }),
+        sessionList.metricInvocations({ period: dashboardPeriod, statistic: 'Sum' }),
+        authGoogle.metricErrors({ period: dashboardPeriod, statistic: 'Sum' }),
+        authMe.metricErrors({ period: dashboardPeriod, statistic: 'Sum' }),
+        sessionList.metricErrors({ period: dashboardPeriod, statistic: 'Sum' }),
+      ],
+    })
+
+    const captureWidget = new GraphWidget({
+      title: 'Capture handlers — invocations & errors',
+      width: 6,
+      left: [
+        streamAudio.metricInvocations({ period: dashboardPeriod, statistic: 'Sum' }),
+        streamAudio.metricErrors({ period: dashboardPeriod, statistic: 'Sum' }),
+        streamSlide.metricInvocations({ period: dashboardPeriod, statistic: 'Sum' }),
+        streamSlide.metricErrors({ period: dashboardPeriod, statistic: 'Sum' }),
+      ],
+    })
+
+    const curatorWidget = new GraphWidget({
+      title: 'Curator + session — invocations & errors',
+      width: 6,
+      left: [
+        sessionCurate.metricInvocations({ period: dashboardPeriod, statistic: 'Sum' }),
+        sessionCurate.metricErrors({ period: dashboardPeriod, statistic: 'Sum' }),
+        sessionGet.metricInvocations({ period: dashboardPeriod, statistic: 'Sum' }),
+        sessionGet.metricErrors({ period: dashboardPeriod, statistic: 'Sum' }),
+      ],
+    })
+
+    const billingWidget = new GraphWidget({
+      title: 'Billing — invocations & errors',
+      width: 6,
+      left: [
+        stripeCheckout.metricInvocations({ period: dashboardPeriod, statistic: 'Sum' }),
+        stripeCheckout.metricErrors({ period: dashboardPeriod, statistic: 'Sum' }),
+        stripeWebhook.metricInvocations({ period: dashboardPeriod, statistic: 'Sum' }),
+        stripeWebhook.metricErrors({ period: dashboardPeriod, statistic: 'Sum' }),
+      ],
+    })
+
+    dashboard.addWidgets(authWidget, captureWidget, curatorWidget, billingWidget)
+
+    // Row 2 — Latency p50/p95/p99 for the two slow handlers (width 12 each)
+    const streamAudioLatencyWidget = new GraphWidget({
+      title: 'streamAudio Duration (p50 / p95 / p99)',
+      width: 12,
+      left: [
+        streamAudio.metricDuration({ period: dashboardPeriod, statistic: 'p50' }),
+        streamAudio.metricDuration({ period: dashboardPeriod, statistic: 'p95' }),
+        streamAudio.metricDuration({ period: dashboardPeriod, statistic: 'p99' }),
+      ],
+    })
+    const sessionCurateLatencyWidget = new GraphWidget({
+      title: 'sessionCurate Duration (p50 / p95 / p99)',
+      width: 12,
+      left: [
+        sessionCurate.metricDuration({ period: dashboardPeriod, statistic: 'p50' }),
+        sessionCurate.metricDuration({ period: dashboardPeriod, statistic: 'p95' }),
+        sessionCurate.metricDuration({ period: dashboardPeriod, statistic: 'p99' }),
+      ],
+    })
+    dashboard.addWidgets(streamAudioLatencyWidget, sessionCurateLatencyWidget)
+
+    // Row 3 — RDS health (3 widgets, width 8 each)
+    const dbCpuWidget = new GraphWidget({
+      title: 'RDS CPUUtilization',
+      width: 8,
+      left: [
+        props.db.metricCPUUtilization({ period: dashboardPeriod, statistic: 'Average' }),
+      ],
+    })
+    const dbConnWidget = new GraphWidget({
+      title: 'RDS DatabaseConnections',
+      width: 8,
+      left: [
+        props.db.metricDatabaseConnections({ period: dashboardPeriod, statistic: 'Average' }),
+      ],
+    })
+    const dbStorageWidget = new GraphWidget({
+      title: 'RDS FreeStorageSpace (worst-case)',
+      width: 8,
+      left: [
+        props.db.metricFreeStorageSpace({ period: dashboardPeriod, statistic: 'Minimum' }),
+      ],
+    })
+    dashboard.addWidgets(dbCpuWidget, dbConnWidget, dbStorageWidget)
+
+    // Row 4 — API Gateway + WS
+    // Using raw Metric() throughout because aws-cdk-lib 2.251's HttpApi v2
+    // construct doesn't expose metricClientError/metricServerError/metricCount
+    // convenience methods (those exist on REST API v1 only). Same approach as
+    // the apiGw5xxAlarm above.
+    const apiBaseDims = { ApiId: api.apiId }
+    const apiGw4xxWidget = new GraphWidget({
+      title: 'API Gateway 4xx',
+      width: 6,
+      left: [
+        new Metric({
+          namespace: 'AWS/ApiGateway',
+          metricName: '4xx',
+          dimensionsMap: apiBaseDims,
+          statistic: 'Sum',
+          period: dashboardPeriod,
+        }),
+      ],
+    })
+    const apiGw5xxWidget = new GraphWidget({
+      title: 'API Gateway 5xx',
+      width: 6,
+      left: [
+        new Metric({
+          namespace: 'AWS/ApiGateway',
+          metricName: '5xx',
+          dimensionsMap: apiBaseDims,
+          statistic: 'Sum',
+          period: dashboardPeriod,
+        }),
+      ],
+    })
+    const apiGwCountWidget = new GraphWidget({
+      title: 'API Gateway request count',
+      width: 6,
+      left: [
+        new Metric({
+          namespace: 'AWS/ApiGateway',
+          metricName: 'Count',
+          dimensionsMap: apiBaseDims,
+          statistic: 'Sum',
+          period: dashboardPeriod,
+        }),
+      ],
+    })
+    const apiGwLatencyWidget = new GraphWidget({
+      title: 'API Gateway Latency p99',
+      width: 6,
+      left: [
+        new Metric({
+          namespace: 'AWS/ApiGateway',
+          metricName: 'Latency',
+          dimensionsMap: apiBaseDims,
+          statistic: 'p99',
+          period: dashboardPeriod,
+        }),
+      ],
+    })
+    dashboard.addWidgets(apiGw4xxWidget, apiGw5xxWidget, apiGwCountWidget, apiGwLatencyWidget)
+
+    // WS connection count — best-effort. If the WS API isn't emitting this
+    // metric (deployment shape, idle stage), the widget just shows a flat 0.
+    const wsConnectCountWidget = new SingleValueWidget({
+      title: 'WS ConnectCount (5 min Sum)',
+      width: 24,
+      metrics: [
+        new Metric({
+          namespace: 'AWS/ApiGateway',
+          metricName: 'ConnectCount',
+          dimensionsMap: { ApiId: props.wsApiId, Stage: props.wsStageName },
+          statistic: 'Sum',
+          period: dashboardPeriod,
+        }),
+      ],
+    })
+    dashboard.addWidgets(wsConnectCountWidget)
 
     new CfnOutput(this, 'ApiUrl', { value: api.apiEndpoint })
     new CfnOutput(this, 'AlertsTopicArn', { value: alertsTopic.topicArn })
