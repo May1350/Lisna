@@ -143,6 +143,10 @@ export const ja: Translations = {
     placeholder_waiting: '音声を待っています…',
     placeholder_processing: '音声を処理しています…',
     placeholder_idle: '講義の再生を待っています…',
+    collapseAria: 'ライブ字幕を最小化',
+    expandAria: 'ライブ字幕を展開',
+    collapseTitle: 'クリックで最小化',
+    expandTitle: 'クリックで展開',
   },
   outline: {
     important_heading: '重要事項',

@@ -143,6 +143,10 @@ export const zh: Translations = {
     placeholder_waiting: '正在等待音频…',
     placeholder_processing: '正在处理音频…',
     placeholder_idle: '正在等待讲座开始播放…',
+    collapseAria: '最小化实时字幕',
+    expandAria: '展开实时字幕',
+    collapseTitle: '点击最小化',
+    expandTitle: '点击展开',
   },
   outline: {
     important_heading: '重点',

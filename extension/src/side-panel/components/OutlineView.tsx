@@ -152,8 +152,28 @@ export function OutlineView({ outline, slides = [], onJump, displayTitle, outlin
   // Wide mode threshold lowered from 460 to 420 so realistically-sized
   // modals (Chrome side panel default ~360, in-page modal default
   // ~min(viewport*0.32, 480)) can actually reach the labeled mini-TOC
-  // mode. Above 420 the rail expands into a 132 px text column.
-  const isWide = outerWidth >= 420
+  // mode. Above 420 the rail expands into a 132 px text column —
+  // unless the user has manually clicked to keep it as dots.
+  const wideAvailable = outerWidth >= 420
+  // User-controlled rail compaction. Persisted to chrome.storage so
+  // the user's choice survives modal close/reopen. Default: auto
+  // (= follow width). Once the user clicks to compact, we show the
+  // dot column even when there's room for the labeled mini-TOC.
+  const RAIL_COLLAPSED_KEY = 'sh.railCollapsed'
+  const [railUserCollapsed, setRailUserCollapsed] = useState(false)
+  useEffect(() => {
+    void chrome.storage.local.get(RAIL_COLLAPSED_KEY).then((r) => {
+      if (r[RAIL_COLLAPSED_KEY] === true) setRailUserCollapsed(true)
+    })
+  }, [])
+  const toggleRailCollapsed = () => {
+    setRailUserCollapsed((c) => {
+      const next = !c
+      void chrome.storage.local.set({ [RAIL_COLLAPSED_KEY]: next })
+      return next
+    })
+  }
+  const isWide = wideAvailable && !railUserCollapsed
   // Rail visibility threshold lowered from 3 → 2 so even short
   // lectures get an orientation aid. With 1 section the rail has no
   // navigation value so it stays hidden.
@@ -189,7 +209,9 @@ export function OutlineView({ outline, slides = [], onJump, displayTitle, outlin
           sections={outline.sections}
           activeIdx={activeIdx}
           wide={isWide}
+          canExpand={wideAvailable && railUserCollapsed}
           onJump={scrollToSection}
+          onToggleWide={toggleRailCollapsed}
         />
       )}
       <div ref={scrollContainerRef} className="lisna-scroll flex-1 overflow-y-auto px-3 py-3 space-y-4 min-w-0">
@@ -285,19 +307,57 @@ function SectionRail({
   sections,
   activeIdx,
   wide,
+  canExpand,
   onJump,
+  onToggleWide,
 }: {
   sections: Outline['sections']
   activeIdx: number
   wide: boolean
+  /** When true, the user has manually compacted the rail even
+   *  though the modal is wide enough for the mini-TOC. Show the
+   *  expand-back affordance in narrow mode so they can flip back. */
+  canExpand: boolean
   onJump: (idx: number) => void
+  onToggleWide: () => void
 }) {
+  // Chevron button at the top of the rail. Tree-disclosure pattern
+  // (DESIGN.md §3.5): in wide mode it points LEFT (▶ rotated -90°)
+  // → click to compact to dot column. In narrow-by-choice mode it
+  // points RIGHT (▶) → click to bring the labels back. Hidden when
+  // narrow-because-no-room (canExpand=false in narrow mode).
+  const showToggle = wide || canExpand
+  const ToggleButton = showToggle ? (
+    <button
+      type="button"
+      onClick={onToggleWide}
+      aria-label={wide ? 'Compact section rail' : 'Expand section rail'}
+      title={wide ? 'Compact (dots only)' : 'Expand to labels'}
+      className={
+        'flex items-center justify-center text-ink-300 hover:text-ink-700 hover:bg-paper-100 rounded transition-colors ' +
+        (wide ? 'w-full mb-1 py-1' : 'mx-auto my-1 w-4 h-4')
+      }
+    >
+      <svg
+        width="11" height="11" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"
+        aria-hidden
+        // Wide → arrow points LEFT (collapse). Narrow-by-choice →
+        // arrow points RIGHT (expand). Single SVG chevron rotated.
+        style={{ transform: wide ? 'rotate(0deg)' : 'rotate(180deg)' }}
+      >
+        <polyline points="15 6 9 12 15 18" />
+      </svg>
+    </button>
+  ) : null
+
   if (wide) {
     return (
       <nav
         aria-label="Sections"
-        className="shrink-0 w-[132px] py-3 pl-1 pr-1 overflow-y-auto lisna-scroll border-r border-paper-edge bg-paper-200"
+        className="shrink-0 w-[132px] py-2 pl-1 pr-1 overflow-y-auto lisna-scroll border-r border-paper-edge bg-paper-200"
       >
+        {ToggleButton}
         <ul className="m-0 p-0 list-none space-y-px">
           {sections.map((s, i) => {
             const active = i === activeIdx
@@ -332,12 +392,15 @@ function SectionRail({
       </nav>
     )
   }
-  // Narrow — dot column
+  // Narrow — dot column. Show the expand toggle at top only when the
+  // user could theoretically expand (modal wide enough but they chose
+  // to compact). Hide it when narrow-by-necessity (modal too small).
   return (
     <nav
       aria-label="Sections"
-      className="shrink-0 w-[18px] py-3 flex flex-col items-center border-r border-paper-edge bg-paper-200"
+      className="shrink-0 w-[20px] py-2 flex flex-col items-center border-r border-paper-edge bg-paper-200"
     >
+      {ToggleButton}
       {sections.map((_, i) => {
         const active = i === activeIdx
         return (

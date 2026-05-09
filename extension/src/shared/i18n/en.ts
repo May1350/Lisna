@@ -144,6 +144,10 @@ export const en: Translations = {
     placeholder_waiting: 'Waiting for audio…',
     placeholder_processing: 'Processing audio…',
     placeholder_idle: 'Waiting for the lecture to start…',
+    collapseAria: 'Minimize live captions',
+    expandAria: 'Expand live captions',
+    collapseTitle: 'Click to minimize',
+    expandTitle: 'Click to expand',
   },
   outline: {
     important_heading: 'Key points',

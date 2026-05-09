@@ -170,6 +170,10 @@ export interface Translations {
     placeholder_waiting: string          // "音声を待っています…"
     placeholder_processing: string       // "音声を処理しています…"
     placeholder_idle: string             // "講義の再生を待っています…"
+    collapseAria: string                 // chevron aria when expanded
+    expandAria: string                   // chevron aria when collapsed
+    collapseTitle: string                // tooltip when expanded
+    expandTitle: string                  // tooltip when collapsed
   }
 
   // ── Outline view (curator output labels) ──────────────────────

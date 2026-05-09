@@ -144,6 +144,10 @@ export const ko: Translations = {
     placeholder_waiting: '오디오를 기다리는 중…',
     placeholder_processing: '오디오를 처리하는 중…',
     placeholder_idle: '강의 재생을 기다리는 중…',
+    collapseAria: '라이브 자막 최소화',
+    expandAria: '라이브 자막 펼치기',
+    collapseTitle: '클릭해서 최소화',
+    expandTitle: '클릭해서 펼치기',
   },
   outline: {
     important_heading: '중요사항',
