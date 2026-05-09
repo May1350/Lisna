@@ -25,8 +25,7 @@ export const ko: Translations = {
   inlineButton: {
     activate: '이 영상 요약하기',
     onboarding: '여기를 클릭하면 녹음이 시작됩니다 →',
-    processing: '처리 중 — 클릭하면 모달을 다시 열 수 있어요',
-    stop: '정지',
+    processing: '클릭해서 다시 열기 (녹음 중)',
     disable_tooltip: '잠시 끄기 — 자동 재개',
     disable_aria: 'Lisna 잠시 끄기',
     disabled_toast: 'Lisna 가 {hours}시간 동안 꺼졌습니다',

@@ -1,16 +1,23 @@
 // Inline button anchored to the top-right of the video element.
-// - 'idle': round 36x36 button with sparkle SVG icon. No hover-expand.
-// - 'processing': two icon-only round buttons:
-//     - main button: red pulsing dot (click = re-open modal)
-//     - sibling stop button: ⏹ icon (click = stop session)
+// - 'idle': round 36x36 button with sparkle SVG icon.
+// - 'processing': SAME sparkle icon + a small red pulsing badge in the
+//   top-right corner of the button, signalling "currently recording in
+//   the background". Click affordance stays the same (open the modal),
+//   so the click target's meaning doesn't change between states. The
+//   previous "whole-button red pulse" wrongly read as a recording-stop
+//   indicator (Zoom / OBS pattern) and made users hesitant to click.
 // - 'hidden': hidden via display:none.
+//
+// Note: there is no longer an explicit inline "stop" button. Stopping
+// a session is done from inside the modal (or by the natural <video>
+// `ended` event). The inline overlay is intentionally minimal — one
+// click affordance, one status badge.
 
 import { hasSeenInlineButton, markInlineButtonSeen } from '../shared/storage'
 import { t } from '../shared/i18n'
 
 const STYLE_ID = '__sh_inline_button_style__'
 const ROOT_ID = '__sh_inline_button_root__'
-const STOP_ID = '__sh_inline_button_stop__'
 const TOOLTIP_ID = '__sh_inline_button_tooltip__'
 const DISABLE_ID = '__sh_inline_button_disable__'
 
@@ -18,12 +25,6 @@ const SPARKLE_SVG = `
 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
   <path d="M12 3l1.8 5.4L19 10l-5.2 1.6L12 17l-1.8-5.4L5 10l5.2-1.6L12 3z"/>
   <path d="M19 14l0.7 2.1L22 17l-2.3 0.7L19 20l-0.7-2.3L16 17l2.3-0.7L19 14z"/>
-</svg>
-`.trim()
-
-const STOP_SVG = `
-<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
-  <rect x="2" y="2" width="10" height="10" rx="2" fill="currentColor"/>
 </svg>
 `.trim()
 
@@ -71,18 +72,40 @@ function ensureStyle(): void {
   transform: translateY(-1px);
 }
 .__sh_btn__ svg { display: block; }
-.__sh_status_pulse__ {
-  display: inline-block;
-  width: 14px;
-  height: 14px;
+
+/* Corner status badge — small red dot that pulses to indicate
+ * "background recording in progress". Positioned ABSOLUTELY relative
+ * to the main button (the button has position:absolute so the badge's
+ * absolute coords inside the button are local). Visual semantic is
+ * "iOS-style notification dot" — purely a status marker, NOT a click
+ * target. Click target is still the whole button (= open modal). */
+.__sh_status_badge__ {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 8px;
+  height: 8px;
   border-radius: 9999px;
   background: #ef4444;
-  animation: __sh_pulse__ 1.4s ease-in-out infinite;
-  box-shadow: 0 0 0 0 rgba(239,68,68,0.6);
+  /* Subtle ring to lift it off the button's dark background — without
+   * this the dot blurs into the button on certain video backgrounds. */
+  box-shadow:
+    0 0 0 1.5px rgba(15, 23, 42, 0.92),
+    0 0 0 0 rgba(239, 68, 68, 0.6);
+  animation: __sh_badge_pulse__ 1.6s ease-in-out infinite;
+  pointer-events: none;
 }
-@keyframes __sh_pulse__ {
-  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239,68,68,0.6); }
-  50% { transform: scale(1.15); box-shadow: 0 0 0 6px rgba(239,68,68,0); }
+@keyframes __sh_badge_pulse__ {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1.5px rgba(15, 23, 42, 0.92),
+      0 0 0 0 rgba(239, 68, 68, 0.55);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1.5px rgba(15, 23, 42, 0.92),
+      0 0 0 5px rgba(239, 68, 68, 0);
+  }
 }
 
 /* First-time onboarding: until the user has clicked the button at
@@ -238,7 +261,6 @@ let currentHandle: InlineButtonHandle | null = null
 export function mountInlineButton(
   video: HTMLVideoElement,
   onActivate: () => void,
-  onStop: () => void,
 ): InlineButtonHandle | null {
   // Note: no top-frame guard. The inline button mounts in WHATEVER frame
   // contains the <video> element. For platforms like K-LMS / Canvas Studio /
@@ -256,9 +278,12 @@ export function mountInlineButton(
   }
   // Defensive: also nuke any orphan DOM nodes left behind by an
   // unrelated extension instance / hot-reload that didn't go through
-  // currentHandle.unmount().
+  // currentHandle.unmount(). The legacy STOP_ID node from earlier
+  // builds (when the inline group included a separate stop button)
+  // is also cleaned up here so users running a fresh dist after the
+  // stop-button removal don't see a ghost button.
   document.getElementById(ROOT_ID)?.remove()
-  document.getElementById(STOP_ID)?.remove()
+  document.getElementById('__sh_inline_button_stop__')?.remove()  // legacy id, still cleaned up
   document.getElementById(DISABLE_ID)?.remove()
 
   // Look up locale strings ONCE at mount. The inline button is a
@@ -292,7 +317,10 @@ export function mountInlineButton(
   document.body.appendChild(disableBtn)
 
   let state: InlineButtonState = 'idle'
-  let stopBtn: HTMLButtonElement | null = null
+  // Recording-active badge (corner dot). Owned by setStatus, attached
+  // as a child of the main button so it inherits the button's
+  // absolute-position context for `top: 4px; right: 4px`.
+  let statusBadge: HTMLSpanElement | null = null
   let onboardingTooltip: HTMLDivElement | null = null
   let onboardingTimer: number | null = null
 
@@ -342,7 +370,6 @@ export function mountInlineButton(
     const rect = video.getBoundingClientRect()
     if (rect.width <= 0 || rect.height <= 0) {
       btn.style.display = 'none'
-      if (stopBtn) stopBtn.style.display = 'none'
       disableBtn.style.display = 'none'
       return
     }
@@ -372,21 +399,6 @@ export function mountInlineButton(
       : window.scrollY + rect.top + inset
     btn.style.top = `${mainTop}px`
     btn.style.left = `${mainLeft}px`
-
-    if (stopBtn) {
-      stopBtn.style.display = ''
-      const stopW = stopBtn.offsetWidth || 36
-      // Place 8px to the LEFT of the main button.
-      const desiredStopLeft = mainLeft - GAP - stopW
-      if (desiredStopLeft >= 0) {
-        stopBtn.style.top = `${mainTop}px`
-        stopBtn.style.left = `${desiredStopLeft}px`
-      } else {
-        // No room on the left — stack BELOW the main button instead.
-        stopBtn.style.top = `${mainTop + h + GAP}px`
-        stopBtn.style.left = `${mainLeft}px`
-      }
-    }
 
     // Quick-disable × badge — top-left corner of the main button,
     // overlapping by ~6px so it reads as a sub-action of the main
@@ -471,29 +483,24 @@ export function mountInlineButton(
     resizeObs.observe(video)
   }
 
-  const removeStopBtn = () => {
-    if (stopBtn) {
-      stopBtn.remove()
-      stopBtn = null
+  const removeStatusBadge = () => {
+    if (statusBadge) {
+      statusBadge.remove()
+      statusBadge = null
     }
   }
 
-  const ensureStopBtn = () => {
-    if (stopBtn) return
-    const s = document.createElement('button')
-    s.id = STOP_ID
-    s.className = '__sh_btn__'
-    s.type = 'button'
-    s.title = T_init.inlineButton.stop
-    s.setAttribute('aria-label', T_init.inlineButton.stop)
-    s.innerHTML = STOP_SVG
-    s.addEventListener('click', (e) => {
-      e.preventDefault()
-      e.stopPropagation()
-      onStop()
-    })
-    document.body.appendChild(s)
-    stopBtn = s
+  const ensureStatusBadge = () => {
+    if (statusBadge) return
+    const dot = document.createElement('span')
+    dot.className = '__sh_status_badge__'
+    // aria-hidden on the badge — it's a status decoration, not an
+    // interactive control. Screen readers announce the button's
+    // aria-label ("recording in background, click to reopen") which
+    // already conveys the recording state in words.
+    dot.setAttribute('aria-hidden', 'true')
+    btn.appendChild(dot)
+    statusBadge = dot
   }
 
   const setStatus: InlineButtonHandle['setStatus'] = (s) => {
@@ -501,30 +508,31 @@ export function mountInlineButton(
     // Any state transition out of idle dismisses the onboarding
     // affordance — once they've activated the modal at least once,
     // they don't need the hint anymore (and the pulse + tooltip
-    // would clash visually with the processing red pulse).
+    // would clash visually with the recording badge).
     if (s !== 'idle') dismissOnboarding()
     if (s === 'hidden') {
       btn.style.display = 'none'
-      if (stopBtn) stopBtn.style.display = 'none'
       disableBtn.style.display = 'none'
       return
     }
     btn.style.display = ''
+    // Sparkle SVG stays mounted across idle / processing — both states
+    // share the same click affordance ("open the assistant"). The only
+    // visual difference is the corner status badge that lights up
+    // while a capture session is running in the background. This
+    // avoids the prior "whole-button red pulse" that wrongly read as
+    // a recording-stop indicator.
+    if (btn.innerHTML.indexOf('<svg') === -1) {
+      btn.innerHTML = SPARKLE_SVG
+    }
     if (s === 'processing') {
-      // Replace inner content with a red pulsing dot.
-      btn.innerHTML = ''
-      const pulse = document.createElement('span')
-      pulse.className = '__sh_status_pulse__'
-      btn.appendChild(pulse)
+      ensureStatusBadge()
       btn.title = T_init.inlineButton.processing
       btn.setAttribute('aria-label', T_init.inlineButton.processing)
-      ensureStopBtn()
     } else {
-      // idle: restore sparkle SVG and remove the stop sibling.
-      btn.innerHTML = SPARKLE_SVG
+      removeStatusBadge()
       btn.title = T_init.inlineButton.activate
       btn.setAttribute('aria-label', T_init.inlineButton.activate)
-      removeStopBtn()
     }
     window.setTimeout(updatePosition, 0)
   }
@@ -539,7 +547,7 @@ export function mountInlineButton(
     btn.remove()
     disableBtn.removeEventListener('click', handleDisableClick)
     disableBtn.remove()
-    removeStopBtn()
+    removeStatusBadge()
     // Clear the module-level handle if WE are the current one. If a newer
     // mount has already replaced us, leave the new handle alone.
     if (currentHandle && currentHandle.unmount === unmount) currentHandle = null

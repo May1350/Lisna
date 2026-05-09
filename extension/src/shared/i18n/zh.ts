@@ -24,8 +24,7 @@ export const zh: Translations = {
   inlineButton: {
     activate: '为此视频生成摘要',
     onboarding: '点击此处开始录音 →',
-    processing: '处理中 — 点击重新打开窗口',
-    stop: '停止',
+    processing: '点击重新打开 (录音中)',
     disable_tooltip: '暂时关闭 — 稍后自动恢复',
     disable_aria: '暂时关闭 Lisna',
     disabled_toast: 'Lisna 已关闭 {hours} 小时',

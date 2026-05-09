@@ -25,8 +25,7 @@ export const en: Translations = {
   inlineButton: {
     activate: 'Summarise this video',
     onboarding: 'Click here to start recording →',
-    processing: 'Processing — click to reopen the modal',
-    stop: 'Stop',
+    processing: 'Click to reopen (recording)',
     disable_tooltip: 'Pause Lisna — auto-resumes later',
     disable_aria: 'Pause Lisna',
     disabled_toast: 'Lisna paused for {hours}h',

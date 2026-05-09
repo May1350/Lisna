@@ -202,7 +202,9 @@ function tryMountButton(): void {
   detected = true
   activeVideo = v
   console.log(`[SH:${isTopFrame ? 'top' : 'iframe'}]`, location.host, 'video found, mounting button', { rectW: v.getBoundingClientRect().width, rectH: v.getBoundingClientRect().height, videoW: v.videoWidth, videoH: v.videoHeight })
-  button = mountInlineButton(v, () => { handleActivate() }, () => stopCaptureLocal())
+  // Inline overlay no longer hosts a "stop session" button — stopping
+  // is a modal-only action now. Keep the activate callback only.
+  button = mountInlineButton(v, () => { handleActivate() })
   // Pre-warm the Lambdas the user is about to hit. Fire-and-forget; the
   // SW's WARMUP handler dispatches pings to /v1/auth/google, /v1/session,
   // and /v1/stream/audio in parallel. Best case: shaves ~2 s off the first

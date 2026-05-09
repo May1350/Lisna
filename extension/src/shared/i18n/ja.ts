@@ -24,8 +24,7 @@ export const ja: Translations = {
   inlineButton: {
     activate: 'この動画を要約',
     onboarding: 'ここをクリックで録音開始 →',
-    processing: '処理中 — クリックでモーダルを再表示',
-    stop: '停止',
+    processing: 'クリックで再表示 (録音中)',
     disable_tooltip: '一時的にオフ — 自動で再開',
     disable_aria: 'Lisna を一時的にオフにする',
     disabled_toast: 'Lisna を {hours} 時間オフにしました',

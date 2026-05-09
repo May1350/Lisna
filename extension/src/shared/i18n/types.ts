@@ -37,8 +37,7 @@ export interface Translations {
   inlineButton: {
     activate: string                     // "この動画を要約"
     onboarding: string                   // "ここをクリックで録音開始 →"
-    processing: string                   // "処理中 — クリックでモーダルを再表示"
-    stop: string                          // "停止"
+    processing: string                   // "クリックで再表示 (録音中)" — sparkle + recording badge
     disable_tooltip: string              // hover title on the × badge — generic, no {hours} (we can't read it sync at mount)
     disable_aria: string                 // aria-label for screen readers
     disabled_toast: string               // confirmation toast body ("Lisna は {hours} 時間オフになりました")
