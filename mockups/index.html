@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Study-Helper UI Mockups</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+</style>
+</head>
+<body class="bg-slate-100 min-h-screen p-8">
+<div class="max-w-7xl mx-auto">
+  <header class="mb-8">
+    <h1 class="text-3xl font-bold text-slate-900 mb-2">Study-Helper UI Mockups</h1>
+    <p class="text-slate-600">同じデータ (持続可能性とガバナンス K-LMS テストセッション) を 4 つのレイアウト案でレンダリング. 直接比較してください.</p>
+  </header>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <a href="option-a-refined.html" target="_blank" class="block bg-white rounded-xl shadow hover:shadow-xl transition p-6 border-2 border-transparent hover:border-indigo-300">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-xl font-bold text-slate-900">A. Refined Compact</h2>
+        <span class="text-xs bg-slate-100 text-slate-600 px-2 py-1 rounded">保守的 / 폴리시</span>
+      </div>
+      <p class="text-sm text-slate-600 mb-3">현재 디자인의 정제판. 색상 시스템을 다듬고 ★ 시각 임팩트 강화.</p>
+      <ul class="text-xs text-slate-500 space-y-1">
+        <li><span class="text-indigo-600">🔵</span> indigo 섹션 헤더</li>
+        <li><span class="text-amber-700">🟡</span> amber 用語 카드</li>
+        <li><span class="text-rose-600">🔴</span> rose ★ 박스</li>
+      </ul>
+    </a>
+
+    <a href="option-b-notion.html" target="_blank" class="block bg-white rounded-xl shadow hover:shadow-xl transition p-6 border-2 border-transparent hover:border-indigo-300">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-xl font-bold text-slate-900">B. Notion-style Hierarchy</h2>
+        <span class="text-xs bg-slate-100 text-slate-600 px-2 py-1 rounded">아이콘 / 깔끔</span>
+      </div>
+      <p class="text-sm text-slate-600 mb-3">아이콘 + 들여쓰기로 정보 종류 즉시 인식. 학습 노트 도구 패러다임.</p>
+      <ul class="text-xs text-slate-500 space-y-1">
+        <li>📘 用語 / ⭐ 중요 / 📌 일반 / 💡 예시</li>
+        <li>호버 시 timestamp (visual noise ↓)</li>
+        <li>섹션은 collapsible 가능</li>
+      </ul>
+    </a>
+
+    <a href="option-c-cards.html" target="_blank" class="block bg-white rounded-xl shadow hover:shadow-xl transition p-6 border-2 border-transparent hover:border-indigo-300">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-xl font-bold text-slate-900">C. Magazine Cards</h2>
+        <span class="text-xs bg-pink-100 text-pink-700 px-2 py-1 rounded">시각적 / 매력</span>
+      </div>
+      <p class="text-sm text-slate-600 mb-3">각 섹션 = 그라디언트 카드. 「試験で覚える」 박스로 학습 가치 즉시 어필.</p>
+      <ul class="text-xs text-slate-500 space-y-1">
+        <li>섹션마다 다른 그라디언트 (위치감)</li>
+        <li>⭐ 「試験で覚える」 명시 박스</li>
+        <li>用語 / 具体例 / 補足 명시 라벨</li>
+      </ul>
+    </a>
+
+    <a href="option-d-split.html" target="_blank" class="block bg-white rounded-xl shadow hover:shadow-xl transition p-6 border-2 border-transparent hover:border-indigo-300">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-xl font-bold text-slate-900">D. Live + Notes Split</h2>
+        <span class="text-xs bg-emerald-100 text-emerald-700 px-2 py-1 rounded">실용 / 모드 전환</span>
+      </div>
+      <p class="text-sm text-slate-600 mb-3">사용 시점에 따라 3 모드. 강의 청취 vs 복습은 다른 화면.</p>
+      <ul class="text-xs text-slate-500 space-y-1">
+        <li>🎧 リスニング: 자막 크게</li>
+        <li>📝 復習: 노트만</li>
+        <li>📊 並列: 둘 다</li>
+      </ul>
+    </a>
+  </div>
+
+  <div class="mt-12 bg-white rounded-xl shadow p-6">
+    <h2 class="text-lg font-bold text-slate-900 mb-3">결정 가이드</h2>
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-slate-200 text-slate-500">
+          <th class="text-left pb-2">기준</th>
+          <th class="text-center pb-2">A. Refined</th>
+          <th class="text-center pb-2">B. Notion</th>
+          <th class="text-center pb-2">C. Cards</th>
+          <th class="text-center pb-2">D. Split</th>
+        </tr>
+      </thead>
+      <tbody class="text-slate-700">
+        <tr class="border-b border-slate-100">
+          <td class="py-2 font-medium">학습 가치 어필</td>
+          <td class="text-center">●●○</td>
+          <td class="text-center">●●○</td>
+          <td class="text-center">●●●</td>
+          <td class="text-center">●●○</td>
+        </tr>
+        <tr class="border-b border-slate-100">
+          <td class="py-2 font-medium">정보 밀도</td>
+          <td class="text-center">●●●</td>
+          <td class="text-center">●●●</td>
+          <td class="text-center">●●○</td>
+          <td class="text-center">●○○</td>
+        </tr>
+        <tr class="border-b border-slate-100">
+          <td class="py-2 font-medium">시각적 매력</td>
+          <td class="text-center">●●○</td>
+          <td class="text-center">●○○</td>
+          <td class="text-center">●●●</td>
+          <td class="text-center">●●○</td>
+        </tr>
+        <tr class="border-b border-slate-100">
+          <td class="py-2 font-medium">실시간 반응</td>
+          <td class="text-center">●●○</td>
+          <td class="text-center">●●○</td>
+          <td class="text-center">●●○</td>
+          <td class="text-center">●●●</td>
+        </tr>
+        <tr class="border-b border-slate-100">
+          <td class="py-2 font-medium">스크린샷 공유성</td>
+          <td class="text-center">●○○</td>
+          <td class="text-center">●○○</td>
+          <td class="text-center">●●●</td>
+          <td class="text-center">●○○</td>
+        </tr>
+        <tr class="border-b border-slate-100">
+          <td class="py-2 font-medium">구현 비용</td>
+          <td class="text-center">소</td>
+          <td class="text-center">중</td>
+          <td class="text-center">중</td>
+          <td class="text-center">대 (모드 전환 로직)</td>
+        </tr>
+        <tr>
+          <td class="py-2 font-medium">학생이 처음 보고 "와" 할까</td>
+          <td class="text-center">×</td>
+          <td class="text-center">△</td>
+          <td class="text-center">○</td>
+          <td class="text-center">△</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="text-xs text-slate-500 mt-4">💡 두 가지를 합쳐도 됨: 기본 레이아웃 (A/B/C 중 하나) + 모드 전환 (D의 toggle)</p>
+  </div>
+</div>
+</body>
+</html>

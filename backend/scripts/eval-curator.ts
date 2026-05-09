@@ -26,7 +26,7 @@ import { readFileSync, writeFileSync, readdirSync, existsSync, mkdirSync } from 
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { curateOutline, type Outline } from '../src/lib/curator.js'
-import { judgeOutline, type JudgeResult } from '../src/lib/judge.js'
+import { judgeOutline, type JudgeResult } from './lib/judge.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const FIXTURES_DIR = join(__dirname, '..', 'tests', 'fixtures', 'transcripts')

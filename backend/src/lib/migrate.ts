@@ -25,15 +25,24 @@ export async function migrate(): Promise<void> {
     )
     if (r.rows.length > 0) continue
     const sql = readFileSync(join(MIGRATIONS_DIR, f), 'utf8')
-    await pool.query('BEGIN')
+    // Check out a single connection and run BEGIN / SQL / INSERT /
+    // COMMIT on IT. Using `pool.query` for each step would check out a
+    // fresh connection per call — `BEGIN` would land on connection A,
+    // the migration on connection B, and `COMMIT` on connection C —
+    // making the transaction a no-op. With Pool max > 1 (we now ship
+    // max:2 — see db.ts) this is no longer hypothetical.
+    const client = await pool.connect()
     try {
-      await pool.query(sql)
-      await pool.query('INSERT INTO schema_migrations (name) VALUES ($1)', [f])
-      await pool.query('COMMIT')
+      await client.query('BEGIN')
+      await client.query(sql)
+      await client.query('INSERT INTO schema_migrations (name) VALUES ($1)', [f])
+      await client.query('COMMIT')
       console.log(`Applied migration: ${f}`)
     } catch (e) {
-      await pool.query('ROLLBACK')
+      try { await client.query('ROLLBACK') } catch { /* conn may be broken */ }
       throw e
+    } finally {
+      client.release()
     }
   }
 }

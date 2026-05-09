@@ -72,27 +72,36 @@ describe('outlineToObsidianMarkdown', () => {
     // 要旨 callout for takeaway
     expect(md).toContain('> [!summary] 要旨')
 
-    // 定義 callout
-    expect(md).toContain('> [!定義] サステナビリティ')
+    // 定義 are now emitted as a `**用語**` bullet list (compressed
+    // from the previous N-callout layout, ~6-10 lines saved per
+    // section; see markdown-obsidian.ts comment for context).
+    expect(md).toContain('**用語**')
+    expect(md).toMatch(/- \*\*サステナビリティ\*\*:/)
 
-    // Examples with deep-link timestamps (URL already has ?, so & joiner)
-    expect(md).toContain('地球の環境 [▶ 00:18](https://example.com/lecture?id=42&t=18s)')
+    // Examples now live in the unified `**ポイント**` list with a
+    // "例: " prefix instead of a separate `**用例**` section.
+    expect(md).toContain('**ポイント**')
+    expect(md).toContain('- 例: 地球の環境 [▶ 00:18](https://example.com/lecture?id=42&t=18s&__sh_seek=18)')
 
     // Important point with star (auto-wikilink only fires on known terms;
     // "持続可能性" isn't a key_term in this fixture so it stays plain)
     expect(md).toMatch(/⭐ \*\*持続可能性は地球[^\n]*階層化される\*\*/)
 
-    // 関連用語 inline links
-    expect(md).toContain('**関連用語**: [[ESG]] | [[CSR]]')
+    // 関連 inline links (label shortened from 関連用語 → 関連; separator
+    // changed from " | " → " · ")
+    expect(md).toContain('**関連**: [[ESG]] · [[CSR]]')
 
     // 関連リンク section
     expect(md).toContain('## 関連リンク')
     expect(md).toContain('- [[ESG投資]]')
     expect(md).toContain('- [[コーポレートガバナンス・コード]]')
 
-    // 用語インデックス
-    expect(md).toContain('## 用語インデックス')
-    expect(md).toContain('- [[サステナビリティ]]')
+    // 用語インデックス was removed — terms now live in frontmatter
+    // `key_terms` array + body wikilinks. The Properties panel +
+    // Obsidian backlinks panel cover this without a redundant section.
+    expect(md).not.toContain('## 用語インデックス')
+    expect(md).toContain('key_terms:')
+    expect(md).toContain('  - "[[サステナビリティ]]"')
 
     // 学習チェックリスト
     expect(md).toContain('## 学習チェックリスト')
@@ -120,6 +129,31 @@ describe('outlineToObsidianMarkdown', () => {
     expect(md).not.toContain('科目:')
   })
 
+  it('treats curator placeholder values (不明 etc.) as missing — no [[不明]] in output', () => {
+    // Pre-scrub at curator.ts should make this redundant for new
+    // outlines, but we have legacy DB rows where course/lecturer were
+    // stored as the literal string "不明". Renderer must defensively
+    // skip them so the Obsidian graph doesn't get a fake "[[不明]]"
+    // hub aggregating every lecture where curator extraction failed.
+    const o: Outline = {
+      title: 'Test',
+      course: '不明',
+      lecturer: 'unknown',
+      sections: [{
+        heading: 'h', ts: 0, summary: '',
+        key_terms: [{ term: 'X', definition: 'd', ts: 0 }],
+        examples: [], points: [],
+      }],
+    }
+    const md = outlineToObsidianMarkdown(o, ctx)
+    expect(md).not.toContain('[[不明]]')
+    expect(md).not.toContain('[[unknown]]')
+    expect(md).not.toContain('course:')
+    expect(md).not.toContain('lecturer:')
+    expect(md).not.toContain('教授:')
+    expect(md).not.toContain('科目:')
+  })
+
   it('builds deep links with & when URL has query, ? when not', () => {
     const o: Outline = {
       title: 't',
@@ -129,10 +163,10 @@ describe('outlineToObsidianMarkdown', () => {
       }],
     }
     const noQuery = outlineToObsidianMarkdown(o, { ...ctx, sourceUrl: 'https://example.com/lec' })
-    expect(noQuery).toContain('[▶ 01:30](https://example.com/lec?t=90s)')
+    expect(noQuery).toContain('[▶ 01:30](https://example.com/lec?t=90s&__sh_seek=90)')
 
     const withQuery = outlineToObsidianMarkdown(o, { ...ctx, sourceUrl: 'https://example.com/lec?id=1' })
-    expect(withQuery).toContain('[▶ 01:30](https://example.com/lec?id=1&t=90s)')
+    expect(withQuery).toContain('[▶ 01:30](https://example.com/lec?id=1&t=90s&__sh_seek=90)')
   })
 
   it('embeds slides into the section whose ts range covers the slide ts', () => {
