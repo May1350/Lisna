@@ -48,57 +48,41 @@ export function QuotaExhaustedIdle({ user, quota, onUpgrade, upgrading }: Props)
 
   return (
     <div className="flex-1 flex items-start justify-center px-4 pt-6">
-      <div className="w-full max-w-sm rounded-xl border border-gray-200 bg-white px-5 py-5 shadow-sm">
-        {/* Headline — single short phrase, no emoji. Plan-aware so
-            Pro users at the 30 h ceiling don't see free-tier copy. */}
-        <p className="text-base font-semibold text-gray-900 mb-2">
+      <div className="w-full max-w-sm rounded-[14px] border border-paper-edge bg-paper-100 px-5 py-5 shadow-card">
+        <p className="text-base font-semibold text-ink-900 mb-2 tracking-headline-tight">
           {isPro ? T.quotaExhausted.pro_title : T.quotaExhausted.free_title}
         </p>
-        {/* Body — what the user CAN still do. Critical for trust
-            (the regular modal red-banner used to imply the whole
-            feature broke). */}
-        <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-line mb-4">
+        <p className="text-sm text-ink-700 leading-relaxed whitespace-pre-line mb-4">
           {isPro ? T.quotaExhausted.pro_body : T.quotaExhausted.free_body}
         </p>
 
-        {/* Progress bar — same visual language as QuotaBanner's compact
-            variant so users have a single mental model for "where am I
-            on the meter". Always full red when this card renders. */}
-        <div className="relative h-1.5 w-full rounded-full bg-gray-100 overflow-hidden">
-          <div className="absolute inset-y-0 left-0 right-0 bg-red-500 rounded-full" />
+        {/* Progress bar — full red since the card only renders at 100%. */}
+        <div className="relative h-1.5 w-full rounded-full bg-paper-300 overflow-hidden">
+          <div className="absolute inset-y-0 left-0 right-0 bg-warn-red rounded-full" />
         </div>
-        <div className="flex items-center justify-between mt-1.5 text-[11px] text-gray-500 tabular-nums">
+        <div className="flex items-center justify-between mt-1.5 text-[11px] text-ink-500 font-mono tabular-nums">
           <span>
             {formatMinutes(usedDisplay, T)} / {formatMinutes(limitSecs, T)}
           </span>
-          <span className="font-medium">100%</span>
+          <span className="font-medium text-ink-900">100%</span>
         </div>
-        <div className="mt-1 text-[11px] text-gray-400">{T.quota.reset_note}</div>
+        <div className="mt-1 text-[11px] text-ink-300 font-mono">{T.quota.reset_note}</div>
 
-        {/* Pro upgrade chunk — adds the price + 2 key features
-            inline so the user doesn't have to leave the modal to
-            check what they're paying for. Visual brand chunk
-            (indigo bordered box) mirrors PlanSection's upgrade
-            card semiotic so the two surfaces feel consistent
-            without duplicating the full bullets list. We pick
-            features 1+2 (the 60× scale and long-lecture
-            confidence) — feature 3 (cooldown) is less load-
-            bearing in the crisis context and would push the card
-            taller without adding decision value. Strings reuse
-            T.options.plan_pro_* so the price / copy stay in one
-            place across both surfaces. */}
+        {/* Pro upgrade chunk — emphasis card variant per DESIGN.md §3.2.
+            terra-tint surface + terra-soft border + terra price text,
+            then ink-900 solid CTA below. */}
         {!isPro && (
           <>
-            <div className="mt-5 rounded-lg border border-indigo-200 bg-indigo-50/40 px-4 py-3">
+            <div className="mt-5 rounded-[10px] border border-terra-soft bg-terra-tint px-4 py-3">
               <div className="flex items-baseline justify-between gap-2 mb-1.5">
-                <span className="text-lg font-semibold text-indigo-900 leading-none tracking-tight">
+                <span className="text-lg font-semibold text-terra leading-none tracking-headline-tight font-mono tabular-nums">
                   {T.options.plan_pro_price}
                 </span>
-                <span className="text-[11px] text-indigo-700/70 shrink-0">
+                <span className="text-[11px] text-terra-700 opacity-70 shrink-0 font-mono uppercase tracking-wider">
                   {T.options.plan_pro_priceNote}
                 </span>
               </div>
-              <ul className="text-xs text-gray-700 space-y-1">
+              <ul className="text-xs text-ink-700 space-y-1">
                 <li>{T.options.plan_pro_feature1}</li>
                 <li>{T.options.plan_pro_feature2}</li>
               </ul>
@@ -107,7 +91,7 @@ export function QuotaExhaustedIdle({ user, quota, onUpgrade, upgrading }: Props)
               type="button"
               onClick={onUpgrade}
               disabled={upgrading}
-              className="mt-3 w-full rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white text-sm font-medium px-4 py-3 transition"
+              className="mt-3 w-full rounded-[10px] bg-ink-900 hover:bg-ink-700 disabled:bg-ink-200 disabled:cursor-not-allowed text-paper-100 text-sm font-medium px-4 py-3 transition-colors"
             >
               {upgrading ? T.quotaExhausted.upgrade_busy : T.quotaExhausted.upgrade_cta}
             </button>

@@ -738,56 +738,61 @@ function PlanSection({
 
   return (
     <div className="space-y-4">
-      <div className="rounded-lg border border-gray-200 bg-white p-4">
+      {/* Current plan card — neutral surface. The Pro pill earns the
+          terra accent (DESIGN.md §2.1.1: terra reserved for Pro /
+          payment surfaces); Free pill stays neutral so the visual
+          rewards upgrading. */}
+      <div className="rounded-[10px] border border-paper-edge bg-paper-200 p-4">
         <div className="flex items-baseline justify-between gap-3 mb-2">
-          <span className="text-sm text-gray-700">{T.options.plan_currentLabel}</span>
-          <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-            isPro ? 'bg-indigo-100 text-indigo-800' : 'bg-gray-100 text-gray-700'
+          <span className="text-sm text-ink-700">{T.options.plan_currentLabel}</span>
+          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-mono uppercase tracking-eyebrow font-semibold ${
+            isPro ? 'bg-terra text-paper-100' : 'bg-paper-300 text-ink-700'
           }`}>
             {isPro ? 'Pro' : 'Free'}
           </span>
         </div>
-        <div className="text-xs text-gray-600 mb-2">
+        <div className="text-xs text-ink-700 mb-2">
           {T.options.plan_usageThisMonth}{' '}
-          <span className="font-mono tabular-nums text-gray-900">
+          <span className="font-mono tabular-nums text-ink-900">
             {isPro
               ? interpolate(T.options.plan_usage_pro, { used: usedHr, limit: limitHr })
               : interpolate(T.options.plan_usage_free, { used: usedMin, limit: limitMin })}
           </span>
         </div>
-        <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+        {/* Bar uses the same color stages as QuotaBanner (DESIGN.md
+            §3.3) — green below 80, amber 80-94, red ≥95. */}
+        <div className="h-1.5 bg-paper-300 rounded-full overflow-hidden">
           <div
             className={`h-full transition-all ${
-              quota.percent_used >= 95 ? 'bg-red-500'
-                : quota.percent_used >= 80 ? 'bg-amber-500'
-                : 'bg-emerald-500'
+              quota.percent_used >= 95 ? 'bg-warn-red'
+                : quota.percent_used >= 80 ? 'bg-warn-amber'
+                : 'bg-ok-green'
             }`}
             style={{ width: `${Math.min(100, quota.percent_used)}%` }}
           />
         </div>
-        <div className="text-[11px] text-gray-500 mt-1">
+        <div className="text-[11px] text-ink-300 font-mono mt-1">
           {T.options.plan_resetMonthly}
         </div>
       </div>
 
       {!isPro && (
-        <div className="rounded-lg border border-indigo-200 bg-indigo-50/40 p-4">
+        <div className="rounded-[10px] border border-terra-soft bg-terra-tint p-4">
           <div className="flex items-baseline justify-between mb-2">
-            <span className="text-sm font-semibold text-indigo-900">{T.options.plan_pro_header}</span>
+            <span className="text-sm font-semibold text-terra-700">{T.options.plan_pro_header}</span>
           </div>
-          {/* Price line — prominent enough to set expectations before the
-           *  user has to click "upgrade", but not in red/gold/orange to
-           *  avoid the "predatory upsell" feel. Indigo follows the brand
-           *  hue, the smaller note keeps the line legible. */}
+          {/* Price line — large mono price (DESIGN.md §2.2.2: every
+              number in mono with tabular-nums) + uppercase mono note
+              underneath. */}
           <div className="mb-4">
-            <div className="text-2xl font-semibold text-indigo-900 leading-none tracking-tight">
+            <div className="text-2xl font-semibold text-terra leading-none tracking-headline-tight font-mono tabular-nums">
               {T.options.plan_pro_price}
             </div>
-            <div className="text-[11px] text-indigo-700/70 mt-1">
+            <div className="text-[11px] text-terra-700 opacity-70 font-mono uppercase tracking-wider mt-1">
               {T.options.plan_pro_priceNote}
             </div>
           </div>
-          <ul className="text-xs text-gray-700 space-y-1.5 mb-4">
+          <ul className="text-xs text-ink-900 space-y-1.5 mb-4">
             <li>{T.options.plan_pro_feature1}</li>
             <li>{T.options.plan_pro_feature2}</li>
             <li>{T.options.plan_pro_feature3}</li>
@@ -796,11 +801,11 @@ function PlanSection({
             type="button"
             onClick={onUpgrade}
             disabled={upgrading}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 text-white text-sm font-medium rounded-lg transition"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-ink-900 hover:bg-ink-700 disabled:bg-ink-200 text-paper-100 text-sm font-medium rounded-[10px] transition-colors"
           >
             {upgrading ? (
               <>
-                <span className="inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                <span className="inline-block w-3 h-3 border-2 border-paper-100/30 border-t-paper-100 rounded-full animate-spin" />
                 {T.options.plan_upgrade_busy}
               </>
             ) : (

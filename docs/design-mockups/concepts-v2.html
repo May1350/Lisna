@@ -1,0 +1,739 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lisna — Design Concepts v2 · 정밀함 × 따뜻함</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&family=Crimson+Pro:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      /* Shared warm tokens — every variant pulls from these so they
+         feel like a family, not three random themes */
+      --paper-100: #FFFEFB;
+      --paper-200: #FBFAF7;
+      --paper-300: #F4F2EC;
+      --paper-edge: #E8E4DC;
+      --ink-900: #1A1614;
+      --ink-700: #3D3733;
+      --ink-500: #6E6660;
+      --ink-300: #A39A93;
+      --ink-200: #C8C0B7;
+
+      /* Accents */
+      --terra: #C2410C;       /* terracotta — warm CTA primary */
+      --terra-soft: #FED7AA;  /* peach surface */
+      --terra-tint: #FFF7ED;  /* near-white peach */
+      --sage: #4F7C5C;
+      --aubergine: #5B2A4D;
+      --gold: #8B6F47;
+
+      /* State */
+      --warn-red: #B91C1C;
+      --warn-amber: #B45309;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: 'Geist', -apple-system, 'Hiragino Sans', sans-serif;
+      background: #EDE9E2;
+      color: var(--ink-900);
+      -webkit-font-smoothing: antialiased;
+      padding: 40px 24px 96px;
+      font-feature-settings: "ss01", "cv11";
+    }
+    .page-head {
+      max-width: 1320px;
+      margin: 0 auto 36px;
+    }
+    .page-head h1 {
+      font-family: 'Source Serif 4', Georgia, serif;
+      font-size: 32px; font-weight: 500; margin: 0 0 8px;
+      letter-spacing: -0.02em; color: var(--ink-900);
+    }
+    .page-head p {
+      font-size: 14px; color: var(--ink-500); margin: 0;
+      max-width: 640px; line-height: 1.6;
+    }
+
+    .grid {
+      max-width: 1320px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+      gap: 28px;
+    }
+    .concept {
+      background: var(--paper-100);
+      border: 1px solid var(--paper-edge);
+      border-radius: 18px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .concept-head {
+      padding: 22px 24px 18px;
+      border-bottom: 1px solid var(--paper-300);
+    }
+    .concept-eyebrow {
+      font-family: 'Geist Mono', monospace;
+      font-size: 10.5px; font-weight: 500; letter-spacing: 0.16em;
+      color: var(--ink-300); text-transform: uppercase; margin: 0 0 6px;
+    }
+    .concept-title {
+      font-family: 'Source Serif 4', Georgia, serif;
+      font-size: 22px; font-weight: 500; margin: 0 0 6px;
+      letter-spacing: -0.012em; color: var(--ink-900);
+    }
+    .concept-tag {
+      font-size: 13px; color: var(--ink-500); margin: 0; line-height: 1.55;
+    }
+    .palette {
+      padding: 14px 24px;
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      border-bottom: 1px solid var(--paper-300);
+    }
+    .swatch {
+      width: 22px; height: 22px;
+      border-radius: 6px;
+      border: 1px solid rgba(26, 22, 20, 0.06);
+    }
+    .palette-label {
+      font-family: 'Geist Mono', monospace;
+      font-size: 10px; color: var(--ink-300); margin-left: 8px;
+      letter-spacing: 0.05em;
+    }
+    .stage {
+      padding: 36px 24px;
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 520px;
+    }
+    .meta {
+      padding: 18px 24px;
+      border-top: 1px solid var(--paper-300);
+      font-size: 13px;
+      color: var(--ink-500);
+      line-height: 1.65;
+    }
+    .meta b { color: var(--ink-900); font-weight: 500; }
+    .meta .meta-row { display: block; }
+    .meta .meta-row + .meta-row { margin-top: 4px; }
+
+    /* ==========================================================
+       VARIANT A — Geist Cream
+       Vercel Geist 정밀함 + cream paper. 차갑지 않은 테크니컬.
+       ========================================================== */
+    .a .stage { background: var(--paper-200); }
+    .a-card {
+      width: 100%;
+      max-width: 360px;
+      background: var(--paper-100);
+      border: 1px solid var(--paper-edge);
+      border-radius: 14px;
+      padding: 24px;
+      font-family: 'Geist', sans-serif;
+      box-shadow:
+        0 1px 0 rgba(26, 22, 20, 0.02),
+        0 8px 24px -12px rgba(26, 22, 20, 0.08);
+    }
+    .a-eyebrow {
+      font-family: 'Geist Mono', monospace;
+      font-size: 10.5px; font-weight: 500; letter-spacing: 0.14em;
+      color: var(--ink-300); text-transform: uppercase; margin: 0 0 10px;
+    }
+    .a-card h3 {
+      font-size: 16px; font-weight: 600; margin: 0 0 8px;
+      color: var(--ink-900); letter-spacing: -0.012em;
+      line-height: 1.35;
+    }
+    .a-card .body {
+      font-size: 13.5px; color: var(--ink-700); line-height: 1.6; margin: 0 0 22px;
+      white-space: pre-line;
+    }
+    .a-meter {
+      margin: 0 0 22px;
+      padding: 14px;
+      background: var(--paper-200);
+      border-radius: 10px;
+      border: 1px solid var(--paper-300);
+    }
+    .a-meter-row {
+      display: flex; justify-content: space-between; align-items: baseline;
+      font-family: 'Geist Mono', monospace;
+      font-size: 11.5px; margin-bottom: 8px;
+      color: var(--ink-500);
+      letter-spacing: 0.02em;
+    }
+    .a-meter-row b { color: var(--ink-900); font-weight: 500; font-size: 12.5px; }
+    .a-bar {
+      height: 4px; background: var(--paper-edge); border-radius: 9999px; overflow: hidden;
+      position: relative;
+    }
+    .a-bar-fill {
+      height: 100%; border-radius: 9999px;
+      background: linear-gradient(90deg, #DC2626, #B91C1C);
+    }
+    .a-meter-foot {
+      font-family: 'Geist Mono', monospace;
+      font-size: 10.5px; color: var(--ink-300); margin-top: 8px;
+      letter-spacing: 0.02em;
+    }
+    .a-pro {
+      padding: 16px;
+      border: 1px solid var(--terra-soft);
+      background: var(--terra-tint);
+      border-radius: 10px;
+      margin-bottom: 12px;
+    }
+    .a-pro-row {
+      display: flex; justify-content: space-between; align-items: baseline;
+      margin-bottom: 12px;
+    }
+    .a-pro-price {
+      font-family: 'Source Serif 4', Georgia, serif;
+      font-size: 22px; font-weight: 500; color: var(--terra);
+      letter-spacing: -0.015em; line-height: 1;
+    }
+    .a-pro-price small {
+      font-family: 'Geist', sans-serif;
+      font-size: 12px; font-weight: 400; color: var(--terra);
+      opacity: 0.7;
+    }
+    .a-pro-note {
+      font-family: 'Geist Mono', monospace;
+      font-size: 10.5px; color: var(--terra); opacity: 0.65;
+      letter-spacing: 0.02em;
+    }
+    .a-pro-list {
+      font-size: 13px; color: var(--ink-700); margin: 0; padding: 0; list-style: none;
+      line-height: 1.7;
+    }
+    .a-pro-list li::before {
+      content: '+ '; color: var(--terra); font-family: 'Geist Mono', monospace;
+      font-weight: 500;
+    }
+    .a-cta {
+      width: 100%;
+      background: var(--ink-900);
+      color: var(--paper-100);
+      border: none;
+      border-radius: 10px;
+      padding: 13px;
+      font-size: 13.5px;
+      font-weight: 500;
+      font-family: 'Geist', sans-serif;
+      letter-spacing: -0.005em;
+      cursor: pointer;
+      transition: background 140ms ease, transform 80ms ease;
+      display: flex; justify-content: center; align-items: center; gap: 10px;
+    }
+    .a-cta:hover { background: var(--ink-700); }
+    .a-cta:active { transform: scale(0.99); }
+    .a-cta-arrow {
+      font-family: 'Geist Mono', monospace;
+      font-size: 12px; opacity: 0.7;
+    }
+
+    /* ==========================================================
+       VARIANT B — Warm Editorial
+       Serif 헤드라인이 감정 무게. mono 숫자가 정밀함.
+       Stripe Docs + Pitchfork redesign 톤.
+       ========================================================== */
+    .b .stage { background: var(--paper-300); }
+    .b-card {
+      width: 100%;
+      max-width: 380px;
+      background: var(--paper-100);
+      border: 1px solid var(--paper-edge);
+      border-radius: 4px;
+      padding: 32px 28px 28px;
+      font-family: 'Geist', sans-serif;
+      position: relative;
+    }
+    .b-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 28px; right: 28px; height: 3px;
+      background: var(--aubergine);
+    }
+    .b-eyebrow {
+      font-family: 'Geist Mono', monospace;
+      font-size: 10px; font-weight: 500; letter-spacing: 0.18em;
+      color: var(--aubergine); text-transform: uppercase; margin: 0 0 14px;
+      opacity: 0.8;
+    }
+    .b-card h3 {
+      font-family: 'Source Serif 4', Georgia, serif;
+      font-size: 26px; font-weight: 500; margin: 0 0 10px;
+      color: var(--ink-900); letter-spacing: -0.018em;
+      line-height: 1.2;
+    }
+    .b-card .body {
+      font-size: 14px; color: var(--ink-700); line-height: 1.7; margin: 0 0 24px;
+      white-space: pre-line;
+    }
+    .b-meter {
+      margin: 0 0 24px;
+    }
+    .b-meter-headline {
+      display: flex; justify-content: space-between; align-items: baseline;
+      margin-bottom: 8px;
+    }
+    .b-meter-label {
+      font-family: 'Geist Mono', monospace;
+      font-size: 10.5px; color: var(--ink-300);
+      letter-spacing: 0.16em; text-transform: uppercase;
+    }
+    .b-meter-value {
+      font-family: 'Source Serif 4', Georgia, serif;
+      font-size: 18px; font-weight: 500; color: var(--ink-900);
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.01em;
+    }
+    .b-meter-value-sub {
+      font-family: 'Geist Mono', monospace;
+      font-size: 11px; color: var(--ink-500); margin-left: 2px;
+    }
+    .b-bar {
+      height: 2px; background: var(--paper-edge); position: relative; overflow: hidden;
+    }
+    .b-bar-fill {
+      height: 100%; background: var(--warn-red);
+    }
+    .b-meter-foot {
+      display: flex; justify-content: space-between;
+      margin-top: 8px;
+      font-family: 'Geist Mono', monospace;
+      font-size: 10.5px; color: var(--ink-300);
+      letter-spacing: 0.04em;
+    }
+    .b-meter-foot em {
+      font-style: italic;
+      font-family: 'Source Serif 4', Georgia, serif;
+      font-size: 12px;
+      color: var(--ink-500);
+    }
+    .b-pro {
+      padding: 18px 0 0;
+      border-top: 1px solid var(--paper-edge);
+      margin-bottom: 22px;
+    }
+    .b-pro-headline {
+      display: flex; justify-content: space-between; align-items: baseline;
+      margin-bottom: 12px;
+    }
+    .b-pro-name {
+      font-family: 'Source Serif 4', Georgia, serif;
+      font-size: 17px; font-weight: 500; color: var(--ink-900);
+      letter-spacing: -0.005em;
+    }
+    .b-pro-name em {
+      font-style: italic; color: var(--aubergine); font-weight: 500;
+    }
+    .b-pro-price {
+      font-family: 'Geist Mono', monospace;
+      font-size: 14px; font-weight: 500; color: var(--ink-900);
+      letter-spacing: 0;
+      font-variant-numeric: tabular-nums;
+    }
+    .b-pro-list {
+      font-size: 13px; color: var(--ink-700); margin: 0; padding: 0; list-style: none;
+      line-height: 1.85;
+    }
+    .b-pro-list li {
+      padding-left: 14px; position: relative;
+    }
+    .b-pro-list li::before {
+      content: ''; position: absolute; left: 0; top: 0.8em; width: 6px; height: 1px;
+      background: var(--ink-300);
+    }
+    .b-cta {
+      width: 100%;
+      background: var(--aubergine);
+      color: var(--paper-100);
+      border: none;
+      border-radius: 4px;
+      padding: 14px;
+      font-size: 13.5px;
+      font-weight: 500;
+      font-family: 'Geist', sans-serif;
+      letter-spacing: 0.01em;
+      cursor: pointer;
+      transition: background 150ms ease;
+    }
+    .b-cta:hover { background: #4A2240; }
+
+    /* ==========================================================
+       VARIANT C — Precision Cream
+       5번의 정밀함을 그대로, 단 라이트 cream + terracotta.
+       Mono 우선, kbd 시각화, 숫자 페티시.
+       ========================================================== */
+    .c .stage { background: var(--paper-200); }
+    .c-card {
+      width: 100%;
+      max-width: 360px;
+      background: var(--paper-100);
+      border: 1px solid var(--ink-200);
+      border-radius: 8px;
+      padding: 22px;
+      font-family: 'Geist', sans-serif;
+      box-shadow: 0 1px 0 rgba(26, 22, 20, 0.04);
+    }
+    .c-eyebrow {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 14px;
+      padding-bottom: 12px;
+      border-bottom: 1px dashed var(--paper-edge);
+    }
+    .c-eyebrow-label {
+      font-family: 'Geist Mono', monospace;
+      font-size: 10px; font-weight: 500; letter-spacing: 0.18em;
+      color: var(--ink-500); text-transform: uppercase;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .c-eyebrow-label::before {
+      content: ''; width: 6px; height: 6px;
+      background: var(--warn-red);
+      border-radius: 9999px;
+      animation: pulse 1.6s ease-in-out infinite;
+      box-shadow: 0 0 0 0 rgba(185, 28, 28, 0.5);
+    }
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(185, 28, 28, 0.4); }
+      50% { box-shadow: 0 0 0 4px rgba(185, 28, 28, 0); }
+    }
+    .c-kbd {
+      display: inline-flex; align-items: center; gap: 2px;
+      font-family: 'Geist Mono', monospace;
+      font-size: 10.5px; padding: 2px 6px;
+      background: var(--paper-200);
+      border: 1px solid var(--paper-edge);
+      border-radius: 4px;
+      color: var(--ink-500);
+    }
+    .c-card h3 {
+      font-size: 15px; font-weight: 600; margin: 0 0 6px;
+      color: var(--ink-900); letter-spacing: -0.005em;
+    }
+    .c-card .body {
+      font-family: 'Geist Mono', monospace;
+      font-size: 11.5px; color: var(--ink-500); line-height: 1.7; margin: 0 0 18px;
+      letter-spacing: 0.01em;
+    }
+    .c-card .body .lbl { color: var(--ink-300); }
+    .c-card .body .val { color: var(--ink-900); }
+    .c-meter {
+      margin-bottom: 18px;
+    }
+    .c-bar {
+      height: 6px; background: var(--paper-300);
+      border-radius: 2px; overflow: hidden;
+      border: 1px solid var(--paper-edge);
+    }
+    .c-bar-fill {
+      height: 100%; background: var(--terra);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    }
+    .c-meter-foot {
+      display: flex; justify-content: space-between;
+      font-family: 'Geist Mono', monospace;
+      font-size: 11px; color: var(--ink-500); margin-top: 8px;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.02em;
+    }
+    .c-meter-foot b { color: var(--ink-900); font-weight: 500; }
+    .c-reset {
+      font-family: 'Geist Mono', monospace;
+      font-size: 10.5px; color: var(--ink-300); margin-top: 4px;
+      letter-spacing: 0.02em;
+    }
+    .c-reset .arrow { color: var(--terra); }
+    .c-pro {
+      margin-top: 18px;
+      padding: 14px 0 0;
+      border-top: 1px solid var(--paper-edge);
+    }
+    .c-pro-row {
+      display: flex; justify-content: space-between; align-items: baseline;
+      margin-bottom: 10px;
+    }
+    .c-pro-price {
+      font-family: 'Geist Mono', monospace;
+      font-size: 16px; font-weight: 600; color: var(--terra);
+      letter-spacing: 0;
+      font-variant-numeric: tabular-nums;
+    }
+    .c-pro-price-x {
+      font-family: 'Geist', sans-serif;
+      font-size: 11px; font-weight: 400; color: var(--ink-300);
+      margin-left: 4px;
+    }
+    .c-pro-note {
+      font-family: 'Geist Mono', monospace;
+      font-size: 10px; color: var(--ink-300);
+      letter-spacing: 0.04em; text-transform: uppercase;
+    }
+    .c-pro-list {
+      font-family: 'Geist Mono', monospace;
+      font-size: 11.5px; color: var(--ink-700); margin: 0; padding: 0; list-style: none;
+      line-height: 1.85;
+    }
+    .c-pro-list li::before {
+      content: '→ '; color: var(--terra);
+    }
+    .c-cta {
+      margin-top: 16px;
+      width: 100%;
+      background: var(--ink-900);
+      color: var(--paper-100);
+      border: none;
+      border-radius: 6px;
+      padding: 11px;
+      font-size: 12.5px;
+      font-weight: 500;
+      font-family: 'Geist', sans-serif;
+      cursor: pointer;
+      display: flex; justify-content: center; align-items: center; gap: 10px;
+      transition: background 120ms ease;
+    }
+    .c-cta:hover { background: var(--ink-700); }
+    .c-cta-kbd {
+      display: inline-flex; align-items: center;
+      font-family: 'Geist Mono', monospace;
+      font-size: 10px; padding: 1px 5px;
+      background: rgba(255, 254, 251, 0.12);
+      border: 1px solid rgba(255, 254, 251, 0.2);
+      border-radius: 3px;
+      color: var(--paper-200);
+    }
+
+    /* ==========================================================
+       Comparison footer
+       ========================================================== */
+    .footer {
+      max-width: 1320px;
+      margin: 36px auto 0;
+      padding: 22px 26px;
+      background: var(--paper-100);
+      border: 1px solid var(--paper-edge);
+      border-radius: 14px;
+      font-size: 13px;
+      color: var(--ink-500);
+      line-height: 1.7;
+    }
+    .footer h3 {
+      font-family: 'Source Serif 4', Georgia, serif;
+      font-size: 18px; font-weight: 500; margin: 0 0 10px;
+      color: var(--ink-900); letter-spacing: -0.01em;
+    }
+    .footer ul {
+      margin: 12px 0 0; padding-left: 20px;
+    }
+    .footer ul li { margin-bottom: 6px; }
+    .footer code {
+      font-family: 'Geist Mono', monospace;
+      font-size: 12px;
+      background: var(--paper-200);
+      border: 1px solid var(--paper-edge);
+      padding: 1px 5px;
+      border-radius: 3px;
+      color: var(--ink-700);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="page-head">
+    <h1>Lisna · Design Concepts <em style="color:var(--terra);font-style:italic">v2</em></h1>
+    <p>"1번 readable + 5번 정밀한 취향, 단 너무 딱딱함" 의 합집합. <b style="color:var(--ink-900)">테크니컬 정밀함 + 따뜻함</b> 을 공통 축으로, 톤만 다르게 3가지. 같은 cream paper / Geist 패밀리 / 따뜻한 액센트를 공유 — 한 가족처럼 느껴지도록 설계.</p>
+  </div>
+
+  <div class="grid">
+
+    <!-- ============= VARIANT A — Geist Cream ============= -->
+    <section class="concept a">
+      <div class="concept-head">
+        <p class="concept-eyebrow">Variant A · v2</p>
+        <h2 class="concept-title">Geist Cream</h2>
+        <p class="concept-tag">Vercel Geist 정밀 + cream paper. 차갑지 않은 테크니컬. 가격은 serif 한 호흡으로 강조.</p>
+      </div>
+      <div class="palette">
+        <div class="swatch" style="background:#FBFAF7"></div>
+        <div class="swatch" style="background:#FFFEFB"></div>
+        <div class="swatch" style="background:#E8E4DC"></div>
+        <div class="swatch" style="background:#1A1614"></div>
+        <div class="swatch" style="background:#C2410C"></div>
+        <div class="swatch" style="background:#B91C1C"></div>
+        <span class="palette-label">paper · ink · terracotta · warn-red</span>
+      </div>
+      <div class="stage">
+        <div class="a-card">
+          <p class="a-eyebrow">Quota · monthly</p>
+          <h3>월간 30분 한도에 도달했습니다</h3>
+          <p class="body">새로운 음성 수집은 중단되었습니다.
+이전에 만든 노트는 그대로 열람·재생성할 수 있습니다.</p>
+          <div class="a-meter">
+            <div class="a-meter-row">
+              <span>used / limit</span>
+              <b>30:00 / 30:00</b>
+            </div>
+            <div class="a-bar"><div class="a-bar-fill" style="width:100%"></div></div>
+            <div class="a-meter-foot">resets 2026-06-01 09:00 JST</div>
+          </div>
+          <div class="a-pro">
+            <div class="a-pro-row">
+              <span class="a-pro-price">¥980<small> / 월</small></span>
+              <span class="a-pro-note">cancel anytime</span>
+            </div>
+            <ul class="a-pro-list">
+              <li>월 30시간 (Free의 60배)</li>
+              <li>긴 강의도 안심 녹음</li>
+            </ul>
+          </div>
+          <button class="a-cta">
+            Pro로 업그레이드
+            <span class="a-cta-arrow">→</span>
+          </button>
+        </div>
+      </div>
+      <div class="meta">
+        <span class="meta-row"><b>Strength:</b> 1번 readable + Geist 정밀함. 균형감 있는 절제.</span>
+        <span class="meta-row"><b>Signature:</b> 가격에 serif 한 호흡, mono 시간 표기, terracotta 영역 분리.</span>
+        <span class="meta-row"><b>For:</b> 안전하고 사람-같은 SaaS. 디폴트 추천.</span>
+      </div>
+    </section>
+
+    <!-- ============= VARIANT B — Warm Editorial ============= -->
+    <section class="concept b">
+      <div class="concept-head">
+        <p class="concept-eyebrow">Variant B · v2</p>
+        <h2 class="concept-title">Warm Editorial</h2>
+        <p class="concept-tag">Serif 헤드라인이 감정 무게. mono 숫자가 정밀함. 학문적 잡지 한 페이지처럼.</p>
+      </div>
+      <div class="palette">
+        <div class="swatch" style="background:#F4F2EC"></div>
+        <div class="swatch" style="background:#FFFEFB"></div>
+        <div class="swatch" style="background:#E8E4DC"></div>
+        <div class="swatch" style="background:#1A1614"></div>
+        <div class="swatch" style="background:#5B2A4D"></div>
+        <div class="swatch" style="background:#B91C1C"></div>
+        <span class="palette-label">paper · ink · aubergine · warn-red</span>
+      </div>
+      <div class="stage">
+        <div class="b-card">
+          <p class="b-eyebrow">Quota · § monthly</p>
+          <h3>月間 30 分の上限に<br/>達しました</h3>
+          <p class="body">新規の音声収録は停止しています。
+過去のノートは引き続きご利用いただけます。</p>
+          <div class="b-meter">
+            <div class="b-meter-headline">
+              <span class="b-meter-label">used</span>
+              <span class="b-meter-value">30:00<span class="b-meter-value-sub"> / 30:00</span></span>
+            </div>
+            <div class="b-bar"><div class="b-bar-fill" style="width:100%"></div></div>
+            <div class="b-meter-foot">
+              <span>100%</span>
+              <em>resets on the 1st</em>
+            </div>
+          </div>
+          <div class="b-pro">
+            <div class="b-pro-headline">
+              <span class="b-pro-name"><em>Pro</em> plan</span>
+              <span class="b-pro-price">¥980 / mo</span>
+            </div>
+            <ul class="b-pro-list">
+              <li>30 hours each month — sixty times the Free plan</li>
+              <li>Long-form lectures, fully captured end-to-end</li>
+            </ul>
+          </div>
+          <button class="b-cta">Continue with Pro</button>
+        </div>
+      </div>
+      <div class="meta">
+        <span class="meta-row"><b>Strength:</b> Serif 헤드라인이 감정의 무게를 만드는 유일한 안. "신뢰감 + 학문적" 톤이 결제 confidence 가장 높음.</span>
+        <span class="meta-row"><b>Signature:</b> 상단 aubergine 가는 줄, italic Pro 강조, hairline rules.</span>
+        <span class="meta-row"><b>For:</b> 일본 / 한국 대학생 + 진지한 학습 도구 정체성. 차별화 + 깊이.</span>
+      </div>
+    </section>
+
+    <!-- ============= VARIANT C — Precision Cream ============= -->
+    <section class="concept c">
+      <div class="concept-head">
+        <p class="concept-eyebrow">Variant C · v2</p>
+        <h2 class="concept-title">Precision Cream</h2>
+        <p class="concept-tag">5번 정밀함 그대로, cream + terracotta 로 따뜻하게. mono 우선 + 살아있는 펄스 점.</p>
+      </div>
+      <div class="palette">
+        <div class="swatch" style="background:#FBFAF7"></div>
+        <div class="swatch" style="background:#FFFEFB"></div>
+        <div class="swatch" style="background:#C8C0B7"></div>
+        <div class="swatch" style="background:#1A1614"></div>
+        <div class="swatch" style="background:#C2410C"></div>
+        <div class="swatch" style="background:#B91C1C"></div>
+        <span class="palette-label">paper · ink · terracotta · warn-red</span>
+      </div>
+      <div class="stage">
+        <div class="c-card">
+          <div class="c-eyebrow">
+            <span class="c-eyebrow-label">Quota Reached</span>
+            <span class="c-kbd">⌘⇧U</span>
+          </div>
+          <h3>월간 30분 한도 도달</h3>
+          <p class="body"><span class="lbl">audio_capture:</span> <span class="val">paused</span><br>
+<span class="lbl">existing_notes:</span> <span class="val">available</span></p>
+          <div class="c-meter">
+            <div class="c-bar"><div class="c-bar-fill" style="width:100%"></div></div>
+            <div class="c-meter-foot">
+              <span>30:00 / 30:00</span>
+              <b>100%</b>
+            </div>
+            <p class="c-reset">resets 2026-06-01 09:00 JST <span class="arrow">→</span></p>
+          </div>
+          <div class="c-pro">
+            <div class="c-pro-row">
+              <span class="c-pro-price">¥980<span class="c-pro-price-x">/mo</span></span>
+              <span class="c-pro-note">monthly</span>
+            </div>
+            <ul class="c-pro-list">
+              <li>30h/mo (60× Free)</li>
+              <li>no cap on length</li>
+            </ul>
+          </div>
+          <button class="c-cta">
+            Upgrade
+            <span class="c-cta-kbd">⏎</span>
+          </button>
+        </div>
+      </div>
+      <div class="meta">
+        <span class="meta-row"><b>Strength:</b> 5번 정밀함 100% 유지. 단 cream + terracotta 로 차가움 제거. 펄스 점이 살아있는 디테일.</span>
+        <span class="meta-row"><b>Signature:</b> mono 우선, dashed divider, kbd 시각화, monospace 타임스탬프.</span>
+        <span class="meta-row"><b>For:</b> 본인 취향 직격. 파워유저 / 효율 추구. 단 일반 학생엔 살짝 거리감.</span>
+      </div>
+    </section>
+
+  </div>
+
+  <div class="footer">
+    <h3>3가지 모두 공유하는 요소</h3>
+    <p>이번엔 우열 비교가 아니라 공통 design language를 정한 후 톤만 다르게 만든 거라, 어느 걸 선택해도 baseline 토큰이 거의 같습니다:</p>
+    <ul>
+      <li>Surface: <code>paper-100 (#FFFEFB)</code> / <code>paper-200 (#FBFAF7)</code> · 차갑지 않은 paper white</li>
+      <li>Ink: <code>ink-900 (#1A1614)</code> warm charcoal — 순흑이 아님</li>
+      <li>Border: <code>paper-edge (#E8E4DC)</code> hairline · 거의 안 보일 정도</li>
+      <li>Type: <code>Geist</code> sans + <code>Geist Mono</code> 숫자 + (B만) <code>Source Serif 4</code> 헤드라인</li>
+      <li>Tabular nums 모든 숫자 ·  <code>font-variant-numeric: tabular-nums</code></li>
+      <li>Accent: <code>terracotta (#C2410C)</code> 또는 <code>aubergine (#5B2A4D)</code> — 둘 다 indigo 보단 따뜻</li>
+    </ul>
+    <p style="margin-top:14px"><b>선택 후 진행:</b> 마음에 든 variant 알려주세요 (또는 "A의 카드 + B의 헤드라인 + C의 펄스 점" 같은 hybrid). 그 위에 design.md (토큰 / 컴포넌트 baseline / Tailwind config) 작성합니다.</p>
+  </div>
+
+</body>
+</html>

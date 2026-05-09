@@ -1,0 +1,979 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lisna · 긴 노트 목업 — 개선점 탐색</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --paper-100: #FFFEFB;
+      --paper-200: #FBFAF7;
+      --paper-300: #F4F2EC;
+      --paper-edge: #E8E4DC;
+      --ink-900: #1A1614;
+      --ink-700: #3D3733;
+      --ink-500: #6E6660;
+      --ink-300: #A39A93;
+      --ink-200: #C8C0B7;
+      --terra: #C2410C;
+      --terra-700: #9A330A;
+      --terra-soft: #FED7AA;
+      --terra-tint: #FFF7ED;
+      --warn-red: #B91C1C;
+      --warn-amber: #B45309;
+      --ok-green: #4F7C5C;
+      --shadow-md: 0 1px 0 rgba(26, 22, 20, 0.04), 0 16px 32px -16px rgba(26, 22, 20, 0.12);
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-lg: 14px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: 'Geist', -apple-system, 'Hiragino Sans', 'Apple SD Gothic Neo', sans-serif;
+      background: #ECECEF;
+      color: var(--ink-900);
+      -webkit-font-smoothing: antialiased;
+      padding: 36px 24px 80px;
+      font-feature-settings: "ss01";
+    }
+    .head { max-width: 1280px; margin: 0 auto 28px; }
+    .head h1 {
+      font-size: 28px; font-weight: 700; margin: 0 0 6px; letter-spacing: -0.02em;
+      color: var(--ink-900);
+    }
+    .head p { font-size: 14px; color: var(--ink-500); margin: 0; line-height: 1.6; max-width: 720px; }
+    .system {
+      max-width: 1280px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 380px 1fr;
+      gap: 28px;
+      align-items: start;
+    }
+    @media (max-width: 880px) { .system { grid-template-columns: 1fr; } }
+
+    /* MODAL */
+    .modal {
+      width: 100%; max-width: 380px;
+      background: var(--paper-100);
+      border: 1px solid var(--paper-edge);
+      border-radius: 14px;
+      box-shadow: var(--shadow-md);
+      overflow: hidden;
+      display: flex; flex-direction: column;
+      position: sticky; top: 24px;
+      max-height: calc(100vh - 56px);
+    }
+
+    /* PanelHeader — refined buttons matching user's reference */
+    .ph {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--paper-edge);
+      background: var(--paper-100);
+      flex-shrink: 0;
+    }
+    .ph-avatar {
+      width: 30px; height: 30px; border-radius: 9999px;
+      background: var(--ink-900); color: var(--paper-100);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 600;
+      flex-shrink: 0;
+    }
+    .ph-id { flex: 1; min-width: 0; }
+    .ph-email {
+      font-size: 12.5px; font-weight: 600; color: var(--ink-900);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      letter-spacing: -0.005em;
+    }
+    .ph-plan {
+      font-size: 10.5px; color: var(--ink-500);
+      display: flex; align-items: center; gap: 5px;
+      letter-spacing: 0.01em;
+      margin-top: 1px;
+    }
+    .ph-plan::before {
+      content: ''; width: 5px; height: 5px; border-radius: 9999px; background: var(--ink-300);
+    }
+    .ph-plan.pro::before { background: var(--terra); }
+
+    /* Soft pill buttons — matches user's reference screenshot */
+    .ph-actions { display: flex; gap: 4px; }
+    .ph-btn {
+      height: 30px;
+      min-width: 30px;
+      padding: 0 8px;
+      border-radius: 8px;
+      background: var(--paper-300);
+      border: none;
+      display: inline-flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      color: var(--ink-700);
+      font-family: 'Geist', sans-serif;
+      font-size: 12.5px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      transition: background 120ms ease;
+    }
+    .ph-btn:hover { background: var(--ink-200); }
+    .ph-btn svg { width: 16px; height: 16px; stroke: currentColor; stroke-width: 2; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+
+    /* QuotaBanner */
+    .qb {
+      margin: 10px 14px 0; padding: 12px 14px;
+      background: var(--paper-100);
+      border: 1px solid var(--paper-edge);
+      border-radius: var(--radius-md);
+      flex-shrink: 0;
+    }
+    .qb-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
+    .qb-title { font-size: 12.5px; font-weight: 600; color: var(--ink-900); }
+    .qb-cta {
+      font-size: 11.5px; font-weight: 500;
+      padding: 5px 10px; border-radius: var(--radius-sm);
+      background: var(--ink-900); color: var(--paper-100);
+      border: none; cursor: pointer; font-family: inherit;
+    }
+    .qb-bar { height: 4px; background: var(--paper-300); border-radius: 9999px; overflow: hidden; }
+    .qb-bar-fill.amber { height: 100%; background: var(--warn-amber); border-radius: 9999px; }
+    .qb-meta {
+      display: flex; justify-content: space-between; margin-top: 6px;
+      font-family: 'Geist Mono', monospace;
+      font-size: 10.5px; color: var(--ink-500); letter-spacing: 0.02em;
+    }
+    .qb-meta b { color: var(--ink-900); font-weight: 500; }
+
+    /* OutlineView */
+    .ov {
+      padding: 14px 16px 12px;
+      flex: 1;
+      overflow-y: auto;
+    }
+    .ov::-webkit-scrollbar { width: 8px; }
+    .ov::-webkit-scrollbar-track { background: transparent; }
+    .ov::-webkit-scrollbar-thumb { background: var(--paper-edge); border-radius: 4px; }
+    .ov::-webkit-scrollbar-thumb:hover { background: var(--ink-200); }
+
+    .ov-meta {
+      display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;
+      padding: 4px 0 14px;
+      border-bottom: 1px solid var(--paper-edge);
+    }
+    .ov-title-block { min-width: 0; flex: 1; }
+    .ov-title-eyebrow {
+      font-family: 'Geist Mono', monospace;
+      font-size: 9.5px; font-weight: 500; letter-spacing: 0.16em;
+      color: var(--ink-300); text-transform: uppercase; margin: 0 0 3px;
+    }
+    .ov-title {
+      font-size: 17px; font-weight: 700; color: var(--ink-900);
+      letter-spacing: -0.015em; line-height: 1.3;
+      margin: 0;
+    }
+    .ov-stamp {
+      font-family: 'Geist Mono', monospace;
+      font-size: 10px; color: var(--ink-300);
+      letter-spacing: 0.02em; flex-shrink: 0;
+      padding-top: 14px;
+    }
+
+    .ov-tldr {
+      margin: 12px 0;
+      padding: 10px 12px;
+      background: var(--paper-200);
+      border-left: 2px solid var(--terra);
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      font-size: 12.5px; color: var(--ink-700); line-height: 1.6;
+    }
+    .ov-tldr-label {
+      font-family: 'Geist Mono', monospace;
+      font-size: 9.5px; font-weight: 500; letter-spacing: 0.18em;
+      color: var(--terra); text-transform: uppercase;
+      display: block; margin-bottom: 3px;
+    }
+
+    .ov-meta-row {
+      display: flex; gap: 14px; margin: 12px 0 4px;
+      font-family: 'Geist Mono', monospace;
+      font-size: 10.5px; color: var(--ink-500);
+      letter-spacing: 0.02em;
+    }
+    .ov-meta-row span { display: flex; gap: 4px; align-items: center; }
+    .ov-meta-row b { color: var(--ink-900); font-weight: 500; }
+
+    .ov-section {
+      margin: 16px 0;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--paper-edge);
+    }
+    .ov-section:last-child { border-bottom: none; padding-bottom: 4px; }
+    .ov-section-head {
+      display: flex; align-items: baseline; gap: 8px;
+      margin-bottom: 6px;
+    }
+    .ov-section-num {
+      font-family: 'Geist Mono', monospace;
+      font-size: 10.5px; color: var(--ink-300);
+      letter-spacing: 0.02em;
+      flex-shrink: 0;
+    }
+    .ov-section-h {
+      font-size: 14px; font-weight: 600; color: var(--ink-900); letter-spacing: -0.005em;
+      flex: 1; line-height: 1.3;
+    }
+    .ov-ts {
+      font-family: 'Geist Mono', monospace;
+      font-size: 10px; color: var(--ink-300);
+      flex-shrink: 0;
+      cursor: pointer;
+      padding: 2px 5px;
+      border-radius: 3px;
+    }
+    .ov-ts:hover { background: var(--paper-200); color: var(--terra); }
+
+    .ov-summary {
+      font-size: 12.5px; color: var(--ink-700); line-height: 1.65; margin: 0 0 10px;
+    }
+    .ov-takeaway {
+      padding: 8px 10px; margin: 0 0 10px;
+      background: var(--terra-tint);
+      border: 1px solid var(--terra-soft);
+      border-radius: var(--radius-sm);
+      font-size: 12px; color: var(--ink-900); line-height: 1.55;
+      display: flex; gap: 8px;
+    }
+    .ov-takeaway-label {
+      font-family: 'Geist Mono', monospace;
+      font-size: 9px; font-weight: 600; letter-spacing: 0.16em;
+      color: var(--terra); text-transform: uppercase;
+      flex-shrink: 0; padding-top: 1px;
+    }
+    .ov-keyterms { margin: 0 0 10px; }
+    .ov-keyterm {
+      padding: 8px 0;
+      border-top: 1px dashed var(--paper-edge);
+      display: flex; gap: 10px; align-items: baseline;
+    }
+    .ov-keyterm:first-child { border-top: none; padding-top: 0; }
+    .ov-keyterm-name {
+      font-size: 12px; font-weight: 600; color: var(--ink-900);
+      flex-shrink: 0; min-width: 92px;
+    }
+    .ov-keyterm-def {
+      font-size: 11.5px; color: var(--ink-700); line-height: 1.6;
+      flex: 1;
+    }
+    .ov-examples {
+      margin: 0 0 10px; padding: 0; list-style: none;
+      font-size: 12px; color: var(--ink-700); line-height: 1.7;
+    }
+    .ov-example {
+      padding-left: 16px; position: relative;
+    }
+    .ov-example::before {
+      content: 'e.g.';
+      font-family: 'Geist Mono', monospace;
+      font-size: 9.5px; font-weight: 500;
+      color: var(--ink-300);
+      position: absolute; left: 0; top: 0.45em;
+      letter-spacing: 0.04em;
+    }
+    .ov-points { margin: 0 0 6px; padding: 0; list-style: none; }
+    .ov-point {
+      padding: 4px 0;
+      font-size: 12px; color: var(--ink-700); line-height: 1.6;
+      display: flex; gap: 10px; align-items: baseline;
+    }
+    .ov-point::before {
+      content: ''; width: 4px; height: 4px; border-radius: 9999px;
+      background: var(--ink-200); flex-shrink: 0; margin-top: 8px;
+    }
+    .ov-point.important::before { background: var(--terra); }
+    .ov-point.important { color: var(--ink-900); font-weight: 500; }
+    .ov-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+    .ov-tag {
+      font-family: 'Geist Mono', monospace;
+      font-size: 9.5px; padding: 2px 7px;
+      background: var(--paper-200); color: var(--ink-700);
+      border: 1px solid var(--paper-edge); border-radius: 9999px;
+      letter-spacing: 0.04em; text-transform: lowercase;
+    }
+    .ov-check {
+      margin-top: 10px;
+      padding: 8px 10px;
+      background: var(--paper-200);
+      border: 1px solid var(--paper-edge);
+      border-radius: var(--radius-sm);
+      font-size: 11.5px; color: var(--ink-700); line-height: 1.6;
+      display: flex; gap: 8px;
+    }
+    .ov-check-label {
+      font-family: 'Geist Mono', monospace;
+      font-size: 9px; font-weight: 600; letter-spacing: 0.16em;
+      color: var(--ink-500); text-transform: uppercase;
+      flex-shrink: 0; padding-top: 1px;
+    }
+
+    /* Slides */
+    .slides {
+      padding: 8px 14px;
+      border-top: 1px solid var(--paper-edge);
+      display: flex; gap: 6px; overflow-x: auto;
+      background: var(--paper-100);
+      flex-shrink: 0;
+    }
+    .slide-thumb {
+      flex-shrink: 0;
+      width: 60px; height: 38px; border-radius: var(--radius-sm);
+      background: var(--paper-300);
+      border: 1px solid var(--paper-edge);
+      position: relative;
+      overflow: hidden;
+      cursor: pointer;
+    }
+    .slide-thumb::after {
+      content: attr(data-ts);
+      position: absolute; bottom: 2px; right: 3px;
+      font-family: 'Geist Mono', monospace;
+      font-size: 8px; color: var(--ink-500);
+      background: rgba(255, 254, 251, 0.9);
+      padding: 1px 3px; border-radius: 2px;
+    }
+
+    /* Live transcript */
+    .lt {
+      padding: 10px 14px; max-height: 120px; overflow-y: auto;
+      border-top: 1px solid var(--paper-edge);
+      background: var(--paper-200);
+      flex-shrink: 0;
+    }
+    .lt-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+    .lt-label {
+      font-family: 'Geist Mono', monospace;
+      font-size: 9.5px; font-weight: 500; letter-spacing: 0.18em;
+      color: var(--ink-300); text-transform: uppercase;
+    }
+    .lt-status {
+      font-family: 'Geist Mono', monospace;
+      font-size: 10px; color: var(--ok-green);
+      display: flex; align-items: center; gap: 5px;
+    }
+    .lt-status::before {
+      content: ''; width: 5px; height: 5px; border-radius: 9999px; background: var(--ok-green);
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.9); }
+    }
+    .lt-line { font-size: 11.5px; color: var(--ink-500); line-height: 1.55; padding: 2px 0; }
+    .lt-line-ts {
+      font-family: 'Geist Mono', monospace;
+      font-size: 10px; color: var(--ink-300); margin-right: 6px;
+    }
+
+    /* Controls */
+    .ctrl { padding: 10px 12px; border-top: 1px solid var(--paper-edge); background: var(--paper-100); flex-shrink: 0; }
+    .ctrl-row { display: flex; gap: 6px; }
+    .ctrl-btn {
+      flex: 1;
+      font-size: 12px; font-weight: 500;
+      padding: 9px 12px;
+      border-radius: var(--radius-md);
+      cursor: pointer; font-family: inherit;
+      transition: background 120ms;
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+    }
+    .ctrl-btn-primary { background: var(--ink-900); color: var(--paper-100); border: none; }
+    .ctrl-btn-primary:hover { background: var(--ink-700); }
+    .ctrl-btn-secondary {
+      background: var(--paper-100); color: var(--ink-700);
+      border: 1px solid var(--paper-edge);
+    }
+    .ctrl-btn-secondary:hover { background: var(--paper-200); }
+
+    /* ANNOTATIONS panel — shown on the right */
+    .annotations {
+      background: var(--paper-100);
+      border: 1px solid var(--paper-edge);
+      border-radius: 14px;
+      padding: 24px 28px;
+    }
+    .annotations h2 {
+      font-size: 20px; font-weight: 700; margin: 0 0 6px; letter-spacing: -0.015em;
+      color: var(--ink-900);
+    }
+    .annotations p.lead {
+      font-size: 13px; color: var(--ink-500); margin: 0 0 22px; line-height: 1.6;
+    }
+    .anno-section {
+      padding: 16px 0;
+      border-top: 1px solid var(--paper-edge);
+    }
+    .anno-section:first-of-type { border-top: none; padding-top: 0; }
+    .anno-eyebrow {
+      font-family: 'Geist Mono', monospace;
+      font-size: 10px; font-weight: 500; letter-spacing: 0.16em;
+      color: var(--ink-300); text-transform: uppercase; margin: 0 0 6px;
+    }
+    .anno-title {
+      font-size: 14px; font-weight: 600; color: var(--ink-900); margin: 0 0 8px;
+      letter-spacing: -0.005em;
+    }
+    .anno-list { margin: 0; padding: 0; list-style: none; }
+    .anno-item {
+      display: flex; gap: 12px; padding: 8px 0;
+      border-top: 1px dashed var(--paper-edge);
+    }
+    .anno-item:first-child { border-top: none; padding-top: 0; }
+    .anno-tag {
+      flex-shrink: 0;
+      font-family: 'Geist Mono', monospace;
+      font-size: 9.5px; padding: 2px 7px;
+      border-radius: 4px; align-self: flex-start;
+      letter-spacing: 0.04em; text-transform: uppercase;
+      font-weight: 500;
+    }
+    .anno-tag.must { background: var(--terra-tint); color: var(--terra-700); border: 1px solid var(--terra-soft); }
+    .anno-tag.nice { background: var(--paper-300); color: var(--ink-700); border: 1px solid var(--paper-edge); }
+    .anno-tag.q    { background: var(--paper-200); color: var(--ink-500); border: 1px dashed var(--paper-edge); }
+    .anno-text { font-size: 12.5px; color: var(--ink-700); line-height: 1.6; }
+    .anno-text b { color: var(--ink-900); font-weight: 600; }
+    .anno-text code {
+      font-family: 'Geist Mono', monospace;
+      font-size: 11.5px; padding: 1px 5px;
+      background: var(--paper-200); border: 1px solid var(--paper-edge);
+      border-radius: 3px; color: var(--ink-900);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="head">
+    <h1>긴 노트 목업 — 개선점 탐색</h1>
+    <p>3Blue1Brown <i>Neural Networks Chapter 1</i> (~17 분) 분량의 실제 강의 노트를 Concept 1+ 디자인으로 렌더. 좌측 모달에서 스크롤하면서 실제 사용 흐름을 보고, 우측에 시각적으로 보이는 개선 포인트를 정리.</p>
+  </div>
+
+  <div class="system">
+
+    <!-- ============= MODAL ============= -->
+    <div class="modal">
+
+      <div class="ph">
+        <div class="ph-avatar">T</div>
+        <div class="ph-id">
+          <div class="ph-email">takgun@keio.jp</div>
+          <div class="ph-plan">Free</div>
+        </div>
+        <div class="ph-actions">
+          <button class="ph-btn" title="2× speed">2×</button>
+          <button class="ph-btn" title="Toggle side panel">
+            <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+          </button>
+          <button class="ph-btn" title="Settings">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </button>
+          <button class="ph-btn" title="Close">
+            <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="qb">
+        <div class="qb-head">
+          <span class="qb-title">월간 사용량 한도에 근접</span>
+          <button class="qb-cta">Pro로 업그레이드</button>
+        </div>
+        <div class="qb-bar"><div class="qb-bar-fill amber" style="width:87%"></div></div>
+        <div class="qb-meta">
+          <span>26:08 / 30:00</span>
+          <b>87%</b>
+        </div>
+      </div>
+
+      <div class="ov">
+        <div class="ov-meta">
+          <div class="ov-title-block">
+            <p class="ov-title-eyebrow">Lecture · 3Blue1Brown</p>
+            <h2 class="ov-title">But what is a neural network?</h2>
+          </div>
+          <span class="ov-stamp">updated 2m ago</span>
+        </div>
+
+        <div class="ov-tldr">
+          <span class="ov-tldr-label">TL;DR</span>
+          Neural Network 은 인간 뇌의 시각 인식 능력을 모방하기 위한 계층적 연산 구조. 28×28 pixel 의 손글씨 숫자 인식 task 를 통해 input → hidden layers → output 의 정보 흐름과, 각 neuron 이 weighted sum + activation 으로 동작하는 원리를 설명한다. 학습이란 weights 와 biases 를 조정해 올바른 인식 결과를 얻는 과정이다.
+        </div>
+
+        <div class="ov-meta-row">
+          <span><b>8</b> sections</span>
+          <span><b>14</b> key terms</span>
+          <span><b>~17m</b> total</span>
+        </div>
+
+        <!-- Section 1 -->
+        <div class="ov-section">
+          <div class="ov-section-head">
+            <span class="ov-section-num">01</span>
+            <h3 class="ov-section-h">脳の視覚認識能力という驚異</h3>
+            <span class="ov-ts">00:05</span>
+          </div>
+          <p class="ov-summary">脳は異なる解像度・スタイルの画像を同じ物体として認識できる。28×28 pixel の極小画像でも余裕で「3」と判別する能力こそ、neural network が模倣しようとしている対象である。</p>
+
+          <div class="ov-takeaway">
+            <span class="ov-takeaway-label">Take</span>
+            <span>低解像度で大きく異なる見た目でも同じ概念として認識できる「汎化」が、人間の視覚認識の本質</span>
+          </div>
+
+          <ul class="ov-points">
+            <li class="ov-point important">28×28 pixel = 784 個の輝度値だけで「3」と判別可能</li>
+            <li class="ov-point">スタイル・大きさ・解像度に依存しない identification</li>
+            <li class="ov-point">この汎化能力こそ neural network が模倣を目指す</li>
+          </ul>
+
+          <div class="ov-tags">
+            <span class="ov-tag">visual_recognition</span>
+            <span class="ov-tag">generalization</span>
+          </div>
+
+          <div class="ov-check">
+            <span class="ov-check-label">Check</span>
+            <span>脳の視覚認識を「汎化」という概念で 30 字以内で説明せよ。</span>
+          </div>
+        </div>
+
+        <!-- Section 2 -->
+        <div class="ov-section">
+          <div class="ov-section-head">
+            <span class="ov-section-num">02</span>
+            <h3 class="ov-section-h">Neural Network の基本構造</h3>
+            <span class="ov-ts">02:14</span>
+          </div>
+          <p class="ov-summary">NN は input layer → hidden layers → output layer の階層構造をもつ。各 layer の neuron は前 layer からの値を重み付き和として受け取り、activation function を通して次に伝える。</p>
+
+          <div class="ov-takeaway">
+            <span class="ov-takeaway-label">Take</span>
+            <span>Neuron は単なる「0〜1 の値を持つ箱」ではなく、前 layer 全体からの加重和を計算する関数</span>
+          </div>
+
+          <div class="ov-keyterms">
+            <div class="ov-keyterm">
+              <span class="ov-keyterm-name">Neuron</span>
+              <span class="ov-keyterm-def">0〜1 の値 (activation) を保持する計算単位。input layer では pixel の輝度値そのまま。</span>
+            </div>
+            <div class="ov-keyterm">
+              <span class="ov-keyterm-name">Layer</span>
+              <span class="ov-keyterm-def">同じ階層に並ぶ neuron の集合。input → hidden → output の順に flow する。</span>
+            </div>
+            <div class="ov-keyterm">
+              <span class="ov-keyterm-name">Weighted Sum</span>
+              <span class="ov-keyterm-def">前 layer の各 activation に対応する weight を掛け、すべて足し合わせた値。</span>
+            </div>
+          </div>
+
+          <ul class="ov-examples">
+            <li class="ov-example">Input layer: 784 個 (28×28 pixels)</li>
+            <li class="ov-example">Hidden layers: 16 + 16 (任意の選択)</li>
+            <li class="ov-example">Output layer: 10 個 (digit 0〜9)</li>
+          </ul>
+
+          <div class="ov-tags">
+            <span class="ov-tag">architecture</span>
+            <span class="ov-tag">layer</span>
+            <span class="ov-tag">neuron</span>
+          </div>
+        </div>
+
+        <!-- Section 3 -->
+        <div class="ov-section">
+          <div class="ov-section-head">
+            <span class="ov-section-num">03</span>
+            <h3 class="ov-section-h">数字認識タスクの定義</h3>
+            <span class="ov-ts">03:48</span>
+          </div>
+          <p class="ov-summary">MNIST dataset を例に、28×28 grayscale 画像 1 枚を input として受け取り、最も「らしい」digit (0〜9) を output する分類問題として定式化する。</p>
+
+          <ul class="ov-points">
+            <li class="ov-point">Input: 784 次元のベクトル (各成分 ∈ [0, 1])</li>
+            <li class="ov-point important">Output: 10 個の neuron の中で最大値をもつものを「答え」とする</li>
+            <li class="ov-point">学習データ: ラベル付き 60,000 枚の手書き数字</li>
+          </ul>
+
+          <div class="ov-tags">
+            <span class="ov-tag">mnist</span>
+            <span class="ov-tag">classification</span>
+          </div>
+        </div>
+
+        <!-- Section 4 -->
+        <div class="ov-section">
+          <div class="ov-section-head">
+            <span class="ov-section-num">04</span>
+            <h3 class="ov-section-h">なぜ Layer が必要か — Pattern の階層</h3>
+            <span class="ov-ts">06:40</span>
+          </div>
+          <p class="ov-summary">複雑な認識タスクは、より単純なサブタスクの組み合わせとして分解できる。Hidden layer はこの分解を表現する場所であり、後段に行くほど抽象的な特徴 (edge → loop → digit) に対応すると期待される。</p>
+
+          <div class="ov-takeaway">
+            <span class="ov-takeaway-label">Take</span>
+            <span>Layer の存在意義 = 「単純 pattern → 中間 pattern → 最終判定」 の階層的構造を学習で表現するため</span>
+          </div>
+
+          <div class="ov-keyterms">
+            <div class="ov-keyterm">
+              <span class="ov-keyterm-name">Edge</span>
+              <span class="ov-keyterm-def">画像中の輝度の急変化。最も低レベルな特徴。</span>
+            </div>
+            <div class="ov-keyterm">
+              <span class="ov-keyterm-name">Loop</span>
+              <span class="ov-keyterm-def">edge を組み合わせた閉曲線。"8" は 2 つの loop、"9" は loop + 縦線。</span>
+            </div>
+            <div class="ov-keyterm">
+              <span class="ov-keyterm-name">Hierarchy</span>
+              <span class="ov-keyterm-def">Edge → Loop → Digit のように、抽象度が段階的に上がる pattern の階層。</span>
+            </div>
+          </div>
+
+          <ul class="ov-points">
+            <li class="ov-point important">数字 "9" = 上の loop + 下の縦線 という構造分解</li>
+            <li class="ov-point">"8" = 上の loop + 下の loop</li>
+            <li class="ov-point">"4" = 縦線 2 本 + 横線 1 本</li>
+            <li class="ov-point">この分解こそ hidden layer が学ぶべき内容</li>
+          </ul>
+
+          <div class="ov-tags">
+            <span class="ov-tag">hierarchy</span>
+            <span class="ov-tag">edge_detection</span>
+            <span class="ov-tag">composition</span>
+          </div>
+
+          <div class="ov-check">
+            <span class="ov-check-label">Check</span>
+            <span>"6" を edge と loop の組み合わせで分解せよ。</span>
+          </div>
+        </div>
+
+        <!-- Section 5 -->
+        <div class="ov-section">
+          <div class="ov-section-head">
+            <span class="ov-section-num">05</span>
+            <h3 class="ov-section-h">Edge Detection の仕組み</h3>
+            <span class="ov-ts">09:20</span>
+          </div>
+          <p class="ov-summary">Hidden layer の neuron は、「特定の領域に edge が存在するか」を検出するように weight を設定できる。検出したい edge 部分の weight を正、それ以外を負にすれば、weighted sum はその edge の有無に応じた値となる。</p>
+
+          <div class="ov-takeaway">
+            <span class="ov-takeaway-label">Take</span>
+            <span>Weight を「正 / 負 / 0」に配置することで、neuron は特定の edge pattern detector として機能できる</span>
+          </div>
+
+          <ul class="ov-points">
+            <li class="ov-point important">特定 pixel 群に正の weight → そこが明るいと neuron 値が上がる</li>
+            <li class="ov-point">周囲に負の weight → 「edge であって全面的ではない」状態を要求</li>
+            <li class="ov-point">これを Sigmoid に通せば 0〜1 の「edge 存在確率」になる</li>
+          </ul>
+
+          <div class="ov-tags">
+            <span class="ov-tag">weights</span>
+            <span class="ov-tag">edge_detector</span>
+          </div>
+        </div>
+
+        <!-- Section 6 -->
+        <div class="ov-section">
+          <div class="ov-section-head">
+            <span class="ov-section-num">06</span>
+            <h3 class="ov-section-h">Bias と Sigmoid Function</h3>
+            <span class="ov-ts">12:10</span>
+          </div>
+          <p class="ov-summary">Weighted sum をそのまま活性化に使うと範囲が広すぎる。Sigmoid で [0, 1] に圧縮し、bias を加えることで「ある閾値を超えたら活性化する」仕組みを表現する。</p>
+
+          <div class="ov-keyterms">
+            <div class="ov-keyterm">
+              <span class="ov-keyterm-name">Sigmoid</span>
+              <span class="ov-keyterm-def">σ(x) = 1 / (1 + e⁻ˣ). 任意の実数を [0, 1] に圧縮する S 字曲線。</span>
+            </div>
+            <div class="ov-keyterm">
+              <span class="ov-keyterm-name">Bias</span>
+              <span class="ov-keyterm-def">活性化の閾値を調整するスカラー。weighted sum に加算してから sigmoid を通す。</span>
+            </div>
+          </div>
+
+          <ul class="ov-points">
+            <li class="ov-point important">activation = σ(Σ wᵢxᵢ + b)</li>
+            <li class="ov-point">Bias が大きく負 → 高い値が必要 → 検出に厳しい neuron</li>
+            <li class="ov-point">Bias が大きく正 → 緩い neuron</li>
+            <li class="ov-point">現代では sigmoid より ReLU が主流 (本講義は理解のため sigmoid)</li>
+          </ul>
+
+          <div class="ov-tags">
+            <span class="ov-tag">sigmoid</span>
+            <span class="ov-tag">bias</span>
+            <span class="ov-tag">activation_function</span>
+          </div>
+        </div>
+
+        <!-- Section 7 -->
+        <div class="ov-section">
+          <div class="ov-section-head">
+            <span class="ov-section-num">07</span>
+            <h3 class="ov-section-h">パラメータ数 — 学習対象の規模</h3>
+            <span class="ov-ts">14:30</span>
+          </div>
+          <p class="ov-summary">Layer 構成 784 → 16 → 16 → 10 では、weights が 784×16 + 16×16 + 16×10 = 13,002 個、biases が 16 + 16 + 10 = 42 個。合計 13,044 個のパラメータを学習で調整する必要がある。</p>
+
+          <div class="ov-takeaway">
+            <span class="ov-takeaway-label">Take</span>
+            <span>「学習する」とは、この 13,044 個のダイヤルを正しい組み合わせに合わせる作業に他ならない</span>
+          </div>
+
+          <ul class="ov-points">
+            <li class="ov-point important">Weights: 13,002 (= 784×16 + 16×16 + 16×10)</li>
+            <li class="ov-point important">Biases: 42 (= 16 + 16 + 10)</li>
+            <li class="ov-point">合計 13,044 個 — 全部を手動で設定するのは不可能</li>
+            <li class="ov-point">Backpropagation により自動で調整 (次回テーマ)</li>
+          </ul>
+
+          <div class="ov-tags">
+            <span class="ov-tag">parameters</span>
+            <span class="ov-tag">scale</span>
+          </div>
+
+          <div class="ov-check">
+            <span class="ov-check-label">Check</span>
+            <span>Layer 構成 784 → 32 → 10 のときの total parameter 数を計算せよ。</span>
+          </div>
+        </div>
+
+        <!-- Section 8 -->
+        <div class="ov-section">
+          <div class="ov-section-head">
+            <span class="ov-section-num">08</span>
+            <h3 class="ov-section-h">行列表現とまとめ</h3>
+            <span class="ov-ts">15:40</span>
+          </div>
+          <p class="ov-summary">Layer 間の伝搬は a' = σ(Wa + b) という行列演算でコンパクトに書ける。これは GPU での並列計算と相性が良く、現代の deep learning の高速化基盤となっている。</p>
+
+          <ul class="ov-points">
+            <li class="ov-point important">a' = σ(Wa + b) — 全ての neuron の更新を一行で表現</li>
+            <li class="ov-point">W は前 layer × 次 layer サイズの行列</li>
+            <li class="ov-point">この簡潔さこそ NN が GPU で高速化される理由</li>
+          </ul>
+
+          <div class="ov-tags">
+            <span class="ov-tag">matrix</span>
+            <span class="ov-tag">linear_algebra</span>
+            <span class="ov-tag">gpu</span>
+          </div>
+
+          <div class="ov-check">
+            <span class="ov-check-label">Check</span>
+            <span>a' = σ(Wa + b) の各記号 (a, W, b, σ) の役割を 1 行ずつ説明せよ。</span>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="slides">
+        <div class="slide-thumb" data-ts="00:05" style="background: linear-gradient(135deg, #1A1614, #3D3733);"></div>
+        <div class="slide-thumb" data-ts="02:14" style="background: linear-gradient(135deg, #C2410C, #FED7AA);"></div>
+        <div class="slide-thumb" data-ts="03:48" style="background: linear-gradient(135deg, #4F7C5C, #F4F2EC);"></div>
+        <div class="slide-thumb" data-ts="06:40" style="background: var(--paper-300);"></div>
+        <div class="slide-thumb" data-ts="09:20" style="background: linear-gradient(135deg, #5B2A4D, #C8C0B7);"></div>
+        <div class="slide-thumb" data-ts="12:10" style="background: linear-gradient(135deg, #1B4D3E, #FBFAF7);"></div>
+        <div class="slide-thumb" data-ts="14:30" style="background: linear-gradient(135deg, #1A1614, #C2410C);"></div>
+        <div class="slide-thumb" data-ts="15:40" style="background: var(--paper-200);"></div>
+      </div>
+
+      <div class="lt">
+        <div class="lt-head">
+          <span class="lt-label">Live Captions</span>
+          <span class="lt-status">recording</span>
+        </div>
+        <p class="lt-line"><span class="lt-line-ts">[16:08]</span> So in summary, this is what makes the network tick: a system of 13,000 little dials being adjusted to match training data.</p>
+      </div>
+
+      <div class="ctrl">
+        <div class="ctrl-row">
+          <button class="ctrl-btn ctrl-btn-primary">⏸ 一時停止して整理</button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ============= ANNOTATIONS / IMPROVEMENTS ============= -->
+    <div class="annotations">
+      <h2>스크롤하면서 발견한 개선점</h2>
+      <p class="lead">긴 강의 (~17분, 8 sections) 의 노트를 360px 폭에서 본 결과 시각적으로 또는 사용성 측면에서 보이는 포인트들. 우선순위 별로 정리.</p>
+
+      <div class="anno-section">
+        <p class="anno-eyebrow">Priority A · 반드시 개선</p>
+        <h3 class="anno-title">스크롤 시 길 잃는 문제</h3>
+        <ul class="anno-list">
+          <li class="anno-item">
+            <span class="anno-tag must">Must</span>
+            <span class="anno-text">
+              <b>Sticky section index 또는 progress dot</b> — 8개 section을 스크롤 중에 "지금 어디?" 를 알 수 없음. 좌측 가장자리에 작은 dot 8개, 현재 viewport 진입한 section만 채워지는 식의 mini-rail 추천.
+            </span>
+          </li>
+          <li class="anno-item">
+            <span class="anno-tag must">Must</span>
+            <span class="anno-text">
+              <b>TLDR 가 너무 길어짐 위험</b> — 현재 mockup 의 TLDR이 4 줄. 5 줄 이상되면 "TL;DR 의 의미" 가 사라짐. <b>최대 2 줄 강제 + truncate</b> 또는 <b>접기/펼치기</b> 토글 필요. 백엔드 prompt 에서도 max_chars 강제 검토.
+            </span>
+          </li>
+          <li class="anno-item">
+            <span class="anno-tag must">Must</span>
+            <span class="anno-text">
+              <b>section ts 클릭 가능성이 보이지 않음</b> — 시간 (<code>06:40</code>) 클릭 시 영상 jump 인 게 핵심 가치인데 현재는 hover 시에만 약간 강조. <b>기본 상태에서도 underline 또는 색조</b> 로 affordance 강화. 또는 작은 ▶ 아이콘 prefix.
+            </span>
+          </li>
+        </ul>
+      </div>
+
+      <div class="anno-section">
+        <p class="anno-eyebrow">Priority B · 시각 noise 정리</p>
+        <h3 class="anno-title">디테일 톤 다듬기</h3>
+        <ul class="anno-list">
+          <li class="anno-item">
+            <span class="anno-tag nice">Nice</span>
+            <span class="anno-text">
+              <b>Take 박스 색이 Pro 카드와 동일한 terracotta tint</b> — 현재 Take = 학습 강조 / Pro = 결제 영역인데 둘 다 같은 색이라 구분 약함. Take 는 <b>중성 paper-300 + ink-900 leftbar</b> 로 옮기고, terracotta 는 결제·Pro 영역 전용 color reservation.
+            </span>
+          </li>
+          <li class="anno-item">
+            <span class="anno-tag nice">Nice</span>
+            <span class="anno-text">
+              <b>Important point ★ 색 (terracotta dot)</b> 도 Take/Pro 와 충돌. <b>ink-900 진한 dot + 굵게 처리</b> 로 변경. terracotta 는 결제/액션에만 reserve.
+            </span>
+          </li>
+          <li class="anno-item">
+            <span class="anno-tag nice">Nice</span>
+            <span class="anno-text">
+              <b>Tag pill 너무 작음</b> — 9.5px 사이즈에 monospace, 시인성 약함. <b>11px + sans</b> 로 변경하면서 padding 키우면 클릭 가능성도 살아남.
+            </span>
+          </li>
+          <li class="anno-item">
+            <span class="anno-tag nice">Nice</span>
+            <span class="anno-text">
+              <b>Section number (01 02 03...) 가 헤딩과 baseline 안 맞음</b>. mono + 작은 사이즈 + 헤딩 left 마진 정렬 = 약간 떠있는 느낌. 살짝 padding-top 조정 또는 number 를 <b>circle badge</b> 화 (8 sections 라면 visual rhythm 만들어줌).
+            </span>
+          </li>
+          <li class="anno-item">
+            <span class="anno-tag nice">Nice</span>
+            <span class="anno-text">
+              <b>Slide thumb 8개 가로 스크롤</b> — 현재 6+ 개부터 잘림. <b>현재 viewing section 의 슬라이드를 자동 활성화</b> + 스크롤 따라가면 사용성 ↑. 또는 thumb 사이즈 작게.
+            </span>
+          </li>
+          <li class="anno-item">
+            <span class="anno-tag nice">Nice</span>
+            <span class="anno-text">
+              <b>QuotaBanner 가 87% 인데 헤더 바로 아래</b> — 노트 읽는 동안 계속 보이는 게 distract. <b>일정 스크롤 후 collapsed mini-bar</b> (얇은 amber 라인 + % 만) 로 변환 검토.
+            </span>
+          </li>
+          <li class="anno-item">
+            <span class="anno-tag nice">Nice</span>
+            <span class="anno-text">
+              <b>스크롤바 visible</b> — 8px 폭 + paper-edge color 라 paper 톤과 약간 부조화. 더 얇게 (4–6px) 또는 자동 숨김 처리.
+            </span>
+          </li>
+        </ul>
+      </div>
+
+      <div class="anno-section">
+        <p class="anno-eyebrow">Priority C · 정보 구조 추가 검토</p>
+        <h3 class="anno-title">노트 구조의 의도 명확화</h3>
+        <ul class="anno-list">
+          <li class="anno-item">
+            <span class="anno-tag q">?</span>
+            <span class="anno-text">
+              <b>각 section 마다 Take + Check 둘 다 있어야 하나?</b> — 8개 section × 2 box = 16 box. 시각적으로 무거움. <b>Take 는 매 section 필수, Check 는 important section 만</b> 또는 <b>전체 노트 끝에 "Quiz" section 으로 모아주기</b> 방안 고려.
+            </span>
+          </li>
+          <li class="anno-item">
+            <span class="anno-tag q">?</span>
+            <span class="anno-text">
+              <b>tags (related_terms) 의 가치</b> — 강의 노트 내에서는 검색 / 필터 기능이 없음. Obsidian export 시에만 wikilink 가 살아남는데, 모달 표시는 noise 일 수 있음. 모달에서는 <b>show only on hover</b> 또는 <b>전체 펼치기 토글</b> 검토.
+            </span>
+          </li>
+          <li class="anno-item">
+            <span class="anno-tag q">?</span>
+            <span class="anno-text">
+              <b>Section 01 의 Check 와 Section 04 의 Check 가 겹치는 듯함</b> — "汎化 설명" 과 "edge+loop 분해" 는 다른 깊이. backend curator prompt 에서 <b>Check 의 specificity 가이드 강화</b>.
+            </span>
+          </li>
+          <li class="anno-item">
+            <span class="anno-tag q">?</span>
+            <span class="anno-text">
+              <b>Live Captions 항상 노출 vs 접기</b> — 노트 읽는 모드에서 captions 가 하단 100px 점유. 마지막 1 줄만 보임. <b>접기 toggle</b> 또는 <b>최근 1줄 + expand</b> 로 노트 surface 더 활용.
+            </span>
+          </li>
+          <li class="anno-item">
+            <span class="anno-tag q">?</span>
+            <span class="anno-text">
+              <b>17분 강의에 ~13,000 자 노트</b> — 실제 시험 공부할 때 너무 많음. <b>"키 포인트만 보기" 토글</b> (TLDR + Take + important points 만) 모드 검토.
+            </span>
+          </li>
+        </ul>
+      </div>
+
+      <div class="anno-section">
+        <p class="anno-eyebrow">Priority D · 새로 도입 후보</p>
+        <h3 class="anno-title">없어서 아쉬운 기능</h3>
+        <ul class="anno-list">
+          <li class="anno-item">
+            <span class="anno-tag q">?</span>
+            <span class="anno-text">
+              <b>Notebook 전체 검색</b> — 8 sections 면 Cmd+F 가 그리워짐. modal 안 검색은 native browser find 에 맡겨도 OK 인지 고민.
+            </span>
+          </li>
+          <li class="anno-item">
+            <span class="anno-tag q">?</span>
+            <span class="anno-text">
+              <b>Section 접기 / 펼치기</b> — 8 sections 같이 길어지면 한번에 보기 어려움. 각 section 의 heading 만 보이고 클릭 시 펼치기.
+            </span>
+          </li>
+          <li class="anno-item">
+            <span class="anno-tag q">?</span>
+            <span class="anno-text">
+              <b>좌측 사이드 mini-TOC</b> — modal 폭이 360px 라 과한 듯하지만, 만약 widening 가능하다면 좌측 80–100px 에 mini-TOC ranges 추가.
+            </span>
+          </li>
+        </ul>
+      </div>
+
+      <div class="anno-section">
+        <p class="anno-eyebrow">Summary</p>
+        <h3 class="anno-title">이 다음 단계</h3>
+        <ul class="anno-list">
+          <li class="anno-item">
+            <span class="anno-tag must">A</span>
+            <span class="anno-text">
+              우선 <b>Priority A 3개</b> (sticky index, TLDR 길이 강제, ts 클릭 affordance) 를 디자인 토큰 / 컴포넌트 baseline 결정 단계에서 흡수.
+            </span>
+          </li>
+          <li class="anno-item">
+            <span class="anno-tag nice">B</span>
+            <span class="anno-text">
+              <b>Priority B 6개</b> 는 색 reservation 룰 (terracotta = 결제/Pro만) 을 design.md 에 명시 + 컴포넌트 작성 시 자동 따라옴.
+            </span>
+          </li>
+          <li class="anno-item">
+            <span class="anno-tag q">C</span>
+            <span class="anno-text">
+              <b>Priority C, D</b> 는 design.md 에 "다음 PR 후보" 로 기록하고, 일단 baseline 잡은 후 별도 iteration 에서 반영.
+            </span>
+          </li>
+        </ul>
+      </div>
+
+    </div>
+
+  </div>
+
+</body>
+</html>

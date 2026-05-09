@@ -69,12 +69,12 @@ export function SessionControls({ isCapturing, videoPlaying, onSetPlay, onEnd, q
         onClick={clickable ? onUpgrade : undefined}
         disabled={!clickable}
         className={
-          'w-full rounded-lg border border-gray-300 bg-gray-100 px-4 py-3 text-left transition ' +
-          (clickable ? 'hover:bg-gray-200 cursor-pointer' : 'cursor-default')
+          'w-full rounded-[10px] border border-paper-edge bg-paper-200 px-4 py-3 text-left transition-colors ' +
+          (clickable ? 'hover:bg-paper-300 cursor-pointer' : 'cursor-default')
         }
       >
-        <div className="text-sm font-medium text-gray-700">{T.quotaExhausted.inline_main}</div>
-        <div className="text-xs text-gray-500 mt-0.5">{subCopy}</div>
+        <div className="text-sm font-medium text-ink-700">{T.quotaExhausted.inline_main}</div>
+        <div className="text-xs text-ink-500 mt-0.5">{subCopy}</div>
       </button>
     )
   }
@@ -85,11 +85,11 @@ export function SessionControls({ isCapturing, videoPlaying, onSetPlay, onEnd, q
     // Confirm body has an embedded "\n" — split and render with <br/>.
     const bodyLines = T.controls.confirm.body.split('\n')
     return (
-      <div className="rounded-lg border border-gray-300 bg-white p-3 text-sm shadow-sm">
-        <p className="font-medium text-gray-900 mb-1">
+      <div className="rounded-[10px] border border-paper-edge bg-paper-100 p-3 text-sm shadow-card">
+        <p className="font-medium text-ink-900 mb-1">
           {T.controls.confirm.title}
         </p>
-        <p className="text-xs text-gray-600 leading-relaxed mb-3">
+        <p className="text-xs text-ink-700 leading-relaxed mb-3">
           {bodyLines.map((line, i) => (
             <span key={i}>
               {line}
@@ -101,14 +101,14 @@ export function SessionControls({ isCapturing, videoPlaying, onSetPlay, onEnd, q
           <button
             type="button"
             onClick={() => setConfirmingEnd(false)}
-            className="px-3 py-1.5 text-xs rounded border border-gray-300 hover:bg-gray-50 transition"
+            className="px-3 py-1.5 text-xs rounded-md border border-paper-edge bg-paper-100 text-ink-700 hover:bg-paper-200 transition-colors"
           >
             {T.controls.confirm.cancel}
           </button>
           <button
             type="button"
             onClick={() => { setConfirmingEnd(false); onEnd() }}
-            className="px-3 py-1.5 text-xs rounded bg-red-600 text-white hover:bg-red-700 transition"
+            className="px-3 py-1.5 text-xs rounded-md bg-warn-red text-paper-100 hover:opacity-90 transition-opacity"
           >
             {T.controls.confirm.confirm}
           </button>
@@ -135,7 +135,7 @@ export function SessionControls({ isCapturing, videoPlaying, onSetPlay, onEnd, q
       <button
         type="button"
         onClick={() => onSetPlay(false)}
-        className="w-full rounded-lg bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-800 text-xs font-medium px-3 py-2 transition"
+        className="w-full rounded-[10px] bg-paper-200 hover:bg-paper-300 border border-paper-edge text-ink-900 text-xs font-medium px-3 py-2 transition-colors"
       >
         {T.controls.pause}
       </button>
@@ -143,20 +143,20 @@ export function SessionControls({ isCapturing, videoPlaying, onSetPlay, onEnd, q
   }
 
   // Paused → resume + end. End is destructive (irreversible session
-  // close), so it's red — matches the previous StopButton color.
+  // close), so it gets the warn-red color from DESIGN.md §2.1.
   return (
     <div className="flex gap-2">
       <button
         type="button"
         onClick={() => onSetPlay(true)}
-        className="flex-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium px-3 py-2 transition"
+        className="flex-1 rounded-[10px] bg-ink-900 hover:bg-ink-700 text-paper-100 text-xs font-medium px-3 py-2 transition-colors"
       >
         {T.controls.resume}
       </button>
       <button
         type="button"
         onClick={() => setConfirmingEnd(true)}
-        className="rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-medium px-3 py-2 transition"
+        className="rounded-[10px] bg-warn-red text-paper-100 hover:opacity-90 text-xs font-medium px-3 py-2 transition-opacity"
         title={T.curate.endButton_title}
       >
         {T.controls.end}

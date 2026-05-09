@@ -106,17 +106,17 @@ export function OutlineView({ outline, slides = [], onJump, displayTitle, outlin
 
   if (!outline || outline.sections.length === 0) {
     return (
-      <div className="flex-1 overflow-y-auto px-3 py-4">
-        <p className="text-sm text-gray-500">{T.outline.emptyHint}</p>
+      <div className="flex-1 overflow-y-auto px-3 py-4 lisna-scroll">
+        <p className="text-sm text-ink-500">{T.outline.emptyHint}</p>
       </div>
     )
   }
 
   return (
-    <div className={`flex-1 overflow-y-auto px-3 py-3 space-y-4 transition-colors duration-700 ${flashing ? 'bg-indigo-50/60' : 'bg-transparent'}`}>
+    <div className={`lisna-scroll flex-1 overflow-y-auto px-3 py-3 space-y-4 transition-colors duration-700 ${flashing ? 'bg-terra-tint' : 'bg-transparent'}`}>
       <div className="flex items-baseline justify-between gap-2">
         {(displayTitle?.trim() || outline.title) && (
-          <h2 className="text-base font-bold text-gray-900 leading-snug">
+          <h2 className="text-base font-bold text-ink-900 leading-snug tracking-headline-tight">
             {displayTitle?.trim() || outline.title}
           </h2>
         )}
@@ -226,7 +226,7 @@ function RefreshIndicator({ at }: { at: number }) {
   else label = interpolate(T.outline.refresh_hrAgo, { n: Math.floor(ago / 3600) })
   return (
     <span
-      className="text-[10px] text-blue-500 font-medium shrink-0 whitespace-nowrap"
+      className="text-[10px] text-ink-300 font-mono shrink-0 whitespace-nowrap"
       title={T.outline.refreshTooltip}
     >
       ✎ {label}
@@ -251,7 +251,7 @@ function SectionBlock({
   return (
     <section className="space-y-2">
       <div className="flex items-baseline justify-between gap-2">
-        <h3 className="text-sm font-semibold text-gray-900 leading-snug">
+        <h3 className="text-sm font-semibold text-ink-900 leading-snug">
           {section.heading}
         </h3>
         <TsButton ts={section.ts} onJump={onJump} />
@@ -259,33 +259,38 @@ function SectionBlock({
 
       {slides.length > 0 && <SlideStrip slides={slides} onJump={onJump} />}
 
+      {/* Takeaway = warm emphasis card per DESIGN.md §2.1.1
+          (terra-tint surface + terra-soft border + terra leftbar). */}
       {section.takeaway && (
-        <div className="bg-indigo-50 px-2.5 py-1.5 rounded">
-          <p className="text-xs text-gray-900 leading-snug font-medium">
-            <span className="text-[10px] uppercase tracking-wider text-indigo-700 font-semibold mr-1.5">{T.outline.summary_label}</span>
+        <div className="bg-terra-tint border border-terra-soft border-l-[3px] border-l-terra px-2.5 py-1.5 rounded-md-design">
+          <p className="text-xs text-ink-900 leading-snug font-medium">
+            <span className="text-[10px] font-mono uppercase tracking-eyebrow text-terra-700 font-semibold mr-1.5">{T.outline.summary_label}</span>
             {section.takeaway}
           </p>
         </div>
       )}
 
       {section.summary && !section.takeaway && (
-        <p className="text-xs text-gray-600 leading-relaxed italic">
+        <p className="text-xs text-ink-700 leading-relaxed">
           {section.summary}
         </p>
       )}
 
+      {/* Key terms — neutral paper card with subtle dashed dividers
+          between entries. Per DESIGN.md §4.2 the term name carries
+          the visual weight, definition stays readable but quieter. */}
       {section.key_terms.length > 0 && (
         <ul className="space-y-1.5">
           {section.key_terms.map((kt, i) => (
             <li
               key={`${kt.term}-${i}`}
-              className="bg-violet-50 rounded px-2 py-1.5 text-xs"
+              className="bg-paper-200 border border-paper-edge rounded-md-design px-2 py-1.5 text-xs"
             >
               <div className="flex items-baseline justify-between gap-2">
-                <span className="font-semibold text-violet-700">{kt.term}</span>
+                <span className="font-semibold text-ink-900">{kt.term}</span>
                 <TsButton ts={kt.ts} onJump={onJump} />
               </div>
-              <div className="text-gray-700 mt-0.5 leading-relaxed">
+              <div className="text-ink-700 mt-0.5 leading-relaxed">
                 {kt.definition}
               </div>
             </li>
@@ -293,23 +298,38 @@ function SectionBlock({
         </ul>
       )}
 
+      {/* Points — important uses solid terra dot + .lisna-hl
+          highlighter (solid block, box-decoration-break clone) on
+          the body text per DESIGN.md §5.4. Regular points use a
+          small ink-200 dot. */}
       {section.points.length > 0 && (
         <ul className="space-y-1">
           {section.points.map((p, i) => (
             <li
               key={`${p.text.slice(0, 24)}-${i}`}
-              className={
-                p.important
-                  ? 'text-xs leading-relaxed flex gap-2 items-baseline bg-yellow-100 rounded px-2 py-1 -mx-1'
-                  : 'text-xs leading-relaxed flex gap-2 items-baseline'
-              }
+              className="text-xs leading-relaxed flex gap-2 items-baseline"
             >
-              <span className={p.important ? 'text-yellow-700 shrink-0 font-semibold' : 'text-gray-400 shrink-0'}>
-                {p.important ? '★' : '•'}
+              <span
+                aria-hidden
+                className={p.important ? 'shrink-0 self-center' : 'text-ink-200 shrink-0'}
+                style={p.important ? {
+                  width: '6px',
+                  height: '6px',
+                  borderRadius: '9999px',
+                  background: 'var(--terra)',
+                  boxShadow: '0 0 0 2px var(--terra-tint)',
+                  marginTop: '2px',
+                } : undefined}
+              >
+                {!p.important && '•'}
               </span>
-              <span className={p.important ? 'text-gray-900 font-semibold flex-1' : 'text-gray-700 flex-1'}>
-                {p.text}
-              </span>
+              {p.important ? (
+                <span className="text-ink-900 font-medium flex-1">
+                  <span className="lisna-hl">{p.text}</span>
+                </span>
+              ) : (
+                <span className="text-ink-700 flex-1">{p.text}</span>
+              )}
               <TsButton ts={p.ts} onJump={onJump} />
             </li>
           ))}
@@ -318,13 +338,13 @@ function SectionBlock({
 
       {section.examples.length > 0 && (
         <div className="space-y-1">
-          <div className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">
+          <div className="text-[10px] font-mono uppercase tracking-eyebrow text-ink-300 font-medium">
             {T.outline.examples_inline}
           </div>
           <ul className="space-y-1">
             {section.examples.map((ex, i) => (
-              <li key={`${ex.text.slice(0, 24)}-${i}`} className="text-xs text-gray-600 leading-relaxed flex gap-2">
-                <span className="text-gray-300 shrink-0">→</span>
+              <li key={`${ex.text.slice(0, 24)}-${i}`} className="text-xs text-ink-700 leading-relaxed flex gap-2">
+                <span className="text-ink-300 shrink-0">→</span>
                 <span>{ex.text}</span>
                 <TsButton ts={ex.ts} onJump={onJump} />
               </li>
@@ -333,12 +353,16 @@ function SectionBlock({
         </div>
       )}
 
+      {/* Related terms — DESIGN.md §4.2 §6 mandates these stay
+          rendered in markup (Obsidian export needs them as wikilink
+          targets) but hidden in the modal where they carry no
+          interaction value. */}
       {section.related_terms && section.related_terms.length > 0 && (
-        <div className="flex flex-wrap gap-1 pt-1">
+        <div className="hidden flex-wrap gap-1 pt-1">
           {section.related_terms.map((term, i) => (
             <span
               key={`${term}-${i}`}
-              className="text-[10px] bg-violet-50 text-violet-700 px-1.5 py-0.5 rounded font-semibold"
+              className="text-[10px] bg-paper-200 text-ink-700 px-1.5 py-0.5 rounded font-medium"
               title={T.outline.relatedTermsTitle}
             >
               {term}
@@ -347,10 +371,13 @@ function SectionBlock({
         </div>
       )}
 
+      {/* Check_question card — neutral paper-200 surface so it reads
+          as supplementary, not as competing emphasis with the Take
+          card. */}
       {section.check_question && (
-        <div className="bg-yellow-50 px-2.5 py-1.5 rounded">
-          <p className="text-xs text-gray-800 leading-snug">
-            <span className="text-[10px] uppercase tracking-wider text-yellow-700 font-semibold mr-1.5">{T.outline.confirm_label}</span>
+        <div className="bg-paper-200 border border-paper-edge px-2.5 py-1.5 rounded-md-design">
+          <p className="text-xs text-ink-700 leading-snug">
+            <span className="text-[10px] font-mono uppercase tracking-eyebrow text-ink-500 font-semibold mr-1.5">{T.outline.confirm_label}</span>
             {section.check_question}
           </p>
         </div>
@@ -362,14 +389,19 @@ function SectionBlock({
 function TsButton({ ts, onJump }: { ts: number; onJump?: (ts: number) => void }) {
   const T = useT()
   if (!onJump) {
-    return <span className="text-[10px] text-gray-400 font-mono shrink-0">{fmtTs(ts)}</span>
+    return <span className="text-[10px] text-ink-300 font-mono tabular-nums shrink-0">{fmtTs(ts)}</span>
   }
+  // ts chip per DESIGN.md §3.4 — paper-200 surface + paper-edge
+  // border + ▶ arrow prefix so the click affordance is obvious in
+  // the default state (the previous bare-text version was hard to
+  // recognise as interactive). Hover inverts to ink-900 fill.
   return (
     <button
       onClick={() => onJump(ts)}
-      className="text-[10px] text-gray-400 hover:text-indigo-600 font-mono shrink-0 transition-colors"
+      className="inline-flex items-center gap-1 text-[10px] text-ink-500 hover:text-paper-100 font-mono tabular-nums shrink-0 transition-colors bg-paper-200 hover:bg-ink-900 border border-paper-edge hover:border-ink-900 rounded px-1.5 py-0.5"
       title={T.outline.tsBackTitle}
     >
+      <span aria-hidden className="text-[8px]">▶</span>
       {fmtTs(ts)}
     </button>
   )

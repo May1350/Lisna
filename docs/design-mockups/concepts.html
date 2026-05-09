@@ -1,0 +1,760 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lisna — Design Concept Mockups</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&family=Quicksand:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', -apple-system, 'Hiragino Sans', 'Apple SD Gothic Neo', sans-serif;
+      background: #F4F5F7;
+      color: #111827;
+      -webkit-font-smoothing: antialiased;
+      padding: 32px 24px 80px;
+    }
+    .header {
+      max-width: 1320px;
+      margin: 0 auto 32px;
+    }
+    .header h1 {
+      font-size: 28px; font-weight: 700; margin: 0 0 6px; letter-spacing: -0.02em;
+    }
+    .header p {
+      font-size: 14px; color: #6B7280; margin: 0;
+    }
+    .grid {
+      max-width: 1320px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+      gap: 24px;
+    }
+    .concept {
+      background: #FFFFFF;
+      border: 1px solid #E5E7EB;
+      border-radius: 16px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .concept-head {
+      padding: 18px 20px 14px;
+      border-bottom: 1px solid #F1F2F4;
+    }
+    .concept-eyebrow {
+      font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
+      color: #9CA3AF; text-transform: uppercase; margin: 0 0 4px;
+    }
+    .concept-title {
+      font-size: 18px; font-weight: 700; margin: 0 0 4px; letter-spacing: -0.01em;
+    }
+    .concept-tag {
+      font-size: 12px; color: #6B7280; margin: 0;
+    }
+    .concept-palette {
+      padding: 12px 20px;
+      display: flex;
+      gap: 6px;
+      border-bottom: 1px solid #F1F2F4;
+    }
+    .swatch {
+      width: 24px; height: 24px;
+      border-radius: 6px;
+      border: 1px solid rgba(0,0,0,0.06);
+    }
+    .stage {
+      padding: 28px 20px;
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 460px;
+    }
+    .meta {
+      padding: 14px 20px;
+      border-top: 1px solid #F1F2F4;
+      font-size: 12px;
+      color: #6B7280;
+      line-height: 1.55;
+    }
+    .meta b { color: #111827; font-weight: 600; }
+    .legend {
+      max-width: 1320px;
+      margin: 32px auto 0;
+      padding: 20px 24px;
+      background: #FFFFFF;
+      border: 1px solid #E5E7EB;
+      border-radius: 12px;
+      font-size: 13px;
+      color: #4B5563;
+      line-height: 1.7;
+    }
+    .legend strong { color: #111827; }
+    .legend table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+      font-size: 12.5px;
+    }
+    .legend th, .legend td {
+      text-align: left;
+      padding: 8px 10px;
+      border-bottom: 1px solid #F1F2F4;
+    }
+    .legend th {
+      background: #F8F9FB;
+      font-weight: 600;
+      color: #374151;
+    }
+
+    /* ==========================================================
+       CONCEPT 1 — Calm Productivity (Linear / Notion)
+       ========================================================== */
+    .c1 .stage { background: #F8F9FB; }
+    .c1-card {
+      width: 100%;
+      max-width: 340px;
+      background: #FFFFFF;
+      border: 1px solid #E5E7EB;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+      font-family: 'Inter', sans-serif;
+    }
+    .c1-card h3 {
+      font-size: 15px; font-weight: 600; margin: 0 0 8px;
+      color: #111827; letter-spacing: -0.01em;
+    }
+    .c1-card .body {
+      font-size: 13px; color: #6B7280; line-height: 1.55; margin: 0 0 16px;
+      white-space: pre-line;
+    }
+    .c1-bar { height: 6px; background: #F1F2F4; border-radius: 9999px; overflow: hidden; }
+    .c1-bar-fill { height: 100%; background: #EF4444; border-radius: 9999px; }
+    .c1-bar-meta {
+      display: flex; justify-content: space-between;
+      font-size: 11px; color: #6B7280; margin-top: 6px;
+      font-variant-numeric: tabular-nums;
+    }
+    .c1-bar-meta b { color: #111827; font-weight: 600; }
+    .c1-reset { font-size: 11px; color: #9CA3AF; margin-top: 4px; }
+    .c1-pro {
+      margin-top: 18px;
+      border: 1px solid #E0E7FF;
+      background: rgba(238, 242, 255, 0.4);
+      border-radius: 10px;
+      padding: 12px 14px;
+    }
+    .c1-pro-row {
+      display: flex; justify-content: space-between; align-items: baseline;
+      margin-bottom: 8px;
+    }
+    .c1-pro-price { font-size: 17px; font-weight: 600; color: #312E81; letter-spacing: -0.01em; }
+    .c1-pro-note { font-size: 10.5px; color: rgba(67, 56, 202, 0.7); }
+    .c1-pro-list { font-size: 12px; color: #374151; margin: 0; padding: 0; list-style: none; }
+    .c1-pro-list li { padding: 2px 0; }
+    .c1-cta {
+      margin-top: 12px;
+      width: 100%;
+      background: #5046E4;
+      color: #FFFFFF;
+      border: none;
+      border-radius: 10px;
+      padding: 12px;
+      font-size: 13px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 120ms;
+    }
+    .c1-cta:hover { background: #4338CA; }
+
+    /* ==========================================================
+       CONCEPT 2 — Academic Crisp (Stripe Docs / Apple Books)
+       ========================================================== */
+    .c2 .stage { background: #FAF8F4; }
+    .c2-card {
+      width: 100%;
+      max-width: 380px;
+      background: #FFFFFF;
+      border: 1px solid #D4CFC4;
+      padding: 28px 26px;
+      font-family: 'Inter', sans-serif;
+    }
+    .c2-card h3 {
+      font-family: 'Source Serif 4', Georgia, serif;
+      font-size: 22px; font-weight: 600; margin: 0 0 6px;
+      color: #1A1A1A; letter-spacing: -0.005em;
+      line-height: 1.25;
+    }
+    .c2-rule {
+      width: 36px; height: 2px; background: #1B4D3E; margin: 0 0 16px;
+    }
+    .c2-card .body {
+      font-size: 14px; color: #5C5852; line-height: 1.6; margin: 0 0 20px;
+      white-space: pre-line;
+    }
+    .c2-bar {
+      height: 4px; background: #F2EEE7; overflow: hidden; border-radius: 0;
+    }
+    .c2-bar-fill { height: 100%; background: #9C2A2A; }
+    .c2-bar-meta {
+      display: flex; justify-content: space-between;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px; color: #5C5852; margin-top: 6px;
+      letter-spacing: 0.01em;
+    }
+    .c2-reset { font-size: 11px; color: #8C857B; margin-top: 4px; font-style: italic; }
+    .c2-pro {
+      margin-top: 22px;
+      padding: 16px 0 0;
+      border-top: 1px solid #E8E2D5;
+    }
+    .c2-pro-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+    .c2-pro-price {
+      font-family: 'Source Serif 4', Georgia, serif;
+      font-size: 18px; font-weight: 600; color: #1B4D3E;
+    }
+    .c2-pro-note { font-size: 11px; color: #8C857B; font-style: italic; }
+    .c2-pro-list {
+      font-size: 13px; color: #2A2724; margin: 0; padding: 0; list-style: none;
+      line-height: 1.7;
+    }
+    .c2-cta {
+      margin-top: 22px;
+      width: 100%;
+      background: #FFFFFF;
+      color: #1B4D3E;
+      border: 1.5px solid #1B4D3E;
+      padding: 12px;
+      font-size: 14px;
+      font-weight: 600;
+      font-family: 'Inter', sans-serif;
+      cursor: pointer;
+      letter-spacing: 0.02em;
+      transition: all 150ms;
+    }
+    .c2-cta:hover { background: #1B4D3E; color: #FFFFFF; }
+
+    /* ==========================================================
+       CONCEPT 3 — Glass Modern (iOS / Vision Pro)
+       ========================================================== */
+    .c3 .stage {
+      background: linear-gradient(135deg, #1E1B4B 0%, #312E81 50%, #4C1D95 100%);
+      position: relative;
+      overflow: hidden;
+    }
+    .c3 .stage::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(circle at 20% 30%, rgba(124, 58, 237, 0.4), transparent 40%),
+        radial-gradient(circle at 80% 70%, rgba(6, 182, 212, 0.3), transparent 40%);
+    }
+    .c3-card {
+      position: relative;
+      width: 100%;
+      max-width: 340px;
+      background: rgba(15, 23, 42, 0.55);
+      backdrop-filter: blur(24px) saturate(180%);
+      -webkit-backdrop-filter: blur(24px) saturate(180%);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 20px;
+      padding: 22px;
+      font-family: 'Inter', sans-serif;
+      color: rgba(255, 255, 255, 0.96);
+      box-shadow:
+        0 20px 60px rgba(0, 0, 0, 0.4),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    }
+    .c3-card h3 {
+      font-size: 16px; font-weight: 600; margin: 0 0 8px;
+      letter-spacing: -0.01em;
+      color: #FFFFFF;
+    }
+    .c3-card .body {
+      font-size: 13px; color: rgba(255, 255, 255, 0.62); line-height: 1.55; margin: 0 0 16px;
+      white-space: pre-line;
+    }
+    .c3-bar { height: 6px; background: rgba(255, 255, 255, 0.08); border-radius: 9999px; overflow: hidden; }
+    .c3-bar-fill {
+      height: 100%; border-radius: 9999px;
+      background: linear-gradient(90deg, #FF3B30, #F87171);
+      box-shadow: 0 0 10px rgba(255, 59, 48, 0.6);
+    }
+    .c3-bar-meta {
+      display: flex; justify-content: space-between;
+      font-size: 11px; color: rgba(255, 255, 255, 0.55); margin-top: 6px;
+      font-variant-numeric: tabular-nums;
+    }
+    .c3-bar-meta b { color: rgba(255, 255, 255, 0.96); font-weight: 600; }
+    .c3-reset { font-size: 11px; color: rgba(255, 255, 255, 0.4); margin-top: 4px; }
+    .c3-pro {
+      margin-top: 18px;
+      border: 1px solid rgba(124, 58, 237, 0.4);
+      background: rgba(124, 58, 237, 0.12);
+      border-radius: 14px;
+      padding: 13px 14px;
+    }
+    .c3-pro-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+    .c3-pro-price { font-size: 17px; font-weight: 600; color: #C4B5FD; letter-spacing: -0.01em; }
+    .c3-pro-note { font-size: 10.5px; color: rgba(196, 181, 253, 0.7); }
+    .c3-pro-list {
+      font-size: 12px; color: rgba(255, 255, 255, 0.78); margin: 0; padding: 0; list-style: none;
+      line-height: 1.7;
+    }
+    .c3-cta {
+      margin-top: 12px;
+      width: 100%;
+      background: linear-gradient(180deg, #8B5CF6, #7C3AED);
+      color: #FFFFFF;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 14px;
+      padding: 12px;
+      font-size: 13px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      box-shadow:
+        0 8px 24px rgba(124, 58, 237, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.18);
+      transition: transform 120ms;
+    }
+    .c3-cta:hover { transform: translateY(-1px); }
+
+    /* ==========================================================
+       CONCEPT 4 — Friendly Approachable (Duolingo / Khan Academy)
+       ========================================================== */
+    .c4 .stage { background: #FFF8F0; }
+    .c4-card {
+      width: 100%;
+      max-width: 340px;
+      background: #FFFFFF;
+      border: 2px solid #FFD9B8;
+      border-radius: 24px;
+      padding: 22px;
+      font-family: 'Quicksand', 'Inter', sans-serif;
+      box-shadow: 0 4px 0 #FFE5C9;
+    }
+    .c4-card h3 {
+      font-size: 17px; font-weight: 700; margin: 0 0 8px;
+      color: #3D2817; line-height: 1.35;
+    }
+    .c4-card .body {
+      font-size: 13px; color: #7A6253; line-height: 1.6; margin: 0 0 16px;
+      font-weight: 500;
+    }
+    .c4-bar {
+      height: 12px;
+      background: #FFE5C9;
+      border-radius: 9999px;
+      overflow: hidden;
+      border: 2px solid #FFFFFF;
+      box-shadow: inset 0 1px 0 rgba(0,0,0,0.04);
+    }
+    .c4-bar-fill {
+      height: 100%; border-radius: 9999px;
+      background: linear-gradient(90deg, #FF6B35, #FF8B5C);
+    }
+    .c4-bar-meta {
+      display: flex; justify-content: space-between;
+      font-size: 11.5px; color: #7A6253; margin-top: 8px; font-weight: 600;
+    }
+    .c4-bar-meta b { color: #3D2817; }
+    .c4-reset { font-size: 11.5px; color: #A08770; margin-top: 4px; font-weight: 500; }
+    .c4-pro {
+      margin-top: 18px;
+      background: linear-gradient(135deg, #FFF4E6, #FFEAD1);
+      border-radius: 18px;
+      padding: 14px 16px;
+      border: 2px solid #FFD9B8;
+    }
+    .c4-pro-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+    .c4-pro-price { font-size: 18px; font-weight: 700; color: #D2541E; }
+    .c4-pro-note { font-size: 11px; color: #A06A2C; font-weight: 600; }
+    .c4-pro-list {
+      font-size: 12.5px; color: #5C402B; margin: 0; padding: 0; list-style: none;
+      line-height: 1.85; font-weight: 500;
+    }
+    .c4-cta {
+      margin-top: 14px;
+      width: 100%;
+      background: linear-gradient(180deg, #FF7A45, #FF6B35);
+      color: #FFFFFF;
+      border: none;
+      border-radius: 9999px;
+      padding: 14px;
+      font-size: 14px;
+      font-weight: 700;
+      font-family: inherit;
+      cursor: pointer;
+      box-shadow: 0 4px 0 #D2541E;
+      transition: all 100ms;
+    }
+    .c4-cta:hover { transform: translateY(1px); box-shadow: 0 2px 0 #D2541E; }
+    .c4-cta:active { transform: translateY(3px); box-shadow: 0 0 0 #D2541E; }
+
+    /* ==========================================================
+       CONCEPT 5 — Precision Tool (Vercel / Arc / Linear pro)
+       ========================================================== */
+    .c5 .stage { background: #0A0A0A; }
+    .c5-card {
+      width: 100%;
+      max-width: 340px;
+      background: #0F0F11;
+      border: 1px solid #1F1F23;
+      border-radius: 6px;
+      padding: 20px;
+      font-family: 'Inter', sans-serif;
+      color: #FAFAFA;
+    }
+    .c5-card .eyebrow {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 12px;
+    }
+    .c5-card .eyebrow-label {
+      font-size: 10px; font-weight: 600; letter-spacing: 0.12em;
+      color: #71717A; text-transform: uppercase;
+    }
+    .c5-kbd {
+      display: inline-flex; align-items: center; gap: 2px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; padding: 2px 6px;
+      background: #18181B; border: 1px solid #27272A; border-radius: 4px;
+      color: #A1A1AA;
+    }
+    .c5-card h3 {
+      font-size: 14px; font-weight: 600; margin: 0 0 4px;
+      color: #FAFAFA; letter-spacing: -0.005em;
+    }
+    .c5-card .body {
+      font-size: 12px; color: #A1A1AA; line-height: 1.5; margin: 0 0 14px;
+      white-space: pre-line;
+    }
+    .c5-bar { height: 3px; background: #1F1F23; overflow: hidden; }
+    .c5-bar-fill { height: 100%; background: #EF4444; }
+    .c5-bar-meta {
+      display: flex; justify-content: space-between;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px; color: #A1A1AA; margin-top: 6px;
+    }
+    .c5-bar-meta b { color: #FAFAFA; font-weight: 500; }
+    .c5-reset {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10.5px; color: #71717A; margin-top: 4px;
+    }
+    .c5-pro {
+      margin-top: 16px;
+      padding: 12px 0 0;
+      border-top: 1px solid #1F1F23;
+    }
+    .c5-pro-row {
+      display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px;
+    }
+    .c5-pro-price {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 14px; font-weight: 500; color: #00DC82;
+    }
+    .c5-pro-note {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; color: #71717A;
+    }
+    .c5-pro-list {
+      font-size: 12px; color: #D4D4D8; margin: 0; padding: 0; list-style: none;
+      line-height: 1.7;
+    }
+    .c5-pro-list li::before {
+      content: '→ '; color: #00DC82; font-family: 'JetBrains Mono', monospace;
+    }
+    .c5-cta {
+      margin-top: 14px;
+      width: 100%;
+      background: #FAFAFA;
+      color: #0A0A0A;
+      border: none;
+      border-radius: 6px;
+      padding: 10px;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      display: flex;
+      justify-content: center; align-items: center; gap: 8px;
+      transition: background 100ms;
+    }
+    .c5-cta:hover { background: #FFFFFF; }
+    .c5-cta .c5-kbd-inline {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; padding: 1px 5px;
+      background: #E4E4E7; border-radius: 3px;
+      color: #52525B;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Lisna — Design Concept Mockups</h1>
+    <p>같은 surface (월간 한도 도달 카드) 를 5가지 디자인 컨셉으로 렌더. 가장 끌리는 컨셉 또는 하이브리드 방향을 선택하세요.</p>
+  </div>
+
+  <div class="grid">
+
+    <!-- =================== CONCEPT 1 =================== -->
+    <section class="concept c1">
+      <div class="concept-head">
+        <p class="concept-eyebrow">Concept 01</p>
+        <h2 class="concept-title">Calm Productivity</h2>
+        <p class="concept-tag">Linear / Notion · 절제, 정보 밀도, 차분한 프로페셔널</p>
+      </div>
+      <div class="concept-palette">
+        <div class="swatch" style="background:#FFFFFF"></div>
+        <div class="swatch" style="background:#F8F9FB"></div>
+        <div class="swatch" style="background:#E5E7EB"></div>
+        <div class="swatch" style="background:#111827"></div>
+        <div class="swatch" style="background:#5046E4"></div>
+        <div class="swatch" style="background:#EF4444"></div>
+      </div>
+      <div class="stage">
+        <div class="c1-card">
+          <h3>월간 30분 한도에 도달했습니다</h3>
+          <p class="body">새로운 음성 수집은 중단되었습니다.
+이전에 만든 노트는 그대로 열람·재생성할 수 있습니다.</p>
+          <div class="c1-bar"><div class="c1-bar-fill" style="width:100%"></div></div>
+          <div class="c1-bar-meta"><span>30분 / 30분</span><b>100%</b></div>
+          <p class="c1-reset">다음 달 1일에 자동 리셋</p>
+          <div class="c1-pro">
+            <div class="c1-pro-row">
+              <span class="c1-pro-price">¥980 / 월</span>
+              <span class="c1-pro-note">월 결제 · 언제든 해지</span>
+            </div>
+            <ul class="c1-pro-list">
+              <li>✓ 월 30시간 (Free의 60배)</li>
+              <li>✓ 긴 강의도 안심 녹음</li>
+            </ul>
+          </div>
+          <button class="c1-cta">Pro로 업그레이드 ¥980/월</button>
+        </div>
+      </div>
+      <div class="meta">
+        <b>Best fit:</b> 학습 도구로 인식되는 차분한 톤. 어디서나 통하는 안전한 선택.<br>
+        <b>Risk:</b> 차별화 약함 — 다른 SaaS와 시각적으로 구분 어려움.
+      </div>
+    </section>
+
+    <!-- =================== CONCEPT 2 =================== -->
+    <section class="concept c2">
+      <div class="concept-head">
+        <p class="concept-eyebrow">Concept 02</p>
+        <h2 class="concept-title">Academic Crisp</h2>
+        <p class="concept-tag">Stripe Docs / Apple Books · 학문적, 신뢰, 텍스트 우선</p>
+      </div>
+      <div class="concept-palette">
+        <div class="swatch" style="background:#FAF8F4"></div>
+        <div class="swatch" style="background:#FFFFFF"></div>
+        <div class="swatch" style="background:#D4CFC4"></div>
+        <div class="swatch" style="background:#1A1A1A"></div>
+        <div class="swatch" style="background:#1B4D3E"></div>
+        <div class="swatch" style="background:#9C2A2A"></div>
+      </div>
+      <div class="stage">
+        <div class="c2-card">
+          <h3>月間 30 分の上限に達しました</h3>
+          <div class="c2-rule"></div>
+          <p class="body">新規の音声収録は停止しています。
+過去のノートは引き続きご利用いただけます。</p>
+          <div class="c2-bar"><div class="c2-bar-fill" style="width:100%"></div></div>
+          <div class="c2-bar-meta"><span>30 min / 30 min</span><span>100%</span></div>
+          <p class="c2-reset">resets on the 1st of next month</p>
+          <div class="c2-pro">
+            <div class="c2-pro-row">
+              <span class="c2-pro-price">¥980 / month</span>
+              <span class="c2-pro-note">billed monthly</span>
+            </div>
+            <ul class="c2-pro-list">
+              <li>— 30 hours each month</li>
+              <li>— Long-form lectures, fully captured</li>
+            </ul>
+          </div>
+          <button class="c2-cta">Continue with Pro</button>
+        </div>
+      </div>
+      <div class="meta">
+        <b>Best fit:</b> 일본/한국 대학생 정서 + 진지한 학습 도구 + 결제 confidence 가장 강함.<br>
+        <b>Risk:</b> Serif 폰트 CJK fallback 일관성 신경. 일부 사용자엔 "올드"한 인상.
+      </div>
+    </section>
+
+    <!-- =================== CONCEPT 3 =================== -->
+    <section class="concept c3">
+      <div class="concept-head">
+        <p class="concept-eyebrow">Concept 03</p>
+        <h2 class="concept-title">Glass Modern</h2>
+        <p class="concept-tag">iOS 26 / Vision Pro · 투명, 입체, 영상 위 자연스러움</p>
+      </div>
+      <div class="concept-palette">
+        <div class="swatch" style="background:#1E1B4B"></div>
+        <div class="swatch" style="background:rgba(15,23,42,0.55);border:1px solid rgba(255,255,255,0.12)"></div>
+        <div class="swatch" style="background:#7C3AED"></div>
+        <div class="swatch" style="background:#06B6D4"></div>
+        <div class="swatch" style="background:#FF3B30"></div>
+        <div class="swatch" style="background:#FFFFFF"></div>
+      </div>
+      <div class="stage">
+        <div class="c3-card">
+          <h3>Monthly limit reached</h3>
+          <p class="body">Audio capture paused.
+Existing notes still available.</p>
+          <div class="c3-bar"><div class="c3-bar-fill" style="width:100%"></div></div>
+          <div class="c3-bar-meta"><span>30m / 30m</span><b>100%</b></div>
+          <p class="c3-reset">resets May 1, 2026</p>
+          <div class="c3-pro">
+            <div class="c3-pro-row">
+              <span class="c3-pro-price">¥980 / month</span>
+              <span class="c3-pro-note">cancel anytime</span>
+            </div>
+            <ul class="c3-pro-list">
+              <li>· 30 hours / month</li>
+              <li>· No cap on lecture length</li>
+            </ul>
+          </div>
+          <button class="c3-cta">Upgrade to Pro</button>
+        </div>
+      </div>
+      <div class="meta">
+        <b>Best fit:</b> 강한 차별화 + 영상 오버레이 본질에 부합. 다크 surface 만 자연스러움.<br>
+        <b>Risk:</b> 라이트 LMS 페이지 위 어색. side panel + in-page 양쪽 톤 일치 어려움.
+      </div>
+    </section>
+
+    <!-- =================== CONCEPT 4 =================== -->
+    <section class="concept c4">
+      <div class="concept-head">
+        <p class="concept-eyebrow">Concept 04</p>
+        <h2 class="concept-title">Friendly Approachable</h2>
+        <p class="concept-tag">Duolingo / Khan Academy · 따뜻, 격려, 학생 친화</p>
+      </div>
+      <div class="concept-palette">
+        <div class="swatch" style="background:#FFF8F0"></div>
+        <div class="swatch" style="background:#FFD9B8"></div>
+        <div class="swatch" style="background:#FF6B35"></div>
+        <div class="swatch" style="background:#06B891"></div>
+        <div class="swatch" style="background:#3D2817"></div>
+        <div class="swatch" style="background:#FFFFFF"></div>
+      </div>
+      <div class="stage">
+        <div class="c4-card">
+          <h3>이번 달 30분을 다 쓰셨네요!</h3>
+          <p class="body">많이 공부하셨어요. 새 음성 수집은 잠깐 멈추지만, 그동안 만든 노트는 언제든 다시 볼 수 있어요.</p>
+          <div class="c4-bar"><div class="c4-bar-fill" style="width:100%"></div></div>
+          <div class="c4-bar-meta"><span>30분 / 30분</span><b>100%</b></div>
+          <p class="c4-reset">다음 달 1일에 다시 시작!</p>
+          <div class="c4-pro">
+            <div class="c4-pro-row">
+              <span class="c4-pro-price">¥980 / 월</span>
+              <span class="c4-pro-note">언제든 해지</span>
+            </div>
+            <ul class="c4-pro-list">
+              <li>월 30시간 (60배 더!)</li>
+              <li>긴 강의도 끝까지 함께</li>
+            </ul>
+          </div>
+          <button class="c4-cta">Pro로 계속하기</button>
+        </div>
+      </div>
+      <div class="meta">
+        <b>Best fit:</b> 동기부여 + 따뜻한 학습 동반자 톤. 시험 준비 학생 정서적 공감.<br>
+        <b>Risk:</b> 직장인/연구원에 유치. 진지한 도구 인식 약화. CJK rounded 폰트 품질 한정.
+      </div>
+    </section>
+
+    <!-- =================== CONCEPT 5 =================== -->
+    <section class="concept c5">
+      <div class="concept-head">
+        <p class="concept-eyebrow">Concept 05</p>
+        <h2 class="concept-title">Precision Tool</h2>
+        <p class="concept-tag">Vercel / Arc / Linear pro · 빠르고 정확, 정보 밀도 최대</p>
+      </div>
+      <div class="concept-palette">
+        <div class="swatch" style="background:#0A0A0A"></div>
+        <div class="swatch" style="background:#0F0F11"></div>
+        <div class="swatch" style="background:#1F1F23"></div>
+        <div class="swatch" style="background:#FAFAFA"></div>
+        <div class="swatch" style="background:#00DC82"></div>
+        <div class="swatch" style="background:#EF4444"></div>
+      </div>
+      <div class="stage">
+        <div class="c5-card">
+          <div class="eyebrow">
+            <span class="eyebrow-label">Quota</span>
+            <span class="c5-kbd">⌘⇧U</span>
+          </div>
+          <h3>Monthly limit reached</h3>
+          <p class="body">Audio capture: paused
+Existing notes: available</p>
+          <div class="c5-bar"><div class="c5-bar-fill" style="width:100%"></div></div>
+          <div class="c5-bar-meta"><span>30m / 30m</span><b>100%</b></div>
+          <p class="c5-reset">resets 2026-06-01 09:00 JST</p>
+          <div class="c5-pro">
+            <div class="c5-pro-row">
+              <span class="c5-pro-price">¥980/mo</span>
+              <span class="c5-pro-note">monthly</span>
+            </div>
+            <ul class="c5-pro-list">
+              <li>30h/mo (60×)</li>
+              <li>no cap on length</li>
+            </ul>
+          </div>
+          <button class="c5-cta">Upgrade <span class="c5-kbd-inline">⏎</span></button>
+        </div>
+      </div>
+      <div class="meta">
+        <b>Best fit:</b> 파워유저 / 효율 추구 학생. 단축키 우선. 매우 차별화됨.<br>
+        <b>Risk:</b> 일반 학생에 차갑게 느껴짐. 정서적 거리감. 학습보다 작업 도구 인상.
+      </div>
+    </section>
+
+  </div>
+
+  <div class="legend">
+    <strong>비교 요약</strong>
+    <table>
+      <tr>
+        <th>축</th>
+        <th>① Calm</th>
+        <th>② Academic</th>
+        <th>③ Glass</th>
+        <th>④ Friendly</th>
+        <th>⑤ Precision</th>
+      </tr>
+      <tr>
+        <td>차별화</td><td>약</td><td>중</td><td><b>강</b></td><td>중</td><td>강</td>
+      </tr>
+      <tr>
+        <td>학생 정서 적합</td><td>중</td><td><b>강</b></td><td>중</td><td><b>강</b></td><td>약</td>
+      </tr>
+      <tr>
+        <td>CJK 폰트 친화</td><td>강</td><td>중</td><td>강</td><td>약</td><td>강</td>
+      </tr>
+      <tr>
+        <td>영상 오버레이 자연스러움</td><td>중</td><td>중</td><td><b>강</b></td><td>중</td><td>약</td>
+      </tr>
+      <tr>
+        <td>구현 비용</td><td>낮</td><td>중</td><td>높</td><td>중</td><td>낮</td>
+      </tr>
+      <tr>
+        <td>Pro 결제 confidence</td><td>중</td><td><b>강</b></td><td>중</td><td>약</td><td>중</td>
+      </tr>
+      <tr>
+        <td>일관성 유지 난이도</td><td>낮</td><td>중</td><td><b>높</b></td><td>중</td><td>낮</td>
+      </tr>
+    </table>
+  </div>
+
+</body>
+</html>

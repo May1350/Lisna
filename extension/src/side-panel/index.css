@@ -1,3 +1,95 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Lisna Design System — see docs/DESIGN.md for the full spec.
+ * Tokens are exposed both as Tailwind theme keys (tailwind.config.ts)
+ * and as CSS variables here so raw `style` attributes / injected
+ * content / dynamically-built strings can reference them too. */
+
+:root {
+  /* Surface (warm paper) */
+  --paper-100: #FFFEFB;
+  --paper-200: #FBFAF7;
+  --paper-300: #F4F2EC;
+  --paper-edge: #E8E4DC;
+
+  /* Ink (warm charcoal) */
+  --ink-900: #1A1614;
+  --ink-700: #3D3733;
+  --ink-500: #6E6660;
+  --ink-300: #A39A93;
+  --ink-200: #C8C0B7;
+
+  /* Brand (terracotta — earthy, reserved for value-bearing surfaces) */
+  --terra: #C2410C;
+  --terra-700: #9A330A;
+  --terra-soft: #FED7AA;
+  --terra-tint: #FFF7ED;
+
+  /* State */
+  --warn-red: #B91C1C;
+  --warn-amber: #B45309;
+  --ok-green: #4F7C5C;
+
+  /* Shape */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  /* Shadow */
+  --shadow-card:  0 1px 0 rgba(26, 22, 20, 0.02), 0 8px 24px -12px rgba(26, 22, 20, 0.08);
+  --shadow-modal: 0 1px 0 rgba(26, 22, 20, 0.04), 0 16px 32px -16px rgba(26, 22, 20, 0.12);
+
+  /* Type */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Sans', 'Apple SD Gothic Neo', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+}
+
+/* Apply to body so all descendants inherit. */
+html, body {
+  font-family: var(--font-sans);
+  background: var(--paper-200);
+  color: var(--ink-900);
+}
+
+/* Treat numbers in `.mono` and any element with the `tabular` class as
+ * tabular-nums by default. DESIGN.md §2.2.2 mandates this for every
+ * number (time / percent / price / duration). */
+.mono, .tabular {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+/* Highlighter pen — solid block with line-aware decoration so multi-
+ * line wraps render correctly across CJK + Latin. Used by OutlineView's
+ * important point text spans. */
+.lisna-hl {
+  background: var(--terra-soft);
+  color: var(--ink-900);
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  padding: 1px 3px;
+  margin: 0 -1px;
+  border-radius: 3px;
+}
+
+/* Eyebrow label — uppercase mono with wide tracking. Used as a heading
+ * affordance on small surfaces (TLDR, Take, sections in Settings). */
+.lisna-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-500);
+}
+
+/* Quiet scrollbars on internal scroll containers (modal note feed,
+ * captions, slide strip). Native scrollbar is too heavy for a 360px
+ * panel — replace with a 4px hairline that lights up only on hover. */
+.lisna-scroll::-webkit-scrollbar { width: 4px; height: 4px; }
+.lisna-scroll::-webkit-scrollbar-track { background: transparent; }
+.lisna-scroll::-webkit-scrollbar-thumb { background: var(--paper-edge); border-radius: 2px; }
+.lisna-scroll::-webkit-scrollbar-thumb:hover { background: var(--ink-200); }

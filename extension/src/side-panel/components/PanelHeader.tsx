@@ -124,7 +124,7 @@ function OpenSidePanelButton() {
       onClick={open}
       title={T.panelHeader.openSidePanelTitle}
       aria-label={T.panelHeader.openSidePanelAria}
-      className="w-7 h-7 flex items-center justify-center rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition"
+      className="w-[30px] h-[30px] flex items-center justify-center rounded-lg bg-transparent hover:bg-paper-300 text-ink-700 hover:text-ink-900 transition-colors"
     >
       <SidePanelIcon />
     </button>
@@ -160,7 +160,7 @@ function SettingsButton() {
       onClick={open}
       title={T.panelHeader.settingsTitle}
       aria-label={T.panelHeader.settingsAria}
-      className="w-7 h-7 flex items-center justify-center rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition"
+      className="w-[30px] h-[30px] flex items-center justify-center rounded-lg bg-transparent hover:bg-paper-300 text-ink-700 hover:text-ink-900 transition-colors"
     >
       <GearIcon />
     </button>
@@ -239,7 +239,7 @@ export function PanelHeader({
     isAccountView && typeof enabled === 'boolean' && typeof onToggleEnabled === 'function'
 
   return (
-    <header className="flex items-center justify-between gap-2 px-3 py-2 border-b border-gray-200 bg-white">
+    <header className="flex items-center justify-between gap-2 px-3 py-2 border-b border-paper-edge bg-paper-100">
       <div className="flex items-center gap-2.5 min-w-0">
         {user ? (
           <>
@@ -338,7 +338,7 @@ export function PanelHeader({
           onClick={onClose}
           title={T.panelHeader.closeTitle}
           aria-label={T.panelHeader.closeAria}
-          className="w-7 h-7 flex items-center justify-center rounded hover:bg-gray-100 text-gray-600"
+          className="w-[30px] h-[30px] flex items-center justify-center rounded-lg bg-transparent hover:bg-paper-300 text-ink-700 hover:text-ink-900 transition-colors"
         >
           ✕
         </button>

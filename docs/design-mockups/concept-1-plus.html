@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lisna — Concept 1 vs Concept 1+ (시그니처 3종 적용)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: #ECECEF;
+      -webkit-font-smoothing: antialiased;
+      padding: 40px 24px 80px;
+    }
+
+    .head {
+      max-width: 1180px;
+      margin: 0 auto 32px;
+    }
+    .head h1 {
+      font-size: 28px; font-weight: 700; margin: 0 0 6px; letter-spacing: -0.02em;
+      color: #111827;
+    }
+    .head p {
+      font-size: 14px; color: #6B7280; margin: 0; line-height: 1.6; max-width: 680px;
+    }
+
+    .grid {
+      max-width: 1180px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+    @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+
+    .col {
+      background: #FFFFFF;
+      border: 1px solid #E5E7EB;
+      border-radius: 16px;
+      overflow: hidden;
+    }
+    .col-head {
+      padding: 18px 20px;
+      border-bottom: 1px solid #F1F2F4;
+    }
+    .col-eyebrow {
+      font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
+      text-transform: uppercase; color: #9CA3AF; margin: 0 0 4px;
+    }
+    .col-title {
+      font-size: 18px; font-weight: 700; margin: 0 0 4px; letter-spacing: -0.01em;
+      color: #111827;
+    }
+    .col-tag {
+      font-size: 12.5px; color: #6B7280; margin: 0; line-height: 1.5;
+    }
+    .stage {
+      padding: 32px 20px;
+      display: flex; align-items: flex-start; justify-content: center;
+      min-height: 480px;
+    }
+
+    /* ===== Concept 1 (original) — cold gray + indigo ===== */
+    .o .stage { background: #F8F9FB; }
+    .o-card {
+      width: 100%;
+      max-width: 320px;
+      background: #FFFFFF;
+      border: 1px solid #E5E7EB;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+      font-family: 'Inter', sans-serif;
+    }
+    .o-card h3 {
+      font-size: 15px; font-weight: 600; margin: 0 0 8px;
+      color: #111827; letter-spacing: -0.01em;
+    }
+    .o-card .body {
+      font-size: 13px; color: #6B7280; line-height: 1.55; margin: 0 0 16px;
+      white-space: pre-line;
+    }
+    .o-bar { height: 6px; background: #F1F2F4; border-radius: 9999px; overflow: hidden; }
+    .o-bar-fill { height: 100%; background: #EF4444; border-radius: 9999px; }
+    .o-bar-meta {
+      display: flex; justify-content: space-between;
+      font-size: 11px; color: #6B7280; margin-top: 6px;
+      font-variant-numeric: tabular-nums;
+    }
+    .o-bar-meta b { color: #111827; font-weight: 600; }
+    .o-reset { font-size: 11px; color: #9CA3AF; margin-top: 4px; }
+    .o-pro {
+      margin-top: 18px;
+      border: 1px solid #E0E7FF;
+      background: rgba(238,242,255,0.4);
+      border-radius: 10px;
+      padding: 12px 14px;
+    }
+    .o-pro-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+    .o-pro-price { font-size: 17px; font-weight: 600; color: #312E81; letter-spacing: -0.01em; }
+    .o-pro-note { font-size: 10.5px; color: rgba(67,56,202,0.7); }
+    .o-pro-list { font-size: 12px; color: #374151; margin: 0; padding: 0; list-style: none; line-height: 1.7; }
+    .o-cta {
+      margin-top: 12px; width: 100%;
+      background: #5046E4; color: #FFFFFF;
+      border: none; border-radius: 10px; padding: 12px;
+      font-size: 13px; font-weight: 600; font-family: inherit;
+      cursor: pointer;
+    }
+
+    /* ===== Concept 1+ — warm paper + terracotta + mono numbers ===== */
+    .p .stage { background: #FBFAF7; }
+    .p-card {
+      width: 100%;
+      max-width: 320px;
+      background: #FFFEFB;
+      border: 1px solid #E8E4DC;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow:
+        0 1px 0 rgba(26, 22, 20, 0.02),
+        0 8px 24px -12px rgba(26, 22, 20, 0.06);
+      font-family: 'Geist', sans-serif;
+    }
+    .p-card h3 {
+      font-size: 15px; font-weight: 600; margin: 0 0 8px;
+      color: #1A1614; letter-spacing: -0.012em;
+    }
+    .p-card .body {
+      font-size: 13px; color: #3D3733; line-height: 1.6; margin: 0 0 16px;
+      white-space: pre-line;
+    }
+    .p-bar { height: 6px; background: #F4F2EC; border-radius: 9999px; overflow: hidden; }
+    .p-bar-fill { height: 100%; background: #B91C1C; border-radius: 9999px; }
+    .p-bar-meta {
+      display: flex; justify-content: space-between;
+      font-family: 'Geist Mono', monospace;
+      font-size: 11px; color: #6E6660; margin-top: 6px;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.02em;
+    }
+    .p-bar-meta b { color: #1A1614; font-weight: 500; }
+    .p-reset {
+      font-family: 'Geist Mono', monospace;
+      font-size: 10.5px; color: #A39A93; margin-top: 4px;
+      letter-spacing: 0.02em;
+    }
+    .p-pro {
+      margin-top: 18px;
+      border: 1px solid #FED7AA;
+      background: #FFF7ED;
+      border-radius: 10px;
+      padding: 12px 14px;
+    }
+    .p-pro-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+    .p-pro-price {
+      font-family: 'Geist Mono', monospace;
+      font-size: 17px; font-weight: 600; color: #C2410C;
+      letter-spacing: 0;
+      font-variant-numeric: tabular-nums;
+    }
+    .p-pro-price-x {
+      font-family: 'Geist', sans-serif;
+      font-size: 11px; font-weight: 400; color: #C2410C;
+      opacity: 0.7; margin-left: 2px;
+    }
+    .p-pro-note {
+      font-family: 'Geist Mono', monospace;
+      font-size: 10px; color: #C2410C; opacity: 0.65;
+      letter-spacing: 0.04em; text-transform: uppercase;
+    }
+    .p-pro-list { font-size: 12px; color: #3D3733; margin: 0; padding: 0; list-style: none; line-height: 1.7; }
+    .p-pro-list li::before {
+      content: '+ '; color: #C2410C; font-family: 'Geist Mono', monospace; font-weight: 500;
+    }
+    .p-cta {
+      margin-top: 12px; width: 100%;
+      background: #1A1614; color: #FFFEFB;
+      border: none; border-radius: 10px; padding: 12px;
+      font-size: 13px; font-weight: 500; font-family: 'Geist', sans-serif;
+      letter-spacing: -0.005em;
+      cursor: pointer;
+      display: flex; justify-content: center; align-items: center; gap: 8px;
+      transition: background 140ms ease;
+    }
+    .p-cta:hover { background: #3D3733; }
+    .p-cta-arrow {
+      font-family: 'Geist Mono', monospace;
+      font-size: 12px; opacity: 0.7;
+    }
+
+    /* ===== diff annotations (right column overlay markers) ===== */
+    .meta {
+      padding: 20px;
+      border-top: 1px solid #F1F2F4;
+      font-size: 13px;
+      line-height: 1.7;
+      color: #4B5563;
+    }
+    .meta b { color: #111827; }
+    .meta .changes { margin: 8px 0 0; padding: 0; list-style: none; }
+    .meta .changes li {
+      padding: 4px 0;
+      font-size: 12.5px;
+      display: flex; gap: 10px; align-items: baseline;
+    }
+    .meta .changes li::before {
+      content: ''; flex-shrink: 0;
+      width: 6px; height: 6px; border-radius: 9999px;
+      margin-top: 6px;
+      background: #C2410C;
+    }
+    .meta code {
+      font-family: 'Geist Mono', monospace; font-size: 11.5px;
+      background: #FBFAF7; border: 1px solid #E8E4DC;
+      padding: 1px 5px; border-radius: 3px; color: #1A1614;
+    }
+
+    /* footer */
+    .verdict {
+      max-width: 1180px; margin: 32px auto 0;
+      padding: 24px 28px;
+      background: #FFFEFB;
+      border: 1px solid #E8E4DC;
+      border-radius: 14px;
+      font-size: 14px; line-height: 1.7; color: #3D3733;
+    }
+    .verdict h3 {
+      font-size: 18px; font-weight: 600; margin: 0 0 10px;
+      color: #1A1614; letter-spacing: -0.01em;
+    }
+    .verdict ul { margin: 10px 0 0; padding-left: 20px; }
+    .verdict ul li { margin-bottom: 6px; }
+  </style>
+</head>
+<body>
+
+  <div class="head">
+    <h1>Concept 1 → Concept 1+</h1>
+    <p>블루프린트는 그대로 (calm · readable · single-card). 디테일 3개만 바꿔서 누적 차별화 만들기. 좌·우 비교해보세요.</p>
+  </div>
+
+  <div class="grid">
+
+    <!-- =================== ORIGINAL =================== -->
+    <section class="col o">
+      <div class="col-head">
+        <p class="col-eyebrow">Original · Concept 1</p>
+        <h2 class="col-title">Calm Productivity</h2>
+        <p class="col-tag">Linear / Notion / Stripe / 99% SaaS — 어디서나 본 패턴</p>
+      </div>
+      <div class="stage">
+        <div class="o-card">
+          <h3>월간 30분 한도에 도달했습니다</h3>
+          <p class="body">새로운 음성 수집은 중단되었습니다.
+이전에 만든 노트는 그대로 열람·재생성할 수 있습니다.</p>
+          <div class="o-bar"><div class="o-bar-fill" style="width:100%"></div></div>
+          <div class="o-bar-meta"><span>30분 / 30분</span><b>100%</b></div>
+          <p class="o-reset">다음 달 1일에 자동 리셋</p>
+          <div class="o-pro">
+            <div class="o-pro-row">
+              <span class="o-pro-price">¥980 / 월</span>
+              <span class="o-pro-note">월 결제 · 언제든 해지</span>
+            </div>
+            <ul class="o-pro-list">
+              <li>✓ 월 30시간 (Free의 60배)</li>
+              <li>✓ 긴 강의도 안심 녹음</li>
+            </ul>
+          </div>
+          <button class="o-cta">Pro로 업그레이드 ¥980/월</button>
+        </div>
+      </div>
+      <div class="meta">
+        <b>Tokens:</b> #F8F9FB / #5046E4 indigo / Inter sans throughout / 모든 숫자 sans
+        <br><br>
+        <b>Read:</b> "또 그 SaaS 카드네." 안전, 무난, 기억에 안 남음.
+      </div>
+    </section>
+
+    <!-- =================== PLUS =================== -->
+    <section class="col p">
+      <div class="col-head">
+        <p class="col-eyebrow">Refined · Concept 1+</p>
+        <h2 class="col-title">Calm Lisna</h2>
+        <p class="col-tag">동일 블루프린트, 3개 토큰 변경 = 즉시 식별 가능한 정체성</p>
+      </div>
+      <div class="stage">
+        <div class="p-card">
+          <h3>월간 30분 한도에 도달했습니다</h3>
+          <p class="body">새로운 음성 수집은 중단되었습니다.
+이전에 만든 노트는 그대로 열람·재생성할 수 있습니다.</p>
+          <div class="p-bar"><div class="p-bar-fill" style="width:100%"></div></div>
+          <div class="p-bar-meta"><span>30:00 / 30:00</span><b>100%</b></div>
+          <p class="p-reset">resets 2026-06-01 09:00 JST</p>
+          <div class="p-pro">
+            <div class="p-pro-row">
+              <span class="p-pro-price">¥980<span class="p-pro-price-x">/월</span></span>
+              <span class="p-pro-note">monthly</span>
+            </div>
+            <ul class="p-pro-list">
+              <li>월 30시간 (Free의 60배)</li>
+              <li>긴 강의도 안심 녹음</li>
+            </ul>
+          </div>
+          <button class="p-cta">
+            Pro로 업그레이드
+            <span class="p-cta-arrow">→</span>
+          </button>
+        </div>
+      </div>
+      <div class="meta">
+        <b>변경된 3가지:</b>
+        <ul class="changes">
+          <li><b>Surface</b> — <code>#F8F9FB</code> cold gray → <code>#FBFAF7</code> warm paper. ink는 <code>#111827</code> → <code>#1A1614</code> warm charcoal</li>
+          <li><b>Accent</b> — indigo <code>#5046E4</code> → terracotta <code>#C2410C</code> (Pro surface) + black <code>#1A1614</code> CTA. Indigo 무리에서 즉시 분리</li>
+          <li><b>Numbers in Mono</b> — 시간 / 퍼센트 / 가격은 <code>Geist Mono</code> + tabular-nums. 본문은 <code>Geist Sans</code>. 의식 못 해도 "정밀한 도구" 느낌</li>
+        </ul>
+      </div>
+    </section>
+
+  </div>
+
+  <div class="verdict">
+    <h3>제 추천</h3>
+    <p><b>Concept 1+ 채택.</b> 이유:</p>
+    <ul>
+      <li>블루프린트 (1번의 readable 강점) 유지 — 사용자 학습 비용 0</li>
+      <li>3개 토큰 변경만으로 SaaS 평균에서 시각적으로 분리 — "어, 이건 다른 도구네" 인지 가능</li>
+      <li>본인 취향 (5번 mono 숫자) 자연스럽게 흡수</li>
+      <li>구현 비용 낮음 — 기존 컴포넌트의 색·폰트 토큰만 갈아끼우면 됨</li>
+      <li>일관 적용 시 누적 효과: 6개월 뒤 "그 cream + terracotta 학습 도구" 로 brand recall</li>
+    </ul>
+    <p style="margin-top:14px">이 방향으로 가시겠어요? 확정되면 <code>DESIGN.md</code> + Tailwind config 업데이트 + 기존 컴포넌트 (QuotaBanner, QuotaExhaustedIdle, PlanSection, SessionControls 등) 토큰 마이그레이션 진행합니다.</p>
+  </div>
+
+</body>
+</html>

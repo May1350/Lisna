@@ -44,17 +44,19 @@ export function QuotaBanner({ user, quota, onUpgrade, blocked }: Props) {
   // Progress bar fill colour swaps red/amber to mirror the headline
   // intent. Kept on a neutral gray track so it reads as a calm meter
   // rather than the previous full-bleed coloured background.
-  const fillClass = isBlocked ? 'bg-red-500' : 'bg-amber-500'
+  // Bar fill color follows DESIGN.md §3.3 — warn-red at 100%,
+  // warn-amber at 90-99%. Lower bands don't render this banner at all.
+  const fillClass = isBlocked ? 'bg-warn-red' : 'bg-warn-amber'
 
   return (
-    <div className="mx-3 mb-1 rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-sm">
+    <div className="mx-3 mb-1 rounded-[10px] border border-paper-edge bg-paper-100 px-4 py-3 shadow-card">
       <div className="flex items-center justify-between gap-3 mb-2">
-        <div className="text-sm font-semibold text-gray-900">{headline}</div>
+        <div className="text-sm font-semibold text-ink-900">{headline}</div>
         {user.plan === 'free' && (
           <button
             type="button"
             onClick={onUpgrade}
-            className="shrink-0 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium px-3 py-1.5 transition"
+            className="shrink-0 rounded-md bg-ink-900 hover:bg-ink-700 text-paper-100 text-xs font-medium px-3 py-1.5 transition-colors"
           >
             {T.quota.upgradeButton}
           </button>
@@ -63,13 +65,13 @@ export function QuotaBanner({ user, quota, onUpgrade, blocked }: Props) {
       {/* Progress bar — track + filled width clamped to 100. The
           width is set inline (Tailwind can't generate arbitrary
           dynamic percentages from a runtime number). */}
-      <div className="relative h-1.5 w-full rounded-full bg-gray-100 overflow-hidden">
+      <div className="relative h-1.5 w-full rounded-full bg-paper-300 overflow-hidden">
         <div
           className={`absolute inset-y-0 left-0 rounded-full ${fillClass}`}
           style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
         />
       </div>
-      <div className="flex items-center justify-between mt-1.5 text-[11px] text-gray-500 tabular-nums">
+      <div className="flex items-center justify-between mt-1.5 text-[11px] text-ink-500 font-mono tabular-nums">
         <span>
           {/* Clamp the displayed used-secs to the limit. Backend can
               record one chunk past the boundary (recordUsage fires
@@ -78,9 +80,9 @@ export function QuotaBanner({ user, quota, onUpgrade, blocked }: Props) {
               read as noise — the bar already says "full". */}
           {formatMinutes(Math.min(quota.used_secs, quota.limit_secs), T)} / {formatMinutes(quota.limit_secs, T)}
         </span>
-        <span className="font-medium">{Math.min(100, pct)}%</span>
+        <span className="font-medium text-ink-900">{Math.min(100, pct)}%</span>
       </div>
-      <div className="mt-1 text-[11px] text-gray-400">{T.quota.reset_note}</div>
+      <div className="mt-1 text-[11px] text-ink-300 font-mono">{T.quota.reset_note}</div>
     </div>
   )
 }

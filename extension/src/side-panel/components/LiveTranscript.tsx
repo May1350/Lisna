@@ -40,20 +40,22 @@ function placeholderFor(
     return {
       icon: '🎙️',
       text: T.liveTranscript.placeholder_processing,
-      tone: 'text-blue-600',
+      // Recording → ok-green tone (matches the status dot pulse
+      // above so the two signals reinforce instead of competing).
+      tone: 'text-ok-green',
     }
   }
   if (playing === false) {
     return {
       icon: '⏸',
       text: T.liveTranscript.placeholder_paused,
-      tone: 'text-gray-500',
+      tone: 'text-ink-500',
     }
   }
   return {
     icon: '⏳',
     text: T.liveTranscript.placeholder_idle,
-    tone: 'text-gray-400',
+    tone: 'text-ink-300',
   }
 }
 
@@ -87,21 +89,21 @@ export function LiveTranscript({ items, videoPlaying = null }: Props) {
   const { icon, text, tone } = placeholderFor(videoPlaying, T)
 
   return (
-    <div className="border-t border-gray-200 bg-gray-100/60 px-3 py-2">
+    <div className="border-t border-paper-edge bg-paper-200 px-3 py-2">
       <div className="flex items-center justify-between mb-1">
-        <span className="text-[10px] font-medium uppercase tracking-wider text-gray-400">
+        <span className="text-[10px] font-mono font-medium uppercase tracking-eyebrow text-ink-300">
           {T.liveTranscript.header}
         </span>
         {/* Tiny play/pause status pill so the user can see at a glance
             whether audio is currently flowing. Hidden when unknown. */}
         {videoPlaying === true && (
-          <span className="text-[10px] text-emerald-600 flex items-center gap-1">
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+          <span className="text-[10px] font-mono text-ok-green flex items-center gap-1">
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-ok-green animate-pulse" />
             {T.liveTranscript.statusRecordingShort}
           </span>
         )}
         {videoPlaying === false && (
-          <span className="text-[10px] text-gray-500">{T.liveTranscript.statusPausedShort}</span>
+          <span className="text-[10px] font-mono text-ink-500">{T.liveTranscript.statusPausedShort}</span>
         )}
       </div>
 
@@ -122,11 +124,11 @@ export function LiveTranscript({ items, videoPlaying = null }: Props) {
           aria-atomic="false"
           aria-label={T.liveTranscript.header}
           role="log"
-          className="max-h-32 overflow-y-auto text-xs text-gray-500 leading-relaxed space-y-1 pr-1"
+          className="lisna-scroll max-h-32 overflow-y-auto text-xs text-ink-500 leading-relaxed space-y-1 pr-1"
         >
           {items.map((it, i) => (
             <p key={`${it.ts}-${i}`}>
-              <span className="text-gray-300 mr-1">[{fmtTs(it.ts)}]</span>
+              <span className="text-ink-300 font-mono tabular-nums mr-1">[{fmtTs(it.ts)}]</span>
               {it.text}
             </p>
           ))}

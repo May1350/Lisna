@@ -1,0 +1,1545 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lisna · Notes v2 — Priority A+B 적용</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --paper-100: #FFFEFB;
+      --paper-200: #FBFAF7;
+      --paper-300: #F4F2EC;
+      --paper-edge: #E8E4DC;
+      --ink-900: #1A1614;
+      --ink-700: #3D3733;
+      --ink-500: #6E6660;
+      --ink-300: #A39A93;
+      --ink-200: #C8C0B7;
+
+      /* Color reservation rule applied:
+         terracotta = ONLY for payment / upgrade / Pro affordances.
+         All learning highlights (Take, important points, TLDR bar)
+         use neutral ink-900 / paper-300 instead. */
+      --terra: #C2410C;
+      --terra-700: #9A330A;
+      --terra-soft: #FED7AA;
+      --terra-tint: #FFF7ED;
+
+      --warn-red: #B91C1C;
+      --warn-amber: #B45309;
+      --ok-green: #4F7C5C;
+
+      --shadow-md: 0 1px 0 rgba(26, 22, 20, 0.04), 0 16px 32px -16px rgba(26, 22, 20, 0.12);
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-lg: 14px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: 'Geist', -apple-system, 'Hiragino Sans', 'Apple SD Gothic Neo', sans-serif;
+      background: #ECECEF;
+      color: var(--ink-900);
+      -webkit-font-smoothing: antialiased;
+      padding: 36px 24px 80px;
+      font-feature-settings: "ss01";
+    }
+    .head { max-width: 1280px; margin: 0 auto 28px; }
+    .head h1 {
+      font-size: 28px; font-weight: 700; margin: 0 0 6px; letter-spacing: -0.02em;
+      color: var(--ink-900);
+    }
+    .head p { font-size: 14px; color: var(--ink-500); margin: 0; line-height: 1.6; max-width: 720px; }
+
+    .system {
+      --modal-w: 380px;
+      max-width: 1280px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: var(--modal-w) 1fr;
+      gap: 28px;
+      align-items: start;
+    }
+    @media (max-width: 880px) { .system { grid-template-columns: 1fr; } }
+
+    .modal {
+      position: sticky; top: 24px;
+      width: 100%;
+      background: var(--paper-100);
+      border: 1px solid var(--paper-edge);
+      border-radius: 14px;
+      box-shadow: var(--shadow-md);
+      overflow: hidden;
+      display: flex; flex-direction: column;
+      max-height: calc(100vh - 56px);
+    }
+
+    /* ═══════════ D-3. Modal width resize handle ═══════════
+       Drag the right edge to widen / narrow the panel within
+       a [360, 600] px range. The handle is a thin invisible
+       strip along the right edge with a small visible pill
+       in the middle that brightens on hover. The user's width
+       choice persists in localStorage so re-opening the modal
+       remembers it. */
+    .modal-wrap { position: relative; }
+    .modal-resize {
+      position: absolute;
+      top: 24px;            /* aligned with sticky top of modal */
+      right: -16px;
+      bottom: 0;
+      width: 16px;
+      cursor: ew-resize;
+      z-index: 5;
+      user-select: none;
+      max-height: calc(100vh - 56px);
+    }
+    .modal-resize::before {
+      content: '';
+      position: absolute;
+      left: 6px; top: 50%;
+      width: 3px; height: 36px;
+      transform: translateY(-50%);
+      background: var(--paper-edge);
+      border-radius: 9999px;
+      transition: background 140ms ease, height 140ms ease;
+    }
+    .modal-resize:hover::before {
+      background: var(--terra);
+      height: 56px;
+    }
+    .modal-wrap.dragging .modal-resize::before {
+      background: var(--terra);
+      height: 56px;
+    }
+    .modal-wrap.dragging * { cursor: ew-resize !important; user-select: none; }
+
+    /* Width-aware layout: when the modal exceeds 460px we have room
+       to widen the section rail into a mini text TOC instead of the
+       compact dot column. Triggered by adding .wide on the modal
+       at runtime. */
+    .modal.wide .section-rail {
+      width: 132px;
+      align-items: stretch;
+      padding: 14px 0 12px;
+    }
+    .modal.wide .rail-dot {
+      display: flex; align-items: center; gap: 8px;
+      width: auto; height: auto;
+      padding: 6px 10px 6px 14px;
+      border-radius: 0;
+      background: transparent;
+      transform: none;
+      font-family: 'Geist', sans-serif;
+      font-size: 11.5px; font-weight: 500;
+      color: var(--ink-500);
+      letter-spacing: -0.005em;
+      text-align: left;
+      margin: 0;
+      position: relative;
+    }
+    .modal.wide .rail-dot::before {
+      content: ''; width: 5px; height: 5px; border-radius: 9999px;
+      background: var(--ink-200); flex-shrink: 0;
+    }
+    .modal.wide .rail-dot:hover {
+      background: var(--paper-100);
+      transform: none;
+      color: var(--ink-900);
+    }
+    .modal.wide .rail-dot:hover::before { background: var(--ink-700); }
+    .modal.wide .rail-dot.active {
+      background: var(--paper-100);
+      color: var(--ink-900);
+      transform: none;
+      font-weight: 600;
+      box-shadow: inset 2px 0 0 var(--terra);
+    }
+    .modal.wide .rail-dot.active::before {
+      background: var(--terra);
+      width: 6px; height: 6px;
+    }
+    .modal.wide .rail-dot[data-target] .rail-num {
+      font-family: 'Geist Mono', monospace;
+      font-size: 10px; color: var(--ink-300);
+      letter-spacing: 0.02em; margin-right: 2px;
+    }
+    .modal.wide .rail-dot.active .rail-num { color: var(--terra); }
+
+    /* ═══════════ PanelHeader (kept) ═══════════ */
+    .ph {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--paper-edge);
+      background: var(--paper-100);
+      flex-shrink: 0;
+    }
+    .ph-avatar {
+      width: 30px; height: 30px; border-radius: 9999px;
+      background: var(--ink-900); color: var(--paper-100);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 600; flex-shrink: 0;
+    }
+    .ph-id { flex: 1; min-width: 0; }
+    .ph-email {
+      font-size: 12.5px; font-weight: 600; color: var(--ink-900);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      letter-spacing: -0.005em;
+    }
+    .ph-plan {
+      font-size: 10.5px; color: var(--ink-500);
+      display: flex; align-items: center; gap: 5px;
+      letter-spacing: 0.01em; margin-top: 1px;
+    }
+    .ph-plan::before { content: ''; width: 5px; height: 5px; border-radius: 9999px; background: var(--ink-300); }
+    .ph-actions { display: flex; gap: 2px; align-items: center; }
+    .ph-btn {
+      height: 30px; min-width: 30px; padding: 0 8px;
+      border-radius: 8px;
+      background: var(--paper-300);
+      border: none;
+      display: inline-flex; align-items: center; justify-content: center;
+      cursor: pointer; color: var(--ink-700);
+      font-family: 'Geist', sans-serif;
+      font-size: 12.5px; font-weight: 600;
+      letter-spacing: -0.01em;
+      transition: background 120ms ease, color 120ms ease;
+    }
+    .ph-btn:hover { background: var(--ink-200); }
+    /* Icon-only buttons (sidebar / settings / close) drop the pill
+       background — only the text "2×" speed button keeps it. Subtle
+       hover background reappears so the click target stays
+       discoverable without competing with the avatar / email block. */
+    .ph-btn:has(svg) {
+      background: transparent;
+    }
+    .ph-btn:has(svg):hover {
+      background: var(--paper-300);
+      color: var(--ink-900);
+    }
+    .ph-btn svg { width: 18px; height: 18px; stroke: currentColor; stroke-width: 2; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+
+    /* ═══════════ QuotaBanner — inside scroll area, scrolls away ═══════════
+       Moved into .ov so it scrolls with the note content instead of
+       persisting at the top. User confirmed they're OK losing the
+       banner from view once they're focused on reading the notes. */
+    .qb {
+      margin: 0 0 14px;
+      padding: 12px 14px;
+      background: var(--paper-100);
+      border: 1px solid var(--paper-edge);
+      border-radius: var(--radius-md);
+    }
+    .qb-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
+    .qb-title { font-size: 12.5px; font-weight: 600; color: var(--ink-900); }
+    .qb-cta {
+      font-size: 11.5px; font-weight: 500;
+      padding: 5px 10px; border-radius: var(--radius-sm);
+      background: var(--ink-900); color: var(--paper-100);
+      border: none; cursor: pointer; font-family: inherit;
+    }
+    .qb-bar { height: 4px; background: var(--paper-300); border-radius: 9999px; overflow: hidden; }
+    .qb-bar-fill.amber { height: 100%; background: var(--warn-amber); border-radius: 9999px; }
+    .qb-meta {
+      display: flex; justify-content: space-between; margin-top: 6px;
+      font-family: 'Geist Mono', monospace;
+      font-size: 10.5px; color: var(--ink-500); letter-spacing: 0.02em;
+    }
+    .qb-meta b { color: var(--ink-900); font-weight: 500; }
+
+    /* ═══════════ A-1. Section rail (sticky left index) ═══════════
+       Mini-rail of dots on the left edge of the scroll container.
+       Active section's dot fills with ink-900 + scales up. Click jumps
+       to that section. */
+    .ov-frame {
+      position: relative;
+      flex: 1; min-height: 0;
+      display: flex;
+    }
+    .section-rail {
+      flex-shrink: 0;
+      width: 18px;
+      padding: 18px 0 16px;
+      display: flex; flex-direction: column;
+      align-items: center;
+      gap: 0;
+      border-right: 1px solid var(--paper-edge);
+      background: var(--paper-200);
+    }
+    .rail-dot {
+      width: 6px; height: 6px; border-radius: 9999px;
+      background: var(--ink-200);
+      cursor: pointer;
+      flex-shrink: 0;
+      margin: 5px 0;
+      transition: background 160ms, transform 160ms;
+    }
+    .rail-dot:hover { background: var(--ink-500); transform: scale(1.3); }
+    .rail-dot.active {
+      background: var(--ink-900);
+      transform: scale(1.5);
+    }
+    .rail-spacer { flex: 1; }
+
+    /* ═══════════ OutlineView ═══════════ */
+    .ov {
+      padding: 14px 16px 12px;
+      flex: 1;
+      overflow-y: auto;
+      scroll-behavior: smooth;
+    }
+    /* B-7. Thinner scrollbar */
+    .ov::-webkit-scrollbar { width: 4px; }
+    .ov::-webkit-scrollbar-track { background: transparent; }
+    .ov::-webkit-scrollbar-thumb { background: var(--paper-edge); border-radius: 2px; }
+    .ov::-webkit-scrollbar-thumb:hover { background: var(--ink-200); }
+
+    .ov-meta {
+      display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;
+      padding: 4px 0 14px;
+      border-bottom: 1px solid var(--paper-edge);
+    }
+    .ov-title-block { min-width: 0; flex: 1; }
+    .ov-title-eyebrow {
+      font-family: 'Geist Mono', monospace;
+      font-size: 9.5px; font-weight: 500; letter-spacing: 0.16em;
+      color: var(--ink-300); text-transform: uppercase; margin: 0 0 3px;
+    }
+    .ov-title {
+      font-size: 17px; font-weight: 700; color: var(--ink-900);
+      letter-spacing: -0.015em; line-height: 1.3; margin: 0;
+    }
+    .ov-stamp {
+      font-family: 'Geist Mono', monospace;
+      font-size: 10px; color: var(--ink-300);
+      letter-spacing: 0.02em; flex-shrink: 0; padding-top: 14px;
+    }
+
+    /* ═══════════ A-2. TLDR — clamp to ~2 lines + show-more toggle
+       Color rule revised: emphasis allowed via warm earthtone family,
+       still distinct from solid-terra payment surfaces. TLDR is THE
+       headline summary so deserves the emphasis tier. ═══════════ */
+    .ov-tldr {
+      margin: 12px 0;
+      padding: 11px 13px;
+      background: var(--terra-tint);
+      border: 1px solid var(--terra-soft);
+      border-left: 3px solid var(--terra);
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      font-size: 12.5px; color: var(--ink-900); line-height: 1.6;
+    }
+    .ov-tldr-label {
+      font-family: 'Geist Mono', monospace;
+      font-size: 9.5px; font-weight: 600; letter-spacing: 0.18em;
+      color: var(--terra-700); text-transform: uppercase;
+      display: block; margin-bottom: 4px;
+    }
+    .ov-tldr-text {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      transition: max-height 240ms ease;
+    }
+    .ov-tldr.expanded .ov-tldr-text {
+      -webkit-line-clamp: unset;
+      display: block;
+    }
+    .ov-tldr-toggle {
+      display: inline-block; margin-top: 6px;
+      font-size: 11px; font-weight: 500;
+      color: var(--ink-500);
+      background: none; border: none; padding: 0;
+      cursor: pointer; font-family: inherit;
+      letter-spacing: 0.01em;
+      text-decoration: underline;
+      text-decoration-color: var(--ink-300);
+      text-underline-offset: 2px;
+    }
+    .ov-tldr-toggle:hover { color: var(--ink-900); text-decoration-color: var(--ink-900); }
+
+    .ov-meta-row {
+      display: flex; gap: 14px; margin: 12px 0 4px;
+      font-family: 'Geist Mono', monospace;
+      font-size: 10.5px; color: var(--ink-500);
+      letter-spacing: 0.02em;
+      align-items: center;
+    }
+    .ov-meta-row b { color: var(--ink-900); font-weight: 500; }
+    .ov-meta-row .spacer { flex: 1; }
+    .ov-meta-toggle {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-family: 'Geist', sans-serif;
+      font-size: 11px; font-weight: 500;
+      color: var(--ink-700);
+      background: var(--paper-200);
+      border: 1px solid var(--paper-edge);
+      padding: 4px 9px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      letter-spacing: -0.005em;
+      transition: all 140ms;
+    }
+    .ov-meta-toggle:hover { background: var(--paper-300); color: var(--ink-900); }
+    .ov-meta-toggle.active {
+      background: var(--ink-900); color: var(--paper-100);
+      border-color: var(--ink-900);
+    }
+    .ov-meta-toggle svg { width: 11px; height: 11px; stroke: currentColor; stroke-width: 2; fill: none; }
+
+    /* ═══════════ C-3. Tags hidden in modal ═══════════
+       Tags carry no value inside the modal (no search / filter);
+       they only matter for the Obsidian export wikilinks. Hide
+       them here to free vertical space. */
+    .ov-tags { display: none; }
+
+    /* ═══════════ C-2. Compact mode (exam-cram view) ═══════════
+       Toggle in toolbar shows ONLY: TLDR + each section's heading,
+       Take, important points, and the Quiz section at the end.
+       Hides everything that's "evidence" rather than "essence". */
+    .ov.compact .ov-summary,
+    .ov.compact .ov-keyterms,
+    .ov.compact .ov-examples,
+    .ov.compact .ov-check,
+    .ov.compact .ov-point:not(.important) {
+      display: none;
+    }
+    .ov.compact .ov-section { padding-bottom: 10px; }
+
+    /* ═══════════ D-2. Section collapse (default expanded) ═══════════ */
+    .ov-section-chevron {
+      width: 22px; height: 22px;
+      background: transparent;
+      border: none; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--ink-300);
+      border-radius: var(--radius-sm);
+      transition: background 120ms, color 120ms, transform 220ms ease;
+      flex-shrink: 0;
+    }
+    .ov-section-chevron:hover { background: var(--paper-200); color: var(--ink-700); }
+    .ov-section-chevron svg { width: 12px; height: 12px; stroke: currentColor; stroke-width: 2.4; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+    .ov-section.collapsed .ov-section-chevron { transform: rotate(-90deg); }
+    .ov-section.collapsed > :not(.ov-section-head) { display: none; }
+    .ov-section.collapsed { padding-bottom: 6px; }
+    .ov-section.collapsed .ov-section-head { margin-bottom: 0; }
+
+    /* ═══════════ Section ═══════════ */
+    .ov-section {
+      margin: 16px 0; padding-bottom: 14px;
+      border-bottom: 1px solid var(--paper-edge);
+      scroll-margin-top: 8px;
+    }
+    .ov-section:last-child { border-bottom: none; padding-bottom: 4px; }
+
+    /* ═══════════ B-4. Section number = circle badge ═══════════ */
+    .ov-section-head {
+      display: flex; align-items: center; gap: 10px;
+      margin-bottom: 8px;
+    }
+    .ov-section-num {
+      width: 22px; height: 22px;
+      border-radius: 9999px;
+      background: var(--paper-300);
+      color: var(--ink-700);
+      font-family: 'Geist Mono', monospace;
+      font-size: 10px; font-weight: 600;
+      letter-spacing: 0.02em;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .ov-section-h {
+      font-size: 14px; font-weight: 600; color: var(--ink-900);
+      letter-spacing: -0.005em;
+      flex: 1; line-height: 1.35;
+    }
+
+    /* ═══════════ A-3. Section ts — always-visible click affordance ═══════════ */
+    .ov-ts {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-family: 'Geist Mono', monospace;
+      font-size: 10.5px;
+      color: var(--ink-500);
+      cursor: pointer;
+      padding: 3px 7px;
+      border-radius: 4px;
+      background: var(--paper-200);
+      border: 1px solid var(--paper-edge);
+      transition: all 140ms ease;
+      flex-shrink: 0;
+    }
+    .ov-ts:hover {
+      background: var(--ink-900);
+      color: var(--paper-100);
+      border-color: var(--ink-900);
+    }
+    .ov-ts svg {
+      width: 9px; height: 9px;
+      fill: currentColor;
+      flex-shrink: 0;
+    }
+
+    .ov-summary {
+      font-size: 12.5px; color: var(--ink-700); line-height: 1.65; margin: 0 0 10px;
+    }
+
+    /* ═══════════ Take box — warm emphasis (revised) ═══════════
+       Soft terra-tint surface so the user's eye is pulled to "this is
+       the takeaway". Distinct from the payment-surface variant (which
+       uses a solid terra price + ink-900 button) so the two don't
+       collide visually. */
+    .ov-takeaway {
+      padding: 10px 12px; margin: 0 0 10px;
+      background: var(--terra-tint);
+      border: 1px solid var(--terra-soft);
+      border-left: 3px solid var(--terra);
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      font-size: 12.5px; color: var(--ink-900); line-height: 1.6;
+      display: flex; gap: 10px;
+      font-weight: 500;
+    }
+    .ov-takeaway-label {
+      font-family: 'Geist Mono', monospace;
+      font-size: 9px; font-weight: 600; letter-spacing: 0.16em;
+      color: var(--terra-700); text-transform: uppercase;
+      flex-shrink: 0; padding-top: 1px;
+    }
+
+    .ov-keyterms { margin: 0 0 10px; }
+    .ov-keyterm {
+      padding: 8px 0;
+      border-top: 1px dashed var(--paper-edge);
+      display: flex; gap: 10px; align-items: baseline;
+    }
+    .ov-keyterm:first-child { border-top: none; padding-top: 0; }
+    .ov-keyterm-name {
+      font-size: 12px; font-weight: 600; color: var(--ink-900);
+      flex-shrink: 0; min-width: 92px;
+    }
+    .ov-keyterm-def {
+      font-size: 11.5px; color: var(--ink-700); line-height: 1.6;
+      flex: 1;
+    }
+
+    .ov-examples { margin: 0 0 10px; padding: 0; list-style: none; font-size: 12px; color: var(--ink-700); line-height: 1.7; }
+    .ov-example { padding-left: 24px; position: relative; }
+    .ov-example::before {
+      content: 'e.g.';
+      font-family: 'Geist Mono', monospace;
+      font-size: 9.5px; font-weight: 500;
+      color: var(--ink-300);
+      position: absolute; left: 0; top: 0.45em;
+      letter-spacing: 0.04em;
+    }
+
+    /* ═══════════ Important point — highlighter on text only ═══════════
+       Earlier attempt put a linear-gradient on the entire flex row
+       which (a) covered the dot column and (b) drew the underline
+       on a fixed vertical band that misaligned with multi-line wraps.
+       Real highlighter feel needs box-decoration-break: clone on the
+       text node itself so wrapping correctly extends the band per
+       line. */
+    .ov-points { margin: 0 0 6px; padding: 0; list-style: none; }
+    .ov-point {
+      padding: 4px 0;
+      font-size: 12px; color: var(--ink-700); line-height: 1.65;
+      display: flex; gap: 10px; align-items: baseline;
+    }
+    .ov-point::before {
+      content: ''; width: 4px; height: 4px; border-radius: 9999px;
+      background: var(--ink-200); flex-shrink: 0; margin-top: 8px;
+    }
+    .ov-point.important { color: var(--ink-900); font-weight: 500; }
+    .ov-point.important::before {
+      background: var(--terra);
+      width: 6px; height: 6px;
+      margin-top: 7px;
+      box-shadow: 0 0 0 2px var(--terra-tint);
+    }
+    .ov-point .hl {
+      /* Solid block highlight — linear-gradient bands collide with
+         CJK glyph metrics (kana/kanji have negligible descenders, so
+         a 55-92% band falls below the visible glyph area, creating
+         the "empty bar under text" bug seen on multi-line wraps).
+         Solid background with box-decoration-break: clone is robust
+         across CJK + Latin mixed content. */
+      background: var(--terra-soft);
+      color: var(--ink-900);
+      -webkit-box-decoration-break: clone;
+      box-decoration-break: clone;
+      padding: 1px 3px;
+      margin: 0 -1px;
+      border-radius: 3px;
+      box-decoration-break: clone;
+    }
+
+    /* ═══════════ B-3. Tag pill — 11px sans, larger ═══════════ */
+    .ov-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+    .ov-tag {
+      font-family: 'Geist', sans-serif;
+      font-size: 11px; font-weight: 500;
+      padding: 3px 9px;
+      background: var(--paper-200); color: var(--ink-700);
+      border: 1px solid var(--paper-edge);
+      border-radius: 9999px;
+      letter-spacing: 0;
+      cursor: pointer;
+      transition: background 120ms;
+    }
+    .ov-tag:hover { background: var(--paper-300); color: var(--ink-900); }
+
+    .ov-check {
+      margin-top: 10px;
+      padding: 8px 10px;
+      background: var(--paper-200);
+      border: 1px solid var(--paper-edge);
+      border-radius: var(--radius-sm);
+      font-size: 11.5px; color: var(--ink-700); line-height: 1.6;
+      display: flex; gap: 8px;
+    }
+    .ov-check-label {
+      font-family: 'Geist Mono', monospace;
+      font-size: 9px; font-weight: 600; letter-spacing: 0.16em;
+      color: var(--ink-500); text-transform: uppercase;
+      flex-shrink: 0; padding-top: 1px;
+    }
+
+    /* ═══════════ B-5. Slides — current section auto-active ═══════════ */
+    .slides {
+      padding: 8px 14px;
+      border-top: 1px solid var(--paper-edge);
+      display: flex; gap: 6px; overflow-x: auto;
+      background: var(--paper-100);
+      flex-shrink: 0;
+      scroll-behavior: smooth;
+    }
+    .slides::-webkit-scrollbar { height: 4px; }
+    .slides::-webkit-scrollbar-thumb { background: var(--paper-edge); border-radius: 2px; }
+    .slide-thumb {
+      flex-shrink: 0;
+      width: 60px; height: 38px; border-radius: var(--radius-sm);
+      background: var(--paper-300);
+      border: 1px solid var(--paper-edge);
+      position: relative;
+      overflow: hidden;
+      cursor: pointer;
+      transition: transform 160ms, box-shadow 160ms, border-color 160ms;
+    }
+    .slide-thumb::after {
+      content: attr(data-ts);
+      position: absolute; bottom: 2px; right: 3px;
+      font-family: 'Geist Mono', monospace;
+      font-size: 8px; color: var(--ink-500);
+      background: rgba(255, 254, 251, 0.9);
+      padding: 1px 3px; border-radius: 2px;
+    }
+    .slide-thumb.active {
+      border-color: var(--ink-900);
+      box-shadow:
+        0 0 0 1px var(--ink-900),
+        0 4px 12px -4px rgba(26, 22, 20, 0.3);
+      transform: translateY(-1px);
+    }
+
+    /* ═══════════ C-5. Quiz section (review questions roll-up) ═══════════
+       Aggregates every section's check_question into a single
+       end-of-notes review block. Each item links back to its
+       section so click → smooth scroll to that section. */
+    .ov-quiz {
+      margin: 22px 0 8px;
+      padding: 14px 14px 12px;
+      background: var(--paper-200);
+      border: 1px solid var(--paper-edge);
+      border-radius: var(--radius-md);
+    }
+    .ov-quiz-head {
+      display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px;
+    }
+    .ov-quiz-label {
+      font-family: 'Geist Mono', monospace;
+      font-size: 9.5px; font-weight: 600; letter-spacing: 0.16em;
+      color: var(--ink-500); text-transform: uppercase;
+    }
+    .ov-quiz-count {
+      font-family: 'Geist Mono', monospace;
+      font-size: 10px; color: var(--ink-300); letter-spacing: 0.02em;
+    }
+    .ov-quiz-list {
+      list-style: none; margin: 0; padding: 0;
+      counter-reset: q;
+    }
+    .ov-quiz-item {
+      display: flex; gap: 10px; align-items: flex-start;
+      padding: 8px 0;
+      border-top: 1px dashed var(--paper-edge);
+      font-size: 12px; color: var(--ink-700); line-height: 1.55;
+    }
+    .ov-quiz-item:first-child { border-top: none; padding-top: 0; }
+    .ov-quiz-item::before {
+      counter-increment: q;
+      content: 'Q' counter(q);
+      font-family: 'Geist Mono', monospace;
+      font-size: 10px; font-weight: 600;
+      color: var(--ink-300); letter-spacing: 0.02em;
+      flex-shrink: 0; min-width: 20px;
+      padding-top: 1px;
+    }
+    .ov-quiz-text { flex: 1; }
+    .ov-quiz-link {
+      font-family: 'Geist Mono', monospace;
+      font-size: 10px; color: var(--ink-500);
+      text-decoration: none;
+      cursor: pointer;
+      flex-shrink: 0;
+      padding: 1px 6px;
+      border-radius: 3px;
+      transition: all 140ms;
+    }
+    .ov-quiz-link:hover { background: var(--ink-900); color: var(--paper-100); }
+
+    /* ═══════════ Live captions + C-4 collapse toggle ═══════════ */
+    .lt {
+      padding: 10px 14px; max-height: 120px; overflow-y: auto;
+      border-top: 1px solid var(--paper-edge);
+      background: var(--paper-200);
+      flex-shrink: 0;
+      transition: padding 200ms;
+    }
+    .lt.collapsed { max-height: 32px; overflow: hidden; padding-top: 8px; padding-bottom: 8px; }
+    .lt.collapsed .lt-head { margin-bottom: 0; }
+    .lt.collapsed .lt-line { display: none; }
+    .lt-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; gap: 8px; }
+    .lt-chevron {
+      width: 20px; height: 18px;
+      background: transparent; border: none;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      color: var(--ink-300);
+      border-radius: 4px;
+      margin-left: auto;
+      transition: background 120ms, color 120ms, transform 220ms ease;
+    }
+    .lt-chevron:hover { background: var(--paper-300); color: var(--ink-700); }
+    .lt-chevron svg { width: 10px; height: 10px; stroke: currentColor; stroke-width: 2.4; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+    .lt.collapsed .lt-chevron { transform: rotate(180deg); }
+    .lt-label {
+      font-family: 'Geist Mono', monospace;
+      font-size: 9.5px; font-weight: 500; letter-spacing: 0.18em;
+      color: var(--ink-300); text-transform: uppercase;
+    }
+    .lt-status {
+      font-family: 'Geist Mono', monospace;
+      font-size: 10px; color: var(--ok-green);
+      display: flex; align-items: center; gap: 5px;
+    }
+    .lt-status::before {
+      content: ''; width: 5px; height: 5px; border-radius: 9999px; background: var(--ok-green);
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.9); }
+    }
+    .lt-line { font-size: 11.5px; color: var(--ink-500); line-height: 1.55; padding: 2px 0; }
+    .lt-line-ts {
+      font-family: 'Geist Mono', monospace;
+      font-size: 10px; color: var(--ink-300); margin-right: 6px;
+    }
+
+    .ctrl { padding: 10px 12px; border-top: 1px solid var(--paper-edge); background: var(--paper-100); flex-shrink: 0; }
+    .ctrl-row { display: flex; gap: 6px; }
+    .ctrl-btn {
+      flex: 1;
+      font-size: 12px; font-weight: 500;
+      padding: 9px 12px;
+      border-radius: var(--radius-md);
+      cursor: pointer; font-family: inherit;
+      transition: background 120ms;
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+    }
+    .ctrl-btn-primary { background: var(--ink-900); color: var(--paper-100); border: none; }
+    .ctrl-btn-primary:hover { background: var(--ink-700); }
+
+    /* ═══════════ Annotations panel ═══════════ */
+    .annotations {
+      background: var(--paper-100);
+      border: 1px solid var(--paper-edge);
+      border-radius: 14px;
+      padding: 24px 28px;
+      position: sticky; top: 24px;
+    }
+    .annotations h2 {
+      font-size: 20px; font-weight: 700; margin: 0 0 6px; letter-spacing: -0.015em;
+      color: var(--ink-900);
+    }
+    .annotations p.lead {
+      font-size: 13px; color: var(--ink-500); margin: 0 0 22px; line-height: 1.6;
+    }
+    .anno-section {
+      padding: 14px 0;
+      border-top: 1px solid var(--paper-edge);
+    }
+    .anno-section:first-of-type { border-top: none; padding-top: 0; }
+    .anno-eyebrow {
+      font-family: 'Geist Mono', monospace;
+      font-size: 10px; font-weight: 500; letter-spacing: 0.16em;
+      color: var(--ink-300); text-transform: uppercase; margin: 0 0 6px;
+    }
+    .anno-title {
+      font-size: 14px; font-weight: 600; color: var(--ink-900); margin: 0 0 8px;
+      letter-spacing: -0.005em;
+    }
+    .anno-list { margin: 0; padding: 0; list-style: none; }
+    .anno-item {
+      display: flex; gap: 12px; padding: 8px 0;
+      border-top: 1px dashed var(--paper-edge);
+    }
+    .anno-item:first-child { border-top: none; padding-top: 0; }
+    .anno-tag {
+      flex-shrink: 0;
+      font-family: 'Geist Mono', monospace;
+      font-size: 9.5px; padding: 2px 7px;
+      border-radius: 4px; align-self: flex-start;
+      letter-spacing: 0.04em; text-transform: uppercase;
+      font-weight: 500;
+    }
+    .anno-tag.done { background: var(--paper-300); color: var(--ink-900); border: 1px solid var(--ink-200); }
+    .anno-tag.next { background: var(--terra-tint); color: var(--terra-700); border: 1px solid var(--terra-soft); }
+    .anno-text { font-size: 12.5px; color: var(--ink-700); line-height: 1.6; }
+    .anno-text b { color: var(--ink-900); font-weight: 600; }
+    .anno-text code {
+      font-family: 'Geist Mono', monospace;
+      font-size: 11.5px; padding: 1px 5px;
+      background: var(--paper-200); border: 1px solid var(--paper-edge);
+      border-radius: 3px; color: var(--ink-900);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="head">
+    <h1>Notes v2 — Priority A+B 적용 결과</h1>
+    <p>모달 안에서 <b>스크롤하면서 확인</b>하세요. 좌측 가장자리 미니 dot 레일 / TLDR 더보기 토글 / ts 클릭 affordance / 슬라이드 자동 활성화 / QuotaBanner 자동 collapse 등이 실제로 동작합니다. 우측은 적용된 11개 변경 + 다음 단계 (C/D) 제안.</p>
+  </div>
+
+  <div class="system">
+
+    <!-- ═════════════ MODAL ═════════════ -->
+    <div class="modal-wrap" id="modalWrap">
+    <div class="modal" id="modal">
+
+      <div class="ph">
+        <div class="ph-avatar">T</div>
+        <div class="ph-id">
+          <div class="ph-email">takgun@keio.jp</div>
+          <div class="ph-plan">Free</div>
+        </div>
+        <div class="ph-actions">
+          <button class="ph-btn">2×</button>
+          <button class="ph-btn"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg></button>
+          <button class="ph-btn"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+          <button class="ph-btn"><svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+        </div>
+      </div>
+
+      <div class="ov-frame">
+
+        <div class="section-rail" id="rail">
+          <div class="rail-dot active" data-target="s1" title="Section 1"></div>
+          <div class="rail-dot" data-target="s2" title="Section 2"></div>
+          <div class="rail-dot" data-target="s3" title="Section 3"></div>
+          <div class="rail-dot" data-target="s4" title="Section 4"></div>
+          <div class="rail-dot" data-target="s5" title="Section 5"></div>
+          <div class="rail-dot" data-target="s6" title="Section 6"></div>
+          <div class="rail-dot" data-target="s7" title="Section 7"></div>
+          <div class="rail-dot" data-target="s8" title="Section 8"></div>
+          <div class="rail-spacer"></div>
+        </div>
+
+        <div class="ov" id="ov">
+          <div class="qb">
+            <div class="qb-head">
+              <span class="qb-title">월간 사용량 한도에 근접</span>
+              <button class="qb-cta">Pro로 업그레이드</button>
+            </div>
+            <div class="qb-bar"><div class="qb-bar-fill amber" style="width:87%"></div></div>
+            <div class="qb-meta">
+              <span>26:08 / 30:00</span>
+              <b>87%</b>
+            </div>
+          </div>
+
+          <div class="ov-meta">
+            <div class="ov-title-block">
+              <p class="ov-title-eyebrow">Lecture · 3Blue1Brown</p>
+              <h2 class="ov-title">But what is a neural network?</h2>
+            </div>
+            <span class="ov-stamp">updated 2m ago</span>
+          </div>
+
+          <div class="ov-tldr" id="tldr">
+            <span class="ov-tldr-label">TL;DR</span>
+            <span class="ov-tldr-text">Neural Network 은 인간 뇌의 시각 인식 능력을 모방하기 위한 계층적 연산 구조. 28×28 pixel 의 손글씨 숫자 인식 task 를 통해 input → hidden layers → output 의 정보 흐름과, 각 neuron 이 weighted sum + activation 으로 동작하는 원리를 설명한다. 학습이란 weights 와 biases 를 조정해 올바른 인식 결과를 얻는 과정이다.</span>
+            <button class="ov-tldr-toggle" id="tldrToggle">더보기</button>
+          </div>
+
+          <div class="ov-meta-row">
+            <span><b>8</b> sections</span>
+            <span><b>14</b> key terms</span>
+            <span><b>~17m</b> total</span>
+            <span class="spacer"></span>
+            <button class="ov-meta-toggle" id="compactToggle" title="키 포인트만 보기">
+              <svg viewBox="0 0 24 24"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="14" y2="12"/><line x1="4" y1="18" x2="10" y2="18"/></svg>
+              Compact
+            </button>
+          </div>
+
+          <div class="ov-section" id="s1" data-slide-ts="00:05">
+            <div class="ov-section-head">
+              <span class="ov-section-num">01</span>
+              <h3 class="ov-section-h">脳の視覚認識能力という驚異</h3>
+              <button class="ov-ts" data-jump="00:05"><svg viewBox="0 0 24 24"><polygon points="6,4 20,12 6,20"/></svg>00:05</button><button class="ov-section-chevron" data-toggle-section><svg viewBox="0 0 24 24"><polyline points="6,9 12,15 18,9"/></svg></button>
+            </div>
+            <p class="ov-summary">脳は異なる解像度・スタイルの画像を同じ物体として認識できる。28×28 pixel の極小画像でも余裕で「3」と判別する能力こそ、neural network が模倣しようとしている対象である。</p>
+            <div class="ov-takeaway">
+              <span class="ov-takeaway-label">Take</span>
+              <span>低解像度で大きく異なる見た目でも同じ概念として認識できる「汎化」が、人間の視覚認識の本質</span>
+            </div>
+            <ul class="ov-points">
+              <li class="ov-point important"><span class="hl">28×28 pixel = 784 個の輝度値だけで「3」と判別可能</span></li>
+              <li class="ov-point">スタイル・大きさ・解像度に依存しない identification</li>
+              <li class="ov-point">この汎化能力こそ neural network が模倣を目指す</li>
+            </ul>
+            <div class="ov-tags">
+              <span class="ov-tag">visual recognition</span>
+              <span class="ov-tag">generalization</span>
+            </div>
+            <div class="ov-check">
+              <span class="ov-check-label">Check</span>
+              <span>脳の視覚認識を「汎化」という概念で 30 字以内で説明せよ。</span>
+            </div>
+          </div>
+
+          <div class="ov-section" id="s2" data-slide-ts="02:14">
+            <div class="ov-section-head">
+              <span class="ov-section-num">02</span>
+              <h3 class="ov-section-h">Neural Network の基本構造</h3>
+              <button class="ov-ts" data-jump="02:14"><svg viewBox="0 0 24 24"><polygon points="6,4 20,12 6,20"/></svg>02:14</button><button class="ov-section-chevron" data-toggle-section><svg viewBox="0 0 24 24"><polyline points="6,9 12,15 18,9"/></svg></button>
+            </div>
+            <p class="ov-summary">NN は input layer → hidden layers → output layer の階層構造をもつ。各 layer の neuron は前 layer からの値を重み付き和として受け取り、activation function を通して次に伝える。</p>
+            <div class="ov-takeaway">
+              <span class="ov-takeaway-label">Take</span>
+              <span>Neuron は単なる「0〜1 の値を持つ箱」ではなく、前 layer 全体からの加重和を計算する関数</span>
+            </div>
+            <div class="ov-keyterms">
+              <div class="ov-keyterm">
+                <span class="ov-keyterm-name">Neuron</span>
+                <span class="ov-keyterm-def">0〜1 の値 (activation) を保持する計算単位。input layer では pixel の輝度値そのまま。</span>
+              </div>
+              <div class="ov-keyterm">
+                <span class="ov-keyterm-name">Layer</span>
+                <span class="ov-keyterm-def">同じ階層に並ぶ neuron の集合。input → hidden → output の順に flow する。</span>
+              </div>
+              <div class="ov-keyterm">
+                <span class="ov-keyterm-name">Weighted Sum</span>
+                <span class="ov-keyterm-def">前 layer の各 activation に対応する weight を掛け、すべて足し合わせた値。</span>
+              </div>
+            </div>
+            <ul class="ov-examples">
+              <li class="ov-example">Input layer: 784 個 (28×28 pixels)</li>
+              <li class="ov-example">Hidden layers: 16 + 16 (任意の選択)</li>
+              <li class="ov-example">Output layer: 10 個 (digit 0〜9)</li>
+            </ul>
+            <div class="ov-tags">
+              <span class="ov-tag">architecture</span>
+              <span class="ov-tag">layer</span>
+              <span class="ov-tag">neuron</span>
+            </div>
+          </div>
+
+          <div class="ov-section" id="s3" data-slide-ts="03:48">
+            <div class="ov-section-head">
+              <span class="ov-section-num">03</span>
+              <h3 class="ov-section-h">数字認識タスクの定義</h3>
+              <button class="ov-ts" data-jump="03:48"><svg viewBox="0 0 24 24"><polygon points="6,4 20,12 6,20"/></svg>03:48</button><button class="ov-section-chevron" data-toggle-section><svg viewBox="0 0 24 24"><polyline points="6,9 12,15 18,9"/></svg></button>
+            </div>
+            <p class="ov-summary">MNIST dataset を例に、28×28 grayscale 画像 1 枚を input として受け取り、最も「らしい」digit (0〜9) を output する分類問題として定式化する。</p>
+            <ul class="ov-points">
+              <li class="ov-point">Input: 784 次元のベクトル (各成分 ∈ [0, 1])</li>
+              <li class="ov-point important"><span class="hl">Output: 10 個の neuron の中で最大値をもつものを「答え」とする</span></li>
+              <li class="ov-point">学習データ: ラベル付き 60,000 枚の手書き数字</li>
+            </ul>
+            <div class="ov-tags">
+              <span class="ov-tag">mnist</span>
+              <span class="ov-tag">classification</span>
+            </div>
+          </div>
+
+          <div class="ov-section" id="s4" data-slide-ts="06:40">
+            <div class="ov-section-head">
+              <span class="ov-section-num">04</span>
+              <h3 class="ov-section-h">なぜ Layer が必要か — Pattern の階層</h3>
+              <button class="ov-ts" data-jump="06:40"><svg viewBox="0 0 24 24"><polygon points="6,4 20,12 6,20"/></svg>06:40</button><button class="ov-section-chevron" data-toggle-section><svg viewBox="0 0 24 24"><polyline points="6,9 12,15 18,9"/></svg></button>
+            </div>
+            <p class="ov-summary">複雑な認識タスクは、より単純なサブタスクの組み合わせとして分解できる。Hidden layer はこの分解を表現する場所であり、後段に行くほど抽象的な特徴 (edge → loop → digit) に対応すると期待される。</p>
+            <div class="ov-takeaway">
+              <span class="ov-takeaway-label">Take</span>
+              <span>Layer の存在意義 = 「単純 pattern → 中間 pattern → 最終判定」 の階層的構造を学習で表現するため</span>
+            </div>
+            <div class="ov-keyterms">
+              <div class="ov-keyterm">
+                <span class="ov-keyterm-name">Edge</span>
+                <span class="ov-keyterm-def">画像中の輝度の急変化。最も低レベルな特徴。</span>
+              </div>
+              <div class="ov-keyterm">
+                <span class="ov-keyterm-name">Loop</span>
+                <span class="ov-keyterm-def">edge を組み合わせた閉曲線。"8" は 2 つの loop、"9" は loop + 縦線。</span>
+              </div>
+              <div class="ov-keyterm">
+                <span class="ov-keyterm-name">Hierarchy</span>
+                <span class="ov-keyterm-def">Edge → Loop → Digit のように、抽象度が段階的に上がる pattern の階層。</span>
+              </div>
+            </div>
+            <ul class="ov-points">
+              <li class="ov-point important"><span class="hl">数字 "9" = 上の loop + 下の縦線 という構造分解</span></li>
+              <li class="ov-point">"8" = 上の loop + 下の loop</li>
+              <li class="ov-point">"4" = 縦線 2 本 + 横線 1 本</li>
+              <li class="ov-point">この分解こそ hidden layer が学ぶべき内容</li>
+            </ul>
+            <div class="ov-tags">
+              <span class="ov-tag">hierarchy</span>
+              <span class="ov-tag">edge detection</span>
+              <span class="ov-tag">composition</span>
+            </div>
+            <div class="ov-check">
+              <span class="ov-check-label">Check</span>
+              <span>"6" を edge と loop の組み合わせで分解せよ。</span>
+            </div>
+          </div>
+
+          <div class="ov-section" id="s5" data-slide-ts="09:20">
+            <div class="ov-section-head">
+              <span class="ov-section-num">05</span>
+              <h3 class="ov-section-h">Edge Detection の仕組み</h3>
+              <button class="ov-ts" data-jump="09:20"><svg viewBox="0 0 24 24"><polygon points="6,4 20,12 6,20"/></svg>09:20</button><button class="ov-section-chevron" data-toggle-section><svg viewBox="0 0 24 24"><polyline points="6,9 12,15 18,9"/></svg></button>
+            </div>
+            <p class="ov-summary">Hidden layer の neuron は、「特定の領域に edge が存在するか」を検出するように weight を設定できる。検出したい edge 部分の weight を正、それ以外を負にすれば、weighted sum はその edge の有無に応じた値となる。</p>
+            <div class="ov-takeaway">
+              <span class="ov-takeaway-label">Take</span>
+              <span>Weight を「正 / 負 / 0」に配置することで、neuron は特定の edge pattern detector として機能できる</span>
+            </div>
+            <ul class="ov-points">
+              <li class="ov-point important"><span class="hl">特定 pixel 群に正の weight → そこが明るいと neuron 値が上がる</span></li>
+              <li class="ov-point">周囲に負の weight → 「edge であって全面的ではない」状態を要求</li>
+              <li class="ov-point">これを Sigmoid に通せば 0〜1 の「edge 存在確率」になる</li>
+            </ul>
+            <div class="ov-tags">
+              <span class="ov-tag">weights</span>
+              <span class="ov-tag">edge detector</span>
+            </div>
+          </div>
+
+          <div class="ov-section" id="s6" data-slide-ts="12:10">
+            <div class="ov-section-head">
+              <span class="ov-section-num">06</span>
+              <h3 class="ov-section-h">Bias と Sigmoid Function</h3>
+              <button class="ov-ts" data-jump="12:10"><svg viewBox="0 0 24 24"><polygon points="6,4 20,12 6,20"/></svg>12:10</button><button class="ov-section-chevron" data-toggle-section><svg viewBox="0 0 24 24"><polyline points="6,9 12,15 18,9"/></svg></button>
+            </div>
+            <p class="ov-summary">Weighted sum をそのまま活性化に使うと範囲が広すぎる。Sigmoid で [0, 1] に圧縮し、bias を加えることで「ある閾値を超えたら活性化する」仕組みを表現する。</p>
+            <div class="ov-keyterms">
+              <div class="ov-keyterm">
+                <span class="ov-keyterm-name">Sigmoid</span>
+                <span class="ov-keyterm-def">σ(x) = 1 / (1 + e⁻ˣ). 任意の実数を [0, 1] に圧縮する S 字曲線。</span>
+              </div>
+              <div class="ov-keyterm">
+                <span class="ov-keyterm-name">Bias</span>
+                <span class="ov-keyterm-def">活性化の閾値を調整するスカラー。weighted sum に加算してから sigmoid を通す。</span>
+              </div>
+            </div>
+            <ul class="ov-points">
+              <li class="ov-point important"><span class="hl">activation = σ(Σ wᵢxᵢ + b)</span></li>
+              <li class="ov-point">Bias が大きく負 → 高い値が必要 → 検出に厳しい neuron</li>
+              <li class="ov-point">Bias が大きく正 → 緩い neuron</li>
+              <li class="ov-point">現代では sigmoid より ReLU が主流 (本講義は理解のため sigmoid)</li>
+            </ul>
+            <div class="ov-tags">
+              <span class="ov-tag">sigmoid</span>
+              <span class="ov-tag">bias</span>
+              <span class="ov-tag">activation function</span>
+            </div>
+          </div>
+
+          <div class="ov-section" id="s7" data-slide-ts="14:30">
+            <div class="ov-section-head">
+              <span class="ov-section-num">07</span>
+              <h3 class="ov-section-h">パラメータ数 — 学習対象の規模</h3>
+              <button class="ov-ts" data-jump="14:30"><svg viewBox="0 0 24 24"><polygon points="6,4 20,12 6,20"/></svg>14:30</button><button class="ov-section-chevron" data-toggle-section><svg viewBox="0 0 24 24"><polyline points="6,9 12,15 18,9"/></svg></button>
+            </div>
+            <p class="ov-summary">Layer 構成 784 → 16 → 16 → 10 では、weights が 784×16 + 16×16 + 16×10 = 13,002 個、biases が 16 + 16 + 10 = 42 個。合計 13,044 個のパラメータを学習で調整する必要がある。</p>
+            <div class="ov-takeaway">
+              <span class="ov-takeaway-label">Take</span>
+              <span>「学習する」とは、この 13,044 個のダイヤルを正しい組み合わせに合わせる作業に他ならない</span>
+            </div>
+            <ul class="ov-points">
+              <li class="ov-point important"><span class="hl">Weights: 13,002 (= 784×16 + 16×16 + 16×10)</span></li>
+              <li class="ov-point important"><span class="hl">Biases: 42 (= 16 + 16 + 10)</span></li>
+              <li class="ov-point">合計 13,044 個 — 全部を手動で設定するのは不可能</li>
+              <li class="ov-point">Backpropagation により自動で調整 (次回テーマ)</li>
+            </ul>
+            <div class="ov-tags">
+              <span class="ov-tag">parameters</span>
+              <span class="ov-tag">scale</span>
+            </div>
+            <div class="ov-check">
+              <span class="ov-check-label">Check</span>
+              <span>Layer 構成 784 → 32 → 10 のときの total parameter 数を計算せよ。</span>
+            </div>
+          </div>
+
+          <div class="ov-section" id="s8" data-slide-ts="15:40">
+            <div class="ov-section-head">
+              <span class="ov-section-num">08</span>
+              <h3 class="ov-section-h">行列表現とまとめ</h3>
+              <button class="ov-ts" data-jump="15:40"><svg viewBox="0 0 24 24"><polygon points="6,4 20,12 6,20"/></svg>15:40</button><button class="ov-section-chevron" data-toggle-section><svg viewBox="0 0 24 24"><polyline points="6,9 12,15 18,9"/></svg></button>
+            </div>
+            <p class="ov-summary">Layer 間の伝搬は a' = σ(Wa + b) という行列演算でコンパクトに書ける。これは GPU での並列計算と相性が良く、現代の deep learning の高速化基盤となっている。</p>
+            <ul class="ov-points">
+              <li class="ov-point important"><span class="hl">a' = σ(Wa + b) — 全ての neuron の更新を一行で表現</span></li>
+              <li class="ov-point">W は前 layer × 次 layer サイズの行列</li>
+              <li class="ov-point">この簡潔さこそ NN が GPU で高速化される理由</li>
+            </ul>
+            <div class="ov-tags">
+              <span class="ov-tag">matrix</span>
+              <span class="ov-tag">linear algebra</span>
+              <span class="ov-tag">gpu</span>
+            </div>
+            <div class="ov-check">
+              <span class="ov-check-label">Check</span>
+              <span>a' = σ(Wa + b) の各記号 (a, W, b, σ) の役割を 1 行ずつ説明せよ。</span>
+            </div>
+          </div>
+
+          <!-- C-5: Quiz roll-up -->
+          <div class="ov-quiz" id="quizSection">
+            <div class="ov-quiz-head">
+              <span class="ov-quiz-label">Review Questions</span>
+              <span class="ov-quiz-count">4 questions</span>
+            </div>
+            <ol class="ov-quiz-list">
+              <li class="ov-quiz-item">
+                <span class="ov-quiz-text">脳の視覚認識を「汎化」という概念で 30 字以内で説明せよ。</span>
+                <a class="ov-quiz-link" href="#s1">→ 01</a>
+              </li>
+              <li class="ov-quiz-item">
+                <span class="ov-quiz-text">"6" を edge と loop の組み合わせで分解せよ。</span>
+                <a class="ov-quiz-link" href="#s4">→ 04</a>
+              </li>
+              <li class="ov-quiz-item">
+                <span class="ov-quiz-text">Layer 構成 784 → 32 → 10 のときの total parameter 数を計算せよ。</span>
+                <a class="ov-quiz-link" href="#s7">→ 07</a>
+              </li>
+              <li class="ov-quiz-item">
+                <span class="ov-quiz-text">a' = σ(Wa + b) の各記号 (a, W, b, σ) の役割を 1 行ずつ説明せよ。</span>
+                <a class="ov-quiz-link" href="#s8">→ 08</a>
+              </li>
+            </ol>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="slides" id="slides">
+        <div class="slide-thumb active" data-ts="00:05" style="background: linear-gradient(135deg, #1A1614, #3D3733);"></div>
+        <div class="slide-thumb" data-ts="02:14" style="background: linear-gradient(135deg, #C2410C, #FED7AA);"></div>
+        <div class="slide-thumb" data-ts="03:48" style="background: linear-gradient(135deg, #4F7C5C, #F4F2EC);"></div>
+        <div class="slide-thumb" data-ts="06:40" style="background: var(--paper-300);"></div>
+        <div class="slide-thumb" data-ts="09:20" style="background: linear-gradient(135deg, #5B2A4D, #C8C0B7);"></div>
+        <div class="slide-thumb" data-ts="12:10" style="background: linear-gradient(135deg, #1B4D3E, #FBFAF7);"></div>
+        <div class="slide-thumb" data-ts="14:30" style="background: linear-gradient(135deg, #1A1614, #C2410C);"></div>
+        <div class="slide-thumb" data-ts="15:40" style="background: var(--paper-200);"></div>
+      </div>
+
+      <div class="lt" id="lt">
+        <div class="lt-head">
+          <span class="lt-label">Live Captions</span>
+          <span class="lt-status">recording</span>
+          <button class="lt-chevron" id="ltChevron" title="자막 영역 접기/펼치기">
+            <svg viewBox="0 0 24 24"><polyline points="6,9 12,15 18,9"/></svg>
+          </button>
+        </div>
+        <p class="lt-line"><span class="lt-line-ts">[16:08]</span> So in summary, this is what makes the network tick: a system of 13,000 little dials being adjusted to match training data.</p>
+      </div>
+
+      <div class="ctrl">
+        <div class="ctrl-row">
+          <button class="ctrl-btn ctrl-btn-primary">⏸ 一時停止して整理</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-resize" id="modalResize" title="좌우로 끌어 폭 조절"></div>
+    </div>
+
+    <!-- ═════════════ ANNOTATIONS ═════════════ -->
+    <div class="annotations">
+      <h2>Priority A + B 적용 결과</h2>
+      <p class="lead">11개 변경 사항을 한 모달에 모두 적용. 좌측 모달에서 직접 동작 확인 가능. 그 아래에 Priority C / D 제안 정리.</p>
+
+      <div class="anno-section">
+        <p class="anno-eyebrow">Priority A · 길 잃음 방지</p>
+        <h3 class="anno-title">기능 추가 3개</h3>
+        <ul class="anno-list">
+          <li class="anno-item">
+            <span class="anno-tag done">A1</span>
+            <span class="anno-text">
+              <b>Sticky section rail</b> — 노트 좌측 가장자리 18px 폭에 8개 dot. 현재 viewport 진입 section 의 dot 가 ink-900 으로 채워지고 1.5× 확대. 클릭 시 해당 section 으로 부드럽게 jump.
+            </span>
+          </li>
+          <li class="anno-item">
+            <span class="anno-tag done">A2</span>
+            <span class="anno-text">
+              <b>TLDR 2줄 clamp + 더보기 토글</b> — <code>-webkit-line-clamp: 2</code> 로 강제 자른 후 "더보기" 버튼. 클릭 시 펼침 / "접기". 길어도 surface 안 차지.
+            </span>
+          </li>
+          <li class="anno-item">
+            <span class="anno-tag done">A3</span>
+            <span class="anno-text">
+              <b>ts 클릭 affordance</b> — paper-200 배경 + paper-edge border + ▶ play 아이콘 + paper-200 chip 처럼 명확. hover 시 ink-900 fill 로 invert. 영상 jump 라는 핵심 가치가 시각적으로 살아남.
+            </span>
+          </li>
+        </ul>
+      </div>
+
+      <div class="anno-section">
+        <p class="anno-eyebrow">Priority B · 시각 noise 정리</p>
+        <h3 class="anno-title">색·타입·구조 다듬기 7개</h3>
+        <ul class="anno-list">
+          <li class="anno-item">
+            <span class="anno-tag done">B1</span>
+            <span class="anno-text">
+              <b>Take 박스 → 중성</b> — paper-300 배경 + ink-900 leftbar (3px). 라벨 ink-500. <b>terracotta 는 결제/Pro 영역에서만</b> 사용하는 룰 적용.
+            </span>
+          </li>
+          <li class="anno-item">
+            <span class="anno-tag done">B2</span>
+            <span class="anno-text">
+              <b>Important point dot → ink-900</b> — 5px 진한 dot, 텍스트도 ink-900 + 500 weight. 일반 point 는 ink-200 작은 dot.
+            </span>
+          </li>
+          <li class="anno-item">
+            <span class="anno-tag done">B3</span>
+            <span class="anno-text">
+              <b>Tag pill 11px sans</b> — Geist sans 11px / 500 weight, padding 3×9, 더 큰 클릭 타겟. mono 9.5px 의 "코드 같은" 인상 제거.
+            </span>
+          </li>
+          <li class="anno-item">
+            <span class="anno-tag done">B4</span>
+            <span class="anno-text">
+              <b>Section number = circle badge</b> — 22×22 paper-300 동그라미 + mono 10px 600. baseline 정렬 깨짐 해결, 시각 rhythm 생성.
+            </span>
+          </li>
+          <li class="anno-item">
+            <span class="anno-tag done">B5</span>
+            <span class="anno-text">
+              <b>Slide thumb 자동 활성</b> — 현재 viewport section 의 ts 와 일치하는 thumb 에 ink-900 ring + translateY(-1px) + soft shadow. <b>아래 슬라이드 strip 으로 자동 가로 스크롤</b>.
+            </span>
+          </li>
+          <li class="anno-item">
+            <span class="anno-tag done">B7</span>
+            <span class="anno-text">
+              <b>Scrollbar 4px</b> — paper-edge color, hover 시 ink-200. 슬라이드 strip 의 가로 스크롤바도 동일하게 적용.
+            </span>
+          </li>
+          <li class="anno-item">
+            <span class="anno-tag done">+</span>
+            <span class="anno-text">
+              <b>강조 색 복원</b> — 색 reservation 룰을 완화: <code>terra-tint + terra-soft + terra leftbar</code> 는 <b>강조용 emphasis layer</b> (TLDR / Take / important point) 에서 사용. 솔리드 <code>terra</code> 텍스트 / 가격은 결제 surface 전용. 같은 hue family 의 강도 차이로 위계 구분.
+            </span>
+          </li>
+          <li class="anno-item">
+            <span class="anno-tag done">+</span>
+            <span class="anno-text">
+              <b>Important point 하이라이터</b> — 솔리드 terra dot (6px + 2px terra-tint ring) + 텍스트 뒤 <b>terra-soft 형광펜 underline</b> (높이 ~35%). 스킴 모드에서 시선이 즉시 잡힘.
+            </span>
+          </li>
+        </ul>
+      </div>
+
+      <div class="anno-section">
+        <p class="anno-eyebrow">Priority C · 정보 구조 검토 — 적용</p>
+        <h3 class="anno-title">5/5 적용 완료</h3>
+        <ul class="anno-list">
+          <li class="anno-item">
+            <span class="anno-tag done">C1</span>
+            <span class="anno-text">
+              <b>Check 는 핵심 section 만</b> — 현재 mockup 의 Check 표시는 §1, §4, §7, §8 (4개) 만. 모든 section 에 박지 않음. <b>구현:</b> 백엔드 <code>curator.ts</code> SYSTEM_PROMPT 에 "최대 4개 section 에만 check_question" 제약 추가.
+            </span>
+          </li>
+          <li class="anno-item">
+            <span class="anno-tag done">C2</span>
+            <span class="anno-text">
+              <b>Compact 토글</b> — meta-row 우측에 "Compact" 버튼. 클릭 시 ink-900 fill 로 active. summary / key terms / examples / 일반 points / check 모두 hide. <b>TLDR + Take + important point 만 남음</b>. 직접 클릭해보세요.
+            </span>
+          </li>
+          <li class="anno-item">
+            <span class="anno-tag done">C3</span>
+            <span class="anno-text">
+              <b>Tags 모달 hide</b> — <code>.ov-tags { display: none }</code>. 마크업은 유지 (Obsidian export 시 wikilink 로 활용). 모달 vertical space 절약.
+            </span>
+          </li>
+          <li class="anno-item">
+            <span class="anno-tag done">C4</span>
+            <span class="anno-text">
+              <b>Live Captions 접기 토글</b> — 캡션 헤더 우측 chevron. 클릭 시 max-height 32px 로 축소, line 숨김. chevron 180° rotate. 다시 클릭하면 expand.
+            </span>
+          </li>
+          <li class="anno-item">
+            <span class="anno-tag done">C5</span>
+            <span class="anno-text">
+              <b>Quiz roll-up section</b> — 마지막 §8 다음에 "Review Questions" 박스. Q1-Q4 + 우측 <code>→ §N</code> 링크. 클릭 시 해당 section 으로 smooth scroll + 접힌 section 자동 expand.
+            </span>
+          </li>
+        </ul>
+      </div>
+
+      <div class="anno-section">
+        <p class="anno-eyebrow">Priority D · 새 기능 — 선택 적용</p>
+        <h3 class="anno-title">D2 만 도입 (D1 / D3 제외)</h3>
+        <ul class="anno-list">
+          <li class="anno-item">
+            <span class="anno-tag done">D2</span>
+            <span class="anno-text">
+              <b>Section 접기/펼치기 — 기본 펼침</b> — 각 section heading 우측에 chevron. 클릭 시 -90° rotate + 본문 숨김 (heading 만 남음). <b>기본 상태는 펼침</b>. Quiz 링크로 jump 시 자동 expand. 직접 chevron 눌러보세요.
+            </span>
+          </li>
+          <li class="anno-item">
+            <span class="anno-tag next">D1 ✗</span>
+            <span class="anno-text">
+              <b>Cmd+F 노트 검색 — 도입 안 함</b>. 사용자 우려: search bar UI 가 헤더 또는 모달 상단 공간 점유. <b>대안:</b> Chrome native Cmd+F 가 modal 안에서도 동작. 자체 search 도입 시 손실이 더 큼.
+            </span>
+          </li>
+          <li class="anno-item">
+            <span class="anno-tag next">D3 ✗</span>
+            <span class="anno-text">
+              <b>모달 폭 확장 — defer</b>. Chrome side panel 폭은 사용자가 조절 가능. 자체 resize handle 도입은 over-engineering. mini-TOC 도입 필요해질 때 재검토.
+            </span>
+          </li>
+        </ul>
+      </div>
+
+      <div class="anno-section">
+        <p class="anno-eyebrow">Summary</p>
+        <h3 class="anno-title">현 상태 + 다음 단계</h3>
+        <ul class="anno-list">
+          <li class="anno-item">
+            <span class="anno-tag done">✓</span>
+            <span class="anno-text">
+              <b>적용 완료:</b> A1-A3, B1-B5, B7, C1-C5, D2 = 14개. 모두 인터랙티브 동작.
+            </span>
+          </li>
+          <li class="anno-item">
+            <span class="anno-tag done">→</span>
+            <span class="anno-text">
+              <b>다음:</b> 이 mockup 을 기반으로 <code>DESIGN.md</code> + Tailwind config + 컴포넌트 baseline 작성.
+            </span>
+          </li>
+          <li class="anno-item">
+            <span class="anno-tag done">→</span>
+            <span class="anno-text">
+              <b>backend 변경:</b> C1 (curator prompt 의 check_question 제약) + C5 (quiz aggregation 은 frontend 자체 derivation 으로 가능) 만 backend 작업.
+            </span>
+          </li>
+        </ul>
+      </div>
+
+    </div>
+
+  </div>
+
+  <script>
+    // ─── A1: Section rail active state via IntersectionObserver ───
+    // ─── B5: Slide auto-active sync to current section ───
+    const sections = Array.from(document.querySelectorAll('.ov-section'));
+    const dots = Array.from(document.querySelectorAll('.rail-dot'));
+    const slides = Array.from(document.querySelectorAll('.slide-thumb'));
+    const slidesContainer = document.getElementById('slides');
+
+    const setActive = (idx) => {
+      dots.forEach((d, i) => d.classList.toggle('active', i === idx));
+      // Slide auto-activate from section's data-slide-ts
+      const targetTs = sections[idx]?.dataset.slideTs;
+      slides.forEach(s => s.classList.toggle('active', s.dataset.ts === targetTs));
+      // Auto-scroll slide strip to make active visible
+      const activeSlide = slides.find(s => s.classList.contains('active'));
+      if (activeSlide && slidesContainer) {
+        const r = activeSlide.getBoundingClientRect();
+        const cr = slidesContainer.getBoundingClientRect();
+        if (r.left < cr.left || r.right > cr.right) {
+          activeSlide.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+        }
+      }
+    };
+
+    const ovRoot = document.getElementById('ov');
+    // Reliable active-section detection — IntersectionObserver with
+    // rootMargin missed the last section when the user scrolled all
+    // the way down (s8 never reached the trigger band, so its dot
+    // never activated). Switch to scroll-position math + bottom-snap:
+    //  • find the last section whose offsetTop is above the trigger
+    //    line (containerScrollTop + 80px)
+    //  • when scroll is at the very bottom, force the last section
+    //    active regardless (covers the case where the last section
+    //    is shorter than the trigger band)
+    const updateActiveSection = () => {
+      const trigger = ovRoot.scrollTop + 80;
+      let activeIdx = 0;
+      for (let i = 0; i < sections.length; i++) {
+        if (sections[i].offsetTop <= trigger) activeIdx = i;
+      }
+      const atBottom = ovRoot.scrollTop + ovRoot.clientHeight >= ovRoot.scrollHeight - 8;
+      if (atBottom) activeIdx = sections.length - 1;
+      setActive(activeIdx);
+    };
+    ovRoot.addEventListener('scroll', updateActiveSection, { passive: true });
+    updateActiveSection();
+
+    // ─── A1: Click rail dot → smooth scroll to section ───
+    dots.forEach((dot, i) => {
+      dot.addEventListener('click', () => {
+        sections[i].scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    });
+
+    // ─── A3: ts button click — would jump video timeline; in mockup just visual ───
+    document.querySelectorAll('.ov-ts').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        // visual feedback only
+        btn.style.transform = 'scale(0.95)';
+        setTimeout(() => btn.style.transform = '', 120);
+      });
+    });
+
+    // ─── A2: TLDR more / less toggle ───
+    const tldr = document.getElementById('tldr');
+    const tldrToggle = document.getElementById('tldrToggle');
+    tldrToggle.addEventListener('click', () => {
+      const expanded = tldr.classList.toggle('expanded');
+      tldrToggle.textContent = expanded ? '접기' : '더보기';
+    });
+
+    // ─── D2: Section collapse / expand (default expanded) ───
+    document.querySelectorAll('[data-toggle-section]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const section = btn.closest('.ov-section');
+        if (section) section.classList.toggle('collapsed');
+      });
+    });
+
+    // ─── C2: Compact mode toggle (TLDR + Take + important only) ───
+    const compactBtn = document.getElementById('compactToggle');
+    compactBtn.addEventListener('click', () => {
+      const active = ovRoot.classList.toggle('compact');
+      compactBtn.classList.toggle('active', active);
+    });
+
+    // ─── C4: Live Captions collapse / expand ───
+    const lt = document.getElementById('lt');
+    const ltChevron = document.getElementById('ltChevron');
+    ltChevron.addEventListener('click', () => {
+      lt.classList.toggle('collapsed');
+    });
+
+    // ─── C5: Quiz item link → smooth scroll back to source section ───
+    document.querySelectorAll('.ov-quiz-link').forEach(a => {
+      a.addEventListener('click', (e) => {
+        e.preventDefault();
+        const target = document.querySelector(a.getAttribute('href'));
+        if (target) {
+          // Ensure section is expanded so the user actually sees content
+          target.classList.remove('collapsed');
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      });
+    });
+
+    // ─── D3: Modal width resize handle ───
+    // Drag the right-edge handle to resize within [360, 600] px.
+    // Above 460 px the section rail expands into a text mini-TOC
+    // (controlled by .modal.wide). User's choice persists via
+    // localStorage so the preference survives reloads.
+    const sectionTitles = sections.map(s => s.querySelector('.ov-section-h')?.textContent.trim() ?? '');
+    const railEl = document.getElementById('rail');
+    const modalEl = document.getElementById('modal');
+    const wrapEl = document.getElementById('modalWrap');
+    const handleEl = document.getElementById('modalResize');
+    const sysEl = document.querySelector('.system');
+    const MIN_W = 360, MAX_W = 600, WIDE_THRESHOLD = 460;
+
+    // Inject the section title labels into rail dots so they show in
+    // wide mode. Hidden by CSS in narrow mode (the dot pseudo-element
+    // is still rendered).
+    dots.forEach((dot, i) => {
+      const num = String(i + 1).padStart(2, '0');
+      const numSpan = document.createElement('span');
+      numSpan.className = 'rail-num';
+      numSpan.textContent = num;
+      const labelSpan = document.createElement('span');
+      labelSpan.className = 'rail-label';
+      labelSpan.textContent = sectionTitles[i] || `Section ${i + 1}`;
+      dot.appendChild(numSpan);
+      dot.appendChild(labelSpan);
+    });
+    // Hide the injected labels in narrow mode.
+    const labelStyle = document.createElement('style');
+    labelStyle.textContent = `
+      .modal:not(.wide) .rail-num,
+      .modal:not(.wide) .rail-label { display: none; }
+      .modal.wide .rail-label {
+        flex: 1; min-width: 0;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      }
+    `;
+    document.head.appendChild(labelStyle);
+
+    const applyWidth = (w) => {
+      const clamped = Math.max(MIN_W, Math.min(MAX_W, w));
+      sysEl.style.setProperty('--modal-w', clamped + 'px');
+      modalEl.classList.toggle('wide', clamped >= WIDE_THRESHOLD);
+      try { localStorage.setItem('lisna.modalW', String(clamped)); } catch {}
+    };
+
+    // Restore saved width on load.
+    try {
+      const saved = parseFloat(localStorage.getItem('lisna.modalW') || '');
+      if (Number.isFinite(saved)) applyWidth(saved);
+    } catch {}
+
+    let dragStartX = 0, dragStartW = 0;
+    handleEl.addEventListener('mousedown', (e) => {
+      dragStartX = e.clientX;
+      dragStartW = modalEl.getBoundingClientRect().width;
+      wrapEl.classList.add('dragging');
+      e.preventDefault();
+      const onMove = (ev) => {
+        const dx = ev.clientX - dragStartX;
+        applyWidth(dragStartW + dx);
+      };
+      const onUp = () => {
+        wrapEl.classList.remove('dragging');
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+
+    // Double-click handle to reset to default 380px.
+    handleEl.addEventListener('dblclick', () => applyWidth(380));
+
+  </script>
+
+</body>
+</html>
