@@ -235,6 +235,19 @@ export default function App() {
   // window where the period rolled before the next chunk).
   const [quota, setQuota] = useState<QuotaSnapshot | null>(null)
   const [quotaBlocked, setQuotaBlocked] = useState(false)
+  // Single source of truth for "this user is functionally out of
+  // capture budget". Three triggers, any one of which counts:
+  //   1. server forced 402 (`quotaBlocked`) — authoritative
+  //   2. percent_used rounded ≥ 100 — backend's own rounding
+  //   3. remaining_secs ≤ 0 — covers the rounding-down edge where
+  //      backend reports e.g. percent_used=99 (Math.round(99.4))
+  //      but remaining_secs=0. Without this, a free user with zero
+  //      budget could still see IdleSessionState because the
+  //      percent number happened to round down.
+  // Used by: QuotaBanner suppression, QuotaExhaustedIdle gate, and
+  // SessionControls quota-mode gate. Keep these three sites in sync
+  // via this helper rather than duplicating the inline check.
+  const exhausted = quotaBlocked || (!!quota && (quota.percent_used >= 100 || quota.remaining_secs <= 0))
   // Video play/pause state, broadcast from the content script. Drives
   // the placeholder copy in LiveTranscript while we wait for the first
   // chunk: playing → "🎙️ 음성 처리 중…" / paused → "⏸ 강의를 재생하세요".
@@ -336,6 +349,10 @@ export default function App() {
       if (!cached?.quota || typeof cached.ts !== 'number') return
       if (Date.now() - cached.ts > 30 * 60 * 1000) return
       setQuota((prev) => prev ?? cached.quota!)
+      // Seed the live-tick counter from cached too, so the header's
+      // countdown shows correctly on cold mount (without this it
+      // stayed `null` until the first chunk's quota_update broadcast).
+      setLiveRemainingSecs((prev) => prev ?? cached.quota!.remaining_secs)
     })
     // Step 2: fresh fetch overwrites the cached fallback. Errors are
     // logged so a future debug pass can see auth-me failures (the
@@ -344,6 +361,10 @@ export default function App() {
       .then(r => {
         if (r.quota) {
           setQuota(r.quota)
+          // Same seed as the cached path — keeps the header countdown
+          // accurate from the moment auth-me lands rather than waiting
+          // for the first stream-audio response.
+          setLiveRemainingSecs(r.quota.remaining_secs)
           void chrome.storage.local.set({ 'sh.cachedQuota': { quota: r.quota, ts: Date.now() } })
         }
       })
@@ -1033,7 +1054,7 @@ export default function App() {
             above it would be a duplicate "you're at the limit"
             message stacked on the same screen. The banner stays for
             every other render path (warn 90-99%, blocked + has-content). */}
-        {!(!hasContent && quota && (quota.percent_used >= 100 || quotaBlocked)) && (
+        {!(!hasContent && exhausted) && (
           <QuotaBanner user={user} quota={quota} blocked={quotaBlocked} onUpgrade={onUpgrade} />
         )}
         {curating && !hasContent ? (
@@ -1046,7 +1067,7 @@ export default function App() {
           // explicit limit-reached + upgrade card. For users with any
           // saved data (hasContent), the regular flow renders below;
           // their captures-disabled signal lives inside SessionControls.
-          (quota && (quota.percent_used >= 100 || quotaBlocked)) ? (
+          (exhausted && quota) ? (
             <QuotaExhaustedIdle user={user} quota={quota} onUpgrade={onUpgrade} upgrading={upgrading} />
           ) : (
             // Render IdleSessionState as soon as the modal mounts — do
@@ -1155,7 +1176,9 @@ export default function App() {
               place that explains why captures aren't running, instead
               of an empty space where the pause button used to be. */}
           {sessionId && (() => {
-            const exhausted = !!quota && (quota.percent_used >= 100 || quotaBlocked)
+            // Reuse the top-level `exhausted` computed at component
+            // root — keeps this branch in sync with the QuotaBanner
+            // and QuotaExhaustedIdle gates above.
             if (isCapturing) {
               return (
                 <SessionControls
