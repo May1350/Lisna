@@ -124,11 +124,11 @@ function IdleStateMirror({ videoPlaying }: { videoPlaying: boolean | null }) {
 // This keeps the OAuth-ok edge (login-loading → authed-empty) as a
 // straight horizontal line instead of routing it across login-error.
 const HAPPY_Y = 0
-// Branch axis below the happy path. Generous gap (1000 px) gives the
-// bidirectional curve pair a long enough chord that the two arcs
-// don't crowd the connecting nodes. With a 700 px tall scene + 60 px
-// header, this leaves ~240 px of clean canvas between the two nodes.
-const BRANCH_Y = 1000
+// Branch axis below the happy path. Vertical gap is matched to the
+// horizontal arrow length (≈100 px) for visual consistency: with a
+// 700 px tall scene/header, BRANCH_Y=800 leaves ~100 px of canvas
+// between the two stacked nodes.
+const BRANCH_Y = 800
 const COL = 480 // surface width (380) + horizontal margin (100)
 
 export const onboardingFlow: FlowGraph = {
