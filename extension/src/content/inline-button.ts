@@ -1,6 +1,9 @@
 // Inline button anchored to the top-right of the video element.
-// - 'idle': round 36x36 button with sparkle SVG icon.
-// - 'processing': SAME sparkle icon + a small red pulsing badge in the
+// - 'idle': round 36x36 button with a folded-page + ink-line icon
+//   ("AI writes a one-page note from this video"). Apple Liquid-Glass
+//   surface — ink-900 tint at 55% with heavy backdrop blur, inner top
+//   highlight + bottom recess for real-glass refraction feel.
+// - 'processing': SAME icon + a small warn-red pulsing badge in the
 //   top-right corner of the button, signalling "currently recording in
 //   the background". Click affordance stays the same (open the modal),
 //   so the click target's meaning doesn't change between states. The
@@ -12,6 +15,12 @@
 // a session is done from inside the modal (or by the natural <video>
 // `ended` event). The inline overlay is intentionally minimal — one
 // click affordance, one status badge.
+//
+// Palette: warm Lisna tokens hardcoded (content scripts can't reach
+// Tailwind / CSS vars). ink-900 #1A1614, paper-100 #FFFEFB,
+// terra #C2410C, terra-soft #FED7AA, warn-red #B91C1C — kept in sync
+// with docs/DESIGN.md by hand because this surface is injected into
+// arbitrary host pages.
 
 import { hasSeenInlineButton, markInlineButtonSeen } from '../shared/storage'
 import { t } from '../shared/i18n'
@@ -21,10 +30,15 @@ const ROOT_ID = '__sh_inline_button_root__'
 const TOOLTIP_ID = '__sh_inline_button_tooltip__'
 const DISABLE_ID = '__sh_inline_button_disable__'
 
-const SPARKLE_SVG = `
-<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-  <path d="M12 3l1.8 5.4L19 10l-5.2 1.6L12 17l-1.8-5.4L5 10l5.2-1.6L12 3z"/>
-  <path d="M19 14l0.7 2.1L22 17l-2.3 0.7L19 20l-0.7-2.3L16 17l2.3-0.7L19 14z"/>
+// Folded-page document with two ink lines underneath. Reads as
+// "AI writes a one-page note from this lecture" — owns the academic
+// note-taking concept without leaning on the over-used ✨ AI sparkle.
+const BUTTON_SVG = `
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <path d="M6 4 L15 4 L19 8 L19 20 L6 20 Z"/>
+  <path d="M15 4 L15 8 L19 8"/>
+  <line x1="9" y1="13" x2="16" y2="13"/>
+  <line x1="9" y1="16" x2="14" y2="16"/>
 </svg>
 `.trim()
 
@@ -46,6 +60,20 @@ function ensureStyle(): void {
   const style = document.createElement('style')
   style.id = STYLE_ID
   style.textContent = `
+/* Apple Liquid-Glass surface (Variant 3 — Heavy Frosted, Control
+ * Center pillar style). Three ingredients that the previous
+ * implementation lacked:
+ *   1. blur(60) saturate(180%) brightness(1.05) — bright + vivid feel
+ *      of light passing through real glass
+ *   2. inset 0 1px 0 rgba(white,0.18) — top-edge highlight that
+ *      simulates light hitting the glass surface (this single shadow
+ *      is what makes a translucent surface read as GLASS rather than
+ *      "translucent paint")
+ *   3. inset 0 -1px 0 rgba(black,0.22) — bottom-edge recess that
+ *      gives the pill a sense of physical thickness
+ * Surface tint is ink-900 (warm dark, R26 G22 B20 — adjacent to the
+ * sidepanel's ink-900) at 55% alpha so the underlying video shows
+ * through in muted form. */
 .__sh_btn__ {
   position: absolute;
   z-index: 999999;
@@ -55,30 +83,38 @@ function ensureStyle(): void {
   width: 36px;
   height: 36px;
   padding: 0;
-  border: 1px solid rgba(255,255,255,0.08);
+  border: 0.5px solid rgba(255, 255, 255, 0.10);
   border-radius: 9999px;
-  background: rgba(15, 23, 42, 0.92);
-  backdrop-filter: blur(12px) saturate(140%);
-  -webkit-backdrop-filter: blur(12px) saturate(140%);
-  color: #ffffff;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.28), 0 2px 6px rgba(0,0,0,0.12);
+  background: rgba(26, 22, 20, 0.55);
+  backdrop-filter: blur(60px) saturate(180%) brightness(1.05);
+  -webkit-backdrop-filter: blur(60px) saturate(180%) brightness(1.05);
+  color: #FFFEFB;
+  box-shadow:
+    inset 0  1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.22),
+    0 16px 44px rgba(0, 0, 0, 0.36),
+    0 2px 6px rgba(0, 0, 0, 0.14);
   cursor: pointer;
   user-select: none;
   box-sizing: border-box;
   transition: transform 200ms cubic-bezier(0.16,1,0.3,1), background-color 200ms cubic-bezier(0.16,1,0.3,1);
 }
 .__sh_btn__:hover {
-  background: rgba(15, 23, 42, 1);
+  background: rgba(26, 22, 20, 0.72);
   transform: translateY(-1px);
 }
 .__sh_btn__ svg { display: block; }
 
-/* Corner status badge — small red dot that pulses to indicate
+/* Corner status badge — small warn-red dot that pulses to indicate
  * "background recording in progress". Positioned ABSOLUTELY relative
  * to the main button (the button has position:absolute so the badge's
  * absolute coords inside the button are local). Visual semantic is
  * "iOS-style notification dot" — purely a status marker, NOT a click
- * target. Click target is still the whole button (= open modal). */
+ * target. Click target is still the whole button (= open modal).
+ *
+ * Color: --warn-red #B91C1C (DESIGN.md §3.3 — recording / 100% / live
+ * status). NOT Tailwind's red-500 (#ef4444) which is too pink-shifted
+ * against the warm ink palette. */
 .__sh_status_badge__ {
   position: absolute;
   top: 4px;
@@ -86,52 +122,69 @@ function ensureStyle(): void {
   width: 8px;
   height: 8px;
   border-radius: 9999px;
-  background: #ef4444;
-  /* Subtle ring to lift it off the button's dark background — without
-   * this the dot blurs into the button on certain video backgrounds. */
+  background: #B91C1C;
+  /* Ink-900 ring to lift the dot off the (translucent) button surface
+   * even when the underlying video is also reddish. */
   box-shadow:
-    0 0 0 1.5px rgba(15, 23, 42, 0.92),
-    0 0 0 0 rgba(239, 68, 68, 0.6);
+    0 0 0 1.5px rgba(26, 22, 20, 0.92),
+    0 0 0 0 rgba(185, 28, 28, 0.55);
   animation: __sh_badge_pulse__ 1.6s ease-in-out infinite;
   pointer-events: none;
 }
 @keyframes __sh_badge_pulse__ {
   0%, 100% {
     box-shadow:
-      0 0 0 1.5px rgba(15, 23, 42, 0.92),
-      0 0 0 0 rgba(239, 68, 68, 0.55);
+      0 0 0 1.5px rgba(26, 22, 20, 0.92),
+      0 0 0 0 rgba(185, 28, 28, 0.50);
   }
   50% {
     box-shadow:
-      0 0 0 1.5px rgba(15, 23, 42, 0.92),
-      0 0 0 5px rgba(239, 68, 68, 0);
+      0 0 0 1.5px rgba(26, 22, 20, 0.92),
+      0 0 0 5px rgba(185, 28, 28, 0);
   }
 }
 
 /* First-time onboarding: until the user has clicked the button at
- * least once, the idle button glows in a pulsing blue halo and a
+ * least once, the idle button glows in a pulsing terra halo and a
  * small label appears next to it pointing at the click target.
  * Both auto-clear after the user clicks OR after 30 s. The pulse is
- * tinted blue (vs the red processing pulse) so the two states are
- * never confused at a glance.
+ * tinted with --terra (warm) instead of blue so it stays inside the
+ * Lisna palette. The recording badge uses warn-red, so the two states
+ * remain visually distinct (warm-orange glow vs. brick-red dot).
  */
 .__sh_first_glow__ {
   animation: __sh_first_glow__ 1.6s ease-in-out infinite;
 }
 @keyframes __sh_first_glow__ {
-  0%, 100% { box-shadow: 0 8px 32px rgba(0,0,0,0.28), 0 0 0 0 rgba(59,130,246,0.55); }
-  50%      { box-shadow: 0 8px 32px rgba(0,0,0,0.28), 0 0 0 12px rgba(59,130,246,0); }
+  0%, 100% {
+    box-shadow:
+      inset 0  1px 0 rgba(255, 255, 255, 0.18),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.22),
+      0 16px 44px rgba(0, 0, 0, 0.36),
+      0 2px 6px rgba(0, 0, 0, 0.14),
+      0 0 0 0 rgba(194, 65, 12, 0.55);
+  }
+  50% {
+    box-shadow:
+      inset 0  1px 0 rgba(255, 255, 255, 0.18),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.22),
+      0 16px 44px rgba(0, 0, 0, 0.36),
+      0 2px 6px rgba(0, 0, 0, 0.14),
+      0 0 0 12px rgba(194, 65, 12, 0);
+  }
 }
 .__sh_onboarding_tooltip__ {
   position: absolute;
   z-index: 999999;
-  background: #1e40af;
-  color: white;
+  background: rgba(26, 22, 20, 0.96);
+  color: #FFFEFB;
   font: 500 12px/1.4 -apple-system, "Hiragino Sans", "Apple SD Gothic Neo", sans-serif;
   padding: 6px 11px;
   border-radius: 8px;
   white-space: nowrap;
-  box-shadow: 0 6px 24px rgba(30,64,175,0.4);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    0 6px 24px rgba(26, 22, 20, 0.45);
   pointer-events: none;
   animation: __sh_tooltip_in__ 280ms cubic-bezier(0.16,1,0.3,1) both;
 }
@@ -140,7 +193,7 @@ function ensureStyle(): void {
   margin-left: 4px;
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   font-weight: 400;
-  color: rgba(255,255,255,0.92);
+  color: #FED7AA;
   animation: __sh_arrow_nudge__ 1.2s ease-in-out infinite;
 }
 @keyframes __sh_arrow_nudge__ {
@@ -154,7 +207,7 @@ function ensureStyle(): void {
   right: -5px;
   transform: translateY(-50%);
   border: 5px solid transparent;
-  border-left-color: #1e40af;
+  border-left-color: rgba(26, 22, 20, 0.96);
 }
 @keyframes __sh_tooltip_in__ {
   from { opacity: 0; transform: translateX(8px); }
@@ -173,15 +226,17 @@ function ensureStyle(): void {
   width: 18px;
   height: 18px;
   padding: 0;
-  border: 1px solid rgba(255,255,255,0.18);
+  border: 0.5px solid rgba(255, 255, 255, 0.16);
   border-radius: 9999px;
-  background: rgba(15, 23, 42, 0.96);
-  color: rgba(255,255,255,0.9);
+  background: rgba(26, 22, 20, 0.96);
+  color: rgba(255, 254, 251, 0.9);
   font: 700 11px/18px -apple-system, "Hiragino Sans", "Apple SD Gothic Neo", sans-serif;
   text-align: center;
   cursor: pointer;
   user-select: none;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    0 2px 6px rgba(26, 22, 20, 0.40);
   opacity: 0;
   transform: scale(0.85);
   transition: opacity 160ms ease, transform 160ms ease, background-color 160ms ease;
@@ -198,10 +253,12 @@ function ensureStyle(): void {
   pointer-events: auto;
 }
 .__sh_disable_btn__:hover {
-  background: rgba(220, 38, 38, 0.95);
+  background: rgba(185, 28, 28, 0.95);
 }
 
-/* Top-of-viewport toast for confirmation of quick-disable. */
+/* Top-of-viewport toast for confirmation of quick-disable.
+ * Same Liquid-Glass recipe as the main button but on a wider, taller
+ * pill so it reads as a notification panel rather than a button. */
 .__sh_toast__ {
   position: fixed;
   top: 16px;
@@ -214,22 +271,28 @@ function ensureStyle(): void {
   gap: 12px;
   padding: 10px 14px;
   border-radius: 10px;
-  background: rgba(15, 23, 42, 0.96);
-  color: white;
+  border: 0.5px solid rgba(255, 255, 255, 0.10);
+  background: rgba(26, 22, 20, 0.65);
+  backdrop-filter: blur(40px) saturate(180%) brightness(1.05);
+  -webkit-backdrop-filter: blur(40px) saturate(180%) brightness(1.05);
+  color: #FFFEFB;
   font: 500 13px/1.4 -apple-system, "Hiragino Sans", "Apple SD Gothic Neo", "Segoe UI", sans-serif;
-  box-shadow: 0 12px 32px rgba(0,0,0,0.35);
+  box-shadow:
+    inset 0  1px 0 rgba(255, 255, 255, 0.16),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.22),
+    0 12px 32px rgba(26, 22, 20, 0.40);
   animation: __sh_toast_in__ 220ms cubic-bezier(0.16,1,0.3,1) both;
 }
 .__sh_toast__ button {
   background: transparent;
-  color: #93c5fd;
+  color: #FED7AA;
   border: 0;
   padding: 4px 10px;
   border-radius: 6px;
   cursor: pointer;
   font: 600 12px/1 inherit;
 }
-.__sh_toast__ button:hover { background: rgba(147,197,253,0.18); }
+.__sh_toast__ button:hover { background: rgba(254, 215, 170, 0.18); }
 @keyframes __sh_toast_in__ {
   from { opacity: 0; transform: translate(-50%, -8px); }
   to   { opacity: 1; transform: translate(-50%, 0); }
@@ -299,7 +362,7 @@ export function mountInlineButton(
   btn.type = 'button'
   btn.title = T_init.inlineButton.activate
   btn.setAttribute('aria-label', T_init.inlineButton.activate)
-  btn.innerHTML = SPARKLE_SVG
+  btn.innerHTML = BUTTON_SVG
   document.body.appendChild(btn)
 
   // Quick-disable × badge — sits in the top-left corner of the main
@@ -523,7 +586,7 @@ export function mountInlineButton(
     // avoids the prior "whole-button red pulse" that wrongly read as
     // a recording-stop indicator.
     if (btn.innerHTML.indexOf('<svg') === -1) {
-      btn.innerHTML = SPARKLE_SVG
+      btn.innerHTML = BUTTON_SVG
     }
     if (s === 'processing') {
       ensureStatusBadge()
