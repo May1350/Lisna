@@ -1,6 +1,17 @@
 import { useMemo, useState } from 'react'
-import { ReactFlow, Background, Controls, MiniMap, Handle, Position, MarkerType } from '@xyflow/react'
-import type { Node, Edge, NodeProps } from '@xyflow/react'
+import {
+  ReactFlow,
+  Background,
+  Controls,
+  MiniMap,
+  Handle,
+  Position,
+  MarkerType,
+  BaseEdge,
+  EdgeLabelRenderer,
+  getBezierPath,
+} from '@xyflow/react'
+import type { Node, Edge, NodeProps, EdgeProps } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { FLOWS } from './registry'
 import { Surface, SURFACE_DIMS } from './Surface'
@@ -47,29 +58,30 @@ export function FlowView({ flowId, onSwitchFlow }: Props) {
   }, [flow, positions, sw, sh])
 
   const edges: Edge[] = useMemo(() => {
+    // Detect bidirectional pairs so we can curve them in opposite
+    // directions — otherwise the two labels overlap on the same
+    // straight midpoint and become unreadable.
+    const reverseSet = new Set<string>()
+    for (const e of flow.edges) reverseSet.add(`${e.to}|${e.from}`)
     const out: Edge[] = []
+    // Single ink-900 stroke for everything — color is no longer
+    // encoding anything, the layout carries the meaning.
+    const STROKE = '#3d342a'
     for (const e of flow.edges) {
-      // Two tiers, no decoration:
-      //   primary path  → solid ink-900
-      //   alt / error   → solid ink-500 (dimmer) — same shape, less weight
-      // No animation, no color encoding, no label background pill —
-      // the user said "as simple as possible", so we let the underlying
-      // dotted canvas show through.
-      const stroke = e.dashed ? '#94877a' : '#3d342a'
+      const isBidir = reverseSet.has(`${e.from}|${e.to}`)
+      // For bidirectional pairs, give one direction +curvature and the
+      // other -curvature. We pick by alphabetic comparison so both
+      // sides agree without coordinating.
+      const curvature = isBidir ? (e.from < e.to ? 0.35 : -0.35) : 0
       out.push({
         id: `${e.from}->${e.to}:${e.label}`,
         source: e.from,
         target: e.to,
+        type: 'curvedEdge',
         label: e.label,
-        labelStyle: {
-          fontSize: 11,
-          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-          fill: stroke,
-        },
-        // labelShowBg=false drops the cream pill behind the text.
-        labelShowBg: false,
-        style: { stroke, strokeWidth: 1 },
-        markerEnd: { type: MarkerType.ArrowClosed, color: stroke, width: 14, height: 14 },
+        data: { curvature },
+        style: { stroke: STROKE, strokeWidth: 1 },
+        markerEnd: { type: MarkerType.ArrowClosed, color: STROKE, width: 14, height: 14 },
       })
     }
     return out
@@ -81,6 +93,7 @@ export function FlowView({ flowId, onSwitchFlow }: Props) {
         nodes={nodes as Node[]}
         edges={edges}
         nodeTypes={NODE_TYPES}
+        edgeTypes={EDGE_TYPES}
         fitView
         fitViewOptions={{ padding: 0.2, maxZoom: 0.8 }}
         minZoom={0.1}
@@ -163,6 +176,65 @@ function SceneNode({ data }: NodeProps<Node<SceneNodeData>>) {
 }
 
 const NODE_TYPES = { sceneNode: SceneNode }
+
+// Custom edge — bezier with adjustable curvature. Bidirectional pairs
+// pass ±curvature in `data` so the two arcs separate visually and
+// their labels don't stack on the same midpoint. The label is rendered
+// in a paper-100 pill via EdgeLabelRenderer (which pins it to the
+// computed midpoint regardless of how curved the path is).
+function CurvedEdge({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  label,
+  data,
+  style,
+  markerEnd,
+}: EdgeProps) {
+  const curvature = ((data as { curvature?: number } | undefined)?.curvature) ?? 0
+  // Translate "curvature" into a vertical offset of the midpoint so
+  // the bezier bulges up/down. xyflow's getBezierPath handles the
+  // smooth interpolation.
+  const midY = (sourceY + targetY) / 2
+  const offsetY = curvature * Math.abs(targetX - sourceX) * 0.4
+  const [path, labelX, labelY] = getBezierPath({
+    sourceX,
+    sourceY,
+    targetX,
+    targetY,
+    sourcePosition,
+    targetPosition,
+    curvature: 0.25 + Math.abs(curvature) * 0.5,
+  })
+  // For curved edges, override label Y to sit on the bulge instead of
+  // the straight-line midpoint — keeps it clear of the line itself.
+  const finalLabelY = curvature !== 0 ? midY + offsetY : labelY
+  return (
+    <>
+      <BaseEdge id={id} path={path} style={style} markerEnd={markerEnd} />
+      {label && (
+        <EdgeLabelRenderer>
+          <div
+            style={{
+              position: 'absolute',
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${finalLabelY}px)`,
+              pointerEvents: 'none',
+            }}
+            className="text-[11px] font-mono text-ink-900 bg-paper-100 border border-paper-edge px-1.5 py-0.5 rounded shadow-sm"
+          >
+            {label}
+          </div>
+        </EdgeLabelRenderer>
+      )}
+    </>
+  )
+}
+
+const EDGE_TYPES = { curvedEdge: CurvedEdge }
 
 const TAG_CLASSES: Record<string, string> = {
   modal: 'bg-ink-900 text-paper-100',
