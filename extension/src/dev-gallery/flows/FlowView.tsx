@@ -241,9 +241,9 @@ function CurvedEdge({
   // below another with only ~20 px of canvas gap) would otherwise
   // produce sub-pixel bulges; we floor the magnitude so curves and
   // labels always separate visibly.
-  const MIN_BULGE_PX = 70
+  const MIN_BULGE_PX = 110
   const STRAIGHT_LIFT = 14
-  const LABEL_LIFT_MIN_PX = 44
+  const LABEL_LIFT_MIN_PX = 70
   const bulgeRaw = curvature * len * 0.5
   const bulge = curvature !== 0
     ? Math.sign(bulgeRaw || 1) * Math.max(Math.abs(bulgeRaw), MIN_BULGE_PX)
