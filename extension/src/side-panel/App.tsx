@@ -333,14 +333,33 @@ export default function App() {
   // any in-flight setUser the login flow had just performed.
   useEffect(() => {
     if (consented !== true) return
-    void getCurrentUser().then(setUser)
+    void (async () => {
+      // Pre-flight token guard. Without a JWT, every authed call below
+      // (auth-me, stream-audio, etc.) silently 401s and the modal sits
+      // in a permanently-broken "logged in but nothing works" state.
+      // If we've cached a user object from a previous session but the
+      // token is gone (storage cleared, manual logout via DevTools,
+      // expiry-then-eviction), force a clean re-login by dropping the
+      // stale user — the LoginScreen will mount and the user can
+      // re-auth in one click.
+      const tokenStored = await chrome.storage.local.get('sh.token')
+      const hasToken = typeof tokenStored['sh.token'] === 'string' && (tokenStored['sh.token'] as string).length > 0
+      if (!hasToken) {
+        // Drop any stale user record so the LoginScreen renders.
+        void chrome.storage.local.remove('sh.user')
+        setUser(null)
+        return
+      }
+      const cur = await getCurrentUser()
+      setUser(cur)
+    })()
     // Seed the quota state from /v1/auth/me on mount. Without this the
     // modal had no idea about the user's quota until the FIRST audio
     // chunk's response landed (~12 s into a session) — meaning the
     // QuotaExhaustedIdle / SessionControls quota mode couldn't render
     // for users who were already at 100% before they even pressed
-    // play. Failure is silent: quota stays null and the regular idle
-    // copy renders, which is the pre-fix behavior.
+    // play.
+    //
     // Step 1: fall back to the cached quota snapshot immediately so
     // QuotaExhaustedIdle can render before /v1/auth/me lands. Without
     // this, users at 100% see IdleSessionState ("waiting for video")
@@ -359,11 +378,16 @@ export default function App() {
       // stayed `null` until the first chunk's quota_update broadcast).
       setLiveRemainingSecs((prev) => prev ?? cached.quota!.remaining_secs)
     })
-    // Step 2: fresh fetch overwrites the cached fallback. Errors are
-    // logged so a future debug pass can see auth-me failures (the
-    // earlier silent-catch hid this from us).
+    // Step 2: fresh fetch overwrites the cached fallback. On 401 we
+    // treat the user as logged-out (token expired or invalidated):
+    // clear storage + drop the React state so the LoginScreen mounts.
+    // This used to silently console.warn and leave the user in a
+    // forever-broken "shows my email but nothing works" state where
+    // the QuotaExhaustedIdle would never render. Catching 401 here is
+    // the foundational fix for that whole class of bugs.
     void callApi<{ user: User; quota: QuotaSnapshot }>('/v1/auth/me', 'GET')
       .then(r => {
+        if (r.user) setUser(r.user as User)
         if (r.quota) {
           setQuota(r.quota)
           // Same seed as the cached path — keeps the header countdown
@@ -374,7 +398,16 @@ export default function App() {
         }
       })
       .catch((e) => {
-        console.warn('[App] /v1/auth/me failed; relying on cached quota if any', e instanceof Error ? e.message : e)
+        const status = e instanceof ApiError ? e.status : undefined
+        if (status === 401) {
+          console.warn('[App] /v1/auth/me 401 — clearing stale auth, prompting re-login')
+          void chrome.storage.local.remove(['sh.token', 'sh.user', 'sh.cachedQuota'])
+          setUser(null)
+          setQuota(null)
+          setLiveRemainingSecs(null)
+        } else {
+          console.warn('[App] /v1/auth/me failed; relying on cached quota if any', e instanceof Error ? e.message : e)
+        }
       })
   }, [consented])
 
@@ -910,6 +943,15 @@ export default function App() {
         // returns 4xx because the SetupIntent didn't succeed. Clear
         // the pending stash either way so we don't retry forever.
         await chrome.storage.local.remove(PENDING_TRIAL_KEY)
+        // 401 here = JWT expired between modal mount and Stripe return.
+        // Same recovery as the auth-me effect: drop stale auth state
+        // so the LoginScreen takes over.
+        const status = e instanceof ApiError ? e.status : undefined
+        if (status === 401) {
+          void chrome.storage.local.remove(['sh.token', 'sh.user', 'sh.cachedQuota'])
+          setUser(null)
+          setQuota(null)
+        }
         void reportError(e, { context: 'trial-confirm', severity: 'warning', silent: true })
       }
     }
@@ -937,6 +979,12 @@ export default function App() {
       }
       if (r.user) setUser(r.user as User)
     } catch (e) {
+      const status = e instanceof ApiError ? e.status : undefined
+      if (status === 401) {
+        void chrome.storage.local.remove(['sh.token', 'sh.user', 'sh.cachedQuota'])
+        setUser(null)
+        setQuota(null)
+      }
       void reportError(e, { context: 'trial-resolved-refetch', severity: 'warning', silent: true })
     }
   }, [])
