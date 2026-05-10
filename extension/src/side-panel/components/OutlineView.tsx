@@ -126,7 +126,15 @@ export function OutlineView({ outline, slides = [], onJump, displayTitle, outlin
   const sectionRefs = useRef<(HTMLElement | null)[]>([])
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const outerRef = useRef<HTMLDivElement | null>(null)
+  // Tracks the last rail-clicked section. Used as a fallback when
+  // scrolling isn't actually possible (short outline that fits in the
+  // viewport): scrollTo() is a no-op there, so the scroll-derived
+  // active-index can never reflect the user's click. Without this
+  // override, the rail's bottom-snap rule would pin active to the
+  // last section forever and earlier dots would look "broken".
+  const [lastClickedIdx, setLastClickedIdx] = useState<number | null>(null)
   const scrollToSection = (i: number) => {
+    setLastClickedIdx(i)
     const target = sectionRefs.current[i]
     const container = scrollContainerRef.current
     if (!target || !container) return
@@ -182,25 +190,49 @@ export function OutlineView({ outline, slides = [], onJump, displayTitle, outlin
   // Active section tracking — last section whose offsetTop crossed
   // a fixed line above the viewport top, with bottom-of-scroll
   // snap so the final section's dot still lights up at scroll end.
-  const [activeIdx, setActiveIdx] = useState(0)
+  const [scrollDerivedIdx, setScrollDerivedIdx] = useState(0)
+  // True when the outline's content height exceeds the scroll
+  // container — i.e., scrolling can actually move things. Short
+  // 2-section outlines on a tall panel may have canScroll === false,
+  // in which case we fall back to lastClickedIdx for the active
+  // index instead of letting the bottom-snap rule pin to the last
+  // section permanently.
+  const [canScroll, setCanScroll] = useState(false)
   useEffect(() => {
     const el = scrollContainerRef.current
     if (!el) return
     const update = () => {
+      const can = el.scrollHeight - el.clientHeight > 4
+      setCanScroll(can)
       const trigger = el.scrollTop + 80
       let idx = 0
       for (let i = 0; i < outline.sections.length; i++) {
         const s = sectionRefs.current[i]
         if (s && s.offsetTop <= trigger) idx = i
       }
-      const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 8
+      // Only apply the snap-to-last-on-bottom rule when scrolling is
+      // actually possible. Otherwise scrollTop=0 and clientHeight ===
+      // scrollHeight means atBottom is always true, which would lock
+      // active to the last section even on first paint.
+      const atBottom = can && el.scrollTop + el.clientHeight >= el.scrollHeight - 8
       if (atBottom && outline.sections.length > 0) idx = outline.sections.length - 1
-      setActiveIdx(idx)
+      setScrollDerivedIdx(idx)
     }
     el.addEventListener('scroll', update, { passive: true })
+    // Recompute on container/content resize too — content streams in
+    // during curate, so clientHeight/scrollHeight evolve over time.
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
     update()
-    return () => el.removeEventListener('scroll', update)
+    return () => {
+      el.removeEventListener('scroll', update)
+      ro.disconnect()
+    }
   }, [outline.sections.length])
+  // Effective rail/section active index. When the outline fits without
+  // scrolling, prefer the user's last explicit click; otherwise the
+  // scroll position is the source of truth.
+  const activeIdx = !canScroll && lastClickedIdx !== null ? lastClickedIdx : scrollDerivedIdx
 
   return (
     // overflow-hidden on the outer + min-h-0 prevents the rail/scroll
