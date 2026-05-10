@@ -266,7 +266,7 @@ export function PanelHeader({
           <>
             <Avatar user={user} />
             <div className="flex flex-col min-w-0 leading-tight">
-              <span className="text-xs font-semibold text-gray-900 truncate" title={user.email}>
+              <span className="text-xs font-semibold text-ink-900 truncate" title={user.email}>
                 {user.email}
               </span>
               {isEmbed ? (
@@ -302,7 +302,7 @@ export function PanelHeader({
                 <button
                   type="button"
                   onClick={onLogout}
-                  className="text-[11px] text-gray-500 hover:text-gray-700 text-left mt-0.5"
+                  className="text-[11px] text-ink-500 hover:text-ink-700 text-left mt-0.5"
                   title={T.panelHeader.logoutTooltip}
                 >
                   {interpolate(T.panelHeader.planLogoutCombo, {
@@ -313,7 +313,7 @@ export function PanelHeader({
             </div>
           </>
         ) : (
-          <span className="text-xs text-gray-500">{T.panelHeader.notLoggedIn}</span>
+          <span className="text-xs text-ink-500">{T.panelHeader.notLoggedIn}</span>
         )}
       </div>
       <div className="flex items-center gap-2 shrink-0">
@@ -328,7 +328,7 @@ export function PanelHeader({
         <SettingsButton />
         {showToggle && (
           <label
-            className="flex items-center gap-1.5 text-[11px] text-gray-700 cursor-pointer select-none"
+            className="flex items-center gap-1.5 text-[11px] text-ink-700 cursor-pointer select-none"
             title={enabled ? T.panelHeader.toggleOnTitle : T.panelHeader.toggleOffTitle}
           >
             <span className="font-medium">{enabled ? T.panelHeader.on : T.panelHeader.off}</span>
@@ -343,11 +343,11 @@ export function PanelHeader({
             <span
               aria-hidden="true"
               className={`relative inline-block w-8 h-[18px] rounded-full transition-colors ${
-                enabled ? 'bg-emerald-500' : 'bg-gray-300'
+                enabled ? 'bg-ok-green' : 'bg-ink-200'
               }`}
             >
               <span
-                className={`absolute top-[2px] left-[2px] w-[14px] h-[14px] bg-white rounded-full shadow transition-transform ${
+                className={`absolute top-[2px] left-[2px] w-[14px] h-[14px] bg-paper-100 rounded-full shadow transition-transform ${
                   enabled ? 'translate-x-[14px]' : 'translate-x-0'
                 }`}
               />

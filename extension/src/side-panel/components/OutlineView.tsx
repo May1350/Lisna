@@ -881,14 +881,14 @@ function SlideStrip({ slides, onJump }: { slides: SlideItem[]; onJump?: (ts: num
             // strip would offset the lightbox's startIdx and the user
             // would land on the wrong slide.
             onClick={() => setOpenIdx(uniqSorted.findIndex(s => s.key === slide.key))}
-            className="shrink-0 group relative rounded overflow-hidden border border-gray-200 hover:border-blue-400 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-300"
+            className="shrink-0 group relative rounded overflow-hidden border border-paper-edge hover:border-blue-400 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-300"
             title={interpolate(T.outline.slideThumbTitle, { ts: fmtTs(slide.ts) })}
           >
             <img
               src={slide.url}
               alt={`slide ${fmtTs(slide.ts)}`}
               loading="lazy"
-              className="block w-24 h-14 object-cover bg-gray-100"
+              className="block w-24 h-14 object-cover bg-paper-300"
               onError={() => {
                 // Presigned URLs expire after 1 h. Drop the whole
                 // button from the strip instead of showing a
@@ -1008,7 +1008,7 @@ function SlideLightbox({
             type="button"
             onClick={() => setIdx(i => Math.max(0, i - 1))}
             disabled={idx === 0}
-            className="px-2 py-1 rounded bg-white/10 hover:bg-white/20 disabled:opacity-30"
+            className="px-2 py-1 rounded bg-paper-100/10 hover:bg-paper-100/20 disabled:opacity-30"
             aria-label={T.outline.lightboxPrevAria}
           >
             {T.outline.lightboxPrev}
@@ -1020,7 +1020,7 @@ function SlideLightbox({
             type="button"
             onClick={() => setIdx(i => Math.min(slides.length - 1, i + 1))}
             disabled={idx === slides.length - 1}
-            className="px-2 py-1 rounded bg-white/10 hover:bg-white/20 disabled:opacity-30"
+            className="px-2 py-1 rounded bg-paper-100/10 hover:bg-paper-100/20 disabled:opacity-30"
             aria-label={T.outline.lightboxNextAria}
           >
             {T.outline.lightboxNext}
@@ -1029,7 +1029,7 @@ function SlideLightbox({
             <button
               type="button"
               onClick={() => { onJump(slide.ts); onClose() }}
-              className="px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white font-medium"
+              className="px-3 py-1 rounded bg-ink-900 hover:bg-blue-500 text-white font-medium"
             >
               {T.outline.lightboxJump}
             </button>
@@ -1037,7 +1037,7 @@ function SlideLightbox({
           <button
             type="button"
             onClick={onClose}
-            className="px-2 py-1 rounded bg-white/10 hover:bg-white/20"
+            className="px-2 py-1 rounded bg-paper-100/10 hover:bg-paper-100/20"
             aria-label={T.outline.lightboxClose}
           >
             ✕

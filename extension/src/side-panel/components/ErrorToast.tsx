@@ -66,23 +66,28 @@ export function ErrorToast() {
       {toasts.map(t => (
         <div
           key={t.id}
-          className={`pointer-events-auto rounded-lg shadow-lg px-3 py-2.5 text-xs flex items-start gap-2 ${
-            t.severity === 'warning'
-              ? 'bg-amber-50 border border-amber-200 text-amber-900'
-              : t.severity === 'fatal'
-              ? 'bg-red-50 border border-red-300 text-red-900'
-              : 'bg-red-50 border border-red-200 text-red-900'
-          }`}
+          className={
+            'pointer-events-auto rounded-[10px] shadow-modal px-3 py-2.5 text-xs flex items-start gap-2.5 ' +
+            (t.severity === 'warning'
+              ? 'bg-paper-100 border border-warn-amber/30 text-ink-900'
+              : 'bg-paper-100 border border-warn-red/30 text-ink-900')
+          }
         >
-          <span className="text-base leading-none mt-0.5">
-            {t.severity === 'warning' ? '⚠️' : '❌'}
-          </span>
-          <div className="flex-1 leading-relaxed break-words">
+          {/* Severity dot replaces the previous emoji prefix —
+              DESIGN.md disallows emoji in user-visible UI. */}
+          <span
+            aria-hidden
+            className={
+              'mt-1.5 inline-block w-1.5 h-1.5 rounded-full shrink-0 ' +
+              (t.severity === 'warning' ? 'bg-warn-amber' : 'bg-warn-red')
+            }
+          />
+          <div className="flex-1 leading-relaxed break-words text-ink-700">
             {translate(t.message, T)}
           </div>
           <button
             onClick={() => dismissToast(t.id)}
-            className="opacity-60 hover:opacity-100 transition text-base leading-none px-1"
+            className="text-ink-300 hover:text-ink-900 transition-colors text-base leading-none px-1"
             aria-label={T.common.close}
           >
             ×
