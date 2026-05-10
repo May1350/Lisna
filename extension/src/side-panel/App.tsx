@@ -409,7 +409,16 @@ export default function App() {
           console.warn('[App] /v1/auth/me failed; relying on cached quota if any', e instanceof Error ? e.message : e)
         }
       })
-  }, [consented])
+    // Re-run when user IDENTITY changes (null → logged-in or vice
+    // versa). Without `user?.id` here the effect only ran once on
+    // mount; if the user logged in via LoginScreen.onSuccess the
+    // app would never refetch /v1/auth/me with the fresh token, so
+    // quota stayed null and the QuotaExhaustedIdle card couldn't
+    // render until the user manually reloaded the modal. We use the
+    // ID rather than the whole user object because auth-me itself
+    // calls setUser with a new object identity every time, which
+    // would otherwise re-trigger the effect in an infinite loop.
+  }, [consented, user?.id])
 
   // Keep the export-input ref in sync with the React state used by
   // the auto-download path inside applyEvent. Refs are commit-phase
