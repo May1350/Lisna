@@ -50,15 +50,28 @@ export function Frame({
       </div>
       {!collapsed && (
         <div
-          className={`relative ${surfaceClass} border border-paper-edge rounded-[14px] shadow-card overflow-hidden`}
-          style={{ width, height: height === 'auto' ? undefined : height }}
+          className={`gallery-frame relative ${surfaceClass} border border-paper-edge rounded-[14px] shadow-card overflow-hidden`}
+          // `transform: translateZ(0)` makes this div the containing block
+          // for `position: fixed` descendants (per CSS Containment & the
+          // "transformed ancestor" rule). Without this, ConsentModal's
+          // fixed inset-0 overlay would cover the whole viewport and
+          // ErrorToast would dock at the page bottom instead of the
+          // frame bottom — both of which would make the gallery
+          // unusable. `contain: paint` belt-and-suspenders.
+          style={{
+            width,
+            height: height === 'auto' ? undefined : height,
+            minHeight: height === 'auto' ? 200 : undefined,
+            transform: 'translateZ(0)',
+            contain: 'paint',
+          }}
         >
           <div className="absolute top-1 right-1 z-50 text-[9px] font-mono text-ink-300 bg-paper-100/80 px-1 rounded pointer-events-none">
             {width}px
           </div>
           {/* The side-panel root is a flex column; we mimic that container here so
               components like App.tsx that assume flex-col fill behave naturally. */}
-          <div className="flex flex-col" style={{ height: height === 'auto' ? '100%' : height }}>
+          <div className="flex flex-col w-full h-full">
             {children}
           </div>
         </div>

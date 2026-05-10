@@ -11,5 +11,15 @@ html, body, #root {
    gallery each frame is its own constrained container, so prevent
    accidentally tall cards from blowing out the row. */
 .gallery-frame :where(.min-h-screen) {
-  min-height: auto;
+  min-height: 100% !important;
+}
+
+/* Some side-panel containers use `flex-1` expecting a parent flex
+   column with a known height (App.tsx mounts at 100vh). In the gallery
+   the frame supplies that height — but only when our wrapper has it.
+   Force the wrapper's height chain so flex-1 children have a basis to
+   grow from. */
+.gallery-frame > div[class*="flex-col"] {
+  flex: 1 1 auto;
+  min-height: 100%;
 }

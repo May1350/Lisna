@@ -8,14 +8,38 @@ import { useT } from '../../shared/i18n'
 // `loading` and `err` are internal useState — to drive them without
 // modifying the component, we mirror the JSX. Keep in sync with
 // src/side-panel/components/LoginScreen.tsx.
+
+// Inline copy of the official Google "G" mark — same SVG as
+// LoginScreen's GoogleGlyph helper.
+function GoogleGlyphInline() {
+  return h(
+    'svg',
+    { width: 18, height: 18, viewBox: '0 0 18 18', 'aria-hidden': true },
+    h('path', { fill: '#4285F4', d: 'M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.49h4.84a4.14 4.14 0 0 1-1.79 2.71v2.26h2.9c1.7-1.57 2.69-3.88 2.69-6.62z' }),
+    h('path', { fill: '#34A853', d: 'M9 18c2.43 0 4.47-.81 5.96-2.18l-2.9-2.26c-.81.54-1.83.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.96v2.33A9 9 0 0 0 9 18z' }),
+    h('path', { fill: '#FBBC05', d: 'M3.95 10.7c-.18-.54-.28-1.12-.28-1.7s.1-1.16.28-1.7V4.96H.96A9 9 0 0 0 0 9c0 1.45.35 2.83.96 4.04l2.99-2.34z' }),
+    h('path', { fill: '#EA4335', d: 'M9 3.58c1.32 0 2.51.45 3.44 1.35l2.58-2.58A9 9 0 0 0 9 0 9 9 0 0 0 .96 4.96L3.95 7.3C4.66 5.17 6.65 3.58 9 3.58z' }),
+  )
+}
+
 function LoginScreenStatic({ variant }: { variant: 'loading' | 'error' }) {
   const T = useT()
   const taglineLines = T.login.tagline.split('\n')
   const privacyLines = T.login.privacyNote.split('\n')
+  // chrome.runtime.getURL works in the dev gallery via the chrome-mock,
+  // resolving to a relative URL under origin. The real PNG icon lives
+  // at /public/icons/icon128.png.
+  const logoUrl = chrome.runtime.getURL('public/icons/icon128.png')
   return h(
     'div',
-    { className: 'min-h-screen flex flex-col items-center justify-center px-8 py-10 text-center bg-gradient-to-b from-white to-paper-200' },
-    h('div', { className: 'w-14 h-14 mb-5 rounded-2xl bg-ink-900 shadow-lg flex items-center justify-center text-paper-100 text-2xl font-bold' }, 'L'),
+    { className: 'min-h-screen flex flex-col items-center justify-center px-8 py-10 text-center bg-gradient-to-b from-paper-100 to-paper-200' },
+    h('img', {
+      src: logoUrl,
+      alt: T.login.title,
+      width: 56,
+      height: 56,
+      className: 'w-14 h-14 mb-5 rounded-2xl shadow-lg',
+    }),
     h('h1', { className: 'text-xl font-bold text-ink-900 mb-1.5' }, T.login.title),
     h('p', { className: 'text-sm text-ink-700 mb-7 leading-relaxed max-w-[260px]' },
       ...taglineLines.flatMap((line, i) =>
@@ -43,7 +67,7 @@ function LoginScreenStatic({ variant }: { variant: 'loading' | 'error' }) {
             h('span', { key: 'lbl' }, T.login.busy),
           ]
         : [
-            h('span', { key: 'g', className: 'inline-block w-4 h-4 rounded-full bg-ink-900' }),
+            h(GoogleGlyphInline, { key: 'g' }),
             h('span', { key: 'lbl' }, T.login.button),
           ],
     ),
