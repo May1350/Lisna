@@ -34,6 +34,13 @@ export interface FlowEdge {
   label: string
   /** When set, draw the edge dashed — for transient or error transitions. */
   dashed?: boolean
+  /** Override the source/target attachment side. Default 'right' on
+   *  the source and 'left' on the target — i.e., a left-to-right
+   *  edge. Use these to route around obstacles when the default
+   *  trajectory would cross a non-related node, or for vertical
+   *  branch jumps. */
+  sourceHandle?: 'top' | 'right' | 'bottom' | 'left'
+  targetHandle?: 'top' | 'right' | 'bottom' | 'left'
 }
 
 /** Cross-flow boundary link — leaves the current flow and enters
@@ -66,5 +73,11 @@ export interface FlowGraph {
   surface: FlowSurface
   scenes: FlowScene[]
   edges: FlowEdge[]
+  /** Explicit per-scene canvas positions (px). Without an entry here,
+   *  scenes are laid left-to-right at the order they appear in
+   *  `scenes`. Use this when a flow has branches: keep the happy path
+   *  on a single horizontal axis (y=0) and drop branch states down
+   *  (y > 0) so cross-jumping edges don't pass through other nodes. */
+  positions?: Record<string, { x: number; y: number }>
   boundaryLinks?: FlowBoundaryLink[]
 }

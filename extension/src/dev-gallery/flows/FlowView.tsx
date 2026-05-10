@@ -34,10 +34,12 @@ export function FlowView({ flowId, onSwitchFlow }: Props) {
   if (!flow) return <div className="p-10 text-ink-500">No flow registered.</div>
 
   const { width: sw, height: sh } = SURFACE_DIMS[flow.surface]
-  // Default layout: scenes flow left to right. Custom layouts can be
-  // expressed by attaching `x`/`y` to a scene; we use whatever the
-  // scene file's positions array provides (see scenes/01-onboarding.ts).
-  const positions = (flow as unknown as { positions?: Record<string, { x: number; y: number }> }).positions ?? {}
+  // Default layout: scenes flow left to right. Branched flows declare
+  // explicit per-scene positions in the FlowGraph.positions map so
+  // happy-path nodes share y=0 and branches drop down — that keeps
+  // long jumps (e.g., loading → success skipping an error branch) as
+  // straight horizontal lines instead of routing through other nodes.
+  const positions = flow.positions ?? {}
 
   const nodes: Node<SceneNodeData>[] = useMemo(() => {
     return flow.scenes.map((scene, i) => {
@@ -73,10 +75,20 @@ export function FlowView({ flowId, onSwitchFlow }: Props) {
       // other -curvature. We pick by alphabetic comparison so both
       // sides agree without coordinating.
       const curvature = isBidir ? (e.from < e.to ? 0.35 : -0.35) : 0
+      // Map FlowEdge.sourceHandle/targetHandle to the unique handle ids
+      // declared on SceneNode. Source-side ids carry an "-out" suffix
+      // for top/bottom/left because those sides also expose a target
+      // handle on the same edge; the right side is purely a source.
+      const sourceHandle = e.sourceHandle
+        ? (e.sourceHandle === 'right' ? 'right' : `${e.sourceHandle}-out`)
+        : 'right'
+      const targetHandle = e.targetHandle ?? 'left'
       out.push({
         id: `${e.from}->${e.to}:${e.label}`,
         source: e.from,
         target: e.to,
+        sourceHandle,
+        targetHandle,
         type: 'curvedEdge',
         label: e.label,
         data: { curvature },
@@ -129,7 +141,11 @@ function SceneNode({ data }: NodeProps<Node<SceneNodeData>>) {
 
   return (
     <div className="flex flex-col items-stretch">
-      <Handle type="target" position={Position.Left} style={{ background: '#3d342a' }} />
+      {/* 4-direction handles. Each direction is BOTH a source and
+          target handle so an edge can attach in any direction. */}
+      <Handle id="left"  type="target" position={Position.Left}  style={HANDLE_DOT} />
+      <Handle id="top"   type="target" position={Position.Top}   style={HANDLE_DOT} />
+      <Handle id="bottom" type="target" position={Position.Bottom} style={HANDLE_DOT} />
       <div className="mb-2 px-1">
         <div className="flex items-baseline justify-between gap-2">
           <div className="text-sm font-medium text-ink-900 truncate">{scene.label}</div>
@@ -170,10 +186,20 @@ function SceneNode({ data }: NodeProps<Node<SceneNodeData>>) {
         )}
       </div>
       <Surface surface={surface}>{renderFn ? renderFn() : null}</Surface>
-      <Handle type="source" position={Position.Right} style={{ background: '#3d342a' }} />
+      <Handle id="right"  type="source" position={Position.Right}  style={HANDLE_DOT} />
+      <Handle id="top-out"    type="source" position={Position.Top}    style={HANDLE_DOT_HIDDEN} />
+      <Handle id="bottom-out" type="source" position={Position.Bottom} style={HANDLE_DOT_HIDDEN} />
+      <Handle id="left-out"   type="source" position={Position.Left}   style={HANDLE_DOT_HIDDEN} />
     </div>
   )
 }
+
+const HANDLE_DOT = { background: '#3d342a', width: 6, height: 6 } as const
+// xyflow can have only one handle per (id, side); when we expose the
+// same side as both source and target via different ids, only the
+// "primary" target handle is visible — extras need to be invisible
+// markers so they still anchor edges without cluttering the node.
+const HANDLE_DOT_HIDDEN = { background: 'transparent', width: 1, height: 1, border: 'none' } as const
 
 const NODE_TYPES = { sceneNode: SceneNode }
 
@@ -201,7 +227,7 @@ function CurvedEdge({
   // smooth interpolation.
   const midY = (sourceY + targetY) / 2
   const offsetY = curvature * Math.abs(targetX - sourceX) * 0.4
-  const [path, labelX, labelY] = getBezierPath({
+  const [path, labelX] = getBezierPath({
     sourceX,
     sourceY,
     targetX,
@@ -210,9 +236,14 @@ function CurvedEdge({
     targetPosition,
     curvature: 0.25 + Math.abs(curvature) * 0.5,
   })
-  // For curved edges, override label Y to sit on the bulge instead of
-  // the straight-line midpoint — keeps it clear of the line itself.
-  const finalLabelY = curvature !== 0 ? midY + offsetY : labelY
+  // Always offset the label off the line, in a consistent direction:
+  //   - straight edges  → 14 px above the midpoint (default)
+  //   - curved bottom   → at the bulge (already below the line)
+  //   - curved top      → at the bulge (already above the line)
+  // This way no label sits on top of its own line or on top of
+  // another node, regardless of layout.
+  const STRAIGHT_LIFT = -14
+  const finalLabelY = curvature !== 0 ? midY + offsetY : midY + STRAIGHT_LIFT
   return (
     <>
       <BaseEdge id={id} path={path} style={style} markerEnd={markerEnd} />

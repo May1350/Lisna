@@ -118,11 +118,27 @@ function IdleStateMirror({ videoPlaying }: { videoPlaying: boolean | null }) {
 
 // =============================================================================
 
+// Layout intent (embed surface = 380×640):
+//   y=0   happy path: consent → login-idle → login-loading → authed-empty
+//   y=720 branch:                              login-error
+// This keeps the OAuth-ok edge (login-loading → authed-empty) as a
+// straight horizontal line instead of routing it across login-error.
+const HAPPY_Y = 0
+const BRANCH_Y = 720
+const COL = 480 // surface width (380) + horizontal margin (100)
+
 export const onboardingFlow: FlowGraph = {
   id: 'onboarding',
   label: 'Onboarding',
   caption: 'First install → authenticated empty session',
   surface: 'embed',
+  positions: {
+    'consent':       { x: 0 * COL, y: HAPPY_Y },
+    'login-idle':    { x: 1 * COL, y: HAPPY_Y },
+    'login-loading': { x: 2 * COL, y: HAPPY_Y },
+    'authed-empty':  { x: 3 * COL, y: HAPPY_Y },
+    'login-error':   { x: 2 * COL, y: BRANCH_Y },
+  },
   scenes: [
     {
       id: 'consent',
@@ -177,8 +193,12 @@ export const onboardingFlow: FlowGraph = {
     { from: 'consent', to: 'login-idle', label: 'agree' },
     { from: 'login-idle', to: 'login-loading', label: 'click sign in' },
     { from: 'login-loading', to: 'authed-empty', label: 'OAuth ok' },
-    { from: 'login-loading', to: 'login-error', label: 'OAuth fail', dashed: true },
-    { from: 'login-error', to: 'login-loading', label: 'retry', dashed: true },
+    // Vertical branch: login-loading drops down to login-error on
+    // failure; user retries from error back up to loading. Bottom/Top
+    // handles route this pair as a clean lens shape next to the
+    // happy-path horizontal axis.
+    { from: 'login-loading', to: 'login-error', label: 'OAuth fail', sourceHandle: 'bottom', targetHandle: 'top' },
+    { from: 'login-error', to: 'login-loading', label: 'retry', sourceHandle: 'top', targetHandle: 'bottom' },
   ],
   boundaryLinks: [
     { fromScene: 'authed-empty', toFlowId: 'recording', toSceneId: 'empty-waiting', label: 'play video', direction: 'out' },
