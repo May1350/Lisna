@@ -18,11 +18,14 @@ export default defineConfig({
   // config needed for the gallery during dev. The entry below only
   // affects `vite build`, which we don't want including the gallery.
   build: {
-    // Source maps included for Chrome Web Store review. Without them,
-    // reviewers see only minified bundles and can reject for "code that
-    // cannot be inspected" — see Chrome Developer Program Policies §
-    // "Single Purpose" and "Functionality" enforcement notes.
-    sourcemap: true,
+    // Sourcemaps in dev builds (so CWS reviewers can inspect minified
+    // bundles when running `pnpm build` without the CWS flag, and so
+    // local debugging works), but DROPPED for CWS_BUILD=1 to keep the
+    // shipped manifest's web_accessible_resources from referencing
+    // .map files that the ZIP step strips. Without this gate, the
+    // runtime browser logs sourceMappingURL 404s every time a content
+    // script loads on a host page.
+    sourcemap: process.env.CWS_BUILD !== '1',
     rollupOptions: {
       input: { sidePanel: 'src/side-panel/index.html' },
     },

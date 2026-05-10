@@ -145,12 +145,16 @@ function ensureStyle(): void {
 }
 
 /* First-time onboarding: until the user has clicked the button at
- * least once, the idle button glows in a pulsing terra halo and a
+ * least once, the idle button glows in a pulsing peach halo and a
  * small label appears next to it pointing at the click target.
- * Both auto-clear after the user clicks OR after 30 s. The pulse is
- * tinted with --terra (warm) instead of blue so it stays inside the
- * Lisna palette. The recording badge uses warn-red, so the two states
- * remain visually distinct (warm-orange glow vs. brick-red dot).
+ * Both auto-clear after the user clicks OR after 30 s.
+ *
+ * Color: --terra-soft #FED7AA (NOT --terra solid). DESIGN.md §1.4
+ * reserves --terra solid for value-bearing payment / Pro CTA chunks
+ * exclusively; using it on a generic onboarding signal would compete
+ * with the Pro upgrade slot once the user encounters one. terra-soft
+ * is the same warm peach already used on the tooltip arrow, so the
+ * onboarding signal reads as one consistent palette.
  */
 .__sh_first_glow__ {
   animation: __sh_first_glow__ 1.6s ease-in-out infinite;
@@ -162,7 +166,7 @@ function ensureStyle(): void {
       inset 0 -1px 0 rgba(0, 0, 0, 0.22),
       0 16px 44px rgba(0, 0, 0, 0.36),
       0 2px 6px rgba(0, 0, 0, 0.14),
-      0 0 0 0 rgba(194, 65, 12, 0.55);
+      0 0 0 0 rgba(254, 215, 170, 0.65);
   }
   50% {
     box-shadow:
@@ -170,7 +174,7 @@ function ensureStyle(): void {
       inset 0 -1px 0 rgba(0, 0, 0, 0.22),
       0 16px 44px rgba(0, 0, 0, 0.36),
       0 2px 6px rgba(0, 0, 0, 0.14),
-      0 0 0 12px rgba(194, 65, 12, 0);
+      0 0 0 12px rgba(254, 215, 170, 0);
   }
 }
 .__sh_onboarding_tooltip__ {
