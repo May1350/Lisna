@@ -38,6 +38,12 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       remaining_secs: q.remainingSecs,
       percent_used: Math.min(100, Math.round((q.used / Math.max(1, q.limit)) * 100)),
       plan: user.plan,
+      // Distinguishes the 2-hour one-time trial budget from the
+      // user's plan-tier monthly quota. The frontend uses this to
+      // (a) badge the header "Trial · 1:23 남음" instead of "Free",
+      // (b) show the trial-end decision modal at 100% (Pro 가입
+      // (원클릭) vs 가입 안함) instead of the regular Pro upsell.
+      trial_active: q.trialActive,
     }
 
     return {

@@ -73,6 +73,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     remaining_secs: Math.max(0, limit - used),
     percent_used: Math.min(100, Math.round((used / Math.max(1, limit)) * 100)),
     plan,
+    trial_active: quota.trialActive,
   })
   if (!quota.allowed) {
     return {
@@ -178,7 +179,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     [JSON.stringify([transcriptEntry]), sessionId, payload.sub],
   )
 
-  await recordUsage(payload.sub, Math.ceil(body.duration_sec))
+  await recordUsage(payload.sub, userPlan, Math.ceil(body.duration_sec))
 
   // Re-snapshot AFTER recordUsage so the frontend sees the post-charge
   // state. percent_used updates here are what drive the QuotaBanner's

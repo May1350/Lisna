@@ -365,6 +365,63 @@ export class ApiStack extends Stack {
       integration: new HttpLambdaIntegration('SWInt', stripeWebhook),
     })
 
+    // ---- 2-hour trial flow (4 endpoints) ----
+    // Frontend calls these in this order:
+    //   start    → returns Stripe Checkout (setup mode) URL
+    //              → user adds card → Stripe redirects back to our success URL
+    //   confirm  → frontend POSTs the returned session_id; we verify
+    //              SetupIntent succeeded + create the trial_grants row
+    // Then user records up to 2 h. At 100 %:
+    //   subscribe → "Pro 가입 (원클릭)": uses saved PM, creates subscription
+    //   decline   → "가입 안함": detaches PM, marks grant declined
+    const trialFnDefaults = {
+      runtime: Runtime.NODEJS_20_X,
+      timeout: Duration.seconds(20),
+      environment: commonEnv,
+      vpc: props.vpc,
+      logRetention: RetentionDays.ONE_MONTH,
+    }
+    const trialStart = new NodejsFunction(this, 'TrialStartFn', {
+      ...trialFnDefaults,
+      entry: path.join(__dirname, '../../src/handlers/trial-start.ts'),
+    })
+    const trialConfirm = new NodejsFunction(this, 'TrialConfirmFn', {
+      ...trialFnDefaults,
+      entry: path.join(__dirname, '../../src/handlers/trial-confirm.ts'),
+    })
+    const trialDecline = new NodejsFunction(this, 'TrialDeclineFn', {
+      ...trialFnDefaults,
+      entry: path.join(__dirname, '../../src/handlers/trial-decline.ts'),
+    })
+    const trialSubscribe = new NodejsFunction(this, 'TrialSubscribeFn', {
+      ...trialFnDefaults,
+      entry: path.join(__dirname, '../../src/handlers/trial-subscribe.ts'),
+    })
+    for (const fn of [trialStart, trialConfirm, trialDecline, trialSubscribe]) {
+      props.dbSecret.grantRead(fn)
+      props.appSecret.grantRead(fn)
+    }
+    api.addRoutes({
+      path: '/v1/trial/start',
+      methods: [HttpMethod.POST],
+      integration: new HttpLambdaIntegration('TStartInt', trialStart),
+    })
+    api.addRoutes({
+      path: '/v1/trial/confirm',
+      methods: [HttpMethod.POST],
+      integration: new HttpLambdaIntegration('TConfirmInt', trialConfirm),
+    })
+    api.addRoutes({
+      path: '/v1/trial/decline',
+      methods: [HttpMethod.POST],
+      integration: new HttpLambdaIntegration('TDeclineInt', trialDecline),
+    })
+    api.addRoutes({
+      path: '/v1/billing/subscribe-from-trial',
+      methods: [HttpMethod.POST],
+      integration: new HttpLambdaIntegration('TSubscribeInt', trialSubscribe),
+    })
+
     // ── Client error reporting (POST /v1/errors) ───────────────────────────
     // No auth: errors must report even when login itself fails. Logs to
     // CloudWatch only — no DB. Use CloudWatch Insights to query by severity:
