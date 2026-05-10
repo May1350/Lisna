@@ -237,20 +237,29 @@ function CurvedEdge({
   const midY = (sourceY + targetY) / 2
   // Bulge magnitude. Curvature (positive scalar from FlowGraph) +
   // direction-flipping perpendicular = bidirectional pairs naturally
-  // bulge to opposite sides.
-  const bulge = curvature * len * 0.5
+  // bulge to opposite sides. Short chords (e.g., a node directly
+  // below another with only ~20 px of canvas gap) would otherwise
+  // produce sub-pixel bulges; we floor the magnitude so curves and
+  // labels always separate visibly.
+  const MIN_BULGE_PX = 70
+  const STRAIGHT_LIFT = 14
+  const LABEL_LIFT_MIN_PX = 44
+  const bulgeRaw = curvature * len * 0.5
+  const bulge = curvature !== 0
+    ? Math.sign(bulgeRaw || 1) * Math.max(Math.abs(bulgeRaw), MIN_BULGE_PX)
+    : 0
   const ctrlX = midX + perpX * bulge
   const ctrlY = midY + perpY * bulge
   const path = curvature === 0
     ? `M ${sourceX} ${sourceY} L ${targetX} ${targetY}`
     : `M ${sourceX} ${sourceY} Q ${ctrlX} ${ctrlY} ${targetX} ${targetY}`
-  // Label position. Straight edges: lift by 14 px along right-perp
-  // (up for L→R, right for top→bottom, etc.) so the label clears the
-  // line consistently. Curved edges: place at ~65 % of the bulge
-  // distance so the label sits on the curve's apex.
-  const STRAIGHT_LIFT = 14
-  const labelOffset = curvature === 0 ? STRAIGHT_LIFT : Math.abs(bulge) * 0.65
-  const labelSign = curvature === 0 ? 1 : Math.sign(bulge) || 1
+  // Label position. Straight edges: lift along right-perp so the
+  // label clears the line. Curved edges: place at ~70 % of the bulge,
+  // floored to LABEL_LIFT_MIN_PX so even tight pairs separate.
+  const labelOffset = curvature === 0
+    ? STRAIGHT_LIFT
+    : Math.max(Math.abs(bulge) * 0.7, LABEL_LIFT_MIN_PX)
+  const labelSign = curvature === 0 ? 1 : (Math.sign(bulge) || 1)
   const labelX = midX + perpX * labelOffset * labelSign
   const labelY = midY + perpY * labelOffset * labelSign
   return (
