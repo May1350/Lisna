@@ -722,7 +722,13 @@ function escapeHtml(s: string): string {
 // no auto-popup, no aggressive comparison ad copy. The aggressive
 // upgrade CTA still lives in QuotaBanner at 90%+ which catches the
 // users for whom the upgrade decision is now-or-never.
-function PlanSection({
+//
+// Exported (in addition to default Options) so the dev gallery can
+// render the Free / Pro variants directly with mock quota — the
+// Options page itself fetches /v1/auth/me on mount and stays in
+// its loading state without a backend, hiding the very
+// differentiation we want designers to review.
+export function PlanSection({
   plan, quota, onUpgrade, upgrading, T,
 }: {
   plan: 'free' | 'pro'

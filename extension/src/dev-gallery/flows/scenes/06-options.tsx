@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Options } from '../../../options/Options'
+import { Options, PlanSection } from '../../../options/Options'
+import { useT } from '../../../shared/i18n'
+import { QUOTA_FREE_OK, QUOTA_FREE_95, QUOTA_PRO_OK } from '../../fixtures/_mock-data'
+import type { QuotaSnapshot } from '../../../shared/types'
 import type { FlowGraph } from '../types'
 
 // =============================================================================
@@ -32,6 +35,37 @@ function OptionsScene({ seed }: { seed: Record<string, unknown> }) {
     setReady(true)
   }, [seed])
   return ready ? <Options /> : null
+}
+
+// Focused PlanSection preview — renders just the Plan card (the part
+// of the Options page that swaps between Free and Pro states) with
+// mock quota injected directly. Used for the free-plan / pro-plan
+// scenes so designers can actually see the Free vs Pro differences;
+// the full <Options /> component would otherwise stay in its loading-
+// spinner state because the gallery has no /v1/auth/me backend.
+function PlanSectionPreview({ plan, quota }: { plan: 'free' | 'pro'; quota: QuotaSnapshot }) {
+  const T = useT()
+  return (
+    <div className="bg-paper-100 px-6 py-8 h-full overflow-y-auto">
+      <div className="max-w-md mx-auto">
+        <h2 className="text-lg font-semibold text-ink-900 mb-1 tracking-headline-tight">
+          {T.options.section_plan}
+        </h2>
+        <p className="text-xs text-ink-500 mb-4">
+          {plan === 'pro'
+            ? 'Pro user — quota usage card; no upgrade CTA, no Stripe pre-fetch.'
+            : 'Free user — quota usage card + Pro upsell + Upgrade CTA.'}
+        </p>
+        <PlanSection
+          plan={plan}
+          quota={quota}
+          onUpgrade={() => undefined}
+          upgrading={false}
+          T={T}
+        />
+      </div>
+    </div>
+  )
 }
 
 const RESET_SEED: Record<string, unknown> = {
@@ -76,17 +110,24 @@ export const optionsFlow: FlowGraph = {
     },
     {
       id: 'free-plan',
-      label: 'Options — free plan',
-      caption: 'Free plan view — Plan section pending API response (gallery has no backend).',
-      tags: ['placeholder'],
-      render: () => <OptionsScene seed={RESET_SEED} />,
+      label: 'Plan section — Free (16% used)',
+      caption: 'Free plan card: usage bar (green tier) + Pro upsell + Upgrade CTA.',
+      variants: [
+        {
+          label: 'Free · 16% (calm)',
+          render: () => <PlanSectionPreview plan="free" quota={QUOTA_FREE_OK} />,
+        },
+        {
+          label: 'Free · 95% (red bar)',
+          render: () => <PlanSectionPreview plan="free" quota={QUOTA_FREE_95} />,
+        },
+      ],
     },
     {
       id: 'pro-plan',
-      label: 'Options — pro plan',
-      caption: 'Pro plan view — same caveat as free; Plan API not available in gallery.',
-      tags: ['placeholder'],
-      render: () => <OptionsScene seed={RESET_SEED} />,
+      label: 'Plan section — Pro',
+      caption: 'Pro plan card: hours-based usage; no upgrade CTA, no Stripe pre-fetch.',
+      render: () => <PlanSectionPreview plan="pro" quota={QUOTA_PRO_OK} />,
     },
     {
       id: 'obsidian-empty',
