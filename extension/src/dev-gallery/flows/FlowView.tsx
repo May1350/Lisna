@@ -49,18 +49,27 @@ export function FlowView({ flowId, onSwitchFlow }: Props) {
   const edges: Edge[] = useMemo(() => {
     const out: Edge[] = []
     for (const e of flow.edges) {
+      // Two tiers, no decoration:
+      //   primary path  → solid ink-900
+      //   alt / error   → solid ink-500 (dimmer) — same shape, less weight
+      // No animation, no color encoding, no label background pill —
+      // the user said "as simple as possible", so we let the underlying
+      // dotted canvas show through.
+      const stroke = e.dashed ? '#94877a' : '#3d342a'
       out.push({
         id: `${e.from}->${e.to}:${e.label}`,
         source: e.from,
         target: e.to,
         label: e.label,
-        labelBgPadding: [6, 4],
-        labelBgBorderRadius: 4,
-        labelBgStyle: { fill: '#fbf6ec', fillOpacity: 0.9 },
-        labelStyle: { fontSize: 11, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fill: '#3d342a' },
-        animated: e.dashed,
-        style: { stroke: e.dashed ? '#c97f5d' : '#3d342a', strokeWidth: 1.4, strokeDasharray: e.dashed ? '4 3' : undefined },
-        markerEnd: { type: MarkerType.ArrowClosed, color: e.dashed ? '#c97f5d' : '#3d342a' },
+        labelStyle: {
+          fontSize: 11,
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+          fill: stroke,
+        },
+        // labelShowBg=false drops the cream pill behind the text.
+        labelShowBg: false,
+        style: { stroke, strokeWidth: 1 },
+        markerEnd: { type: MarkerType.ArrowClosed, color: stroke, width: 14, height: 14 },
       })
     }
     return out
