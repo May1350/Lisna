@@ -118,7 +118,10 @@ export const optionsFlow: FlowGraph = {
   edges: [
     { from: 'default', to: 'free-plan', label: 'free user' },
     { from: 'default', to: 'pro-plan', label: 'pro user' },
-    { from: 'default', to: 'obsidian-empty', label: 'scroll' },
+    // Skips over free-plan on the same y=0 row. Route via the bottom
+    // edges so the smoothstep elbow goes UNDER the chain instead of
+    // cutting straight through the intermediate node.
+    { from: 'default', to: 'obsidian-empty', label: 'scroll', sourceHandle: 'bottom', targetHandle: 'bottom' },
     { from: 'obsidian-empty', to: 'obsidian-ok', label: 'configure' },
     {
       from: 'obsidian-empty',

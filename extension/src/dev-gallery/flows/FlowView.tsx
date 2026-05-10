@@ -9,6 +9,7 @@ import {
   MarkerType,
   BaseEdge,
   EdgeLabelRenderer,
+  getSmoothStepPath,
 } from '@xyflow/react'
 import type { Node, Edge, NodeProps, EdgeProps } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
@@ -217,6 +218,8 @@ function CurvedEdge({
   sourceY,
   targetX,
   targetY,
+  sourcePosition,
+  targetPosition,
   label,
   data,
   style,
@@ -278,6 +281,47 @@ function CurvedEdge({
   const LABEL_PADDING = 7
   const STRAIGHT_LIFT = 14
   const isLoop = curvature !== 0
+  // Use a smoothstep elbow (like Figma / flowchart diagrams) when:
+  //   1. The edge is genuinely diagonal — different X AND different
+  //      Y — so a straight line would cut diagonally across the
+  //      canvas, often through unrelated nodes.
+  //   2. Source and target handles are on the SAME side (e.g.
+  //      bottom→bottom for a U-shape skip-edge that routes under a
+  //      chain to avoid passing through intermediate nodes).
+  const isDiagonal = !isLoop && (
+    (Math.abs(dx) > 20 && Math.abs(dy) > 20) ||
+    sourcePosition === targetPosition
+  )
+  if (isDiagonal) {
+    const [stepPath, stepLabelX, stepLabelY] = getSmoothStepPath({
+      sourceX,
+      sourceY,
+      targetX,
+      targetY,
+      sourcePosition,
+      targetPosition,
+      borderRadius: 12,
+    })
+    return (
+      <>
+        <BaseEdge id={id} path={stepPath} style={style} markerEnd={markerEnd} />
+        {label && (
+          <EdgeLabelRenderer>
+            <div
+              style={{
+                position: 'absolute',
+                transform: `translate(-50%, -50%) translate(${stepLabelX}px, ${stepLabelY}px)`,
+                pointerEvents: 'none',
+              }}
+              className="text-[11px] font-mono text-ink-900 bg-paper-100 border border-paper-edge px-1.5 py-0.5 rounded shadow-sm"
+            >
+              {label}
+            </div>
+          </EdgeLabelRenderer>
+        )}
+      </>
+    )
+  }
   const sx = isLoop ? sourceX + perpX * PARALLEL_OFFSET : sourceX
   const sy = isLoop ? sourceY + perpY * PARALLEL_OFFSET : sourceY
   const tx = isLoop ? targetX + perpX * PARALLEL_OFFSET : targetX
