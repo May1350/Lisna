@@ -1437,6 +1437,12 @@ export default function App() {
           onResolved={onTrialResolved}
           onFallbackCheckout={onUpgrade}
         />
+      ) : trialActive && exhausted ? (
+        // Trial at 100 % — TrialEndModal owns the CTA (one-click via
+        // saved PM). Suppress QuotaBanner so the user doesn't see its
+        // "Stripe Checkout" CTA flash for one render before the modal
+        // mounts, which would route trial users to the wrong flow.
+        null
       ) : (
         <QuotaBanner user={user} quota={quota} blocked={quotaBlocked} onUpgrade={onUpgrade} />
       )}

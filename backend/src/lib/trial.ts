@@ -19,7 +19,7 @@ export async function expireTrialGrant(
     try {
       await stripe.paymentMethods.detach(grant.stripe_payment_method_id)
     } catch (e) {
-      console.warn('[trial-expire] PM detach failed (continuing)', {
+      console.warn('[trial] PM detach failed (continuing)', {
         user_id: grant.user_id,
         pm: grant.stripe_payment_method_id,
         error: e instanceof Error ? e.message : 'x',
