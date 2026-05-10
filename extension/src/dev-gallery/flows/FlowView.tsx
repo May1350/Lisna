@@ -235,33 +235,38 @@ function CurvedEdge({
   const perpY = -dx / len
   const midX = (sourceX + targetX) / 2
   const midY = (sourceY + targetY) / 2
-  // Bulge magnitude. Curvature (positive scalar from FlowGraph) +
-  // direction-flipping perpendicular = bidirectional pairs naturally
-  // bulge to opposite sides. Short chords (e.g., a node directly
-  // below another with only ~20 px of canvas gap) would otherwise
-  // produce sub-pixel bulges; we floor the magnitude so curves and
-  // labels always separate visibly.
-  const MIN_BULGE_PX = 65
+  // Geometry tunables.
+  //   PARALLEL_OFFSET: how far each leg of a bidirectional pair sits
+  //     off the chord centerline. Combined with the direction-flipping
+  //     perpendicular, opposing edges land on opposite sides of the
+  //     chord automatically.
+  //   STRAIGHT_LIFT: label lift for non-loop straight edges so the
+  //     label clears its own line.
+  const PARALLEL_OFFSET = 18 // half-distance from the chord to each leg
+  const LOOP_LABEL_LIFT = 30 // extra perpendicular distance from the leg to its label
   const STRAIGHT_LIFT = 14
-  const LABEL_LIFT_MIN_PX = 42
-  const bulgeRaw = curvature * len * 0.5
-  const bulge = curvature !== 0
-    ? Math.sign(bulgeRaw || 1) * Math.max(Math.abs(bulgeRaw), MIN_BULGE_PX)
-    : 0
-  const ctrlX = midX + perpX * bulge
-  const ctrlY = midY + perpY * bulge
-  const path = curvature === 0
-    ? `M ${sourceX} ${sourceY} L ${targetX} ${targetY}`
-    : `M ${sourceX} ${sourceY} Q ${ctrlX} ${ctrlY} ${targetX} ${targetY}`
-  // Label position. Straight edges: lift along right-perp so the
-  // label clears the line. Curved edges: place at ~70 % of the bulge,
-  // floored to LABEL_LIFT_MIN_PX so even tight pairs separate.
-  const labelOffset = curvature === 0
-    ? STRAIGHT_LIFT
-    : Math.max(Math.abs(bulge) * 0.7, LABEL_LIFT_MIN_PX)
-  const labelSign = curvature === 0 ? 1 : (Math.sign(bulge) || 1)
-  const labelX = midX + perpX * labelOffset * labelSign
-  const labelY = midY + perpY * labelOffset * labelSign
+  const isLoop = curvature !== 0
+  // For bidirectional pairs, draw two STRAIGHT lines parallel to the
+  // chord, each offset by PARALLEL_OFFSET in the right-perp direction
+  // (which flips with travel direction, so the two arrows naturally
+  // sit on opposite sides). User asked for straight arrows over the
+  // earlier curved-lens look.
+  const sx = isLoop ? sourceX + perpX * PARALLEL_OFFSET : sourceX
+  const sy = isLoop ? sourceY + perpY * PARALLEL_OFFSET : sourceY
+  const tx = isLoop ? targetX + perpX * PARALLEL_OFFSET : targetX
+  const ty = isLoop ? targetY + perpY * PARALLEL_OFFSET : targetY
+  const path = `M ${sx} ${sy} L ${tx} ${ty}`
+  // Place the label OUTSIDE the parallel pair (on the same right-perp
+  // side as its own leg), so the two opposing labels are pushed onto
+  // opposite sides of the chord with comfortable horizontal margin.
+  const labelMidX = isLoop ? (sx + tx) / 2 : midX
+  const labelMidY = isLoop ? (sy + ty) / 2 : midY
+  const labelX = isLoop
+    ? labelMidX + perpX * LOOP_LABEL_LIFT
+    : labelMidX + perpX * STRAIGHT_LIFT
+  const labelY = isLoop
+    ? labelMidY + perpY * LOOP_LABEL_LIFT
+    : labelMidY + perpY * STRAIGHT_LIFT
   return (
     <>
       <BaseEdge id={id} path={path} style={style} markerEnd={markerEnd} />
