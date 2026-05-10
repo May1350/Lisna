@@ -9,7 +9,6 @@ import {
   MarkerType,
   BaseEdge,
   EdgeLabelRenderer,
-  getBezierPath,
 } from '@xyflow/react'
 import type { Node, Edge, NodeProps, EdgeProps } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
@@ -71,10 +70,12 @@ export function FlowView({ flowId, onSwitchFlow }: Props) {
     const STROKE = '#3d342a'
     for (const e of flow.edges) {
       const isBidir = reverseSet.has(`${e.from}|${e.to}`)
-      // For bidirectional pairs, give one direction +curvature and the
-      // other -curvature. We pick by alphabetic comparison so both
-      // sides agree without coordinating.
-      const curvature = isBidir ? (e.from < e.to ? 0.35 : -0.35) : 0
+      // Magnitude only — direction-relative perpendicular in
+      // CurvedEdge handles which side the curve bulges to. Both
+      // directions of a bidirectional pair receive the same
+      // positive value, and the right-perp calculation puts the
+      // two curves on opposite sides of the chord automatically.
+      const curvature = isBidir ? 0.35 : 0
       // Map FlowEdge.sourceHandle/targetHandle to the unique handle ids
       // declared on SceneNode. Source-side ids carry an "-out" suffix
       // for top/bottom/left because those sides also expose a target
@@ -214,36 +215,44 @@ function CurvedEdge({
   sourceY,
   targetX,
   targetY,
-  sourcePosition,
-  targetPosition,
   label,
   data,
   style,
   markerEnd,
 }: EdgeProps) {
   const curvature = ((data as { curvature?: number } | undefined)?.curvature) ?? 0
-  // Translate "curvature" into a vertical offset of the midpoint so
-  // the bezier bulges up/down. xyflow's getBezierPath handles the
-  // smooth interpolation.
+  // Build the path ourselves — xyflow's getBezierPath ties the curve
+  // to the source/target Position normals, which means a vertical
+  // pair (sourceX === targetX) collapses both edges to the same
+  // straight line. We use a chord-perpendicular quadratic bezier so
+  // the bulge is always perpendicular to the line connecting the two
+  // nodes, regardless of orientation.
+  const dx = targetX - sourceX
+  const dy = targetY - sourceY
+  const len = Math.hypot(dx, dy) || 1
+  // Right perpendicular to the direction of travel (rotate -90°).
+  const perpX = dy / len
+  const perpY = -dx / len
+  const midX = (sourceX + targetX) / 2
   const midY = (sourceY + targetY) / 2
-  const offsetY = curvature * Math.abs(targetX - sourceX) * 0.4
-  const [path, labelX] = getBezierPath({
-    sourceX,
-    sourceY,
-    targetX,
-    targetY,
-    sourcePosition,
-    targetPosition,
-    curvature: 0.25 + Math.abs(curvature) * 0.5,
-  })
-  // Always offset the label off the line, in a consistent direction:
-  //   - straight edges  → 14 px above the midpoint (default)
-  //   - curved bottom   → at the bulge (already below the line)
-  //   - curved top      → at the bulge (already above the line)
-  // This way no label sits on top of its own line or on top of
-  // another node, regardless of layout.
-  const STRAIGHT_LIFT = -14
-  const finalLabelY = curvature !== 0 ? midY + offsetY : midY + STRAIGHT_LIFT
+  // Bulge magnitude. Curvature (positive scalar from FlowGraph) +
+  // direction-flipping perpendicular = bidirectional pairs naturally
+  // bulge to opposite sides.
+  const bulge = curvature * len * 0.5
+  const ctrlX = midX + perpX * bulge
+  const ctrlY = midY + perpY * bulge
+  const path = curvature === 0
+    ? `M ${sourceX} ${sourceY} L ${targetX} ${targetY}`
+    : `M ${sourceX} ${sourceY} Q ${ctrlX} ${ctrlY} ${targetX} ${targetY}`
+  // Label position. Straight edges: lift by 14 px along right-perp
+  // (up for L→R, right for top→bottom, etc.) so the label clears the
+  // line consistently. Curved edges: place at ~65 % of the bulge
+  // distance so the label sits on the curve's apex.
+  const STRAIGHT_LIFT = 14
+  const labelOffset = curvature === 0 ? STRAIGHT_LIFT : Math.abs(bulge) * 0.65
+  const labelSign = curvature === 0 ? 1 : Math.sign(bulge) || 1
+  const labelX = midX + perpX * labelOffset * labelSign
+  const labelY = midY + perpY * labelOffset * labelSign
   return (
     <>
       <BaseEdge id={id} path={path} style={style} markerEnd={markerEnd} />
@@ -252,7 +261,7 @@ function CurvedEdge({
           <div
             style={{
               position: 'absolute',
-              transform: `translate(-50%, -50%) translate(${labelX}px, ${finalLabelY}px)`,
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
               pointerEvents: 'none',
             }}
             className="text-[11px] font-mono text-ink-900 bg-paper-100 border border-paper-edge px-1.5 py-0.5 rounded shadow-sm"
