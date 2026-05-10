@@ -27,7 +27,7 @@ export default defineManifest({
   // Chrome Web Store requires homepage_url. Used as Privacy/Terms link in
   // store listing and the extension's chrome://extensions detail page.
   // TODO: replace with custom domain (lisna.ai etc.) once acquired.
-  homepage_url: 'https://lisna-may1350s-projects.vercel.app',
+  homepage_url: 'https://lisna.jp',
   // No `default_locale` — we don't use chrome.i18n / __MSG_*__ message references
   // (all UI strings are inline plain Japanese). Setting default_locale without a
   // matching `_locales/<lang>/messages.json` makes Chrome reject the extension.

@@ -46,7 +46,7 @@ export class ApiStack extends Stack {
       // injected, handlers fall through to a hardcoded Vercel preview
       // URL — fine until the marketing site moves to a custom domain,
       // at which point checkout URLs would 404.
-      PUBLIC_WEB_BASE_URL: 'https://lisna-may1350s-projects.vercel.app',
+      PUBLIC_WEB_BASE_URL: 'https://lisna.jp',
     }
     const wsEndpoint = props.wsEndpoint
 

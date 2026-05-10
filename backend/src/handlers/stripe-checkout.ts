@@ -29,7 +29,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
 
   // Read the public-facing site root from env. Set in CDK as
   // PUBLIC_WEB_BASE_URL (commonEnv) so success/cancel pages are reachable.
-  const baseUrl = process.env.PUBLIC_WEB_BASE_URL ?? 'https://lisna-may1350s-projects.vercel.app'
+  const baseUrl = process.env.PUBLIC_WEB_BASE_URL ?? 'https://lisna.jp'
 
   // First-time upgraders: pass `customer_email` instead of `customer`.
   // Stripe auto-creates a customer record DURING checkout (only when
