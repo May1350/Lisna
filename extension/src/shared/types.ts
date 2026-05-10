@@ -3,6 +3,11 @@ export interface User {
   email: string
   name?: string
   plan: 'free' | 'pro'
+  /** True if this user has ever started a trial (regardless of whether
+   *  it was converted, declined, or expired). Drives the QuotaExhaustedIdle
+   *  CTA: never-tried users see "2시간 무료 받기"; everyone else sees the
+   *  standard "Pro 가입" upsell. Optional so older backend builds parse. */
+  trial_used?: boolean
 }
 
 export interface SlideItem {
@@ -69,6 +74,13 @@ export interface QuotaSnapshot {
   remaining_secs: number
   percent_used: number
   plan: 'free' | 'pro'
+  /** True when used_secs/limit_secs are coming from an active 2-hour
+   *  trial grant (see backend/src/migrations/007_trial_grants.sql),
+   *  NOT the user's plan-tier monthly quota. The frontend uses this
+   *  to swap the header badge ("Trial · 1:23 남음" vs "Free") and to
+   *  decide which conversion surface to show at 100 % (a one-click
+   *  Pro-가입 modal vs the standard Pro upsell card). */
+  trial_active?: boolean
 }
 
 // Augment HTMLVideoElement to include captureStream (not yet in lib.dom standard typings everywhere).

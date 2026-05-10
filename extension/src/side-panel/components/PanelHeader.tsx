@@ -217,6 +217,12 @@ interface Props {
    *  remaining quota in MM:SS format below their plan badge. Only
    *  meaningful in embed (modal) view AND for the free plan. */
   liveRemainingSecs?: number | null
+  /** True while a 2-hour trial grant is active. Replaces the "Free" /
+   *  "Pro" label with "Trial" and uses a terra-tinted dot so the user
+   *  can see at a glance that their current budget isn't the regular
+   *  monthly free quota. The remaining-secs chip stays — same MM:SS
+   *  format, but counting down the trial's 2-hour cap instead. */
+  trialActive?: boolean
   onClose: () => void
   onLogout: () => void
 }
@@ -236,6 +242,7 @@ export function PanelHeader({
   playbackSpeed,
   onSpeedChange,
   liveRemainingSecs,
+  trialActive,
   onClose,
   onLogout,
 }: Props) {
@@ -278,12 +285,19 @@ export function PanelHeader({
                   <span
                     className="w-1.5 h-1.5 rounded-full shrink-0"
                     style={{
-                      background: user.plan === 'pro' ? 'var(--terra)' : 'var(--ink-300)',
-                      boxShadow: user.plan === 'pro' ? '0 0 0 2px var(--terra-soft)' : 'none',
+                      // Trial gets the terra accent (it's a paid-tier
+                      // budget, just time-limited) — same dot styling
+                      // as Pro to signal "you're temporarily off the
+                      // free 30-min track". Pro keeps the ringed dot;
+                      // Free stays neutral ink-300.
+                      background: trialActive || user.plan === 'pro' ? 'var(--terra)' : 'var(--ink-300)',
+                      boxShadow: trialActive || user.plan === 'pro' ? '0 0 0 2px var(--terra-soft)' : 'none',
                     }}
                   />
-                  <span className={user.plan === 'pro' ? 'text-terra-700 font-medium' : ''}>
-                    {user.plan === 'pro' ? T.quota.plan_pro : T.quota.plan_free}
+                  <span className={trialActive || user.plan === 'pro' ? 'text-terra-700 font-medium' : ''}>
+                    {trialActive
+                      ? T.quotaExhausted.trial_badge_label
+                      : user.plan === 'pro' ? T.quota.plan_pro : T.quota.plan_free}
                   </span>
                   {showLiveRemaining && (
                     <span

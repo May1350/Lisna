@@ -264,3 +264,37 @@ export async function connectWs(sessionId: string, listeners: WsListeners): Prom
 // not via this api-client. Removed in the post-review cleanup; if you
 // re-introduce them, route through `callApi` for consistent SW
 // auth-token handling.
+
+
+// ── 2-hour trial flow ──────────────────────────────────────────────
+// Endpoints land in v0.1.23; see backend/src/handlers/trial-*.ts and
+// the design doc in QuotaExhaustedIdle.tsx for the full state machine.
+
+/** Step 1: returns a Stripe Checkout (setup mode) URL. Frontend opens
+ *  this in a new tab; Stripe redirects back to /trial-success?session_id=…
+ *  and the extension's visibilitychange handler calls trialConfirm. */
+export async function trialStart(): Promise<{ url: string; session_id: string }> {
+  return await callApi<{ url: string; session_id: string }>('/v1/trial/start', 'POST')
+}
+
+/** Step 2: finalises after Stripe returns. Idempotent. */
+export async function trialConfirm(sessionId: string): Promise<{ ok: true; expires_at: string; limit_secs: number }> {
+  return await callApi<{ ok: true; expires_at: string; limit_secs: number }>(
+    '/v1/trial/confirm', 'POST', { session_id: sessionId },
+  )
+}
+
+/** End-of-trial: "가입 안함" — detaches PM, marks declined. */
+export async function trialDecline(): Promise<{ ok: true }> {
+  return await callApi<{ ok: true }>('/v1/trial/decline', 'POST')
+}
+
+/** End-of-trial: "Pro 가입 (원클릭)" — creates subscription using
+ *  the saved payment method. Throws on card decline / 3DS / other
+ *  Stripe errors so the caller can fall back to /v1/billing/checkout. */
+export async function trialSubscribe(): Promise<{ ok: true; subscription_id?: string; already?: true }> {
+  return await callApi<{ ok: true; subscription_id?: string; already?: true }>(
+    '/v1/billing/subscribe-from-trial', 'POST',
+  )
+}
+

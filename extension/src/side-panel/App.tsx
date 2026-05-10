@@ -14,8 +14,10 @@ import { QuotaBanner } from './components/QuotaBanner'
 import { PanelHeader } from './components/PanelHeader'
 import { SessionControls } from './components/SessionControls'
 import { QuotaExhaustedIdle } from './components/QuotaExhaustedIdle'
+import { TrialEndModal } from './components/TrialEndModal'
 import { callApi, connectWs, getCurrentUser, logout, ApiError } from './api-client'
 import type { LiveTranscriptItem, Outline } from './api-client'
+import { reportError } from '../shared/errors'
 import { useT } from '../shared/i18n'
 import { setFeedbackPrefill } from '../shared/feedback-prefill'
 import type { Translations } from '../shared/i18n'
@@ -248,6 +250,9 @@ export default function App() {
   // SessionControls quota-mode gate. Keep these three sites in sync
   // via this helper rather than duplicating the inline check.
   const exhausted = quotaBlocked || (!!quota && (quota.percent_used >= 100 || quota.remaining_secs <= 0))
+  // Active 2-hour trial — drives the "Trial" badge in PanelHeader and
+  // (combined with `exhausted`) opens the trial-end decision modal.
+  const trialActive = quota?.trial_active === true
   // Video play/pause state, broadcast from the content script. Drives
   // the placeholder copy in LiveTranscript while we wait for the first
   // chunk: playing → "🎙️ 음성 처리 중…" / paused → "⏸ 강의를 재생하세요".
@@ -847,6 +852,95 @@ export default function App() {
     }
   }, [upgrading])
 
+  // ── 2-hour trial flow ────────────────────────────────────────────
+  // When the user clicks "2시간 무료 받기 (카드 등록)" we start a
+  // Stripe Checkout in setup mode (collects card without charging),
+  // open it in a new tab, and stash the returned session id in
+  // chrome.storage. When the user comes back to the modal we read
+  // the stash and finalise via /v1/trial/confirm. Why storage and
+  // not React state: the modal may unmount between click and return
+  // (especially in the side-panel surface which Chrome can stash);
+  // storage survives.
+  const [trialStarting, setTrialStarting] = useState(false)
+  const PENDING_TRIAL_KEY = 'sh.pendingTrialSession'
+  const onTrialStart = useCallback(async () => {
+    if (trialStarting) return
+    setTrialStarting(true)
+    try {
+      const { trialStart } = await import('./api-client')
+      const r = await trialStart()
+      // Persist BEFORE opening the tab — if the user closes the
+      // modal mid-redirect, we still know to confirm on return.
+      await chrome.storage.local.set({ [PENDING_TRIAL_KEY]: r.session_id })
+      chrome.tabs.create({ url: r.url })
+    } catch (e) {
+      void reportError(e, { context: 'trial-start', severity: 'error' })
+    } finally {
+      setTrialStarting(false)
+    }
+  }, [trialStarting])
+
+  // Visibilitychange + focus poll: when the modal regains focus
+  // after the user closed the Stripe tab, finalise any pending
+  // trial setup. Idempotent — the backend handles duplicate
+  // confirms with ON CONFLICT DO NOTHING. Always refetches
+  // /v1/auth/me afterwards so the freshly-active trial flips
+  // QuotaExhaustedIdle off and the regular UI back on.
+  useEffect(() => {
+    if (consented !== true || !user) return
+    const onFocusOrVisible = async () => {
+      if (document.visibilityState !== 'visible') return
+      const stored = await chrome.storage.local.get(PENDING_TRIAL_KEY)
+      const sessionId = stored[PENDING_TRIAL_KEY]
+      if (typeof sessionId !== 'string' || sessionId.length === 0) return
+      try {
+        const { trialConfirm } = await import('./api-client')
+        await trialConfirm(sessionId)
+        await chrome.storage.local.remove(PENDING_TRIAL_KEY)
+        // Refetch quota so UI flips immediately.
+        const r = await callApi<{ user: User; quota: QuotaSnapshot }>('/v1/auth/me', 'GET')
+        if (r.quota) {
+          setQuota(r.quota)
+          setLiveRemainingSecs(r.quota.remaining_secs)
+          void chrome.storage.local.set({ 'sh.cachedQuota': { quota: r.quota, ts: Date.now() } })
+        }
+        if (r.user) setUser(r.user as User)
+      } catch (e) {
+        // Most common case: user cancelled the Stripe page → confirm
+        // returns 4xx because the SetupIntent didn't succeed. Clear
+        // the pending stash either way so we don't retry forever.
+        await chrome.storage.local.remove(PENDING_TRIAL_KEY)
+        void reportError(e, { context: 'trial-confirm', severity: 'warning', silent: true })
+      }
+    }
+    document.addEventListener('visibilitychange', onFocusOrVisible)
+    window.addEventListener('focus', onFocusOrVisible)
+    // Run once on mount in case the modal mounted AFTER the tab returned.
+    void onFocusOrVisible()
+    return () => {
+      document.removeEventListener('visibilitychange', onFocusOrVisible)
+      window.removeEventListener('focus', onFocusOrVisible)
+    }
+  }, [consented, user])
+
+  // Re-fetch user + quota after the trial-end modal resolves (Pro
+  // 가입 OR 가입 안함). Both outcomes change the auth-me response
+  // so the UI swaps from TrialEndModal → either Pro recording flow
+  // or Free QuotaExhaustedIdle.
+  const onTrialResolved = useCallback(async (_result: 'subscribed' | 'declined') => {
+    try {
+      const r = await callApi<{ user: User; quota: QuotaSnapshot }>('/v1/auth/me', 'GET')
+      if (r.quota) {
+        setQuota(r.quota)
+        setLiveRemainingSecs(r.quota.remaining_secs)
+        void chrome.storage.local.set({ 'sh.cachedQuota': { quota: r.quota, ts: Date.now() } })
+      }
+      if (r.user) setUser(r.user as User)
+    } catch (e) {
+      void reportError(e, { context: 'trial-resolved-refetch', severity: 'warning', silent: true })
+    }
+  }, [])
+
   const onClose = useCallback(() => {
     if (isEmbed) {
       window.parent.postMessage({ type: 'SH_CLOSE_MODAL' }, '*')
@@ -1047,6 +1141,7 @@ export default function App() {
           onClose={onClose}
           onLogout={onLogout}
           liveRemainingSecs={liveRemainingSecs}
+          trialActive={trialActive}
         />
         {/* QuotaBanner is suppressed when the QuotaExhaustedIdle card
             below would render — that card now embeds its own
@@ -1068,7 +1163,22 @@ export default function App() {
           // saved data (hasContent), the regular flow renders below;
           // their captures-disabled signal lives inside SessionControls.
           (exhausted && quota) ? (
-            <QuotaExhaustedIdle user={user} quota={quota} onUpgrade={onUpgrade} upgrading={upgrading} />
+            // Trial active + 100 % used → trial-end decision modal
+            // (Pro 가입 / 가입 안함). Otherwise the regular exhausted
+            // card. The modal renders a fixed-position overlay so we
+            // don't try to compose it side-by-side.
+            trialActive ? (
+              <TrialEndModal onResolved={onTrialResolved} onFallbackCheckout={onUpgrade} />
+            ) : (
+              <QuotaExhaustedIdle
+                user={user}
+                quota={quota}
+                onUpgrade={onUpgrade}
+                upgrading={upgrading}
+                onTrialStart={onTrialStart}
+                trialStarting={trialStarting}
+              />
+            )
           ) : (
             // Render IdleSessionState as soon as the modal mounts — do
             // NOT wait for sessionId. The canonical session_id only
@@ -1249,6 +1359,7 @@ export default function App() {
         onToggleEnabled={onToggleEnabled}
         onClose={onClose}
         onLogout={onLogout}
+        trialActive={trialActive}
       />
       <QuotaBanner user={user} quota={quota} blocked={quotaBlocked} onUpgrade={onUpgrade} />
       <div className="px-3 pt-3 pb-2 text-xs text-ink-700 leading-relaxed border-b border-paper-edge">

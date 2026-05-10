@@ -46,10 +46,19 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       trial_active: q.trialActive,
     }
 
+    // Has the user ever started a trial? Decides whether the
+    // QuotaExhaustedIdle card shows the "2시간 무료 받기" CTA (never
+    // tried) or the regular "Pro 가입" CTA (already tried, declined
+    // or converted, can't trial again).
+    const trialRows = await query<{ exists: boolean }>(
+      `SELECT EXISTS (SELECT 1 FROM trial_grants WHERE user_id = $1) AS exists`, [user.id],
+    )
+    const trial_used = trialRows[0]?.exists === true
+
     return {
       statusCode: 200,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user, quota }),
+      body: JSON.stringify({ user: { ...user, trial_used }, quota }),
     }
   } catch {
     return { statusCode: 401, body: JSON.stringify({ error: 'invalid token' }) }

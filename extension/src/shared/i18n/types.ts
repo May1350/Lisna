@@ -138,6 +138,26 @@ export interface Translations {
     inline_main: string                  // "自動字幕生成は停止中"
     inline_sub_free: string              // "月間制限に達しました — Pro で継続 →"
     inline_sub_pro: string               // "翌月に自動でリセットされます"
+    // ── 2-hour trial flow ──────────────────────────────────────
+    trial_offer_title: string            // "2 時間無料で続けますか?"
+    trial_offer_body: string             // multiline explanation of the trial
+    trial_offer_cta: string              // "2時間無料 受け取る (カードのみ登録)"
+    trial_offer_cta_busy: string         // "Stripe へリダイレクト中…"
+    trial_offer_safety: string           // "今すぐ請求はありません · いつでも解約可"
+    // Trial active state — header badge
+    trial_badge_label: string            // "Trial"
+    // Trial near-end inline banner (90 % used)
+    trial_nudge_title: string            // "残り 12 分"
+    trial_nudge_body: string             // "Pro 加入で途切れず続けられます"
+    trial_nudge_cta: string              // "Pro に加入"
+    // Trial 100% — end-of-trial decision modal
+    trial_end_title: string              // "2 時間が終了しました"
+    trial_end_body: string               // multiline summary + decision request
+    trial_end_subscribe: string          // "Pro 加入 ¥980/月 (ワンクリック)"
+    trial_end_subscribe_busy: string     // "加入処理中…"
+    trial_end_decline: string            // "加入しない"
+    trial_end_decline_busy: string       // "登録カードを削除中…"
+    trial_end_subscribe_failed: string   // "加入処理に失敗しました — 通常ページから再試行してください"
   }
 
   // ── Panel header ───────────────────────────────────────────────
