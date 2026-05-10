@@ -61,7 +61,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   }
 
   const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)
-  const baseUrl = process.env.PUBLIC_WEB_BASE_URL ?? 'https://lisna-may1350s-projects.vercel.app'
+  const baseUrl = process.env.PUBLIC_WEB_BASE_URL ?? 'https://lisna.jp'
 
   // Setup mode collects a payment method without charging. Pass
   // payment_method_types: ['card'] explicitly — the default in setup

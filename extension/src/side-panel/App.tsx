@@ -11,6 +11,7 @@ import { NotesViewer } from './components/NotesViewer'
 import { LiveTranscript } from './components/LiveTranscript'
 import { ExportMenu } from './components/ExportMenu'
 import { QuotaBanner } from './components/QuotaBanner'
+import { TrialNudgeBanner } from './components/TrialNudgeBanner'
 import { PanelHeader } from './components/PanelHeader'
 import { SessionControls } from './components/SessionControls'
 import { QuotaExhaustedIdle } from './components/QuotaExhaustedIdle'
@@ -1207,7 +1208,19 @@ export default function App() {
             message stacked on the same screen. The banner stays for
             every other render path (warn 90-99%, blocked + has-content). */}
         {!(!hasContent && exhausted) && (
-          <QuotaBanner user={user} quota={quota} blocked={quotaBlocked} onUpgrade={onUpgrade} />
+          // Active-trial users at 90-99 % see the trial-specific nudge
+          // (one-click Pro 가입 via saved PM) instead of the regular
+          // QuotaBanner (which routes to Stripe Checkout). At 100 % the
+          // TrialEndModal takes over below, so this band is 90-99 only.
+          trialActive && quota && quota.percent_used >= 90 && quota.percent_used < 100 ? (
+            <TrialNudgeBanner
+              quota={quota}
+              onResolved={onTrialResolved}
+              onFallbackCheckout={onUpgrade}
+            />
+          ) : (
+            <QuotaBanner user={user} quota={quota} blocked={quotaBlocked} onUpgrade={onUpgrade} />
+          )
         )}
         {curating && !hasContent ? (
           <CuratingState />
@@ -1418,7 +1431,21 @@ export default function App() {
         onLogout={onLogout}
         trialActive={trialActive}
       />
-      <QuotaBanner user={user} quota={quota} blocked={quotaBlocked} onUpgrade={onUpgrade} />
+      {trialActive && quota && quota.percent_used >= 90 && quota.percent_used < 100 ? (
+        <TrialNudgeBanner
+          quota={quota}
+          onResolved={onTrialResolved}
+          onFallbackCheckout={onUpgrade}
+        />
+      ) : trialActive && exhausted ? (
+        // Trial at 100 % — TrialEndModal owns the CTA (one-click via
+        // saved PM). Suppress QuotaBanner so the user doesn't see its
+        // "Stripe Checkout" CTA flash for one render before the modal
+        // mounts, which would route trial users to the wrong flow.
+        null
+      ) : (
+        <QuotaBanner user={user} quota={quota} blocked={quotaBlocked} onUpgrade={onUpgrade} />
+      )}
       <div className="px-3 pt-3 pb-2 text-xs text-ink-700 leading-relaxed border-b border-paper-edge">
         {(() => {
           // inlineHint contains "{icon}" — substitute the bold icon

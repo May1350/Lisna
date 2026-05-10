@@ -9,7 +9,7 @@ import type { Metadata } from 'next'
 // individual pages can still opt out by setting their own robots
 // metadata, but the default is now indexable.
 export const metadata: Metadata = {
-  metadataBase: new URL('https://lisna-may1350s-projects.vercel.app'),
+  metadataBase: new URL('https://lisna.jp'),
   robots: {
     index: true,
     follow: true,
