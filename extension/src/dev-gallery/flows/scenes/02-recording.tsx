@@ -286,13 +286,17 @@ export const recordingFlow: FlowGraph = {
     { from: 'first-chunk', to: 'transcript-streaming', label: 'audio in' },
     { from: 'transcript-streaming', to: 'outline-arrives', label: 'curate ok' },
     { from: 'outline-arrives', to: 'paused', label: 'pause' },
-    // Bidirectional pair (outline-arrives ↔ paused). Use top/bottom
-    // handles to give the back-edge a clean offset from the forward
-    // edge so the labels don't stack on the same trajectory.
-    { from: 'paused', to: 'outline-arrives', label: 'resume', sourceHandle: 'top', targetHandle: 'bottom' },
+    // Bidirectional pair (outline-arrives ↔ paused) on a HORIZONTAL
+    // chain. Back-edge attaches LEFT→RIGHT so the arrow flows from
+    // paused's left edge back to outline-arrives's right edge. The
+    // CurvedEdge's right-perpendicular logic then offsets this leg
+    // BELOW the chord while the forward edge sits ABOVE — clean
+    // parallel pair, no diagonal-through-the-node bug.
+    { from: 'paused', to: 'outline-arrives', label: 'resume', sourceHandle: 'left', targetHandle: 'right' },
     { from: 'paused', to: 'end-confirm', label: 'end' },
-    // Bidirectional pair (paused ↔ end-confirm). Same handle trick.
-    { from: 'end-confirm', to: 'paused', label: 'cancel', sourceHandle: 'top', targetHandle: 'bottom' },
+    // Bidirectional pair (paused ↔ end-confirm). Same horizontal-chain
+    // back-edge pattern.
+    { from: 'end-confirm', to: 'paused', label: 'cancel', sourceHandle: 'left', targetHandle: 'right' },
     { from: 'end-confirm', to: 'post-session', label: 'confirm' },
   ],
   boundaryLinks: [

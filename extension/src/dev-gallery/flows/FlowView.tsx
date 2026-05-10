@@ -77,12 +77,10 @@ export function FlowView({ flowId, onSwitchFlow }: Props) {
       // two curves on opposite sides of the chord automatically.
       const curvature = isBidir ? 0.35 : 0
       // Map FlowEdge.sourceHandle/targetHandle to the unique handle ids
-      // declared on SceneNode. Source-side ids carry an "-out" suffix
-      // for top/bottom/left because those sides also expose a target
-      // handle on the same edge; the right side is purely a source.
-      const sourceHandle = e.sourceHandle
-        ? (e.sourceHandle === 'right' ? 'right' : `${e.sourceHandle}-out`)
-        : 'right'
+      // declared on SceneNode. Sources always use "<side>-out", targets
+      // always use just "<side>" — uniform so any side can both
+      // originate and receive an edge.
+      const sourceHandle = `${e.sourceHandle ?? 'right'}-out`
       const targetHandle = e.targetHandle ?? 'left'
       out.push({
         id: `${e.from}->${e.to}:${e.label}`,
@@ -142,9 +140,13 @@ function SceneNode({ data }: NodeProps<Node<SceneNodeData>>) {
 
   return (
     <div className="flex flex-col items-stretch">
-      {/* 4-direction handles. Each direction is BOTH a source and
-          target handle so an edge can attach in any direction. */}
+      {/* 4-direction handles. Each side exposes BOTH a target (id =
+          side name) and a source (id = side name + "-out") so any
+          edge can pick the right attachment regardless of layout —
+          horizontal chain back-edges (left→right), vertical pairs
+          (top↔bottom), diagonal hub-spokes, etc. */}
       <Handle id="left"  type="target" position={Position.Left}  style={HANDLE_DOT} />
+      <Handle id="right" type="target" position={Position.Right} style={HANDLE_DOT_HIDDEN} />
       <Handle id="top"   type="target" position={Position.Top}   style={HANDLE_DOT} />
       <Handle id="bottom" type="target" position={Position.Bottom} style={HANDLE_DOT} />
       <div className="mb-2 px-1">
@@ -187,7 +189,7 @@ function SceneNode({ data }: NodeProps<Node<SceneNodeData>>) {
         )}
       </div>
       <Surface surface={surface}>{renderFn ? renderFn() : null}</Surface>
-      <Handle id="right"  type="source" position={Position.Right}  style={HANDLE_DOT} />
+      <Handle id="right-out"  type="source" position={Position.Right}  style={HANDLE_DOT} />
       <Handle id="top-out"    type="source" position={Position.Top}    style={HANDLE_DOT_HIDDEN} />
       <Handle id="bottom-out" type="source" position={Position.Bottom} style={HANDLE_DOT_HIDDEN} />
       <Handle id="left-out"   type="source" position={Position.Left}   style={HANDLE_DOT_HIDDEN} />
