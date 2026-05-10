@@ -66,12 +66,16 @@ export function ErrorToast() {
       {toasts.map(t => (
         <div
           key={t.id}
-          className={`pointer-events-auto rounded-lg shadow-lg px-3 py-2.5 text-xs flex items-start gap-2 ${
+          // Solid paper-100 surface (NOT translucent) so the toast
+          // never picks up bleed-through from the outline / transcript
+          // behind it. Severity is carried by the left dot, the border
+          // accent and the text color — not by the background tint.
+          className={`pointer-events-auto rounded-lg shadow-lg px-3 py-2.5 text-xs flex items-start gap-2 bg-paper-100 ${
             t.severity === 'warning'
-              ? 'bg-warn-amber/10 border border-warn-amber/40 text-ink-900'
+              ? 'border border-warn-amber/60 text-ink-900'
               : t.severity === 'fatal'
-              ? 'bg-warn-red/5 border border-warn-red/40 text-warn-red'
-              : 'bg-warn-red/5 border border-warn-red/30 text-warn-red'
+              ? 'border border-warn-red/70 text-warn-red'
+              : 'border border-warn-red/50 text-warn-red'
           }`}
         >
           <span
