@@ -3,6 +3,7 @@ import Stripe from 'stripe'
 import { verifyJwt } from '../lib/auth.js'
 import { query } from '../lib/db.js'
 import { loadAppSecrets } from '../lib/env.js'
+import { expireTrialGrant } from '../lib/trial.js'
 
 /**
  * Trial-end "가입 안함" path. User has used their 2 hours and chose
@@ -36,30 +37,11 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     return { statusCode: 409, body: JSON.stringify({ error: 'already_converted' }) }
   }
 
-  // Best-effort PM detach — Stripe errors here (already detached,
-  // PM never resolved, etc.) are fine to swallow because the DB
-  // mutation below is the authoritative state.
-  if (grant[0].stripe_payment_method_id) {
-    try {
-      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)
-      await stripe.paymentMethods.detach(grant[0].stripe_payment_method_id)
-    } catch (e) {
-      console.warn('[trial-decline] PM detach failed (continuing)', {
-        pm: grant[0].stripe_payment_method_id,
-        error: e instanceof Error ? e.message : 'x',
-      })
-    }
-  }
-
-  await query(
-    `UPDATE trial_grants
-        SET declined_at = NOW(),
-            stripe_payment_method_id = NULL
-      WHERE user_id = $1
-        AND declined_at IS NULL
-        AND converted_at IS NULL`,
-    [payload.sub],
-  )
+  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)
+  await expireTrialGrant(stripe, {
+    user_id: payload.sub,
+    stripe_payment_method_id: grant[0].stripe_payment_method_id,
+  })
 
   return {
     statusCode: 200,

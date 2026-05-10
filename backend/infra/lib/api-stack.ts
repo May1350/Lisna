@@ -5,6 +5,8 @@ import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs'
 import { HttpApi, HttpMethod, CorsHttpMethod } from 'aws-cdk-lib/aws-apigatewayv2'
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations'
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam'
+import { Rule, Schedule } from 'aws-cdk-lib/aws-events'
+import { LambdaFunction } from 'aws-cdk-lib/aws-events-targets'
 import { Alarm, ComparisonOperator, TreatMissingData, Metric, Dashboard, GraphWidget, SingleValueWidget } from 'aws-cdk-lib/aws-cloudwatch'
 import { SnsAction } from 'aws-cdk-lib/aws-cloudwatch-actions'
 import { MetricFilter, FilterPattern, RetentionDays } from 'aws-cdk-lib/aws-logs'
@@ -397,7 +399,24 @@ export class ApiStack extends Stack {
       ...trialFnDefaults,
       entry: path.join(__dirname, '../../src/handlers/trial-subscribe.ts'),
     })
-    for (const fn of [trialStart, trialConfirm, trialDecline, trialSubscribe]) {
+    // Daily cron: detach saved PMs from trials whose 1-month deadline
+    // passed without user conversion or explicit decline. Same defaults
+    // as the API trial Lambdas (VPC + secrets) but no API Gateway route
+    // — invoked by EventBridge only.
+    const trialExpire = new NodejsFunction(this, 'TrialExpireFn', {
+      ...trialFnDefaults,
+      timeout: Duration.minutes(2),
+      entry: path.join(__dirname, '../../src/handlers/trial-expire.ts'),
+    })
+    new Rule(this, 'TrialExpireSchedule', {
+      // 03:15 UTC daily = 12:15 JST — quiet hour, away from peak
+      // signup traffic. Cron is idempotent (skips already-declined
+      // rows), so a duplicate firing is harmless.
+      schedule: Schedule.cron({ minute: '15', hour: '3' }),
+      targets: [new LambdaFunction(trialExpire)],
+    })
+
+    for (const fn of [trialStart, trialConfirm, trialDecline, trialSubscribe, trialExpire]) {
       props.dbSecret.grantRead(fn)
       props.appSecret.grantRead(fn)
     }
