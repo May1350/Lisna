@@ -39,7 +39,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   // through NAT on every first upgrade. Repeat upgraders (already
   // have a customer ID) keep using `customer` so we don't create
   // duplicates with the same email.
-  const sessionParams: Stripe.Checkout.SessionCreateParams = {
+  const baseParams: Stripe.Checkout.SessionCreateParams = {
     mode: 'subscription',
     line_items: [{ price: process.env.STRIPE_PRICE_PRO, quantity: 1 }],
     success_url: `${baseUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
@@ -48,13 +48,39 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     client_reference_id: payload.sub,
     metadata: { user_id: payload.sub },
   }
+  const tryWithCustomer = () =>
+    stripe.checkout.sessions.create({ ...baseParams, customer: existingCustomerId! })
+  const tryWithEmail = () =>
+    stripe.checkout.sessions.create({
+      ...baseParams,
+      customer_email: userRows[0].email,
+      customer_creation: 'always',
+    })
+  // Defensive against stale customer ids (test/live mode mismatch,
+  // customer deleted in Dashboard, etc.). On 'resource_missing' we
+  // clear the dead pointer and retry with customer_email — Stripe
+  // creates a fresh customer during checkout and the
+  // checkout.session.completed webhook persists the new id.
+  let session: Stripe.Checkout.Session
   if (existingCustomerId) {
-    sessionParams.customer = existingCustomerId
+    try {
+      session = await tryWithCustomer()
+    } catch (e) {
+      const stale = e instanceof Stripe.errors.StripeError && e.code === 'resource_missing'
+      if (!stale) throw e
+      console.warn('[stripe-checkout] stale stripe_customer_id; clearing + retrying with email', {
+        userId: payload.sub,
+        bad_customer: existingCustomerId,
+      })
+      await query(
+        `UPDATE users SET stripe_customer_id = NULL WHERE id = $1 AND stripe_customer_id = $2`,
+        [payload.sub, existingCustomerId],
+      )
+      session = await tryWithEmail()
+    }
   } else {
-    sessionParams.customer_email = userRows[0].email
-    sessionParams.customer_creation = 'always'
+    session = await tryWithEmail()
   }
-  const session = await stripe.checkout.sessions.create(sessionParams)
 
   return {
     statusCode: 200,

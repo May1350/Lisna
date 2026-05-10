@@ -68,7 +68,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   // mode also includes link / sepa_debit / etc. depending on locale,
   // and we want to keep the trial UX as close to "type card and
   // confirm" as possible for our student demo.
-  const sessionParams: Stripe.Checkout.SessionCreateParams = {
+  const baseParams: Stripe.Checkout.SessionCreateParams = {
     mode: 'setup',
     payment_method_types: ['card'],
     success_url: `${baseUrl}/trial-success?session_id={CHECKOUT_SESSION_ID}`,
@@ -77,17 +77,54 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     client_reference_id: payload.sub,
     metadata: { user_id: payload.sub, trial_setup: '1' },
   }
-  if (userRows[0].stripe_customer_id) {
-    sessionParams.customer = userRows[0].stripe_customer_id
-  } else {
-    sessionParams.customer_email = userRows[0].email
-    sessionParams.customer_creation = 'always'
-  }
-  const session = await stripe.checkout.sessions.create(sessionParams)
+  // Defensive: a stale stripe_customer_id (test/live mode mixup,
+  // customer deleted from Dashboard, account switched, etc.) makes
+  // checkout.sessions.create fail with code='resource_missing'. Clear
+  // the dead pointer and retry with customer_email so the user isn't
+  // stuck — Stripe creates a fresh customer during checkout and the
+  // webhook persists the new id.
+  const session = await createSetupSessionResilient(stripe, baseParams, {
+    userId: payload.sub,
+    email: userRows[0].email,
+    existingCustomerId: userRows[0].stripe_customer_id,
+  })
 
   return {
     statusCode: 200,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url: session.url, session_id: session.id }),
+  }
+}
+
+async function createSetupSessionResilient(
+  stripe: Stripe,
+  base: Stripe.Checkout.SessionCreateParams,
+  ctx: { userId: string; email: string; existingCustomerId: string | null },
+): Promise<Stripe.Checkout.Session> {
+  const tryWithCustomer = async (): Promise<Stripe.Checkout.Session> =>
+    stripe.checkout.sessions.create({ ...base, customer: ctx.existingCustomerId! })
+  const tryWithEmail = async (): Promise<Stripe.Checkout.Session> =>
+    stripe.checkout.sessions.create({
+      ...base,
+      customer_email: ctx.email,
+      customer_creation: 'always',
+    })
+
+  if (!ctx.existingCustomerId) return tryWithEmail()
+
+  try {
+    return await tryWithCustomer()
+  } catch (e) {
+    const stale = e instanceof Stripe.errors.StripeError && e.code === 'resource_missing'
+    if (!stale) throw e
+    console.warn('[trial-start] stale stripe_customer_id; clearing + retrying with email', {
+      userId: ctx.userId,
+      bad_customer: ctx.existingCustomerId,
+    })
+    await query(
+      `UPDATE users SET stripe_customer_id = NULL WHERE id = $1 AND stripe_customer_id = $2`,
+      [ctx.userId, ctx.existingCustomerId],
+    )
+    return tryWithEmail()
   }
 }
