@@ -242,31 +242,51 @@ function CurvedEdge({
   //     chord automatically.
   //   STRAIGHT_LIFT: label lift for non-loop straight edges so the
   //     label clears its own line.
-  const PARALLEL_OFFSET = 18 // half-distance from the chord to each leg
-  const LOOP_LABEL_LIFT = 30 // extra perpendicular distance from the leg to its label
+  // -------------------------------------------------------------------
+  // Bidirectional ("loop") edge geometry — INVARIANTS
+  //
+  //   PARALLEL_OFFSET — half-distance from chord centerline to each leg.
+  //     Tight by design so the two arrows read as a tight pair.
+  //
+  //   LABEL_LINE_GAP — minimum perpendicular gap between a label's
+  //     nearest edge and its OWN leg. The lift from the leg to the
+  //     label CENTER is therefore (estimated label half-width) +
+  //     LABEL_LINE_GAP, computed PER EDGE so labels of different
+  //     lengths never end up overlapping their line. This replaces
+  //     the previous fixed offset that broke whenever a label grew
+  //     longer than ~6 chars.
+  //
+  //   CHAR_PX — rough monospace 11pt font half-glyph width. Used to
+  //     estimate label half-width as label.length * CHAR_PX. Slight
+  //     over-estimate is fine; under-estimate causes overlap.
+  // -------------------------------------------------------------------
+  const PARALLEL_OFFSET = 6
+  // 20 px between line and nearest label edge — at the gallery's
+  // default 0.8× viewport zoom this still reads as ~16 px on screen,
+  // which is the smallest gap that doesn't visually merge.
+  const LABEL_LINE_GAP = 20
+  // Slightly over-estimated; 11 pt ui-monospace is ~6.6 px/char so
+  // 5 keeps us safely on the over-estimate side of the assumption.
+  const CHAR_PX = 5
   const STRAIGHT_LIFT = 14
   const isLoop = curvature !== 0
-  // For bidirectional pairs, draw two STRAIGHT lines parallel to the
-  // chord, each offset by PARALLEL_OFFSET in the right-perp direction
-  // (which flips with travel direction, so the two arrows naturally
-  // sit on opposite sides). User asked for straight arrows over the
-  // earlier curved-lens look.
   const sx = isLoop ? sourceX + perpX * PARALLEL_OFFSET : sourceX
   const sy = isLoop ? sourceY + perpY * PARALLEL_OFFSET : sourceY
   const tx = isLoop ? targetX + perpX * PARALLEL_OFFSET : targetX
   const ty = isLoop ? targetY + perpY * PARALLEL_OFFSET : targetY
   const path = `M ${sx} ${sy} L ${tx} ${ty}`
-  // Place the label OUTSIDE the parallel pair (on the same right-perp
-  // side as its own leg), so the two opposing labels are pushed onto
-  // opposite sides of the chord with comfortable horizontal margin.
-  const labelMidX = isLoop ? (sx + tx) / 2 : midX
-  const labelMidY = isLoop ? (sy + ty) / 2 : midY
-  const labelX = isLoop
-    ? labelMidX + perpX * LOOP_LABEL_LIFT
-    : labelMidX + perpX * STRAIGHT_LIFT
-  const labelY = isLoop
-    ? labelMidY + perpY * LOOP_LABEL_LIFT
-    : labelMidY + perpY * STRAIGHT_LIFT
+  // Distance from chord centerline to the label center. For loops,
+  // we add (label half-width + LABEL_LINE_GAP) on top of the line's
+  // own offset, guaranteeing the label's nearest edge sits at least
+  // LABEL_LINE_GAP px away from its line, regardless of label length.
+  const labelText = typeof label === 'string' ? label : ''
+  const labelHalfWidth = labelText.length * CHAR_PX
+  const loopLift = PARALLEL_OFFSET + labelHalfWidth + LABEL_LINE_GAP
+  const labelMidX = midX
+  const labelMidY = midY
+  const labelLift = isLoop ? loopLift : STRAIGHT_LIFT
+  const labelX = labelMidX + perpX * labelLift
+  const labelY = labelMidY + perpY * labelLift
   return (
     <>
       <BaseEdge id={id} path={path} style={style} markerEnd={markerEnd} />
