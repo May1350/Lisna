@@ -360,7 +360,7 @@ export const ja: Translations = {
     curate_in_progress: '別のノート生成が進行中です。完了後にもう一度お試しください。',
     service_unavailable: 'サーバー側で一時的な問題が発生しています。運営者には自動で通知が届きました。しばらく後に再度お試しください。',
     fallback: 'ノート生成に失敗しました。「ノートを再生成」を押して再度お試しください。',
-    reportButton: '💡 報告する',
+    reportButton: '報告する',
   },
   errorToast: {
     unauthorized: '認証が切れました。再度ログインしてください。',

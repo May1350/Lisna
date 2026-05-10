@@ -358,7 +358,7 @@ export const en: Translations = {
     curate_in_progress: 'Another note generation is already in progress. Try again once it finishes.',
     service_unavailable: 'Temporary server-side issue — the operator has been notified automatically. Please try again in a few minutes.',
     fallback: 'Note generation failed. Try "Regenerate notes" again.',
-    reportButton: '💡 Report',
+    reportButton: 'Report',
   },
   errorToast: {
     unauthorized: 'Your session has expired. Please sign in again.',

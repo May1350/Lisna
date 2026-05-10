@@ -600,7 +600,7 @@ function ErrorCard({
     : T.sidePanel.historyFetchFailed
   const detail = error.status ? `HTTP ${error.status} — ${error.message}` : error.message
   return (
-    <div className="mx-3 mt-3 p-3 rounded-md bg-warn-red/5 border border-warn-red/30 flex flex-col gap-2">
+    <div className="mx-3 mt-3 p-3 rounded-md bg-warn-red/5 border border-warn-red/40 flex flex-col gap-2">
       <div>
         <p className="text-xs text-warn-red">{headline}</p>
         <p className="text-[10px] text-warn-red mt-1 font-mono break-all">{detail}</p>

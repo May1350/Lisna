@@ -55,7 +55,7 @@ export class ErrorBoundary extends Component<Props, State> {
       const T = t()
       return (
         <div className="min-h-screen flex items-center justify-center px-6 py-10 bg-paper-200">
-          <div className="max-w-sm w-full bg-paper-100 border border-warn-red/30 rounded-[14px] shadow-card p-5">
+          <div className="max-w-sm w-full bg-paper-100 border border-warn-red/40 rounded-[14px] shadow-card p-5">
             <div className="flex items-center gap-2 mb-3">
               <span className="inline-block w-1.5 h-1.5 rounded-full bg-warn-red" aria-hidden />
               <h2 className="text-base font-semibold text-ink-900 tracking-tight">

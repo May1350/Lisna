@@ -74,13 +74,21 @@ export function QuotaExhaustedIdle({ user, quota, onUpgrade, upgrading }: Props)
         {!isPro && (
           <>
             <div className="mt-5 rounded-[10px] border border-terra-soft bg-terra-tint px-4 py-3">
-              <div className="flex items-baseline justify-between gap-2 mb-1.5">
-                <span className="text-lg font-semibold text-terra leading-none tracking-headline-tight font-mono tabular-nums">
+              {/* Price + note stacked, not side-by-side. The previous
+                  flex-justify-between layout cramped the price into a
+                  shrinking column whenever the note string was long
+                  ("Billed monthly · Cancel anytime") and the price's
+                  whitespace ("¥980 / month") would wrap onto three
+                  lines. Stacking guarantees both fit at any locale
+                  width; whitespace-nowrap on the price is belt-and-
+                  suspenders against future card-width shrinks. */}
+              <div className="mb-2">
+                <div className="text-lg font-semibold text-terra leading-none tracking-headline-tight font-mono tabular-nums whitespace-nowrap">
                   {T.options.plan_pro_price}
-                </span>
-                <span className="text-[11px] text-terra-700 opacity-70 shrink-0 font-mono uppercase tracking-wider">
+                </div>
+                <div className="text-[10px] text-terra-700 opacity-70 mt-1 font-mono uppercase tracking-wider">
                   {T.options.plan_pro_priceNote}
-                </span>
+                </div>
               </div>
               <ul className="text-xs text-ink-700 space-y-1">
                 <li>{T.options.plan_pro_feature1}</li>

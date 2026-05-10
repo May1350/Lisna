@@ -1078,7 +1078,7 @@ export default function App() {
           />
         )}
         {curateError && (
-          <div className="mx-3 mb-1 bg-warn-red/5 border border-warn-red/30 text-warn-red text-xs px-3 py-2 rounded flex items-start gap-2">
+          <div className="mx-3 mb-1 bg-warn-red/5 border border-warn-red/40 text-warn-red text-xs px-3 py-2 rounded flex items-start gap-2">
             <span className="flex-1">{humanizeCurateError(curateError, T)}</span>
             {ERROR_REPORTABLE.has(curateError) && (
               <button

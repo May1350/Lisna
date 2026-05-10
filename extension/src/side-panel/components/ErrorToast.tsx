@@ -72,10 +72,10 @@ export function ErrorToast() {
           // accent and the text color — not by the background tint.
           className={`pointer-events-auto rounded-lg shadow-lg px-3 py-2.5 text-xs flex items-start gap-2 bg-paper-100 ${
             t.severity === 'warning'
-              ? 'border border-warn-amber/60 text-ink-900'
+              ? 'border border-warn-amber/40 text-ink-900'
               : t.severity === 'fatal'
-              ? 'border border-warn-red/70 text-warn-red'
-              : 'border border-warn-red/50 text-warn-red'
+              ? 'border border-warn-red/40 text-warn-red'
+              : 'border border-warn-red/40 text-warn-red'
           }`}
         >
           <span

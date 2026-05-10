@@ -786,7 +786,7 @@ function PlanSection({
               number in mono with tabular-nums) + uppercase mono note
               underneath. */}
           <div className="mb-4">
-            <div className="text-2xl font-semibold text-terra leading-none tracking-headline-tight font-mono tabular-nums">
+            <div className="text-2xl font-semibold text-terra leading-none tracking-headline-tight font-mono tabular-nums whitespace-nowrap">
               {T.options.plan_pro_price}
             </div>
             <div className="text-[11px] text-terra-700 opacity-70 font-mono uppercase tracking-wider mt-1">

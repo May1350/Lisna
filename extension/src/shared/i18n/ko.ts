@@ -358,7 +358,7 @@ export const ko: Translations = {
     curate_in_progress: '이미 노트를 만들고 있어요. 완료된 후 다시 시도해주세요.',
     service_unavailable: '서버 측에서 일시적인 문제가 발생했어요. 운영자에게 자동으로 알림이 전달됐습니다. 잠시 후 다시 시도해주세요.',
     fallback: '노트 생성에 실패했어요. 「노트 재생성」을 눌러 다시 시도해주세요.',
-    reportButton: '💡 신고하기',
+    reportButton: '신고하기',
   },
   errorToast: {
     unauthorized: '인증이 만료되었어요. 다시 로그인해주세요.',
