@@ -1,0 +1,15 @@
+/* Gallery-page-only overrides. The side-panel's index.css gives us all
+   the tailwind layers + design tokens; we just need to undo a few
+   side-panel-specific resets that don't make sense on a wide canvas. */
+
+html, body, #root {
+  min-height: 100vh;
+  background: var(--paper-200, #f5efe6);
+}
+
+/* Side-panel sometimes uses min-h-screen on its inner card; in the
+   gallery each frame is its own constrained container, so prevent
+   accidentally tall cards from blowing out the row. */
+.gallery-frame :where(.min-h-screen) {
+  min-height: auto;
+}
