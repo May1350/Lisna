@@ -261,13 +261,19 @@ function CurvedEdge({
   //     over-estimate is fine; under-estimate causes overlap.
   // -------------------------------------------------------------------
   const PARALLEL_OFFSET = 6
-  // 20 px between line and nearest label edge — at the gallery's
-  // default 0.8× viewport zoom this still reads as ~16 px on screen,
-  // which is the smallest gap that doesn't visually merge.
-  const LABEL_LINE_GAP = 20
-  // Slightly over-estimated; 11 pt ui-monospace is ~6.6 px/char so
-  // 5 keeps us safely on the over-estimate side of the assumption.
-  const CHAR_PX = 5
+  // 5 px between the line and the label's nearest edge — same visual
+  // tightness as the horizontal STRAIGHT_LIFT spacing so loop labels
+  // don't feel further from their line than non-loop labels do.
+  const LABEL_LINE_GAP = 5
+  // Per-glyph half-width estimate for 11 pt ui-monospace. 3.6 is a
+  // small over-estimate; the actual is closer to 3.3 but we err on
+  // the safe side (under-estimating produces overlap).
+  const CHAR_PX = 3.6
+  // Pill chrome accounted for separately: px-1.5 (6 px) padding +
+  // 1 px border on each side. Adds 7 px to the label's half-width on
+  // each end. Without this, short labels still cleared their line
+  // but long labels (OAuth fail, etc.) would overlap.
+  const LABEL_PADDING = 7
   const STRAIGHT_LIFT = 14
   const isLoop = curvature !== 0
   const sx = isLoop ? sourceX + perpX * PARALLEL_OFFSET : sourceX
@@ -280,7 +286,7 @@ function CurvedEdge({
   // own offset, guaranteeing the label's nearest edge sits at least
   // LABEL_LINE_GAP px away from its line, regardless of label length.
   const labelText = typeof label === 'string' ? label : ''
-  const labelHalfWidth = labelText.length * CHAR_PX
+  const labelHalfWidth = labelText.length * CHAR_PX + LABEL_PADDING
   const loopLift = PARALLEL_OFFSET + labelHalfWidth + LABEL_LINE_GAP
   const labelMidX = midX
   const labelMidY = midY
