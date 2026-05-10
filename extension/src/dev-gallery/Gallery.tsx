@@ -3,12 +3,17 @@ import type { ReactNode } from 'react'
 import { Frame } from './Frame'
 import { fixtures } from './fixtures'
 import type { GalleryFixture } from './fixtures/types'
+import { FlowView } from './flows/FlowView'
+import { FLOWS } from './flows/registry'
 
 type WidthChoice = 320 | 380 | 460 | 560 | 'all'
+type ViewMode = 'list' | 'flow'
 
 const ALL_WIDTHS: Array<320 | 380 | 460 | 560> = [320, 380, 460, 560]
 
 export function Gallery() {
+  const [view, setView] = useState<ViewMode>('list')
+  const [activeFlowId, setActiveFlowId] = useState<string>(FLOWS[0]?.id ?? '')
   const [widthChoice, setWidthChoice] = useState<WidthChoice>(380)
   const [filter, setFilter] = useState('')
   const [activeCategory, setActiveCategory] = useState<string | 'all'>('all')
@@ -35,46 +40,87 @@ export function Gallery() {
           <div className="flex items-baseline gap-2 mr-4">
             <span className="text-base font-semibold tracking-tight">Lisna · Dev Gallery</span>
             <span className="text-[10px] font-mono uppercase tracking-wider text-ink-500">
-              {visible.length}/{fixtures.length} frames
+              {view === 'list' ? `${visible.length}/${fixtures.length} frames` : `${FLOWS.length} flows`}
             </span>
           </div>
 
-          <div className="flex items-center gap-1">
-            {([320, 380, 460, 560, 'all'] as WidthChoice[]).map(w => (
+          {/* View toggle — List for token/regression review, Flow for UX state-machine review. */}
+          <div className="flex items-center gap-1 mr-2">
+            {(['list', 'flow'] as ViewMode[]).map(m => (
               <button
-                key={String(w)}
+                key={m}
                 type="button"
-                onClick={() => setWidthChoice(w)}
-                className={`text-[11px] font-mono px-2 py-1 rounded border transition ${
-                  widthChoice === w
+                onClick={() => setView(m)}
+                className={`text-[11px] font-mono px-2 py-1 rounded border transition uppercase tracking-wider ${
+                  view === m
                     ? 'border-ink-900 bg-ink-900 text-paper-100'
                     : 'border-paper-edge text-ink-700 hover:border-ink-300'
                 }`}
               >
-                {w === 'all' ? 'all-widths' : `${w}px`}
+                {m}
               </button>
             ))}
           </div>
 
-          <input
-            value={filter}
-            onChange={e => setFilter(e.target.value)}
-            placeholder="filter…"
-            className="ml-auto px-2 py-1 text-xs rounded border border-paper-edge bg-paper-100 focus:outline-none focus:border-ink-900 w-48"
-          />
-
-          <select
-            value={activeCategory}
-            onChange={e => setActiveCategory(e.target.value)}
-            className="px-2 py-1 text-xs rounded border border-paper-edge bg-paper-100 focus:outline-none focus:border-ink-900"
-          >
-            {categories.map(c => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
+          {view === 'list' ? (
+            <>
+              <div className="flex items-center gap-1">
+                {([320, 380, 460, 560, 'all'] as WidthChoice[]).map(w => (
+                  <button
+                    key={String(w)}
+                    type="button"
+                    onClick={() => setWidthChoice(w)}
+                    className={`text-[11px] font-mono px-2 py-1 rounded border transition ${
+                      widthChoice === w
+                        ? 'border-ink-900 bg-ink-900 text-paper-100'
+                        : 'border-paper-edge text-ink-700 hover:border-ink-300'
+                    }`}
+                  >
+                    {w === 'all' ? 'all-widths' : `${w}px`}
+                  </button>
+                ))}
+              </div>
+              <input
+                value={filter}
+                onChange={e => setFilter(e.target.value)}
+                placeholder="filter…"
+                className="ml-auto px-2 py-1 text-xs rounded border border-paper-edge bg-paper-100 focus:outline-none focus:border-ink-900 w-48"
+              />
+              <select
+                value={activeCategory}
+                onChange={e => setActiveCategory(e.target.value)}
+                className="px-2 py-1 text-xs rounded border border-paper-edge bg-paper-100 focus:outline-none focus:border-ink-900"
+              >
+                {categories.map(c => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </>
+          ) : (
+            <div className="flex items-center gap-1 flex-wrap">
+              {FLOWS.map(f => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setActiveFlowId(f.id)}
+                  className={`text-[11px] px-2 py-1 rounded border transition ${
+                    activeFlowId === f.id
+                      ? 'border-ink-900 bg-ink-900 text-paper-100'
+                      : 'border-paper-edge text-ink-700 hover:border-ink-300'
+                  }`}
+                  title={f.surface ? `Surface: ${f.surface}` : undefined}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </header>
 
+      {view === 'flow' ? (
+        <FlowView flowId={activeFlowId} onSwitchFlow={setActiveFlowId} />
+      ) : (
       <main className="max-w-[1800px] mx-auto px-6 py-6">
         {groupByCategory(visible).map(group => (
           <section key={group.category} className="mb-12">
@@ -102,6 +148,7 @@ export function Gallery() {
           </div>
         )}
       </main>
+      )}
     </div>
   )
 }
