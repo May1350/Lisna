@@ -1,9 +1,10 @@
 import type { APIGatewayProxyHandlerV2 } from 'aws-lambda'
 import { verifyJwt } from '../lib/auth.js'
-import { query } from '../lib/db.js'
 import { loadAppSecrets } from '../lib/env.js'
 import { getStripe } from '../lib/stripe.js'
 import { TRIAL_LIMIT_SECS } from '../lib/quota.js'
+// Billing-write helpers (see lib/users.ts for invariants).
+import { persistStripeCustomerId, insertTrialGrant } from '../lib/users.js'
 
 /**
  * Step 2 of the 2-hour trial flow: called by the frontend after the
@@ -64,22 +65,21 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
 
   // Persist the customer id on users so a subsequent /v1/billing/checkout
   // (manual upgrade route) doesn't create a duplicate.
-  await query(
-    `UPDATE users SET stripe_customer_id = COALESCE(stripe_customer_id, $1) WHERE id = $2`,
-    [customerId, payload.sub],
-  )
+  await persistStripeCustomerId(payload.sub, customerId)
 
-  // Insert grant. ON CONFLICT DO NOTHING makes this idempotent — if
-  // the user clicks the success URL twice we just return the existing
-  // row state.
+  // Insert grant. The helper does ON CONFLICT DO NOTHING — if the
+  // user clicks the success URL twice we just return the existing
+  // row state. expiresAt + limitSecs are passed explicitly so the
+  // response body's `expires_at` / `limit_secs` reflect the same
+  // values stored in the row (a single computation site).
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
-  await query(
-    `INSERT INTO trial_grants
-       (user_id, granted_at, expires_at, used_secs, limit_secs, stripe_payment_method_id, stripe_customer_id)
-     VALUES ($1, NOW(), $2, 0, $3, $4, $5)
-     ON CONFLICT (user_id) DO NOTHING`,
-    [payload.sub, expiresAt, TRIAL_LIMIT_SECS, paymentMethodId, customerId],
-  )
+  await insertTrialGrant({
+    userId: payload.sub,
+    paymentMethodId,
+    customerId,
+    expiresAt,
+    limitSecs: TRIAL_LIMIT_SECS,
+  })
 
   return {
     statusCode: 200,
