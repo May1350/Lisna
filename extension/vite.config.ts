@@ -33,5 +33,9 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
+    // Vitest picks `**/*.{test,spec}.ts` by default — exclude the
+    // Playwright E2E specs (which look identical by extension) so
+    // they only run via `pnpm test:e2e`.
+    exclude: ['node_modules', 'dist', 'tests/e2e/**'],
   },
 })

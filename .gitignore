@@ -20,3 +20,6 @@ web/.next/
 lisna-extension.zip
 lisna-extension-*.zip
 .claude/
+# Playwright E2E artifacts
+extension/test-results/
+extension/playwright-report/

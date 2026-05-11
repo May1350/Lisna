@@ -64,6 +64,33 @@ jobs:
         # URLs, which is fine for build verification (no deploy).
         run: pnpm --filter extension build
 
+      - name: Cache Playwright browsers
+        # Chromium download is ~120 MB; cache by Playwright version
+        # (encoded in @playwright/test inside pnpm-lock) so we only
+        # re-download on Playwright bumps.
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Install Playwright Chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm --filter extension exec playwright install --with-deps chromium
+
+      - name: Install Playwright system deps
+        # System libs (libnss3 etc.) aren't cached even when the
+        # browser binary is — install them unconditionally.
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm --filter extension exec playwright install-deps chromium
+
+      - name: Extension — E2E (Playwright)
+        # Loads the freshly-built dist/ as an unpacked extension in a
+        # new-headless Chromium context, navigates to side-panel HTML,
+        # and asserts the brand logo image's naturalWidth > 0 — the
+        # check that would have caught the Phase 1C icon-path regression.
+        run: pnpm --filter extension test:e2e
+
       # ── Web ───────────────────────────────────────────────────────────
       - name: Web — build (Next.js)
         # `next build` covers TypeScript checks + static-page generation.
