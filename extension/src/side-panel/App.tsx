@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import type { SlideItem, User, QuotaSnapshot } from '../shared/types'
 import { hasConsent, setConsent, getEnabled, onEnabledChange, getAutoDownload, getObsidianConfig } from '../shared/storage'
-import { CURATE_URL } from '../shared/config'
 import { exportZip, pushToObsidian } from './lib/export'
 import { ConsentModal } from './components/ConsentModal'
 import { LoginScreen } from './components/LoginScreen'
@@ -16,10 +15,11 @@ import { PanelHeader } from './components/PanelHeader'
 import { SessionControls } from './components/SessionControls'
 import { QuotaExhaustedIdle } from './components/QuotaExhaustedIdle'
 import { TrialEndModal } from './components/TrialEndModal'
-import { callApi, connectWs, getCurrentUser, logout, ApiError } from './api-client'
-import type { LiveTranscriptItem, Outline } from './api-client'
+import { callApi, getCurrentUser, logout, ApiError } from './api-client'
+import type { Outline } from './api-client'
 import { useQuota } from './hooks/useQuota'
 import { useTrial } from './hooks/useTrial'
+import { useSession } from './hooks/useSession'
 import { useT } from '../shared/i18n'
 import { setFeedbackPrefill } from '../shared/feedback-prefill'
 import type { Translations } from '../shared/i18n'
@@ -229,42 +229,15 @@ export default function App() {
   const [consented, setConsented] = useState<boolean | null>(null)
   const [user, setUser] = useState<User | null>(null)
   const [bootStorage, setBootStorage] = useState<BootStorage | null>(null)
-  const [sessionId, setSessionId] = useState<string | null>(null)
-  // Curated, hierarchical outline produced by the backend curator. Replaced
-  // wholesale on every curator run (every ~30 s of lecture); the UI thus
-  // evolves as the lecture progresses.
-  const [outline, setOutline] = useState<Outline | null>(null)
-  // Server-trusted last-update epoch ms for the hydrated outline. Set
-  // from sessions.updated_at on initial hydrate (login eager-load or
-  // GET /v1/session) so the modal's "X分前" indicator reflects the
-  // actual save time of an existing note rather than the modal-open
-  // time. Stays at this value across the lifetime of the OutlineView
-  // instance — real-time WS / curate updates use Date.now() inside
-  // OutlineView itself (see serverUpdatedAt prop semantics there).
-  // null means "no DB record / hydrating" — OutlineView falls through
-  // to Date.now() for the first content arrival in that case.
-  const [outlineUpdatedAt, setOutlineUpdatedAt] = useState<number | null>(null)
-  const [slides, setSlides] = useState<SlideItem[]>([])
-  // Live transcript items (streamed from /v1/stream/audio's STT step before
-  // LLM finishes). Bounded ring buffer — we only keep the last ~30 chunks
-  // (≈5 min at 10 s chunks) so the UI stays responsive on long sessions.
-  const [transcripts, setTranscripts] = useState<LiveTranscriptItem[]>([])
-  // Phase 6.1: curating state. Goes true when content-script POSTs
-  // /v1/session/curate (pause / ended / manual button) and back to false
-  // when the outline_updated WS message arrives. UI shows a spinner row.
-  const [curating, setCurating] = useState(false)
-  // Latest quota snapshot. Updated on every chunk response from
-  // /v1/stream/audio (forwarded by content script). Drives the tiered
-  // QuotaBanner: <50% silent, 50-79% subtle, 80-94% amber, 95-99% orange,
-  // 100% blocking. `quotaBlocked` flips true on a 402 response and turns
-  // the banner red even if the snapshot itself isn't yet at 100% (race
-  // window where the period rolled before the next chunk).
-  // quota / quotaBlocked / liveRemainingSecs + the `exhausted` derived
-  // flag now live in useQuota. The 1 Hz live-remaining tick and the
-  // cold-start cached-quota seed migrated there too. App.tsx still
-  // owns isCapturing / videoPlaying (until Phase 3a migrates them
-  // into useSession), so the tick reads those values through refs
-  // that get sync'd in the render body below.
+  // Most session-derived state (sessionId / slides / outline /
+  // outlineUpdatedAt / transcripts / curating / curateError /
+  // isCapturing / videoPlaying) now lives in useSession — composed
+  // a few lines down once `ctx` provides isEmbed + parentUrl, and
+  // `title` provides the filename fallback. The hook still exposes
+  // every setter (leaky abstraction during Phase 3a) so applyEvent —
+  // which stays in App.tsx during 3a — can mutate state through the
+  // destructured setters. Phase 3b moves applyEvent into the hook
+  // and the raw setters drop from the public return.
   const isCapturingRef = useRef(false)
   const videoPlayingRef = useRef<boolean | null>(null)
   const {
@@ -272,37 +245,14 @@ export default function App() {
     setQuota, setQuotaBlocked, setLiveRemainingSecs,
     reset: resetQuota,
   } = useQuota({ isCapturingRef, videoPlayingRef })
-  // trialActive + trial busy state + trial flow handlers moved to
-  // useTrial. The hook is composed below — it needs `user` (declared
-  // a few lines down) and resetAuthState (declared further down), so
-  // we forward-reference both via the same closure-arrow pattern the
-  // storage listener already uses for resetAuthState.
-  // Video play/pause state, broadcast from the content script. Drives
-  // the placeholder copy in LiveTranscript while we wait for the first
-  // chunk: playing → "🎙️ 음성 처리 중…" / paused → "⏸ 강의를 재생하세요".
-  const [videoPlaying, setVideoPlaying] = useState<boolean | null>(null)
-  // Surfaces a non-blocking error message under the spinner when the
-  // curator fails (502 / network / no transcripts yet). Cleared when the
-  // next outline_updated arrives.
-  const [curateError, setCurateError] = useState<string | null>(null)
   // When the video ends (content script broadcasts session_ended) we
   // arm a flag that fires the auto-download zip path on the very next
   // outline_updated — provided the user has opted into the setting in
   // the Options page. The flag clears after one fire so a subsequent
   // outline update (e.g. the user manually clicks regenerate) doesn't
-  // re-trigger the download.
+  // re-trigger the download. Stays in App.tsx during Phase 3a;
+  // follows applyEvent into useSession in Phase 3b.
   const pendingAutoDownloadRef = useRef(false)
-  // True while the content script is actively capturing audio/slides.
-  // Goes true on session_started and false on session_ended (user-stop
-  // OR natural <video> end). Decoupled from `sessionId` so the modal
-  // can keep the outline / ExportMenu / manual curate UI alive after
-  // capture stops — the user explicitly asked: "stopping should still
-  // leave note generation possible."
-  const [isCapturing, setIsCapturing] = useState(false)
-  // liveRemainingSecs moved to useQuota (it owns the 1 Hz tick that
-  // decrements this counter). The setter is exposed back via the
-  // destructured `setLiveRemainingSecs` above; downstream call sites
-  // (applyEvent / auth-me / trial-confirm) keep their existing usage.
   // Lecture title used for the export filename. Initial value is a
   // generic placeholder; we replace it with `outline.title` (the
   // curator-extracted lecture topic) the moment the first outline
@@ -344,6 +294,28 @@ export default function App() {
   }, [])
   const { isEmbed, parentUrl } = ctx
 
+  // Session state slice (sessionId / slides / outline / transcripts /
+  // curating / isCapturing / videoPlaying / hydrateFromLogin /
+  // onTriggerCurate) lives in useSession. The hook also owns the
+  // /v1/session GET hydrate, the WS connect-and-route, and the
+  // curating watchdog. setTitle is forwarded in so the /v1/session
+  // GET can adopt the curator-extracted title when an outline exists.
+  // applyEvent still lives in App.tsx during Phase 3a and writes
+  // through the destructured setters; Phase 3b moves it in and the
+  // setters drop from the return.
+  const {
+    sessionId, slides, outline, outlineUpdatedAt, transcripts,
+    curating, curateError, isCapturing, videoPlaying,
+    setSessionId, setSlides, setOutline, setOutlineUpdatedAt, setTranscripts,
+    setCurating, setCurateError, setIsCapturing, setVideoPlaying,
+    hydrateFromLogin, onTriggerCurate, reset: resetSession,
+  } = useSession({
+    isEmbed, user, parentUrl,
+    exportCtxRef,
+    setTitle: (t: string) => setTitle(t),
+    titleFallback: TITLE_FALLBACK,
+  })
+
   // Single source of truth for the React-side auth wipe. Every piece
   // of session-derived state lives here — calling resetAuthState from
   // logout / 401 fallback / cross-context storage event leaves no
@@ -366,19 +338,11 @@ export default function App() {
   const resetTrialRef = useRef<() => void>(() => {})
   const resetAuthState = useCallback(() => {
     setUser(null)
-    setSessionId(null)
-    setSlides([])
-    setOutline(null)
-    setOutlineUpdatedAt(null)
-    setTranscripts([])
-    setCurating(false)
-    setCurateError(null)
     resetQuota()
     resetTrialRef.current()
-    setVideoPlaying(null)
-    setIsCapturing(false)
+    resetSession()
     setViewingSession(null)
-  }, [resetQuota])
+  }, [resetQuota, resetSession])
   // Stable onAuthExpired identity for hooks that pass it as a dep
   // into their internal useEffect (useTrial's visibility handler
   // listener, future useAuth's storage listener). Without this, each
@@ -776,156 +740,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEmbed, applyEvent])
 
-  // Embed: load the existing session (if any) for the parent page's URL.
-  useEffect(() => {
-    if (!isEmbed || !user || !parentUrl) return
-    void (async () => {
-      // Reset to placeholder while we're fetching; replaced with
-      // outline.title below if the GET returns a curated session.
-      setTitle(TITLE_FALLBACK)
-      try {
-        // Backend's /v1/session response still includes a legacy `notes`
-        // array (per-chunk bullets from before Phase 6.1). The modal
-        // renders only `outline` now, so we ignore that field. See
-        // backend/src/handlers/session-get.ts for the full shape.
-        const r = await callApi<{
-          session: {
-            id: string
-            slides: SlideItem[]
-            outline: Outline | null
-            // Persisted live captions. Optional in the type so older
-            // backends (pre-Phase 7) and brand-new sessions without
-            // any audio yet are tolerated without a runtime guard.
-            transcripts?: LiveTranscriptItem[]
-            updated_at?: string
-          } | null
-        }>(
-          `/v1/session?url=${encodeURIComponent(parentUrl)}`, 'GET'
-        )
-        if (r.session) {
-          setSessionId(r.session.id)
-          setSlides(r.session.slides || [])
-          setOutline(r.session.outline ?? null)
-          // Hydrate the LiveTranscript surface from the persisted
-          // backend state. Without this, closing the modal mid-lecture
-          // and reopening it (or page-reloading) wiped every caption
-          // the user had been reading even though the data was safe in
-          // the DB. Cap to the same RING_CAP the WS path uses (60) so
-          // sessions with thousands of segments don't render a
-          // monstrous list — older items fall off the front, mirroring
-          // the live behaviour. We slice from the end (latest items
-          // win) to match what the user would have seen had they
-          // stayed in the modal.
-          if (r.session.transcripts && r.session.transcripts.length > 0) {
-            const RING_CAP = 60
-            const items = r.session.transcripts
-            setTranscripts(items.length > RING_CAP ? items.slice(-RING_CAP) : items)
-          } else {
-            setTranscripts([])
-          }
-          // Carry the DB's updated_at so the indicator shows the real
-          // last-edit time of this saved note instead of "now". Only
-          // use the server timestamp when an OUTLINE actually exists
-          // — sessions.updated_at also moves on every audio chunk
-          // write, so without this guard a session that has audio
-          // captured today but no outline yet would inherit "today"
-          // as the indicator value, then on the user's first curate
-          // the OutlineView's first-content-arrival branch would
-          // pick that stale value instead of Date.now(). Net effect
-          // was a freshly-curated note showing "3시간 전".
-          setOutlineUpdatedAt(
-            r.session.outline && r.session.updated_at
-              ? new Date(r.session.updated_at).getTime()
-              : null,
-          )
-          // Adopt the curator-extracted title for the filename. Falls
-          // through to the placeholder when the curator hasn't run
-          // yet (outline === null) or returned an empty string.
-          const curatedTitle = r.session.outline?.title?.trim()
-          if (curatedTitle) setTitle(curatedTitle)
-        } else {
-          // No existing session for this URL. Without this clear, the
-          // UI would render stale outline / slides / sessionId from a
-          // previously-loaded lecture, then 404 when the user clicks
-          // export (because the BACKEND has no outline for the new
-          // url_hash). Clear everything so the modal correctly shows
-          // the IdleSessionState placeholder.
-          setSessionId(null)
-          setSlides([])
-          setOutline(null)
-          setOutlineUpdatedAt(null)
-        }
-      } catch { /* ignore */ }
-    })()
-  }, [user, isEmbed, parentUrl])
 
-  // connect WS when sessionId arrives (embed only). The handle returned
-  // by connectWs owns its own reconnect-with-backoff loop (see
-  // api-client.ts), so this effect just opens once on mount and closes
-  // on cleanup; teardown is idempotent and cancels any pending
-  // reconnect timer.
-  useEffect(() => {
-    if (!sessionId) return
-    let mounted = true
-    let handle: { close(): void } | null = null
-    void (async () => {
-      try {
-        const h = await connectWs(sessionId, {
-          onSlide: (s) => setSlides(prev => [...prev, s]),
-          onTranscript: (items) => {
-            // Bounded ring buffer — drop the oldest when we exceed the cap.
-            // Cap is 60 (vs the older 30) because each 10 s audio chunk now
-            // yields 3-7 sentence-bounded segments instead of 1 entry, so
-            // the visible time window per item is shorter. 60 covers ~3-5
-            // minutes of recent captions, which matches the old footprint
-            // while preserving the new sub-chunk granularity.
-            const RING_CAP = 60
-            setTranscripts(prev => {
-              const next = [...prev, ...items]
-              return next.length > RING_CAP ? next.slice(next.length - RING_CAP) : next
-            })
-          },
-          onOutline: (newOutline) => {
-            setOutline(newOutline)
-            // Stamp NOW on every WS-delivered outline — same reasoning
-            // as the postMessage outline_updated path: a fresh curate
-            // completed server-side, even if the JSON is byte-
-            // identical to the previous version.
-            setOutlineUpdatedAt(Date.now())
-            setCurating(false)
-            setCurateError(null)
-          },
-          onClose: () => {
-            // Reconnection attempts have been exhausted (or the close
-            // was clean). The HTTP fallback in content/index.ts still
-            // delivers curate completions over chrome.runtime, so the
-            // user can keep generating notes; only live transcripts /
-            // slides from this session id will be missed until they
-            // refresh the modal.
-            // eslint-disable-next-line no-console
-            console.warn('[App] WS permanently closed — live updates suspended for this session')
-          },
-          onReconnect: ({ attempt, nextDelayMs }) => {
-            // Diagnostic only for now. A future iteration could surface
-            // a "live updates paused — reconnecting" badge in the
-            // header; for now the user gets through via HTTP fallback
-            // and the issue is silent.
-            // eslint-disable-next-line no-console
-            console.info('[App] WS reconnecting', { attempt, nextDelayMs })
-          },
-        })
-        // If the cleanup already ran (sessionId changed mid-handshake or
-        // the component unmounted), close the freshly-opened socket
-        // instead of letting it linger.
-        if (mounted) handle = h
-        else h.close()
-      } catch (e) {
-        // eslint-disable-next-line no-console
-        console.warn('[App] WS connect failed:', e)
-      }
-    })()
-    return () => { mounted = false; handle?.close() }
-  }, [sessionId])
 
   // (1 Hz live-remaining tick migrated to useQuota in Phase 5c step 1.
   // It now lives inside the hook and reads isCapturing / videoPlaying
@@ -935,25 +750,6 @@ export default function App() {
   // refs say "not capturing or paused"; CPU cost of one ref read per
   // second is imperceptible.)
 
-  // Watchdog for the `curating` flag. Defensive against ANY curate path
-  // (manual modal click, content-script auto-trigger on session-end,
-  // future trigger types) leaving the modal stuck in "ノート生成中…"
-  // when the success / failure signal got lost (WS dropped, postMessage
-  // never arrived, SW restart mid-flight). The curator's own Lambda
-  // timeout is 5 min; we wait a touch longer (120 s) on the assumption
-  // that any well-behaved request will have signalled by then. If we
-  // fall through, force-clear with an error message and let the user
-  // retry — better than infinite spinner.
-  useEffect(() => {
-    if (!curating) return
-    const id = window.setTimeout(() => {
-      setCurating(false)
-      setCurateError('timeout_no_signal')
-      // eslint-disable-next-line no-console
-      console.warn('[App] curating watchdog fired — no outline signal received in 120 s')
-    }, 120_000)
-    return () => window.clearTimeout(id)
-  }, [curating])
 
   // Stripe Checkout creation takes a few hundred ms — surface that as
   // a busy state so the upgrade button (in QuotaBanner / QuotaExhaustedIdle
@@ -1063,22 +859,16 @@ export default function App() {
         <LoginScreen
           currentUrl={parentUrl ?? undefined}
           onSuccess={(result) => {
-            // setUser triggers the useEffect that loads existing session via
-            // GET /v1/session as a fallback path. But the backend just gave
-            // us that session in the same response — apply it eagerly so the
-            // user sees the outline the moment they land on the session view.
+            // setUser triggers the auth-me re-fetch effect; the
+            // backend returned the session for this URL in the same
+            // response, so apply it eagerly via useSession's
+            // hydrateFromLogin (which mirrors the /v1/session GET
+            // hydrate path verbatim minus the title side-effect, so
+            // we still call setTitle here ourselves).
             setUser(result.user)
             if (result.currentSession) {
-              setSessionId(result.currentSession.id)
-              setSlides(result.currentSession.slides ?? [])
-              const o = result.currentSession.outline ?? null
-              setOutline(o)
-              setOutlineUpdatedAt(
-                o && result.currentSession.updated_at
-                  ? new Date(result.currentSession.updated_at).getTime()
-                  : null,
-              )
-              if (o?.title?.trim()) setTitle(o.title.trim())
+              const { outlineTitle } = hydrateFromLogin(result.currentSession)
+              if (outlineTitle) setTitle(outlineTitle)
             }
           }}
         />
@@ -1099,72 +889,6 @@ export default function App() {
         window.parent.postMessage({ source: 'sh-parent', type: 'JUMP_TO', ts }, '*')
       } else {
         void chrome.runtime.sendMessage({ type: 'JUMP_TO_REQUEST', ts })
-      }
-    }
-    // Manual curate trigger. Calls /v1/session/curate DIRECTLY from
-    // the modal instead of postMessage'ing the content script.
-    //
-    // Apply the HTTP response synchronously instead of waiting on the
-    // WS outline_updated broadcast. The WS connection can drop during
-    // the 30-90 s curator wall (idle WS connections in API Gateway are
-    // reaped, and sites like K-LMS rearrange iframes mid-watch). When
-    // the broadcast was the only success signal, the modal hung in
-    // "ノート生成中…" forever even though the curator had succeeded
-    // and persisted the outline — confirmed by the user reporting
-    // they had to refresh to see notes that were already in the DB.
-    //
-    // Applying the HTTP response is the SOURCE-OF-TRUTH path:
-    // /v1/session/curate returns 200 with the outline body whether or
-    // not WS delivery succeeded. The WS / SP_BROADCAST handlers are
-    // idempotent (applyEvent('outline_updated') replaces state with
-    // whatever it received), so duplicate delivery is safe.
-    const onTriggerCurate = async (full = false) => {
-      if (!sessionId) return
-      setCurating(true)
-      try {
-        // Pass the user's note language preference to the backend.
-        // 'auto' means "let the curator detect from transcript"; the
-        // four ISO codes force the prose into that language.
-        const noteLang = (await import('../shared/i18n')).getNoteLang()
-        const r = await callApi<{ outline: Outline | null; reason?: string }>(
-          '/v1/session/curate', 'POST',
-          { session_id: sessionId, full_rewrite: full, note_language: noteLang },
-          { absoluteUrl: CURATE_URL || undefined },
-        )
-        if (r.outline) {
-          setOutline(r.outline)
-          // The HTTP response IS the curate-completion signal; stamp
-          // the indicator clock to NOW. (Same reasoning as the WS /
-          // postMessage outline_updated paths.)
-          setOutlineUpdatedAt(Date.now())
-          setCurating(false)
-          setCurateError(null)
-        } else {
-          // Server explicitly said "nothing to curate" or returned an
-          // empty body. Clear the spinner with a user-facing reason —
-          // hanging on `curating: true` is the bug we're fixing.
-          setCurating(false)
-          setCurateError(r.reason ?? 'no_outline_returned')
-        }
-      } catch (e) {
-        setCurating(false)
-        // ApiError preserves the parsed response body so the 409
-        // `{error: 'curate_in_progress'}` and 502
-        // `{error: 'curator_failed'}` shapes surface as localised
-        // reasons instead of the raw "HTTP 409: ..." string falling
-        // through to the generic fallback copy. Mirrors the same
-        // priority order used in content/index.ts:
-        //   data.reason  (200 soft-fail key)  ―
-        //   data.error   (4xx / 5xx error key) ―
-        //   error string (SW wrapper) — last resort
-        let reason = 'unknown'
-        if (e instanceof ApiError) {
-          const data = e.data as { reason?: string; error?: string } | undefined
-          reason = data?.reason ?? data?.error ?? e.message ?? 'unknown'
-        } else if (e instanceof Error) {
-          reason = e.message
-        }
-        setCurateError(reason)
       }
     }
     const hasContent = !!outline?.sections.length
