@@ -1,9 +1,10 @@
 import type { APIGatewayProxyHandlerV2 } from 'aws-lambda'
 import Stripe from 'stripe'
 import { verifyJwt } from '../lib/auth.js'
-import { query } from '../lib/db.js'
 import { loadAppSecrets } from '../lib/env.js'
 import { getStripe } from '../lib/stripe.js'
+// Billing-write helpers (see lib/users.ts for invariants).
+import { getUserStripeContext, clearStripeCustomerIdIfStale } from '../lib/users.js'
 
 export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   await loadAppSecrets()
@@ -14,11 +15,9 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   catch { return { statusCode: 401, body: 'invalid' } }
 
   const stripe = await getStripe()
-  const userRows = await query<{ email: string; stripe_customer_id: string | null }>(
-    `SELECT email, stripe_customer_id FROM users WHERE id = $1`, [payload.sub]
-  )
-  if (userRows.length === 0) return { statusCode: 404, body: 'user not found' }
-  const existingCustomerId = userRows[0].stripe_customer_id
+  const userCtx = await getUserStripeContext(payload.sub)
+  if (!userCtx) return { statusCode: 404, body: 'user not found' }
+  const existingCustomerId = userCtx.stripe_customer_id
 
   // Read the public-facing site root from env. Set in CDK as
   // PUBLIC_WEB_BASE_URL (commonEnv) so success/cancel pages are reachable.
@@ -52,7 +51,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     // stripe_customer_id yet) clicking Pro upgrade and 500ing.
     stripe.checkout.sessions.create({
       ...baseParams,
-      customer_email: userRows[0].email,
+      customer_email: userCtx.email,
     })
   // Defensive against stale customer ids (test/live mode mismatch,
   // customer deleted in Dashboard, etc.). On 'resource_missing' we
@@ -70,10 +69,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
         userId: payload.sub,
         bad_customer: existingCustomerId,
       })
-      await query(
-        `UPDATE users SET stripe_customer_id = NULL WHERE id = $1 AND stripe_customer_id = $2`,
-        [payload.sub, existingCustomerId],
-      )
+      await clearStripeCustomerIdIfStale(payload.sub, existingCustomerId)
       session = await tryWithEmail()
     }
   } else {

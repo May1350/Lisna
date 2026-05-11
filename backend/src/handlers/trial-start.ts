@@ -4,6 +4,10 @@ import { verifyJwt } from '../lib/auth.js'
 import { query } from '../lib/db.js'
 import { loadAppSecrets } from '../lib/env.js'
 import { getStripe } from '../lib/stripe.js'
+// Billing-write helpers (see lib/users.ts for invariants). The
+// trial_grants SELECT (eligibility gate) stays inline — outside the
+// users.ts helper surface.
+import { getUserStripeContext, clearStripeCustomerIdIfStale } from '../lib/users.js'
 
 /**
  * Step 1 of the 2-hour trial flow: create a Stripe Checkout Session in
@@ -53,11 +57,9 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
 
   // Pro users don't need the trial — block defensively. They should
   // never see the button on the frontend either.
-  const userRows = await query<{ email: string; plan: string; stripe_customer_id: string | null }>(
-    `SELECT email, plan, stripe_customer_id FROM users WHERE id = $1`, [payload.sub],
-  )
-  if (userRows.length === 0) return { statusCode: 404, body: 'user not found' }
-  if (userRows[0].plan === 'pro') {
+  const userCtx = await getUserStripeContext(payload.sub)
+  if (!userCtx) return { statusCode: 404, body: 'user not found' }
+  if (userCtx.plan === 'pro') {
     return { statusCode: 409, body: JSON.stringify({ error: 'already_pro' }) }
   }
 
@@ -86,8 +88,8 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   // webhook persists the new id.
   const session = await createSetupSessionResilient(stripe, baseParams, {
     userId: payload.sub,
-    email: userRows[0].email,
-    existingCustomerId: userRows[0].stripe_customer_id,
+    email: userCtx.email,
+    existingCustomerId: userCtx.stripe_customer_id,
   })
 
   return {
@@ -126,10 +128,7 @@ async function createSetupSessionResilient(
       userId: ctx.userId,
       bad_customer: ctx.existingCustomerId,
     })
-    await query(
-      `UPDATE users SET stripe_customer_id = NULL WHERE id = $1 AND stripe_customer_id = $2`,
-      [ctx.userId, ctx.existingCustomerId],
-    )
+    await clearStripeCustomerIdIfStale(ctx.userId, ctx.existingCustomerId)
     return tryWithEmail()
   }
 }
