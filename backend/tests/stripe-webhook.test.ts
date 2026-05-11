@@ -6,6 +6,12 @@ import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest'
 // UPDATE on users runs only on first delivery, (c) the dedup short-
 // circuit suppresses the UPDATE on retry.
 //
+// Post-Phase-5d note: the user UPDATE now flows through
+// `promoteToPro` / `handleSubscriptionDeleted` in lib/users.ts. The
+// assertions below still hold because the helpers issue the same
+// SQL with the same positional args — verifying SQL substring +
+// arg-shape is the right invariant either way.
+//
 // vi.hoisted() is required because vi.mock() factories execute before
 // module top-level code; a plain `const` would not yet exist.
 const { queryMock, constructEventMock } = vi.hoisted(() => ({

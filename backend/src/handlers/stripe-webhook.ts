@@ -3,6 +3,11 @@ import Stripe from 'stripe'
 import { query } from '../lib/db.js'
 import { loadAppSecrets } from '../lib/env.js'
 import { getStripe } from '../lib/stripe.js'
+// Billing-write helpers (see lib/users.ts for invariants). The
+// dedup INSERT below stays inline — ordering MUST be: insert dedup
+// row before any side effect, so the retry path short-circuits
+// before the helpers run. Don't move it.
+import { promoteToPro, handleSubscriptionDeleted } from '../lib/users.js'
 
 export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   await loadAppSecrets()
@@ -47,21 +52,17 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       // attempts use the existing customer (avoiding duplicates).
       const customerId = typeof s.customer === 'string' ? s.customer : s.customer?.id
       if (userId && subscriptionId) {
-        await query(
-          `UPDATE users
-             SET plan = 'pro',
-                 stripe_subscription_id = $1,
-                 stripe_customer_id = COALESCE(stripe_customer_id, $2)
-           WHERE id = $3`,
-          [subscriptionId, customerId ?? null, userId],
-        )
+        await promoteToPro({
+          userId,
+          subscriptionId,
+          customerId: customerId ?? null,
+        })
       }
       break
     }
     case 'customer.subscription.deleted': {
       const sub = evt.data.object as Stripe.Subscription
-      await query(`UPDATE users SET plan = 'free', stripe_subscription_id = NULL WHERE stripe_subscription_id = $1`,
-        [sub.id])
+      await handleSubscriptionDeleted(sub.id)
       break
     }
   }
