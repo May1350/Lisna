@@ -29,6 +29,7 @@ const chromeMock = {
     local: {
       get: vi.fn(() => Promise.resolve({})),
       set: vi.fn(() => Promise.resolve()),
+      remove: vi.fn(() => Promise.resolve()),
     },
     onChanged: {
       addListener: vi.fn(),

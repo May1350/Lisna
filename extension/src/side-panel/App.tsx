@@ -19,7 +19,7 @@ import { TrialEndModal } from './components/TrialEndModal'
 import { callApi, connectWs, getCurrentUser, logout, ApiError } from './api-client'
 import type { LiveTranscriptItem, Outline } from './api-client'
 import { useQuota } from './hooks/useQuota'
-import { reportError } from '../shared/errors'
+import { useTrial } from './hooks/useTrial'
 import { useT } from '../shared/i18n'
 import { setFeedbackPrefill } from '../shared/feedback-prefill'
 import type { Translations } from '../shared/i18n'
@@ -272,9 +272,11 @@ export default function App() {
     setQuota, setQuotaBlocked, setLiveRemainingSecs,
     reset: resetQuota,
   } = useQuota({ isCapturingRef, videoPlayingRef })
-  // Active 2-hour trial — drives the "Trial" badge in PanelHeader and
-  // (combined with `exhausted`) opens the trial-end decision modal.
-  const trialActive = quota?.trial_active === true
+  // trialActive + trial busy state + trial flow handlers moved to
+  // useTrial. The hook is composed below — it needs `user` (declared
+  // a few lines down) and resetAuthState (declared further down), so
+  // we forward-reference both via the same closure-arrow pattern the
+  // storage listener already uses for resetAuthState.
   // Video play/pause state, broadcast from the content script. Drives
   // the placeholder copy in LiveTranscript while we wait for the first
   // chunk: playing → "🎙️ 음성 처리 중…" / paused → "⏸ 강의를 재생하세요".
@@ -355,6 +357,13 @@ export default function App() {
   // account switch happened in this same modal lifetime. We preserve
   // playback (per-device, not per-user) so the new user inherits the
   // playback-speed preference.
+  // Forward-reference ref for useTrial's reset(). useTrial is composed
+  // BELOW resetAuthState (it forwards onAuthExpired into resetAuthState,
+  // which is a forward closure that resolves at fire-time, not at hook-
+  // call time). The ref is sync'd to the latest reset() in the render
+  // body just after useTrial destructure — same commit-phase-safe
+  // pattern as exportCtxRef / isCapturingRef.
+  const resetTrialRef = useRef<() => void>(() => {})
   const resetAuthState = useCallback(() => {
     setUser(null)
     setSessionId(null)
@@ -365,10 +374,17 @@ export default function App() {
     setCurating(false)
     setCurateError(null)
     resetQuota()
+    resetTrialRef.current()
     setVideoPlaying(null)
     setIsCapturing(false)
     setViewingSession(null)
   }, [resetQuota])
+  // Stable onAuthExpired identity for hooks that pass it as a dep
+  // into their internal useEffect (useTrial's visibility handler
+  // listener, future useAuth's storage listener). Without this, each
+  // render would create a new arrow → tear down + re-add the host-
+  // page listeners.
+  const handleAuthExpired = useCallback(() => resetAuthState(), [resetAuthState])
 
   // Cross-context auth sync. When ANY extension surface — Options
   // page logout, switch-account flow, a side-panel logout in a second
@@ -957,106 +973,23 @@ export default function App() {
   }, [upgrading])
 
   // ── 2-hour trial flow ────────────────────────────────────────────
-  // When the user clicks "2시간 무료 받기 (카드 등록)" we start a
-  // Stripe Checkout in setup mode (collects card without charging),
-  // open it in a new tab, and stash the returned session id in
-  // chrome.storage. When the user comes back to the modal we read
-  // the stash and finalise via /v1/trial/confirm. Why storage and
-  // not React state: the modal may unmount between click and return
-  // (especially in the side-panel surface which Chrome can stash);
-  // storage survives.
-  const [trialStarting, setTrialStarting] = useState(false)
-  const PENDING_TRIAL_KEY = 'sh.pendingTrialSession'
-  const onTrialStart = useCallback(async () => {
-    if (trialStarting) return
-    setTrialStarting(true)
-    try {
-      const { trialStart } = await import('./api-client')
-      const r = await trialStart()
-      // Persist BEFORE opening the tab — if the user closes the
-      // modal mid-redirect, we still know to confirm on return.
-      await chrome.storage.local.set({ [PENDING_TRIAL_KEY]: r.session_id })
-      chrome.tabs.create({ url: r.url })
-    } catch (e) {
-      void reportError(e, { context: 'trial-start', severity: 'error' })
-    } finally {
-      setTrialStarting(false)
-    }
-  }, [trialStarting])
-
-  // Visibilitychange + focus poll: when the modal regains focus
-  // after the user closed the Stripe tab, finalise any pending
-  // trial setup. Idempotent — the backend handles duplicate
-  // confirms with ON CONFLICT DO NOTHING. Always refetches
-  // /v1/auth/me afterwards so the freshly-active trial flips
-  // QuotaExhaustedIdle off and the regular UI back on.
-  useEffect(() => {
-    if (consented !== true || !user) return
-    const onFocusOrVisible = async () => {
-      if (document.visibilityState !== 'visible') return
-      const stored = await chrome.storage.local.get(PENDING_TRIAL_KEY)
-      const sessionId = stored[PENDING_TRIAL_KEY]
-      if (typeof sessionId !== 'string' || sessionId.length === 0) return
-      try {
-        const { trialConfirm } = await import('./api-client')
-        await trialConfirm(sessionId)
-        await chrome.storage.local.remove(PENDING_TRIAL_KEY)
-        // Refetch quota so UI flips immediately.
-        const r = await callApi<{ user: User; quota: QuotaSnapshot }>('/v1/auth/me', 'GET')
-        if (r.quota) {
-          setQuota(r.quota)
-          setLiveRemainingSecs(r.quota.remaining_secs)
-          void chrome.storage.local.set({ 'sh.cachedQuota': { quota: r.quota, ts: Date.now() } })
-        }
-        if (r.user) setUser(r.user as User)
-      } catch (e) {
-        // Most common case: user cancelled the Stripe page → confirm
-        // returns 4xx because the SetupIntent didn't succeed. Clear
-        // the pending stash either way so we don't retry forever.
-        await chrome.storage.local.remove(PENDING_TRIAL_KEY)
-        // 401 here = JWT expired between modal mount and Stripe return.
-        // Same recovery as the auth-me effect: drop stale auth state
-        // so the LoginScreen takes over.
-        const status = e instanceof ApiError ? e.status : undefined
-        if (status === 401) {
-          await logout()
-          resetAuthState()
-        }
-        void reportError(e, { context: 'trial-confirm', severity: 'warning', silent: true })
-      }
-    }
-    document.addEventListener('visibilitychange', onFocusOrVisible)
-    window.addEventListener('focus', onFocusOrVisible)
-    // Run once on mount in case the modal mounted AFTER the tab returned.
-    void onFocusOrVisible()
-    return () => {
-      document.removeEventListener('visibilitychange', onFocusOrVisible)
-      window.removeEventListener('focus', onFocusOrVisible)
-    }
-  }, [consented, user, resetAuthState])
-
-  // Re-fetch user + quota after the trial-end modal resolves (Pro
-  // 가입 OR 가입 안함). Both outcomes change the auth-me response
-  // so the UI swaps from TrialEndModal → either Pro recording flow
-  // or Free QuotaExhaustedIdle.
-  const onTrialResolved = useCallback(async (_result: 'subscribed' | 'declined') => {
-    try {
-      const r = await callApi<{ user: User; quota: QuotaSnapshot }>('/v1/auth/me', 'GET')
-      if (r.quota) {
-        setQuota(r.quota)
-        setLiveRemainingSecs(r.quota.remaining_secs)
-        void chrome.storage.local.set({ 'sh.cachedQuota': { quota: r.quota, ts: Date.now() } })
-      }
-      if (r.user) setUser(r.user as User)
-    } catch (e) {
-      const status = e instanceof ApiError ? e.status : undefined
-      if (status === 401) {
-        await logout()
-        resetAuthState()
-      }
-      void reportError(e, { context: 'trial-resolved-refetch', severity: 'warning', silent: true })
-    }
-  }, [resetAuthState])
+  // The Stripe-setup-mode Checkout, the cross-tab visibility-confirm
+  // path, and the trial-end refetch all live in useTrial now. App.tsx
+  // composes the hook and forwards quota/user setters; the 401 escape
+  // hatch is wired through `handleAuthExpired` (a stable wrapper
+  // around resetAuthState — Plan D orchestrator).
+  const {
+    trialActive, trialStarting, onTrialStart, onTrialResolved,
+    reset: resetTrial,
+  } = useTrial({
+    user, consented, quota,
+    setUser, setQuota, setLiveRemainingSecs,
+    onAuthExpired: handleAuthExpired,
+  })
+  // Sync the forward-reference ref so resetAuthState can fan out to
+  // useTrial's reset without listing resetTrial in its deps array
+  // (which would TDZ — resetTrial is declared after resetAuthState).
+  resetTrialRef.current = resetTrial
 
   const onClose = useCallback(() => {
     if (isEmbed) {
