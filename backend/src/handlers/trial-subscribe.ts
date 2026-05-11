@@ -4,6 +4,10 @@ import { verifyJwt } from '../lib/auth.js'
 import { query } from '../lib/db.js'
 import { loadAppSecrets } from '../lib/env.js'
 import { getStripe } from '../lib/stripe.js'
+// Billing-write helpers (see lib/users.ts for invariants). The
+// trial_grants SELECT at the top of the handler stays inline — it
+// reads grant-state fields that aren't part of the users.ts surface.
+import { promoteToPro, markTrialConverted } from '../lib/users.js'
 
 /**
  * Trial-end "Pro 가입 (원클릭)" path. User has used their 2 hours
@@ -98,20 +102,14 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   }
 
   // Persist plan flip + subscription id. Mirrors the webhook path
-  // (checkout.session.completed) so a future webhook re-invocation
-  // is idempotent (same UPDATE applied twice = same final state).
-  await query(
-    `UPDATE users
-        SET plan = 'pro',
-            stripe_subscription_id = $1,
-            stripe_customer_id = COALESCE(stripe_customer_id, $2)
-      WHERE id = $3`,
-    [subscription.id, grant.stripe_customer_id, payload.sub],
-  )
-  await query(
-    `UPDATE trial_grants SET converted_at = NOW() WHERE user_id = $1 AND converted_at IS NULL`,
-    [payload.sub],
-  )
+  // (checkout.session.completed). Both call the same helper, so a
+  // future webhook re-invocation is identically idempotent.
+  await promoteToPro({
+    userId: payload.sub,
+    subscriptionId: subscription.id,
+    customerId: grant.stripe_customer_id,
+  })
+  await markTrialConverted(payload.sub)
 
   return {
     statusCode: 200,
