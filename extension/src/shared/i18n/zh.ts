@@ -175,7 +175,6 @@ export const zh: Translations = {
     related_lectures: '相关链接',
     refreshIndicator: '{relativeTime}更新',
     refreshTooltip: '笔记会在后台持续重新整理',
-    slidesLabel: '幻灯片',
     confirm_label: '确认',
     info_label: '讲座信息',
     emptyHint: '处理中…请播放讲座。',
@@ -233,7 +232,6 @@ export const zh: Translations = {
   sidePanel: {
     inlineHint: '在视频页面点击 {icon} 图标即可开始录音。',
     historyHeader: '历史记录 ({n})',
-    historyEmpty: '还没有录制过的讲座。\n在视频页面点击星标图标后,记录会显示在这里。',
     historyEmpty_title: '暂无讲座',
     historyEmpty_body: '打开讲座视频并点击 ✨ 图标开始。',
     historyLoading: '正在加载历史记录…',
@@ -295,7 +293,6 @@ export const zh: Translations = {
     obsidian_apiUrl_default_note: '大多数用户保持默认即可。请确认插件的「Enable Non-encrypted (HTTP) Server」已启用且端口为 27123。',
     obsidian_url_edit: '编辑',
     obsidian_url_reset: '恢复默认',
-    obsidian_url_resetTooltip: '恢复默认',
     obsidian_url_confirmEdit: 'API URL 通常无需修改。\n\n仅当您在 Obsidian 插件中更改了端口时才需要编辑。\nURL 必须与插件设置 (Local REST API) 完全一致。\n\n要继续编辑吗?',
     obsidian_label_apiKey: 'API Key',
     obsidian_apiKey_placeholder: '插件设置中生成的 Bearer token',

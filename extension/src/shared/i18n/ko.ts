@@ -176,7 +176,6 @@ export const ko: Translations = {
     related_lectures: '관련 링크',
     refreshIndicator: '{relativeTime} 업데이트됨',
     refreshTooltip: '노트는 백그라운드에서 계속 다시 작성됩니다',
-    slidesLabel: '슬라이드',
     confirm_label: '확인',
     info_label: '강의 정보',
     emptyHint: '처리 중... 강의를 재생해주세요.',
@@ -234,7 +233,6 @@ export const ko: Translations = {
   sidePanel: {
     inlineHint: '영상 페이지에서 {icon} 아이콘을 클릭하면 녹음이 시작됩니다.',
     historyHeader: '기록 ({n})',
-    historyEmpty: '아직 녹음한 강의가 없어요.\n영상 페이지에서 별 아이콘을 클릭하면 여기에 기록이 쌓입니다.',
     historyEmpty_title: '아직 강의가 없습니다',
     historyEmpty_body: '강의 영상 페이지에서 ✨ 아이콘을 눌러 시작하세요.',
     historyLoading: '기록을 불러오는 중…',
@@ -296,7 +294,6 @@ export const ko: Translations = {
     obsidian_apiUrl_default_note: '대부분의 사용자는 기본값 그대로 두어도 됩니다. 플러그인의 「Enable Non-encrypted (HTTP) Server」가 활성화되어 있고 포트가 27123인지 확인해주세요.',
     obsidian_url_edit: '편집',
     obsidian_url_reset: '기본값으로 되돌리기',
-    obsidian_url_resetTooltip: '기본값으로 되돌리기',
     obsidian_url_confirmEdit: 'API URL은 보통 변경할 필요가 없습니다.\n\nObsidian 플러그인에서 포트를 변경한 경우에만 편집해주세요.\n플러그인 설정 (Local REST API)과 URL이 정확히 일치해야 합니다.\n\n편집할까요?',
     obsidian_label_apiKey: 'API Key',
     obsidian_apiKey_placeholder: '플러그인 설정에서 생성된 Bearer 토큰',

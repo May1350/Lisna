@@ -485,7 +485,7 @@ export function Options() {
                   type="button"
                   onClick={onUrlReset}
                   className="text-xs text-ink-500 hover:text-ink-700 underline whitespace-nowrap"
-                  title={T.options.obsidian_url_resetTooltip}
+                  title={T.options.obsidian_url_reset}
                 >
                   {T.options.obsidian_url_reset}
                 </button>

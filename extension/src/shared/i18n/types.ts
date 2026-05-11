@@ -208,7 +208,6 @@ export interface Translations {
     related_lectures: string             // "関連リンク"
     refreshIndicator: string             // "{relativeTime}に更新"
     refreshTooltip: string               // "ノートはバックグラウンドで..."
-    slidesLabel: string                  // "スライド"
     confirm_label: string                // "確認" (callout in lecture)
     info_label: string                   // "講義情報"
     emptyHint: string                    // "処理中... 講義を再生してください。"
@@ -275,7 +274,6 @@ export interface Translations {
   sidePanel: {
     inlineHint: string                   // "動画ページで ✨ アイコン を..."
     historyHeader: string                // "履歴 ({n})"
-    historyEmpty: string                 // "まだ録音した講義がありません。..." (legacy single-line; new path uses historyEmpty_title/_body)
     historyEmpty_title: string           // bold heading for empty state
     historyEmpty_body: string            // softer body line below the heading
     historyLoading: string               // "履歴を読み込み中…"
@@ -343,8 +341,7 @@ export interface Translations {
     obsidian_label_apiUrl: string
     obsidian_apiUrl_default_note: string // "ほとんどのユーザーはデフォルトのままで OK..."
     obsidian_url_edit: string            // "編集"
-    obsidian_url_reset: string           // "デフォルトに戻す"
-    obsidian_url_resetTooltip: string    // "デフォルトに戻す"
+    obsidian_url_reset: string           // "デフォルトに戻す" (also used as tooltip via title=)
     obsidian_url_confirmEdit: string     // "API URL は通常変更不要です..."
     obsidian_label_apiKey: string
     obsidian_apiKey_placeholder: string

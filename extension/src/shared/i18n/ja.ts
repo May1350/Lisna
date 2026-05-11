@@ -175,7 +175,6 @@ export const ja: Translations = {
     related_lectures: '関連リンク',
     refreshIndicator: '{relativeTime}に更新',
     refreshTooltip: 'ノートはバックグラウンドで継続的に書き直されます',
-    slidesLabel: 'スライド',
     confirm_label: '確認',
     info_label: '講義情報',
     emptyHint: '処理中... 講義を再生してください。',
@@ -233,7 +232,6 @@ export const ja: Translations = {
   sidePanel: {
     inlineHint: '動画ページで {icon} アイコン をクリックすると録音が始まります。',
     historyHeader: '履歴 ({n})',
-    historyEmpty: 'まだ録音した講義がありません。\n動画ページで星アイコンをクリックすると、ここに履歴が並びます。',
     historyEmpty_title: 'まだ講義がありません',
     historyEmpty_body: '講義動画ページで ✨ アイコンをクリックして始めてください。',
     historyLoading: '履歴を読み込み中…',
@@ -295,7 +293,6 @@ export const ja: Translations = {
     obsidian_apiUrl_default_note: 'ほとんどのユーザーはデフォルトのままで OK です。プラグインの「Enable Non-encrypted (HTTP) Server」が有効・ポートが 27123 であることを確認してください。',
     obsidian_url_edit: '編集',
     obsidian_url_reset: 'デフォルトに戻す',
-    obsidian_url_resetTooltip: 'デフォルトに戻す',
     obsidian_url_confirmEdit: 'API URL は通常変更不要です。\n\nObsidian プラグイン側でポートを変更している場合のみ編集してください。\nプラグインの設定 (Local REST API) と URL は完全に一致している必要があります。\n\n編集しますか?',
     obsidian_label_apiKey: 'API Key',
     obsidian_apiKey_placeholder: 'プラグイン設定で生成された Bearer トークン',

@@ -176,7 +176,6 @@ export const en: Translations = {
     related_lectures: 'Related lectures',
     refreshIndicator: 'Updated {relativeTime}',
     refreshTooltip: 'Notes are continuously rewritten in the background',
-    slidesLabel: 'Slides',
     confirm_label: 'Check',
     info_label: 'Lecture info',
     emptyHint: 'Working… please play the lecture.',
@@ -234,7 +233,6 @@ export const en: Translations = {
   sidePanel: {
     inlineHint: 'Click the {icon} icon on a video page to start recording.',
     historyHeader: 'History ({n})',
-    historyEmpty: 'No recorded lectures yet.\nClick the sparkle icon on a video page to populate this list.',
     historyEmpty_title: 'No lectures yet',
     historyEmpty_body: 'Open a lecture video and click the ✨ icon to start.',
     historyLoading: 'Loading history…',
@@ -296,7 +294,6 @@ export const en: Translations = {
     obsidian_apiUrl_default_note: "Most users can leave this as-is. Confirm the plugin's \"Non-encrypted (HTTP) Server\" is enabled and the port is 27123.",
     obsidian_url_edit: 'Edit',
     obsidian_url_reset: 'Reset to default',
-    obsidian_url_resetTooltip: 'Reset to default',
     obsidian_url_confirmEdit: "API URL usually doesn't need editing.\n\nOnly change it if you've customised the port in the Obsidian plugin.\nThe URL must match the plugin's settings exactly.\n\nProceed?",
     obsidian_label_apiKey: 'API Key',
     obsidian_apiKey_placeholder: 'Bearer token generated in plugin settings',

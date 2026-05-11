@@ -42,11 +42,11 @@ export default defineManifest({
     scopes: ['openid', 'email', 'profile'],
   },
   icons: {
-    16: 'public/icons/icon16.png',
-    48: 'public/icons/icon48.png',
-    128: 'public/icons/icon128.png',
+    16: 'icons/icon16.png',
+    48: 'icons/icon48.png',
+    128: 'icons/icon128.png',
   },
-  action: { default_title: 'Lisna', default_icon: 'public/icons/icon128.png' },
+  action: { default_title: 'Lisna', default_icon: 'icons/icon128.png' },
   side_panel: { default_path: 'src/side-panel/index.html' },
   options_ui: { page: 'src/options/index.html', open_in_tab: true },
   background: {
