@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
-import type { SlideItem, User, QuotaSnapshot } from '../shared/types'
+import type { SlideItem } from '../shared/types'
 import { hasConsent, setConsent, getEnabled, onEnabledChange } from '../shared/storage'
 import { ConsentModal } from './components/ConsentModal'
 import { LoginScreen } from './components/LoginScreen'
@@ -14,10 +14,11 @@ import { PanelHeader } from './components/PanelHeader'
 import { SessionControls } from './components/SessionControls'
 import { QuotaExhaustedIdle } from './components/QuotaExhaustedIdle'
 import { TrialEndModal } from './components/TrialEndModal'
-import { callApi, getCurrentUser, logout, ApiError } from './api-client'
+import { callApi, logout } from './api-client'
 import { useQuota } from './hooks/useQuota'
 import { useTrial } from './hooks/useTrial'
 import { useSession } from './hooks/useSession'
+import { useAuth } from './hooks/useAuth'
 import { useT } from '../shared/i18n'
 import { setFeedbackPrefill } from '../shared/feedback-prefill'
 import type { Translations } from '../shared/i18n'
@@ -225,7 +226,11 @@ interface BootStorage {
 export default function App() {
   const T = useT()
   const [consented, setConsented] = useState<boolean | null>(null)
-  const [user, setUser] = useState<User | null>(null)
+  // user state + the chrome.storage.onChanged sh.token listener +
+  // the /v1/auth/me effect (with 401 fallback) all live in useAuth
+  // (composed below). setUser is re-exposed from useAuth's return
+  // so the LoginScreen.onSuccess eager-apply path + useTrial's
+  // trial-confirm refetch keep their existing usage.
   const [bootStorage, setBootStorage] = useState<BootStorage | null>(null)
   // Most session-derived state (sessionId / slides / outline /
   // outlineUpdatedAt / transcripts / curating / curateError /
@@ -287,15 +292,30 @@ export default function App() {
   const { isEmbed, parentUrl } = ctx
 
   // Session state slice (sessionId / slides / outline / transcripts /
-  // curating / isCapturing / videoPlaying) lives in useSession. The
-  // hook owns the /v1/session GET hydrate, the WS connect-and-route,
-  // the curating watchdog, applyEvent + its two transport listeners
-  // (SP_BROADCAST + window.postMessage), the auto-download arm/fire
-  // flag, and onTriggerCurate. setTitle is forwarded in so /v1/session
-  // GET / outline_updated can adopt the curator-extracted title.
-  // useQuota's setters flow in so applyEvent's quota_update /
-  // quota_exceeded cases can write through; setQuota is the wrapper
-  // that internally persists sh.cachedQuota.
+  // Plan D orchestrator: handleAuthExpired forwards through a ref so
+  // it can be passed to hooks composed BELOW resetAuthState without a
+  // TDZ on resetAuthState itself. Each hook receives this stable
+  // callback as `onAuthExpired`; the hooks invoke it on 401 paths /
+  // storage-listener events / etc., and the ref resolves to the
+  // latest resetAuthState (the final fan-out function).
+  const resetAuthStateRef = useRef<() => void>(() => {})
+  const handleAuthExpired = useCallback(() => resetAuthStateRef.current(), [])
+
+  // Auth slice (user state + sh.token storage listener + auth-me
+  // effect + 401 fallback). Composed BEFORE useSession because
+  // useSession's args need `user`.
+  const { user, setUser, reset: resetAuth } = useAuth({
+    consented,
+    onAuthExpired: handleAuthExpired,
+    setQuota, setLiveRemainingSecs,
+  })
+
+  // Session slice. useAuth.user is wired in here; the leaky-setter
+  // surface is closed (Phase 3b dropped 9 raw setters from the
+  // return). Hooks that exposed reset functions consumed later by
+  // resetAuthState (resetSession / resetTrial) are now declared in
+  // order so resetAuthState can list them directly in its deps
+  // without forward refs.
   const {
     sessionId, slides, outline, outlineUpdatedAt, transcripts,
     curating, curateError, isCapturing, videoPlaying,
@@ -308,28 +328,15 @@ export default function App() {
     setQuota, setQuotaBlocked, setLiveRemainingSecs,
   })
 
-  // Single source of truth for the React-side auth wipe. Every piece
-  // of session-derived state lives here — calling resetAuthState from
-  // logout / 401 fallback / cross-context storage event leaves no
-  // user-specific data lingering for the next sign-in to inherit.
-  //
-  // bootStorage.cachedQuota is also cleared here even though it lives
-  // in storage (which logout() already wiped) — that's because the
-  // React snapshot was frozen at mount and outlives the storage wipe.
-  // Without this, the auth-me cached-quota seed at line 380 would
-  // splash user-A's old quota into user-B's first paint when an
-  // account switch happened in this same modal lifetime. We preserve
-  // playback (per-device, not per-user) so the new user inherits the
-  // playback-speed preference.
-  // Forward-reference ref for useTrial's reset(). useTrial is composed
-  // BELOW resetAuthState (it forwards onAuthExpired into resetAuthState,
-  // which is a forward closure that resolves at fire-time, not at hook-
-  // call time). The ref is sync'd to the latest reset() in the render
-  // body just after useTrial destructure — same commit-phase-safe
-  // pattern as exportCtxRef / isCapturingRef.
+  // resetAuthState is the orchestrator. It calls every hook's reset
+  // directly (no more forward-ref pattern for trial / auth / session
+  // — they're all declared above) plus wipes App-owned state
+  // (viewingSession, title). The trial hook is composed AFTER this
+  // declaration; its reset is captured via the same ref pattern as
+  // the stable onAuthExpired forward.
   const resetTrialRef = useRef<() => void>(() => {})
   const resetAuthState = useCallback(() => {
-    setUser(null)
+    resetAuth()
     resetQuota()
     resetTrialRef.current()
     resetSession()
@@ -340,36 +347,11 @@ export default function App() {
     // until useSession's /v1/session GET fired and adopted either
     // the new outline.title or the fallback. Cheap to set here.
     setTitle(TITLE_FALLBACK)
-  }, [resetQuota, resetSession, TITLE_FALLBACK])
-  // Stable onAuthExpired identity for hooks that pass it as a dep
-  // into their internal useEffect (useTrial's visibility handler
-  // listener, future useAuth's storage listener). Without this, each
-  // render would create a new arrow → tear down + re-add the host-
-  // page listeners.
-  const handleAuthExpired = useCallback(() => resetAuthState(), [resetAuthState])
+  }, [resetAuth, resetQuota, resetSession, TITLE_FALLBACK])
+  // Sync the forward ref so handleAuthExpired's late-binding resolves
+  // to the current resetAuthState identity.
+  resetAuthStateRef.current = resetAuthState
 
-  // Cross-context auth sync. When ANY extension surface — Options
-  // page logout, switch-account flow, a side-panel logout in a second
-  // window, DevTools storage.clear() — drops `sh.token`, this listener
-  // mirrors the logout into our React state without the user having to
-  // re-click logout in THIS surface too. Filtered on falsy `newValue`
-  // (covers `undefined` from remove(), plus defensive coverage for any
-  // future code path that writes null/'' to the key) so the login flow
-  // (which SETS sh.token to a non-empty JWT) doesn't fire a bogus
-  // reset right after a successful sign-in.
-  useEffect(() => {
-    const onChanged = (
-      changes: { [key: string]: chrome.storage.StorageChange },
-      area: chrome.storage.AreaName,
-    ) => {
-      if (area !== 'local') return
-      if ('sh.token' in changes && !changes['sh.token'].newValue) {
-        resetAuthState()
-      }
-    }
-    chrome.storage.onChanged.addListener(onChanged)
-    return () => chrome.storage.onChanged.removeListener(onChanged)
-  }, [resetAuthState])
 
   useEffect(() => { void hasConsent().then(setConsented) }, [])
   // Wait until the user has explicitly consented before fetching the
@@ -386,91 +368,6 @@ export default function App() {
     })
   }, [])
 
-  useEffect(() => {
-    if (consented !== true || !bootStorage) return
-
-    // (Cached-quota seed migrated to useQuota in Phase 5c step 1 —
-    // useQuota reads `sh.cachedQuota` itself on mount; the `prev ??`
-    // guard inside its setters means the seed never clobbers a
-    // fresher /v1/auth/me result.)
-
-    void (async () => {
-      // Pre-flight token guard. Without a JWT, every authed call below
-      // (auth-me, stream-audio, etc.) silently 401s and the modal sits
-      // in a permanently-broken "logged in but nothing works" state.
-      // If we've cached a user object from a previous session but the
-      // token is gone (storage cleared, manual logout via DevTools,
-      // expiry-then-eviction), force a clean re-login by dropping the
-      // stale user — the LoginScreen will mount and the user can
-      // re-auth in one click.
-      //
-      // Fresh read (NOT cached in bootStorage): the login flow writes
-      // `sh.token` AFTER mount, and this effect re-runs on user?.id
-      // change. A stale mount-time cache would clobber the just-
-      // written token and bounce the user back to LoginScreen.
-      const tokenStored = await chrome.storage.local.get('sh.token')
-      const hasToken = typeof tokenStored['sh.token'] === 'string' && (tokenStored['sh.token'] as string).length > 0
-      if (!hasToken) {
-        // Drop any stale user record so the LoginScreen renders. The
-        // /v1/auth/me call below is intentionally skipped — without a
-        // token it would 401 on every cold mount and pollute the
-        // console with a misleading "clearing stale auth" message
-        // even when there was no auth to clear.
-        void chrome.storage.local.remove('sh.user')
-        setUser(null)
-        return
-      }
-      const cur = await getCurrentUser()
-      setUser(cur)
-
-      // Fresh auth-me with the token we just confirmed exists. On 401
-      // here, the token IS genuinely stale (signed by a rotated
-      // JWT_SECRET, expired, or revoked) — only THEN do we drop
-      // storage and bounce to LoginScreen.
-      try {
-        const r = await callApi<{ user: User; quota: QuotaSnapshot }>('/v1/auth/me', 'GET')
-        if (r.user) setUser(r.user as User)
-        if (r.quota) {
-          // setQuota is useQuota's wrapper — it persists sh.cachedQuota
-          // internally on every concrete-value call. Explicit
-          // storage.local.set here was removed in Phase 5c step 3b
-          // (single source of truth for cached-quota persistence).
-          setQuota(r.quota)
-          // Seed the header countdown to the backend-authoritative
-          // value the moment auth-me lands rather than waiting for
-          // the first stream-audio response.
-          setLiveRemainingSecs(r.quota.remaining_secs)
-        }
-      } catch (e) {
-        const status = e instanceof ApiError ? e.status : undefined
-        if (status === 401) {
-          console.warn('[App] /v1/auth/me 401 with token — clearing stale auth, prompting re-login')
-          // logout() wipes the per-user storage keys (token, user,
-          // cachedQuota, pendingTrialSession) via the SW; resetAuthState
-          // mirrors that wipe into React state. The storage listener
-          // above also fires on logout's removal, but resetAuthState is
-          // idempotent so the double-call is harmless.
-          await logout()
-          resetAuthState()
-        } else {
-          console.warn('[App] /v1/auth/me failed; relying on cached quota if any', e instanceof Error ? e.message : e)
-        }
-      }
-    })()
-    // Re-run when user IDENTITY changes (null → logged-in or vice
-    // versa). Without `user?.id` here the effect only ran once on
-    // mount; if the user logged in via LoginScreen.onSuccess the
-    // app would never refetch /v1/auth/me with the fresh token, so
-    // quota stayed null and the QuotaExhaustedIdle card couldn't
-    // render until the user manually reloaded the modal. We use the
-    // ID rather than the whole user object because auth-me itself
-    // calls setUser with a new object identity every time, which
-    // would otherwise re-trigger the effect in an infinite loop.
-    // bootStorage is also a dep so the effect waits for the batched
-    // mount-time storage read before running its pre-flight check.
-    // resetAuthState is stable (empty deps) so it doesn't churn the
-    // effect — included for exhaustive-deps correctness only.
-  }, [consented, user?.id, bootStorage, resetAuthState])
 
   // Keep the export-input ref in sync with the React state used by
   // the auto-download path inside applyEvent. Refs are commit-phase
