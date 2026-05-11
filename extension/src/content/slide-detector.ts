@@ -7,6 +7,15 @@ export interface Slide {
 const SAMPLE_INTERVAL_MS = 1000
 const DIFF_THRESHOLD = 0.18    // 18% pixels change → new slide
 const MIN_GAP_SEC = 3
+// When the user replays a section of the video (seek backward OR
+// loop-back from the end), the detector reaches a video time near
+// one it already emitted from. The detector's own state can't always
+// see this — pixelDiff fires on the prev/cur frame delta, not on
+// video-time monotonicity. We keep a set of emitted video-times and
+// drop new emits that fall within EMIT_DEDUP_SEC of any prior one.
+// Backend SHA256 dedup is the authoritative layer; this is the cheap
+// client-side seatbelt that avoids the round-trip in the first place.
+const EMIT_DEDUP_SEC = 2
 // Pixel grid used for diff comparison. Small for CPU cost — 320×180 = 57.6 K
 // pixels per tick is trivial. The captured slide that we actually upload
 // uses HIGH_RES_MAX_W (see below), this is purely the change-detection grid.
@@ -36,6 +45,23 @@ export class SlideDetector {
   private timer: number | null = null
   private baselineEmitted = false
   private startedAtMs = 0
+  // Video-times we've already emitted from. Drives the replay dedup:
+  // a new emit at ts is skipped if any prior emit fell within
+  // EMIT_DEDUP_SEC of it. Set is fine — strict-equality on rounded
+  // seconds gives the right granularity for slide content (slides
+  // typically dwell >= 10 s, so 1 s buckets never collide visually
+  // across legitimately-distinct slides).
+  private emittedTimes: Set<number> = new Set()
+
+  // Has this ts (or one within EMIT_DEDUP_SEC of it) already been
+  // emitted? Scans the set in O(n) — acceptable since a 2 h lecture
+  // tops out at a few hundred entries and tick rate is 1 Hz.
+  private wasAlreadyEmittedNear(ts: number): boolean {
+    for (const prior of this.emittedTimes) {
+      if (Math.abs(prior - ts) < EMIT_DEDUP_SEC) return true
+    }
+    return false
+  }
 
   constructor(private video: HTMLVideoElement, private onSlide: (s: Slide) => void) {
     this.diffCanvas = document.createElement('canvas')
@@ -104,7 +130,23 @@ export class SlideDetector {
           willEmit ? '→ EMIT' : (diff > DIFF_THRESHOLD ? '(gap too short)' : ''))
       }
       if (willEmit) {
+        // Replay-dedup: if we've already emitted a slide near this
+        // video time within the same detector lifetime, skip the
+        // emit. Most common trigger is the user looping back to a
+        // section they've already watched (seek-backward, or the
+        // video naturally ending and looping). The detector's prev/
+        // cur diff fires because the displayed frame jumped, but the
+        // ts is one we've already captured — the slide content is
+        // identical. Without this guard the modal accumulates
+        // visually-identical entries until the backend's SHA256
+        // dedup catches up on the next round-trip.
+        if (this.wasAlreadyEmittedNear(ts)) {
+          // eslint-disable-next-line no-console
+          console.log('[SH:slide] replay-dedup skip', { ts: ts.toFixed(1) })
+          return
+        }
         this.lastEmitTs = ts
+        this.emittedTimes.add(Math.round(ts))
         // Mark baseline as satisfied: if pixelDiff already caught a real
         // change in the first ~2 s, we don't need to ALSO force-emit on
         // the next tick. Without this flag flip, type-1 (real diff) and
@@ -121,8 +163,20 @@ export class SlideDetector {
         // can't trigger on it because there's no `prev` to compare on the
         // very first tick. After BASELINE_EMIT_DELAY_MS we treat the
         // current frame as the baseline slide regardless of diff.
+        if (this.wasAlreadyEmittedNear(ts)) {
+          // Same replay-dedup logic applies to the baseline: if a
+          // prior detector pass already captured this ts (e.g. the
+          // user restarted the video and the baseline timer fires
+          // again at ~ts 0), skip. Mark baselineEmitted regardless
+          // so the next non-dedup tick path can fire on diff.
+          this.baselineEmitted = true
+          // eslint-disable-next-line no-console
+          console.log('[SH:slide] baseline replay-dedup skip', { ts: ts.toFixed(1) })
+          return
+        }
         this.baselineEmitted = true
         this.lastEmitTs = ts
+        this.emittedTimes.add(Math.round(ts))
         // eslint-disable-next-line no-console
         console.log('[SH:slide] forced baseline emit', { ts: ts.toFixed(1) })
         this.emitFrame(ts)

@@ -50,13 +50,30 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   )
   const sessionId = upserted[0].id
 
-  // Dedup check: if a slide with the same content hash is already
-  // attached to this session, skip the S3 PUT, skip the array append,
-  // and skip the WS broadcast (so the modal doesn't get a duplicate
-  // entry). Legacy slides without a `hash` field never match — they
-  // simply fail to dedup, which is the safer side (no false skips).
+  // Dedup check, two-layer:
+  //   1. SHA256 image hash — authoritative for identical re-captures
+  //      (same JPEG bytes from the user replaying a lecture).
+  //   2. Video-time fallback (±TS_DEDUP_TOLERANCE_SEC). Catches two
+  //      cases hash-dedup misses:
+  //        (a) legacy slides written before this handler started
+  //            persisting `hash` — their row has no `hash` field, so
+  //            a new replay's hash never matches them and the row
+  //            keeps growing one entry per playback.
+  //        (b) `canvas.toBlob` byte-different output for the same
+  //            displayed frame (rare but observed across Chrome
+  //            versions — JPEG encoder is not always deterministic
+  //            for identical input pixels, especially on the
+  //            baseline-emit path where the decode buffer may
+  //            differ across capture sessions).
+  // Both layers are SAFE in the strict sense — a 1 s tolerance is far
+  // tighter than the typical slide dwell time (10 s+), so a true
+  // distinct slide within 1 s of a prior one (very rare in lecture
+  // material) is the only false-positive risk.
   const existing = upserted[0].slides ?? []
-  const dup = existing.find(s => s.hash === imgHash)
+  const TS_DEDUP_TOLERANCE_SEC = 1
+  const dup
+    = existing.find(s => s.hash === imgHash)
+    ?? existing.find(s => Math.abs(s.ts - body.ts) < TS_DEDUP_TOLERANCE_SEC)
   if (dup) {
     const presignedUrl = await presignGet(dup.key)
     return {
