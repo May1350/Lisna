@@ -32,7 +32,7 @@ function LoginScreenStatic({ variant }: { variant: 'loading' | 'error' }) {
   const T = useT()
   const taglineLines = T.login.tagline.split('\n')
   const privacyLines = T.login.privacyNote.split('\n')
-  const logoUrl = chrome.runtime.getURL('public/icons/icon128.png')
+  const logoUrl = chrome.runtime.getURL('icons/icon128.png')
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-8 py-10 text-center bg-gradient-to-b from-paper-100 to-paper-200">
       <img src={logoUrl} alt={T.login.title} width={56} height={56} className="w-14 h-14 mb-5 rounded-2xl shadow-lg" />

@@ -12,11 +12,12 @@ interface Props {
 
 // Resolve the Lisna brand icon at module-load time. Same artwork as
 // the toolbar action / chrome://extensions tile (declared once in
-// manifest.config.ts under public/icons/). Module-level constant
+// manifest.config.ts at `icons/icon128.png` — Vite's publicDir
+// flatten emits the file at the dist root). Module-level constant
 // instead of useMemo avoids a per-mount chrome.runtime call when
 // the modal opens; the URL is stable for the lifetime of the
 // extension install.
-const LOGO_URL = chrome.runtime.getURL('public/icons/icon128.png')
+const LOGO_URL = chrome.runtime.getURL('icons/icon128.png')
 
 // Centered welcome screen shown when the user is unauthed. Vertically
 // centered in the viewport (was top-aligned with vast empty space

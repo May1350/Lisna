@@ -28,8 +28,9 @@ function LoginScreenStatic({ variant }: { variant: 'loading' | 'error' }) {
   const privacyLines = T.login.privacyNote.split('\n')
   // chrome.runtime.getURL works in the dev gallery via the chrome-mock,
   // resolving to a relative URL under origin. The real PNG icon lives
-  // at /public/icons/icon128.png.
-  const logoUrl = chrome.runtime.getURL('public/icons/icon128.png')
+  // at /icons/icon128.png (publicDir flatten — source is
+  // extension/public/icons/icon128.png).
+  const logoUrl = chrome.runtime.getURL('icons/icon128.png')
   return h(
     'div',
     { className: 'min-h-screen flex flex-col items-center justify-center px-8 py-10 text-center bg-gradient-to-b from-paper-100 to-paper-200' },
