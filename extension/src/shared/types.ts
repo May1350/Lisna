@@ -18,6 +18,12 @@ export interface SlideItem {
 
 export type SwRequest =
   | { type: 'AUTH_LOGIN'; currentUrl?: string }
+  // Like AUTH_LOGIN but routes through chrome.identity.launchWebAuthFlow
+  // with prompt=select_account — surfaces Google's hosted account picker
+  // even when the user's Chrome profile has only one linked account.
+  // Used by LoginScreen's secondary "다른 Google 계정 사용" CTA so users
+  // can authenticate against an account that isn't in their Chrome.
+  | { type: 'AUTH_LOGIN_PICKER'; currentUrl?: string }
   | { type: 'AUTH_LOGOUT' }
   // Logout + clear Chrome's cached OAuth tokens. Required for "switch
   // Google account" UX — without clearing the cache, the next

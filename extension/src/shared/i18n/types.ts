@@ -255,6 +255,10 @@ export interface Translations {
     busy: string                         // "サインイン中…"
     failPrefix: string                   // "ログインに失敗しました: "
     privacyNote: string                  // "メールアドレスのみ取得します。\nパスワードを保存することはありません。"
+    // Secondary CTA — forces Google's hosted account chooser via
+    // launchWebAuthFlow(prompt=select_account) so users can pick a
+    // Google account NOT linked to their Chrome profile.
+    usePicker: string                    // "別の Google アカウントを使用"
   }
 
   // ── Consent modal ──────────────────────────────────────────────
@@ -390,10 +394,8 @@ export interface Translations {
     account_emailHint: string            // "Pro にアップグレードしたアカウントと違う場合は…"
     logout: string                       // "ログアウト"
     logout_busy: string                  // "ログアウト中…"
-    logout_done: string                  // "ログアウトしました。"
     switchAccount: string                // "別の Google アカウントでログイン"
     switchAccount_busy: string           // "切り替え中…"
-    switchAccount_done: string           // "ログアウトしました。サイドパネルから別のアカウントで…"
     // ── Feedback section (Options page) ─────────────────────────
     section_feedback: string              // "フィードバック"
     feedback_intro: string                // help text under the section header

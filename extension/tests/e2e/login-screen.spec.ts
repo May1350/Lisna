@@ -26,11 +26,12 @@ test('LoginScreen brand logo loads (no broken-image regression)', async ({ conte
   })
   await page.reload()
 
-  // The Google sign-in button is the LoginScreen's anchor element —
-  // visible regardless of locale because the literal "Google" is
-  // preserved across en/ja/ko/zh ("Google로 로그인", "Google でログイン",
-  // "Sign in with Google", "使用 Google 登录").
-  await expect(page.locator('button:has-text("Google")')).toBeVisible({ timeout: 10_000 })
+  // The primary Google sign-in button is the LoginScreen's anchor
+  // element. We disambiguate from the secondary "use a different
+  // Google account" button (which also contains "Google" in every
+  // locale) via the aria-label attribute — only the primary sets it
+  // (LoginScreen.tsx renders `aria-label={T.login.button}`).
+  await expect(page.locator('button[aria-label]:has-text("Google")')).toBeVisible({ timeout: 10_000 })
 
   // The brand <img>. The alt = T.login.title = 'Lisna' across all 4 locales.
   const logo = page.locator('img[alt="Lisna"]').first()

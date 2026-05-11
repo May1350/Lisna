@@ -218,6 +218,7 @@ export const en: Translations = {
     busy: 'Signing in…',
     failPrefix: 'Sign-in failed: ',
     privacyNote: 'We only retrieve your email address.\nWe never store your password.',
+    usePicker: 'Use a different Google account',
   },
   consent: {
     title: 'Important notice',
@@ -342,10 +343,8 @@ export const en: Translations = {
     account_emailHint: "If this isn't the account you upgraded to Pro with, switch using the button below.",
     logout: 'Sign out',
     logout_busy: 'Signing out…',
-    logout_done: 'Signed out.',
     switchAccount: 'Sign in with a different Google account',
     switchAccount_busy: 'Switching…',
-    switchAccount_done: 'Signed out. Open the side panel to sign in with another account.',
     section_feedback: 'Feedback',
     feedback_intro: 'Report a bug or request a feature. We may reply to your registered email if needed.',
     feedback_categoryLabel: 'Category',

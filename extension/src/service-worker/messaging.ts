@@ -1,5 +1,5 @@
 import type { SwRequest, SwResponse } from '../shared/types'
-import { loginWithGoogle, logout, switchAccount, authedFetch } from './auth'
+import { loginWithGoogle, loginWithGoogleAccountPicker, logout, switchAccount, authedFetch } from './auth'
 import { getUser, setEnabled, setDisabledUntil, getDisableDurationHours } from '../shared/storage'
 import { updateBadge, broadcastEnabledChange } from './notify'
 import { API_BASE_URL } from '../shared/config'
@@ -14,6 +14,13 @@ export async function handle(req: SwRequest, sender?: chrome.runtime.MessageSend
     switch (req.type) {
       case 'AUTH_LOGIN': {
         const r = await loginWithGoogle(req.currentUrl)
+        return { ok: true, data: r }
+      }
+      case 'AUTH_LOGIN_PICKER': {
+        // Web-OAuth-client flow with prompt=select_account — surfaces
+        // Google's hosted account chooser even when Chrome's profile
+        // has only one linked account. See auth.ts for the rationale.
+        const r = await loginWithGoogleAccountPicker(req.currentUrl)
         return { ok: true, data: r }
       }
       case 'AUTH_LOGOUT': {

@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { login, type LoginResult } from '../api-client'
+import { login, loginWithPicker, type LoginResult } from '../api-client'
 import { useT } from '../../shared/i18n'
+import { WEB_OAUTH_CLIENT_ID } from '../../shared/config'
 
 interface Props {
   /** Optional: when present (embed mode), the SW exchanges Google OAuth + the
@@ -28,10 +29,28 @@ export function LoginScreen({ currentUrl, onSuccess }: Props) {
   const T = useT()
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  // Two-button design: primary = chrome.identity.getAuthToken (silent
+  // when Chrome already has a cached token for the linked account),
+  // secondary = launchWebAuthFlow with prompt=select_account so the
+  // user can authenticate against a Google account NOT in their
+  // Chrome profile. The secondary CTA disappears in dev builds where
+  // VITE_GOOGLE_OAUTH_CLIENT_ID is empty — `loginWithPicker` would
+  // throw a clear error anyway, but hiding the button removes a
+  // dead-end from the screen.
+  const pickerAvailable = WEB_OAUTH_CLIENT_ID.length > 0
   const handle = async () => {
     setLoading(true); setErr(null)
     try {
       const result = await login(currentUrl)
+      onSuccess(result)
+    }
+    catch (e) { setErr(e instanceof Error ? e.message : 'unknown') }
+    finally { setLoading(false) }
+  }
+  const handlePicker = async () => {
+    setLoading(true); setErr(null)
+    try {
+      const result = await loginWithPicker(currentUrl)
       onSuccess(result)
     }
     catch (e) { setErr(e instanceof Error ? e.message : 'unknown') }
@@ -77,6 +96,16 @@ export function LoginScreen({ currentUrl, onSuccess }: Props) {
           </>
         )}
       </button>
+      {pickerAvailable && (
+        <button
+          type="button"
+          onClick={handlePicker}
+          disabled={loading}
+          className="mt-3 text-xs text-ink-500 hover:text-ink-700 underline underline-offset-2 disabled:opacity-50 disabled:no-underline"
+        >
+          {T.login.usePicker}
+        </button>
+      )}
       {err && (
         <p className="text-warn-red text-xs mt-4 max-w-[280px] leading-relaxed">
           {T.login.failPrefix}{err}

@@ -218,6 +218,7 @@ export const ko: Translations = {
     busy: '로그인 중…',
     failPrefix: '로그인에 실패했습니다: ',
     privacyNote: '이메일 주소만 가져옵니다.\n비밀번호는 저장하지 않습니다.',
+    usePicker: '다른 Google 계정 사용',
   },
   consent: {
     title: '중요한 안내',
@@ -342,10 +343,8 @@ export const ko: Translations = {
     account_emailHint: 'Pro로 결제한 계정과 다르면 아래 버튼으로 전환하세요.',
     logout: '로그아웃',
     logout_busy: '로그아웃 중…',
-    logout_done: '로그아웃되었습니다.',
     switchAccount: '다른 Google 계정으로 로그인',
     switchAccount_busy: '전환 중…',
-    switchAccount_done: '로그아웃되었습니다. 사이드 패널에서 다른 계정으로 다시 로그인해주세요.',
     section_feedback: '피드백',
     feedback_intro: '버그 제보나 기능 요청을 보내주세요. 필요한 경우 등록된 이메일로 답변드립니다.',
     feedback_categoryLabel: '종류',

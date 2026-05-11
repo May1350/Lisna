@@ -217,6 +217,7 @@ export const zh: Translations = {
     busy: '正在登录…',
     failPrefix: '登录失败:',
     privacyNote: '我们仅获取您的邮箱地址,\n不会保存您的密码。',
+    usePicker: '使用其他 Google 账户',
   },
   consent: {
     title: '重要提示',
@@ -341,10 +342,8 @@ export const zh: Translations = {
     account_emailHint: '如果与升级 Pro 时使用的账号不同,请通过下方按钮切换。',
     logout: '退出登录',
     logout_busy: '正在退出…',
-    logout_done: '已退出登录。',
     switchAccount: '使用其他 Google 账号登录',
     switchAccount_busy: '切换中…',
-    switchAccount_done: '已退出登录。请在侧边栏使用其他账号重新登录。',
     section_feedback: '反馈',
     feedback_intro: '请告诉我们 bug 或功能建议。如有需要,我们会通过您的注册邮箱回复。',
     feedback_categoryLabel: '类型',

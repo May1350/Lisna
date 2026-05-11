@@ -253,11 +253,24 @@ export function Options() {
     setDisableHours(h)
     await setDisableDurationHours(h)
   }
+  // Close the Options tab after a successful auth state change. The
+  // user opened Options from the modal (or the toolbar action menu)
+  // and the in-page modal / side-panel listens on
+  // chrome.storage.onChanged for `sh.token` removal — it auto-resets
+  // to LoginScreen the moment the SW wipes storage. So closing here
+  // lands the user right back where they were with the login screen
+  // already up; one fewer surface to navigate.
+  //
+  // window.close() works for Options pages opened via
+  // chrome.runtime.openOptionsPage (the path everyone hits). For tabs
+  // navigated to directly (chrome://extensions → Options link), Chrome
+  // may refuse to close — acceptable degradation, the auth state is
+  // still cleared so the user can navigate away manually.
   const onLogout = async () => {
     setLoggingOut(true)
     try {
       await chrome.runtime.sendMessage({ type: 'AUTH_LOGOUT' })
-      alert(T.options.logout_done)
+      window.close()
     } finally {
       setLoggingOut(false)
     }
@@ -265,12 +278,16 @@ export function Options() {
   // Sign-out + clear Chrome's cached OAuth tokens. Used when the user
   // is on the wrong Google account (e.g. paid as A@... but Chrome is
   // signed in as B@...) — without the cache wipe the next login would
-  // silently re-grab the same Google account.
+  // silently re-grab the same Google account. After closing, the modal's
+  // LoginScreen surfaces a "다른 Google 계정 사용" CTA that launches
+  // Google's hosted account picker (launchWebAuthFlow), so the user can
+  // authenticate against any account, not just ones already linked to
+  // Chrome.
   const onSwitchAccount = async () => {
     setSwitchingAccount(true)
     try {
       await chrome.runtime.sendMessage({ type: 'AUTH_SWITCH_ACCOUNT' })
-      alert(T.options.switchAccount_done)
+      window.close()
     } finally {
       setSwitchingAccount(false)
     }

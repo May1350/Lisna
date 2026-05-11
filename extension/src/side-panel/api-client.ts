@@ -70,6 +70,17 @@ export async function login(currentUrl?: string): Promise<LoginResult> {
   return r.data as LoginResult
 }
 
+/**
+ * Account-picker variant — same backend round-trip as `login()` but
+ * forces Google's hosted account chooser via launchWebAuthFlow. Use
+ * this for the "다른 Google 계정 사용" CTA on the login screen.
+ */
+export async function loginWithPicker(currentUrl?: string): Promise<LoginResult> {
+  const r = await chrome.runtime.sendMessage({ type: 'AUTH_LOGIN_PICKER', currentUrl })
+  if (!r.ok) throw new Error(r.error)
+  return r.data as LoginResult
+}
+
 export async function logout(): Promise<void> {
   await chrome.runtime.sendMessage({ type: 'AUTH_LOGOUT' })
 }

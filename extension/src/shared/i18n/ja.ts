@@ -217,6 +217,7 @@ export const ja: Translations = {
     busy: 'サインイン中…',
     failPrefix: 'ログインに失敗しました: ',
     privacyNote: 'メールアドレスのみ取得します。\nパスワードを保存することはありません。',
+    usePicker: '別の Google アカウントを使用',
   },
   consent: {
     title: '重要なお知らせ',
@@ -344,10 +345,8 @@ export const ja: Translations = {
     account_emailHint: 'Pro プランで決済したアカウントと違う場合、下のボタンで切り替えてください。',
     logout: 'ログアウト',
     logout_busy: 'ログアウト中…',
-    logout_done: 'ログアウトしました。',
     switchAccount: '別の Google アカウントでログイン',
     switchAccount_busy: '切り替え中…',
-    switchAccount_done: 'ログアウトしました。サイドパネルから別のアカウントで再ログインしてください。',
     section_feedback: 'フィードバック',
     feedback_intro: 'バグ報告や機能リクエストをお聞かせください。返信が必要な場合は登録メール宛にご連絡します。',
     feedback_categoryLabel: '種類',

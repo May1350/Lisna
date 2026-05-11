@@ -349,6 +349,60 @@ export default function App() {
   }, [])
   const { isEmbed, parentUrl } = ctx
 
+  // Single source of truth for the React-side auth wipe. Every piece
+  // of session-derived state lives here — calling resetAuthState from
+  // logout / 401 fallback / cross-context storage event leaves no
+  // user-specific data lingering for the next sign-in to inherit.
+  //
+  // bootStorage.cachedQuota is also cleared here even though it lives
+  // in storage (which logout() already wiped) — that's because the
+  // React snapshot was frozen at mount and outlives the storage wipe.
+  // Without this, the auth-me cached-quota seed at line 380 would
+  // splash user-A's old quota into user-B's first paint when an
+  // account switch happened in this same modal lifetime. We preserve
+  // playback (per-device, not per-user) so the new user inherits the
+  // playback-speed preference.
+  const resetAuthState = useCallback(() => {
+    setUser(null)
+    setSessionId(null)
+    setSlides([])
+    setOutline(null)
+    setOutlineUpdatedAt(null)
+    setTranscripts([])
+    setCurating(false)
+    setCurateError(null)
+    setQuota(null)
+    setQuotaBlocked(false)
+    setLiveRemainingSecs(null)
+    setVideoPlaying(null)
+    setIsCapturing(false)
+    setViewingSession(null)
+    setBootStorage((prev) => (prev ? { ...prev, cachedQuota: undefined } : null))
+  }, [])
+
+  // Cross-context auth sync. When ANY extension surface — Options
+  // page logout, switch-account flow, a side-panel logout in a second
+  // window, DevTools storage.clear() — drops `sh.token`, this listener
+  // mirrors the logout into our React state without the user having to
+  // re-click logout in THIS surface too. Filtered on falsy `newValue`
+  // (covers `undefined` from remove(), plus defensive coverage for any
+  // future code path that writes null/'' to the key) so the login flow
+  // (which SETS sh.token to a non-empty JWT) doesn't fire a bogus
+  // reset right after a successful sign-in.
+  useEffect(() => {
+    const onChanged = (
+      changes: { [key: string]: chrome.storage.StorageChange },
+      area: chrome.storage.AreaName,
+    ) => {
+      if (area !== 'local') return
+      if ('sh.token' in changes && !changes['sh.token'].newValue) {
+        resetAuthState()
+      }
+    }
+    chrome.storage.onChanged.addListener(onChanged)
+    return () => chrome.storage.onChanged.removeListener(onChanged)
+  }, [resetAuthState])
+
   useEffect(() => { void hasConsent().then(setConsented) }, [])
   // Wait until the user has explicitly consented before fetching the
   // session. Earlier deps `[consented]` made this re-run on every
@@ -437,10 +491,13 @@ export default function App() {
         const status = e instanceof ApiError ? e.status : undefined
         if (status === 401) {
           console.warn('[App] /v1/auth/me 401 with token — clearing stale auth, prompting re-login')
-          void chrome.storage.local.remove(['sh.token', 'sh.user', 'sh.cachedQuota'])
-          setUser(null)
-          setQuota(null)
-          setLiveRemainingSecs(null)
+          // logout() wipes the per-user storage keys (token, user,
+          // cachedQuota, pendingTrialSession) via the SW; resetAuthState
+          // mirrors that wipe into React state. The storage listener
+          // above also fires on logout's removal, but resetAuthState is
+          // idempotent so the double-call is harmless.
+          await logout()
+          resetAuthState()
         } else {
           console.warn('[App] /v1/auth/me failed; relying on cached quota if any', e instanceof Error ? e.message : e)
         }
@@ -457,7 +514,9 @@ export default function App() {
     // would otherwise re-trigger the effect in an infinite loop.
     // bootStorage is also a dep so the effect waits for the batched
     // mount-time storage read before running its pre-flight check.
-  }, [consented, user?.id, bootStorage])
+    // resetAuthState is stable (empty deps) so it doesn't churn the
+    // effect — included for exhaustive-deps correctness only.
+  }, [consented, user?.id, bootStorage, resetAuthState])
 
   // Keep the export-input ref in sync with the React state used by
   // the auto-download path inside applyEvent. Refs are commit-phase
@@ -997,9 +1056,8 @@ export default function App() {
         // so the LoginScreen takes over.
         const status = e instanceof ApiError ? e.status : undefined
         if (status === 401) {
-          void chrome.storage.local.remove(['sh.token', 'sh.user', 'sh.cachedQuota'])
-          setUser(null)
-          setQuota(null)
+          await logout()
+          resetAuthState()
         }
         void reportError(e, { context: 'trial-confirm', severity: 'warning', silent: true })
       }
@@ -1012,7 +1070,7 @@ export default function App() {
       document.removeEventListener('visibilitychange', onFocusOrVisible)
       window.removeEventListener('focus', onFocusOrVisible)
     }
-  }, [consented, user])
+  }, [consented, user, resetAuthState])
 
   // Re-fetch user + quota after the trial-end modal resolves (Pro
   // 가입 OR 가입 안함). Both outcomes change the auth-me response
@@ -1030,13 +1088,12 @@ export default function App() {
     } catch (e) {
       const status = e instanceof ApiError ? e.status : undefined
       if (status === 401) {
-        void chrome.storage.local.remove(['sh.token', 'sh.user', 'sh.cachedQuota'])
-        setUser(null)
-        setQuota(null)
+        await logout()
+        resetAuthState()
       }
       void reportError(e, { context: 'trial-resolved-refetch', severity: 'warning', silent: true })
     }
-  }, [])
+  }, [resetAuthState])
 
   const onClose = useCallback(() => {
     if (isEmbed) {
@@ -1047,25 +1104,13 @@ export default function App() {
   }, [isEmbed])
 
   const onLogout = useCallback(async () => {
+    // logout() wipes per-user storage keys via the SW. resetAuthState
+    // synchronously mirrors the wipe into React state so the user sees
+    // LoginScreen on the next frame without waiting for the storage
+    // listener tick.
     await logout()
-    // Reset every piece of session-derived state. Missing any of these
-    // (we previously missed outline / transcripts / quota / curating /
-    // curateError) leaves stale UI when the user logs in as a different
-    // account — the new account would briefly see the old user's
-    // outline before WS / quota updates overwrite it.
-    setUser(null)
-    setSessionId(null)
-    setSlides([])
-    setOutline(null)
-    setOutlineUpdatedAt(null)
-    setTranscripts([])
-    setCurating(false)
-    setCurateError(null)
-    setQuota(null)
-    setQuotaBlocked(false)
-    setVideoPlaying(null)
-    setIsCapturing(false)
-  }, [])
+    resetAuthState()
+  }, [resetAuthState])
 
   const onToggleEnabled = useCallback(async (next: boolean) => {
     // Optimistic — storage event will reconcile if it fails.
@@ -1454,7 +1499,7 @@ export default function App() {
       <NotesViewer
         session={viewingSession}
         onBack={() => setViewingSession(null)}
-        onAuthExpired={() => { setUser(null); setViewingSession(null) }}
+        onAuthExpired={resetAuthState}
       />
     )
   }
@@ -1503,7 +1548,7 @@ export default function App() {
         })()}
       </div>
       <SessionHistory
-        onAuthExpired={() => setUser(null)}
+        onAuthExpired={resetAuthState}
         onView={setViewingSession}
       />
     </div>
