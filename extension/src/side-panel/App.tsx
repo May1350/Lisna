@@ -202,15 +202,24 @@ function EditableFilename({
   )
 }
 
-// Cold-start snapshot of the 3 storage keys the mount-time effects
-// need (token presence, cached quota, last-saved playback speed).
+// Cold-start snapshot of the 2 storage keys the mount-time effects
+// can safely freeze (cached quota seed, last-saved playback speed).
 // Populated ONCE by a single batched chrome.storage.local.get; the
 // downstream effects gate on it being non-null instead of issuing
-// their own (formerly 3-serial-IPC) reads. The trial-pending key
+// their own (formerly 2-serial-IPC) reads. The trial-pending key
 // stays a separate focus-handler read since it can change between
-// mount and the Stripe-return focus event.
+// mount and the Stripe-return focus event. The token key is read
+// fresh inside the auth effect for the same live-changes reason
+// (see BootStorage comment below).
+// `sh.token` is deliberately NOT cached in this snapshot. The token
+// is the one mount-time storage value that LIVE-CHANGES (login flow
+// writes it after mount); freezing it here caused a flicker
+// regression — the auth effect re-runs on `user?.id` change after
+// login, saw a stale `hasToken: false` from mount, and reset
+// setUser(null) back to LoginScreen. The auth effect reads
+// `sh.token` fresh on each run instead (rare — only on consented
+// flip or user?.id change).
 interface BootStorage {
-  hasToken: boolean
   cachedQuota: { quota?: QuotaSnapshot; ts?: number } | undefined
   playback: unknown
 }
@@ -346,16 +355,13 @@ export default function App() {
   // consented flip — including the initial null→false on a fresh
   // user — issuing a needless AUTH_GET_USER round-trip and clobbering
   // any in-flight setUser the login flow had just performed.
-  // Batch the storage reads that the three downstream effects need
-  // at mount: token presence (this effect's pre-flight), cached
-  // quota seed (same effect), and initial playback speed (separate
-  // effect below). Three serial chrome.storage.local.get IPCs
-  // (~5-15 ms each on cold start) collapse to one batched read.
+  // Batch the storage reads that the two downstream mount-time
+  // effects need: cached quota seed and initial playback speed.
+  // `sh.token` is read fresh inside the auth effect on each run
+  // (see BootStorage comment for the live-changes rationale).
   useEffect(() => {
-    void chrome.storage.local.get(['sh.token', 'sh.cachedQuota', 'sh.playback']).then((r) => {
-      const tok = r['sh.token']
+    void chrome.storage.local.get(['sh.cachedQuota', 'sh.playback']).then((r) => {
       setBootStorage({
-        hasToken: typeof tok === 'string' && tok.length > 0,
         cachedQuota: r['sh.cachedQuota'] as { quota?: QuotaSnapshot; ts?: number } | undefined,
         playback: r['sh.playback'],
       })
@@ -373,7 +379,14 @@ export default function App() {
       // expiry-then-eviction), force a clean re-login by dropping the
       // stale user — the LoginScreen will mount and the user can
       // re-auth in one click.
-      if (!bootStorage.hasToken) {
+      //
+      // Fresh read (NOT cached in bootStorage): the login flow writes
+      // `sh.token` AFTER mount, and this effect re-runs on user?.id
+      // change. A stale mount-time cache would clobber the just-
+      // written token and bounce the user back to LoginScreen.
+      const tokenStored = await chrome.storage.local.get('sh.token')
+      const hasToken = typeof tokenStored['sh.token'] === 'string' && (tokenStored['sh.token'] as string).length > 0
+      if (!hasToken) {
         // Drop any stale user record so the LoginScreen renders.
         void chrome.storage.local.remove('sh.user')
         setUser(null)
