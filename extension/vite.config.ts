@@ -33,6 +33,11 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
+    // Loaded BEFORE any test file's imports are evaluated — the seam
+    // we need because LoginScreen.tsx reads `chrome.runtime.getURL`
+    // at module-load time, so the chrome global must already exist
+    // by the time vitest's resolver pulls the component in.
+    setupFiles: ['./tests/setup.ts'],
     // Vitest picks `**/*.{test,spec}.ts` by default — exclude the
     // Playwright E2E specs (which look identical by extension) so
     // they only run via `pnpm test:e2e`.
