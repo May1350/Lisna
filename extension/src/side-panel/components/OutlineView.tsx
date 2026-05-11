@@ -798,7 +798,7 @@ function SectionBlock({
             {section.examples.map((ex, i) => (
               <li key={`${ex.text.slice(0, 24)}-${i}`} className="text-xs text-ink-700 leading-relaxed flex gap-2">
                 <span className="text-ink-300 shrink-0">→</span>
-                <span>{ex.text}</span>
+                <span className="flex-1">{ex.text}</span>
                 <TsButton ts={ex.ts} onJump={onJump} />
               </li>
             ))}
