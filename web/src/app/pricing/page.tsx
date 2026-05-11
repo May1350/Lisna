@@ -1,42 +1,45 @@
+import type { CSSProperties } from 'react'
+import { containerStyle } from '../_styles'
+
 export const metadata = {
   title: '料金プラン - Lisna',
   description: 'Lisna の料金プラン。Free 月 30 分、Pro ¥980/月で月 30 時間。Stripe による安全な決済、いつでも解約可。',
   robots: { index: true, follow: true },
 }
 
-const cardStyle: React.CSSProperties = {
+const cardStyle: CSSProperties = {
   border: '1px solid #e2e8f0',
   borderRadius: 8,
   padding: 24,
   marginTop: 24,
 }
 
-const h3Style: React.CSSProperties = {
+const h3Style: CSSProperties = {
   marginTop: 0,
   marginBottom: 8,
   fontSize: 22,
 }
 
-const priceStyle: React.CSSProperties = {
+const priceStyle: CSSProperties = {
   fontSize: 32,
   fontWeight: 700,
   margin: '8px 0',
 }
 
-const subStyle: React.CSSProperties = {
+const subStyle: CSSProperties = {
   fontSize: 14,
   color: '#64748b',
   marginBottom: 16,
 }
 
-const ulStyle: React.CSSProperties = {
+const ulStyle: CSSProperties = {
   paddingLeft: 20,
   margin: 0,
 }
 
 export default function Pricing() {
   return (
-    <main style={{ maxWidth: 720, margin: '0 auto', padding: '40px 24px', fontFamily: 'system-ui, sans-serif', lineHeight: 1.7 }}>
+    <main style={containerStyle}>
       <h1 style={{ fontSize: 32 }}>料金プラン</h1>
       <p style={{ color: '#475569' }}>
         Lisna は学習用途を想定した個人向けサブスクリプションサービスです。

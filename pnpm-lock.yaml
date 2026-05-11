@@ -145,26 +145,26 @@ importers:
   web:
     dependencies:
       next:
-        specifier: latest
+        specifier: ^16.2.4
         version: 16.2.4(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       react:
-        specifier: latest
+        specifier: ^19.2.5
         version: 19.2.5
       react-dom:
-        specifier: latest
+        specifier: ^19.2.5
         version: 19.2.5(react@19.2.5)
     devDependencies:
       '@types/node':
-        specifier: latest
+        specifier: ^25.6.0
         version: 25.6.0
       '@types/react':
-        specifier: latest
+        specifier: ^19.2.14
         version: 19.2.14
       '@types/react-dom':
-        specifier: latest
+        specifier: ^19.2.3
         version: 19.2.3(@types/react@19.2.14)
       typescript:
-        specifier: latest
+        specifier: ^6.0.3
         version: 6.0.3
 
 packages:

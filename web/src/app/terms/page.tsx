@@ -1,15 +1,9 @@
+import { containerStyle } from '../_styles'
+
 export const metadata = {
   title: '利用規約 - Lisna',
   description: 'Lisna サービスの利用規約。',
   robots: { index: true, follow: true },
-}
-
-const containerStyle: React.CSSProperties = {
-  maxWidth: 720,
-  margin: '0 auto',
-  padding: '40px 24px',
-  fontFamily: 'system-ui, sans-serif',
-  lineHeight: 1.7,
 }
 
 export default function Terms() {

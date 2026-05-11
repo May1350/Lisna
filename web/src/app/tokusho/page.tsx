@@ -1,21 +1,16 @@
+import type { CSSProperties } from 'react'
+import { containerStyle } from '../_styles'
+
 export const metadata = { title: '特定商取引法に基づく表記 - Lisna' }
 
-const containerStyle: React.CSSProperties = {
-  maxWidth: 720,
-  margin: '0 auto',
-  padding: '40px 24px',
-  fontFamily: 'system-ui, sans-serif',
-  lineHeight: 1.7,
-}
-
-const tableStyle: React.CSSProperties = {
+const tableStyle: CSSProperties = {
   width: '100%',
   borderCollapse: 'collapse',
   marginTop: 24,
   fontSize: 14,
 }
 
-const thStyle: React.CSSProperties = {
+const thStyle: CSSProperties = {
   textAlign: 'left',
   padding: '12px 16px',
   background: '#f8fafc',
@@ -25,7 +20,7 @@ const thStyle: React.CSSProperties = {
   verticalAlign: 'top',
 }
 
-const tdStyle: React.CSSProperties = {
+const tdStyle: CSSProperties = {
   padding: '12px 16px',
   borderBottom: '1px solid #e2e8f0',
   verticalAlign: 'top',

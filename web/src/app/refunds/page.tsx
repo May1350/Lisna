@@ -1,3 +1,5 @@
+import { containerStyle } from '../_styles'
+
 export const metadata = {
   title: '返金ポリシー - Lisna',
   description: 'Lisna の返金ポリシーと解約方法について。',
@@ -6,7 +8,7 @@ export const metadata = {
 
 export default function Refunds() {
   return (
-    <main style={{ maxWidth: 720, margin: '0 auto', padding: '40px 24px', fontFamily: 'system-ui, sans-serif', lineHeight: 1.7 }}>
+    <main style={containerStyle}>
       <h1>返金ポリシー</h1>
       <p style={{ color: '#64748b', fontSize: 14 }}>最終更新日: 2026年5月10日</p>
 

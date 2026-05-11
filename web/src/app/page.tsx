@@ -1,3 +1,5 @@
+import { containerStyle } from './_styles'
+
 export const metadata = {
   title: 'Lisna — AI lecture notes for university students',
   description: 'Real-time AI summaries for lecture videos. Auto-generates structured notes, captures slides, exports to PDF / Markdown / Obsidian. Free 30 min/month, Pro ¥980/month for 30 hours.',
@@ -9,7 +11,7 @@ export const metadata = {
 
 export default function Home() {
   return (
-    <main style={{ maxWidth: 720, margin: '0 auto', padding: '40px 24px', fontFamily: 'system-ui, sans-serif', lineHeight: 1.7 }}>
+    <main style={containerStyle}>
       <h1 style={{ fontSize: 32, marginBottom: 8 }}>Lisna</h1>
       <p style={{ fontSize: 18, color: '#475569', marginBottom: 32 }}>
         講義や会議をリアルタイムで聴き取り、構造化されたノートを自動生成するAIアシスタント
