@@ -105,10 +105,14 @@ async function createSetupSessionResilient(
   const tryWithCustomer = async (): Promise<Stripe.Checkout.Session> =>
     stripe.checkout.sessions.create({ ...base, customer: ctx.existingCustomerId! })
   const tryWithEmail = async (): Promise<Stripe.Checkout.Session> =>
+    // NOTE: `customer_creation: 'always'` is INVALID in setup mode
+    // (same Stripe API constraint as subscription mode — only valid
+    // in 'payment' mode). In setup mode the customer is auto-created
+    // from customer_email when the user attaches a payment method.
+    // See stripe-checkout.ts for the matching fix.
     stripe.checkout.sessions.create({
       ...base,
       customer_email: ctx.email,
-      customer_creation: 'always',
     })
 
   if (!ctx.existingCustomerId) return tryWithEmail()

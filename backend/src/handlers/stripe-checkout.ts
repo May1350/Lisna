@@ -44,10 +44,15 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   const tryWithCustomer = () =>
     stripe.checkout.sessions.create({ ...baseParams, customer: existingCustomerId! })
   const tryWithEmail = () =>
+    // NOTE: `customer_creation: 'always'` is INVALID in subscription
+    // mode (Stripe returns 400). In subscription mode the customer is
+    // always created automatically from `customer_email` on session
+    // completion, so the flag is redundant AND fatal. Removed
+    // 2026-05-11 after a CloudWatch trace caught a fresh user (no
+    // stripe_customer_id yet) clicking Pro upgrade and 500ing.
     stripe.checkout.sessions.create({
       ...baseParams,
       customer_email: userRows[0].email,
-      customer_creation: 'always',
     })
   // Defensive against stale customer ids (test/live mode mismatch,
   // customer deleted in Dashboard, etc.). On 'resource_missing' we
