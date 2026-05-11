@@ -493,7 +493,9 @@ export class ApiStack extends Stack {
     // Counts log lines with severity = "fatal" emitted by error-report
     // Lambda. Alarm fires when ≥ 5 fatals occur in any 10-min window — a
     // smoke signal for "something just broke for many users at once".
-    const fatalErrorMetric = new MetricFilter(this, 'FatalClientErrorFilter', {
+    // MetricFilter registers via namespace+name; the Alarm below
+    // looks it up by namespace/name, so we don't bind the result.
+    new MetricFilter(this, 'FatalClientErrorFilter', {
       logGroup: errorReport.logGroup,
       metricNamespace: 'Lisna/ClientErrors',
       metricName: 'FatalCount',
@@ -501,7 +503,6 @@ export class ApiStack extends Stack {
       metricValue: '1',
       defaultValue: 0,
     })
-    void fatalErrorMetric
     const fatalAlarm = new Alarm(this, 'FatalClientErrorAlarm', {
       alarmName: 'lisna-fatal-client-errors',
       alarmDescription: 'Triggered when ≥5 fatal client errors are reported within any 10-minute window.',
