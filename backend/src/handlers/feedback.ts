@@ -10,14 +10,13 @@
 // "ユーザーフィードバックを送信した場合、その内容と送信元 URL が管理者に
 // 通知されます".
 
-import type { APIGatewayProxyHandlerV2 } from 'aws-lambda'
+import type { APIGatewayProxyHandlerV2, APIGatewayProxyResultV2 } from 'aws-lambda'
 import { SNSClient, PublishCommand } from '@aws-sdk/client-sns'
-import { verifyJwt } from '../lib/auth.js'
 import { query } from '../lib/db.js'
-import { loadAppSecrets } from '../lib/env.js'
 import { isWarmup, warmupResponse } from '../lib/warmup.js'
 // Body schema now lives in the shared workspace — see shared/src/index.ts.
 import { feedbackBodySchema as Body } from 'shared'
+import { withAuth } from '../lib/with-auth.js'
 
 let _sns: SNSClient | undefined
 function snsClient(): SNSClient {
@@ -25,17 +24,7 @@ function snsClient(): SNSClient {
   return _sns
 }
 
-export const handler: APIGatewayProxyHandlerV2 = async (event) => {
-  if (isWarmup(event)) return warmupResponse()
-  await loadAppSecrets()
-
-  const auth = event.headers.authorization || event.headers.Authorization
-  if (!auth?.startsWith('Bearer ')) return { statusCode: 401, body: 'unauthorized' }
-
-  let payload
-  try { payload = await verifyJwt(auth.slice(7)) }
-  catch { return { statusCode: 401, body: 'invalid token' } }
-
+const authed = withAuth('feedback', async (event, payload) => {
   let body: ReturnType<typeof Body.parse>
   try {
     body = Body.parse(JSON.parse(event.body || '{}'))
@@ -115,4 +104,9 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id: feedback.id }),
   }
+})
+
+export const handler: APIGatewayProxyHandlerV2 = async (event, ctx, cb) => {
+  if (isWarmup(event)) return warmupResponse()
+  return (await authed(event, ctx, cb)) as APIGatewayProxyResultV2
 }

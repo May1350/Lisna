@@ -1,19 +1,10 @@
-import type { APIGatewayProxyHandlerV2 } from 'aws-lambda'
 import Stripe from 'stripe'
-import { verifyJwt } from '../lib/auth.js'
-import { loadAppSecrets } from '../lib/env.js'
 import { getStripe } from '../lib/stripe.js'
 // Billing-write helpers (see lib/users.ts for invariants).
 import { getUserStripeContext, clearStripeCustomerIdIfStale } from '../lib/users.js'
+import { withAuth } from '../lib/with-auth.js'
 
-export const handler: APIGatewayProxyHandlerV2 = async (event) => {
-  await loadAppSecrets()
-  const auth = event.headers.authorization || event.headers.Authorization
-  if (!auth?.startsWith('Bearer ')) return { statusCode: 401, body: 'unauthorized' }
-  let payload
-  try { payload = await verifyJwt(auth.slice(7)) }
-  catch { return { statusCode: 401, body: 'invalid' } }
-
+export const handler = withAuth('stripe-checkout', async (_event, payload) => {
   const stripe = await getStripe()
   const userCtx = await getUserStripeContext(payload.sub)
   if (!userCtx) return { statusCode: 404, body: 'user not found' }
@@ -81,4 +72,4 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url: session.url }),
   }
-}
+})

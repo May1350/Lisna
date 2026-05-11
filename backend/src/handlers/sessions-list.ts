@@ -1,8 +1,7 @@
-import type { APIGatewayProxyHandlerV2 } from 'aws-lambda'
-import { verifyJwt } from '../lib/auth.js'
+import type { APIGatewayProxyHandlerV2, APIGatewayProxyResultV2 } from 'aws-lambda'
 import { query } from '../lib/db.js'
-import { loadAppSecrets } from '../lib/env.js'
 import { isWarmup, warmupResponse } from '../lib/warmup.js'
+import { withAuth } from '../lib/with-auth.js'
 
 // GET /v1/sessions — compact list of the caller's recent sessions for the
 // side-panel SessionHistory component. Read-only, no pagination cursor:
@@ -32,27 +31,7 @@ function toIso(v: Date | string): string {
   return v instanceof Date ? v.toISOString() : String(v)
 }
 
-export const handler: APIGatewayProxyHandlerV2 = async (event) => {
-  if (isWarmup(event)) return warmupResponse()
-  await loadAppSecrets()
-
-  const auth = event.headers.authorization || event.headers.Authorization
-  if (!auth?.startsWith('Bearer ')) {
-    console.warn('[sessions-list] auth missing or non-Bearer')
-    return { statusCode: 401, body: JSON.stringify({ error: 'unauthorized' }) }
-  }
-  let payload
-  try {
-    payload = await verifyJwt(auth.slice(7))
-  } catch (e) {
-    // Logged so a "history shows error in production" investigation
-    // can confirm whether the issue is auth (token expired / signed by
-    // another env) vs DB / SQL / route. CloudWatch is the diagnostic
-    // surface per project memory.
-    console.warn('[sessions-list] jwt verify failed', { err: e instanceof Error ? e.message : String(e) })
-    return { statusCode: 401, body: JSON.stringify({ error: 'invalid token' }) }
-  }
-
+const authed = withAuth('sessions-list', async (_event, payload) => {
   const rows = await query<SessionRow>(
     `SELECT
        id,
@@ -87,4 +66,11 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sessions }),
   }
+})
+
+// Outer wrapper short-circuits synthetic warmup events BEFORE auth so
+// they don't hit loadAppSecrets() / verifyJwt (which would 401 noisily).
+export const handler: APIGatewayProxyHandlerV2 = async (event, ctx, cb) => {
+  if (isWarmup(event)) return warmupResponse()
+  return (await authed(event, ctx, cb)) as APIGatewayProxyResultV2
 }

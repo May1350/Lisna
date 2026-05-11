@@ -1,10 +1,8 @@
-import type { APIGatewayProxyHandlerV2 } from 'aws-lambda'
-import { verifyJwt } from '../lib/auth.js'
-import { loadAppSecrets } from '../lib/env.js'
 import { getStripe } from '../lib/stripe.js'
 import { TRIAL_LIMIT_SECS } from '../lib/quota.js'
 // Billing-write helpers (see lib/users.ts for invariants).
 import { persistStripeCustomerId, insertTrialGrant } from '../lib/users.js'
+import { withAuth } from '../lib/with-auth.js'
 
 /**
  * Step 2 of the 2-hour trial flow: called by the frontend after the
@@ -18,14 +16,7 @@ import { persistStripeCustomerId, insertTrialGrant } from '../lib/users.js'
  * state without recreating. The frontend may call this multiple times
  * (e.g. user clicks the success URL twice) and shouldn't be punished.
  */
-export const handler: APIGatewayProxyHandlerV2 = async (event) => {
-  await loadAppSecrets()
-  const auth = event.headers.authorization || event.headers.Authorization
-  if (!auth?.startsWith('Bearer ')) return { statusCode: 401, body: 'unauthorized' }
-  let payload
-  try { payload = await verifyJwt(auth.slice(7)) }
-  catch { return { statusCode: 401, body: 'invalid' } }
-
+export const handler = withAuth('trial-confirm', async (event, payload) => {
   const body = JSON.parse(event.body || '{}') as { session_id?: string }
   if (!body.session_id) {
     return { statusCode: 400, body: JSON.stringify({ error: 'session_id_required' }) }
@@ -86,4 +77,4 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ok: true, expires_at: expiresAt.toISOString(), limit_secs: TRIAL_LIMIT_SECS }),
   }
-}
+})

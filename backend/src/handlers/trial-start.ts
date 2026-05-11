@@ -1,13 +1,11 @@
-import type { APIGatewayProxyHandlerV2 } from 'aws-lambda'
 import Stripe from 'stripe'
-import { verifyJwt } from '../lib/auth.js'
 import { query } from '../lib/db.js'
-import { loadAppSecrets } from '../lib/env.js'
 import { getStripe } from '../lib/stripe.js'
 // Billing-write helpers (see lib/users.ts for invariants). The
 // trial_grants SELECT (eligibility gate) stays inline — outside the
 // users.ts helper surface.
 import { getUserStripeContext, clearStripeCustomerIdIfStale } from '../lib/users.js'
+import { withAuth } from '../lib/with-auth.js'
 
 /**
  * Step 1 of the 2-hour trial flow: create a Stripe Checkout Session in
@@ -35,14 +33,7 @@ import { getUserStripeContext, clearStripeCustomerIdIfStale } from '../lib/users
  * but we re-check here to defend against stale clients and direct
  * API hits.
  */
-export const handler: APIGatewayProxyHandlerV2 = async (event) => {
-  await loadAppSecrets()
-  const auth = event.headers.authorization || event.headers.Authorization
-  if (!auth?.startsWith('Bearer ')) return { statusCode: 401, body: 'unauthorized' }
-  let payload
-  try { payload = await verifyJwt(auth.slice(7)) }
-  catch { return { statusCode: 401, body: 'invalid' } }
-
+export const handler = withAuth('trial-start', async (_event, payload) => {
   // One-trial-per-account check.
   const existing = await query<{ user_id: string }>(
     `SELECT user_id FROM trial_grants WHERE user_id = $1`, [payload.sub],
@@ -97,7 +88,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url: session.url, session_id: session.id }),
   }
-}
+})
 
 async function createSetupSessionResilient(
   stripe: Stripe,

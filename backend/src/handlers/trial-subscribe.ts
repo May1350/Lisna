@@ -1,13 +1,11 @@
-import type { APIGatewayProxyHandlerV2 } from 'aws-lambda'
 import Stripe from 'stripe'
-import { verifyJwt } from '../lib/auth.js'
 import { query } from '../lib/db.js'
-import { loadAppSecrets } from '../lib/env.js'
 import { getStripe } from '../lib/stripe.js'
 // Billing-write helpers (see lib/users.ts for invariants). The
 // trial_grants SELECT at the top of the handler stays inline — it
 // reads grant-state fields that aren't part of the users.ts surface.
 import { promoteToPro, markTrialConverted } from '../lib/users.js'
+import { withAuth } from '../lib/with-auth.js'
 
 /**
  * Trial-end "Pro 가입 (원클릭)" path. User has used their 2 hours
@@ -26,14 +24,7 @@ import { promoteToPro, markTrialConverted } from '../lib/users.js'
  * Stripe-hosted Checkout (existing /v1/billing/checkout). Don't
  * silently leave the user in a half-state.
  */
-export const handler: APIGatewayProxyHandlerV2 = async (event) => {
-  await loadAppSecrets()
-  const auth = event.headers.authorization || event.headers.Authorization
-  if (!auth?.startsWith('Bearer ')) return { statusCode: 401, body: 'unauthorized' }
-  let payload
-  try { payload = await verifyJwt(auth.slice(7)) }
-  catch { return { statusCode: 401, body: 'invalid' } }
-
+export const handler = withAuth('trial-subscribe', async (_event, payload) => {
   const rows = await query<{
     stripe_payment_method_id: string | null
     stripe_customer_id: string | null
@@ -116,4 +107,4 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ok: true, subscription_id: subscription.id }),
   }
-}
+})

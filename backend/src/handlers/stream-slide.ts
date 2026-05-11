@@ -1,13 +1,11 @@
-import type { APIGatewayProxyHandlerV2 } from 'aws-lambda'
-import { verifyJwt } from '../lib/auth.js'
 import { sendToSession } from '../lib/ws-broadcast.js'
 import { query } from '../lib/db.js'
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
 import { presignGet } from '../lib/s3-presigned.js'
-import { loadAppSecrets } from '../lib/env.js'
 import { createHash } from 'node:crypto'
 // Body schema now lives in the shared workspace — see shared/src/index.ts.
 import { streamSlideBodySchema as Body } from 'shared'
+import { withAuth } from '../lib/with-auth.js'
 
 const s3 = new S3Client({})
 
@@ -19,14 +17,7 @@ function normalizeUrl(u: string): string {
   return url.toString()
 }
 
-export const handler: APIGatewayProxyHandlerV2 = async (event) => {
-  await loadAppSecrets()
-  const auth = event.headers.authorization || event.headers.Authorization
-  if (!auth?.startsWith('Bearer ')) return { statusCode: 401, body: 'unauthorized' }
-  let payload
-  try { payload = await verifyJwt(auth.slice(7)) }
-  catch { return { statusCode: 401, body: 'invalid token' } }
-
+export const handler = withAuth('stream-slide', async (event, payload) => {
   const body = Body.parse(JSON.parse(event.body || '{}'))
   const buf = Buffer.from(body.image_b64, 'base64')
   // SHA256 of the JPEG bytes — used as both the dedup key and the S3
@@ -111,4 +102,4 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ session_id: sessionId, key, url: presignedUrl }),
   }
-}
+})

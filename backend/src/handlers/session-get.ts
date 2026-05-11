@@ -1,12 +1,11 @@
-import type { APIGatewayProxyHandlerV2 } from 'aws-lambda'
-import { verifyJwt } from '../lib/auth.js'
+import type { APIGatewayProxyHandlerV2, APIGatewayProxyResultV2 } from 'aws-lambda'
 import { query } from '../lib/db.js'
-import { loadAppSecrets } from '../lib/env.js'
 import { presignGet } from '../lib/s3-presigned.js'
 import { isWarmup, warmupResponse } from '../lib/warmup.js'
 import { outlineToObsidianMarkdown } from '../lib/markdown-obsidian.js'
 import type { Outline } from '../lib/curator.js'
 import { createHash } from 'node:crypto'
+import { withAuth } from '../lib/with-auth.js'
 
 function normalizeUrl(u: string): string {
   const url = new URL(u); url.hash = ''; return url.toString()
@@ -15,15 +14,7 @@ function normalizeUrl(u: string): string {
 interface SlideRow { ts: number; key: string }
 interface TranscriptRow { ts: number; text: string }
 
-export const handler: APIGatewayProxyHandlerV2 = async (event) => {
-  if (isWarmup(event)) return warmupResponse()
-  await loadAppSecrets()
-  const auth = event.headers.authorization || event.headers.Authorization
-  if (!auth?.startsWith('Bearer ')) return { statusCode: 401, body: 'unauthorized' }
-  let payload
-  try { payload = await verifyJwt(auth.slice(7)) }
-  catch { return { statusCode: 401, body: 'invalid token' } }
-
+const authed = withAuth('session-get', async (event, payload): Promise<APIGatewayProxyResultV2> => {
   const url = event.queryStringParameters?.url
   if (!url) return { statusCode: 400, body: 'missing url' }
   const format = event.queryStringParameters?.format ?? 'json'
@@ -118,4 +109,9 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ session }),
   }
+})
+
+export const handler: APIGatewayProxyHandlerV2 = async (event, ctx, cb) => {
+  if (isWarmup(event)) return warmupResponse()
+  return (await authed(event, ctx, cb)) as APIGatewayProxyResultV2
 }

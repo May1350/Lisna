@@ -17,16 +17,15 @@
 // Input: { session_id }. Auth: Bearer JWT.
 // Output: { outline } (also broadcast over WS for any other clients).
 
-import type { APIGatewayProxyHandlerV2 } from 'aws-lambda'
-import { verifyJwt } from '../lib/auth.js'
+import type { APIGatewayProxyHandlerV2, APIGatewayProxyResultV2 } from 'aws-lambda'
 import { curateOutline, type Outline } from '../lib/curator.js'
 import { sendToSession } from '../lib/ws-broadcast.js'
 import { query } from '../lib/db.js'
-import { loadAppSecrets } from '../lib/env.js'
 import { isWarmup, warmupResponse } from '../lib/warmup.js'
 import { classifyUpstreamError, publishUpstreamAlert } from '../lib/upstream-alert.js'
 // Body schema now lives in the shared workspace — see shared/src/index.ts.
 import { sessionCurateBodySchema as Body } from 'shared'
+import { withAuth } from '../lib/with-auth.js'
 
 // Launch-period diagnostic breadcrumbs, gated behind LISNA_DEBUG=1.
 // Default-off pays zero CloudWatch ingestion cost in normal ops.
@@ -43,24 +42,9 @@ const dbg = (stage: string, fields: Record<string, unknown>): void => {
 
 interface TranscriptEntry { ts: number; text: string }
 
-export const handler: APIGatewayProxyHandlerV2 = async (event) => {
-  if (isWarmup(event)) return warmupResponse()
-  await loadAppSecrets()
+const authed = withAuth('session-curate', async (event, payload): Promise<APIGatewayProxyResultV2> => {
   const reqId = event.requestContext?.requestId ?? 'no-rid'
-  const hasAuth = !!(event.headers.authorization || event.headers.Authorization)
-  dbg('entry', { reqId, hasAuth, bodyLen: (event.body ?? '').length })
-  const auth = event.headers.authorization || event.headers.Authorization
-  if (!auth?.startsWith('Bearer ')) {
-    dbg('exit', { reqId, status: 401, reason: 'no_bearer' })
-    return { statusCode: 401, body: 'unauthorized' }
-  }
-
-  let payload
-  try { payload = await verifyJwt(auth.slice(7)) }
-  catch (e) {
-    dbg('exit', { reqId, status: 401, reason: 'jwt_invalid', err: e instanceof Error ? e.message : String(e) })
-    return { statusCode: 401, body: 'invalid token' }
-  }
+  dbg('entry', { reqId, sub: payload.sub, bodyLen: (event.body ?? '').length })
 
   let body: ReturnType<typeof Body.parse>
   try {
@@ -223,4 +207,9 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       console.warn('[session-curate] lock release failed (TTL will recover):', e instanceof Error ? e.message : e)
     }
   }
+})
+
+export const handler: APIGatewayProxyHandlerV2 = async (event, ctx, cb) => {
+  if (isWarmup(event)) return warmupResponse()
+  return (await authed(event, ctx, cb)) as APIGatewayProxyResultV2
 }

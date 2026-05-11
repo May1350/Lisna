@@ -1,15 +1,14 @@
-import type { APIGatewayProxyHandlerV2 } from 'aws-lambda'
-import { verifyJwt } from '../lib/auth.js'
+import type { APIGatewayProxyHandlerV2, APIGatewayProxyResultV2 } from 'aws-lambda'
 import { transcribeChunk } from '../lib/stt.js'
 import { checkQuota, recordUsage } from '../lib/quota.js'
 import { sendToSession } from '../lib/ws-broadcast.js'
 import { query } from '../lib/db.js'
-import { loadAppSecrets } from '../lib/env.js'
 import { isWarmup, warmupResponse } from '../lib/warmup.js'
 import { classifyUpstreamError, publishUpstreamAlert } from '../lib/upstream-alert.js'
 import { createHash } from 'node:crypto'
 // Body schema now lives in the shared workspace — see shared/src/index.ts.
 import { streamAudioBodySchema as Body } from 'shared'
+import { withAuth } from '../lib/with-auth.js'
 
 // Phase 6.1 (2026-04-29): on-demand curator pivot.
 // stream-audio is now ONLY the live STT path:
@@ -40,16 +39,7 @@ function normalizeUrl(u: string): string {
   return url.toString()
 }
 
-export const handler: APIGatewayProxyHandlerV2 = async (event) => {
-  if (isWarmup(event)) return warmupResponse()
-  await loadAppSecrets()
-  const auth = event.headers.authorization || event.headers.Authorization
-  if (!auth?.startsWith('Bearer ')) return { statusCode: 401, body: 'unauthorized' }
-
-  let payload
-  try { payload = await verifyJwt(auth.slice(7)) }
-  catch { return { statusCode: 401, body: 'invalid token' } }
-
+const authed = withAuth('stream-audio', async (event, payload): Promise<APIGatewayProxyResultV2> => {
   const body = Body.parse(JSON.parse(event.body || '{}'))
   const userPlan = payload.plan
   const quota = await checkQuota(payload.sub, userPlan)
@@ -187,6 +177,11 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     quota: liveSnapshot,
     ...(chunkError ? { chunk_error: chunkError } : {}),
   })
+})
+
+export const handler: APIGatewayProxyHandlerV2 = async (event, ctx, cb) => {
+  if (isWarmup(event)) return warmupResponse()
+  return (await authed(event, ctx, cb)) as APIGatewayProxyResultV2
 }
 
 function ok(sessionId: string, extra: Record<string, unknown>) {

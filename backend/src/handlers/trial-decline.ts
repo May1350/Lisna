@@ -1,9 +1,7 @@
-import type { APIGatewayProxyHandlerV2 } from 'aws-lambda'
-import { verifyJwt } from '../lib/auth.js'
 import { query } from '../lib/db.js'
-import { loadAppSecrets } from '../lib/env.js'
 import { getStripe } from '../lib/stripe.js'
 import { expireTrialGrant } from '../lib/trial.js'
+import { withAuth } from '../lib/with-auth.js'
 
 /**
  * Trial-end "가입 안함" path. User has used their 2 hours and chose
@@ -17,14 +15,7 @@ import { expireTrialGrant } from '../lib/trial.js'
  * month). They can come back next month with a fresh quota; they
  * cannot start a second trial.
  */
-export const handler: APIGatewayProxyHandlerV2 = async (event) => {
-  await loadAppSecrets()
-  const auth = event.headers.authorization || event.headers.Authorization
-  if (!auth?.startsWith('Bearer ')) return { statusCode: 401, body: 'unauthorized' }
-  let payload
-  try { payload = await verifyJwt(auth.slice(7)) }
-  catch { return { statusCode: 401, body: 'invalid' } }
-
+export const handler = withAuth('trial-decline', async (_event, payload) => {
   const grant = await query<{ stripe_payment_method_id: string | null; converted_at: Date | null }>(
     `SELECT stripe_payment_method_id, converted_at
        FROM trial_grants WHERE user_id = $1`,
@@ -48,4 +39,4 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ok: true }),
   }
-}
+})
