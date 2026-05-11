@@ -16,7 +16,7 @@ cdk.out/
 extension/dist/
 backend/dist/
 web/.next/
-.vercel
+.vercel/
 lisna-extension.zip
 lisna-extension-*.zip
 .claude/

@@ -1,4 +1,8 @@
-export const metadata = { title: '利用規約 - Lisna' }
+export const metadata = {
+  title: '利用規約 - Lisna',
+  description: 'Lisna サービスの利用規約。',
+  robots: { index: true, follow: true },
+}
 
 const containerStyle: React.CSSProperties = {
   maxWidth: 720,

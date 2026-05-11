@@ -1,4 +1,8 @@
-export const metadata = { title: 'プライバシーポリシー - Lisna' }
+export const metadata = {
+  title: 'プライバシーポリシー - Lisna',
+  description: 'Lisna が取得・利用する情報の取り扱いについて。',
+  robots: { index: true, follow: true },
+}
 
 const containerStyle: React.CSSProperties = {
   maxWidth: 720,
