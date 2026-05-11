@@ -115,11 +115,6 @@ export async function loginWithGoogle(currentUrl?: string): Promise<LoginResult>
       updated_at?: string
     } | null
   }
-  // Diagnostic: confirm /v1/auth/google returned a JWT-shaped token.
-  // Length only — never log the actual value. Drop once login flow
-  // is stable.
-  // eslint-disable-next-line no-console
-  console.log('[SW loginWithGoogle] token received', { tokenLen: data.token?.length ?? 0, hasUser: !!data.user })
   await setToken(data.token)
   await setUser(data.user)
   return { user: data.user, currentSession: data.currentSession }
@@ -170,11 +165,5 @@ export async function authedFetch(
   // Lambda Function URLs (e.g. /v1/session/curate) that live outside
   // API Gateway. Otherwise prepend API_BASE_URL to the path as before.
   const url = absoluteUrl || `${API_BASE_URL}${path}`
-  // Diagnostic: log auth state at request time. Token VALUE is never
-  // logged (secret); only presence + length to distinguish "no token
-  // in storage" from "token of wrong shape". Drop once login flow is
-  // stable.
-  // eslint-disable-next-line no-console
-  console.log('[SW authedFetch]', { path, tokenPresent: !!token, tokenLen: token?.length ?? 0 })
   return fetch(url, { ...init, headers })
 }
