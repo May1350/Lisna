@@ -1,7 +1,10 @@
 import { mountInlineButton, type InlineButtonHandle, type InlineButtonState } from './inline-button'
 import { mountModal } from './in-page-modal'
-import { AudioCapture, blobToBase64 } from './audio-capture'
-import { SlideDetector, type Slide } from './slide-detector'
+// Type-only imports — the actual classes are dynamically `await import`-ed
+// inside startCapture() so iframes that never start a capture don't pay
+// the parse cost. CRX plugin v2 auto-registers the lazy chunk in WAR.
+import type { AudioCapture } from './audio-capture'
+import type { SlideDetector, Slide } from './slide-detector'
 import { getEnabled } from '../shared/storage'
 import type { QuotaSnapshot } from '../shared/types'
 import { CURATE_URL } from '../shared/config'
@@ -601,6 +604,17 @@ async function startCapture(url: string): Promise<void> {
   if (activeVideo.readyState < 2) { warn('startCapture: video readyState<2'); return }
   // Already capturing? Skip.
   if (capture) { log('startCapture: already capturing'); return }
+
+  // Lazy-load the audio/slide modules ONLY when a capture actually
+  // starts. The content script runs in every iframe (manifest's
+  // all_frames: true), and most iframes never reach this code path —
+  // eagerly importing these modules into every frame was pure waste.
+  // CRX plugin v2 handles the dynamic-import chunk emission + WAR
+  // registration automatically.
+  const [{ AudioCapture, blobToBase64 }, { SlideDetector }] = await Promise.all([
+    import('./audio-capture'),
+    import('./slide-detector'),
+  ])
 
   log('startCapture: starting', { url, readyState: activeVideo.readyState, paused: activeVideo.paused })
 
