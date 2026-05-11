@@ -8,6 +8,16 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   await loadAppSecrets()
   const auth = event.headers.authorization || event.headers.Authorization
   if (!auth?.startsWith('Bearer ')) {
+    // Diagnostic: surface why this rejected. Catch path-2 (verifyJwt
+    // throw) and path-1 (no Bearer) used to be indistinguishable in
+    // CloudWatch — both returned plain 401. This split is the bare
+    // minimum needed to bisect login regressions without re-deploying.
+    // eslint-disable-next-line no-console
+    console.warn('[auth-me] 401 unauthorized: no Bearer header', {
+      hasAuth: !!auth,
+      authPrefix: auth?.slice(0, 16),
+      hostHeader: event.headers.host,
+    })
     return { statusCode: 401, body: JSON.stringify({ error: 'unauthorized' }) }
   }
   try {
@@ -60,7 +70,16 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ user: { ...user, trial_used }, quota }),
     }
-  } catch {
+  } catch (e) {
+    // Diagnostic (same rationale as the path-1 log above): record the
+    // exact verifyJwt failure reason so JWT_SECRET drift, expired
+    // tokens, malformed tokens, and DB/quota throws inside the try
+    // are distinguishable in CloudWatch.
+    // eslint-disable-next-line no-console
+    console.warn('[auth-me] 401 invalid: verifyJwt or downstream threw', {
+      err: e instanceof Error ? e.message : String(e),
+      tokenLen: auth.slice(7).length,
+    })
     return { statusCode: 401, body: JSON.stringify({ error: 'invalid token' }) }
   }
 }
