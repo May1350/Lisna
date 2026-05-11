@@ -1,0 +1,241 @@
+/* Apple Liquid-Glass surface (Variant 3 — Heavy Frosted, Control
+ * Center pillar style). Three ingredients that the previous
+ * implementation lacked:
+ *   1. blur(60) saturate(180%) brightness(1.05) — bright + vivid feel
+ *      of light passing through real glass
+ *   2. inset 0 1px 0 rgba(white,0.18) — top-edge highlight that
+ *      simulates light hitting the glass surface (this single shadow
+ *      is what makes a translucent surface read as GLASS rather than
+ *      "translucent paint")
+ *   3. inset 0 -1px 0 rgba(black,0.22) — bottom-edge recess that
+ *      gives the pill a sense of physical thickness
+ * Surface tint is ink-900 (warm dark, R26 G22 B20 — adjacent to the
+ * sidepanel's ink-900) at 55% alpha so the underlying video shows
+ * through in muted form. */
+.__sh_btn__ {
+  position: absolute;
+  z-index: 999999;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0.5px solid rgba(255, 255, 255, 0.10);
+  border-radius: 9999px;
+  background: rgba(26, 22, 20, 0.55);
+  backdrop-filter: blur(60px) saturate(180%) brightness(1.05);
+  -webkit-backdrop-filter: blur(60px) saturate(180%) brightness(1.05);
+  color: #FFFEFB;
+  box-shadow:
+    inset 0  1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.22),
+    0 16px 44px rgba(0, 0, 0, 0.36),
+    0 2px 6px rgba(0, 0, 0, 0.14);
+  cursor: pointer;
+  user-select: none;
+  box-sizing: border-box;
+  transition: transform 200ms cubic-bezier(0.16,1,0.3,1), background-color 200ms cubic-bezier(0.16,1,0.3,1);
+}
+.__sh_btn__:hover {
+  background: rgba(26, 22, 20, 0.72);
+  transform: translateY(-1px);
+}
+.__sh_btn__ svg { display: block; }
+
+/* Corner status badge — small warn-red dot that pulses to indicate
+ * "background recording in progress". Positioned ABSOLUTELY relative
+ * to the main button (the button has position:absolute so the badge's
+ * absolute coords inside the button are local). Visual semantic is
+ * "iOS-style notification dot" — purely a status marker, NOT a click
+ * target. Click target is still the whole button (= open modal).
+ *
+ * Color: --warn-red #B91C1C (DESIGN.md §3.3 — recording / 100% / live
+ * status). NOT Tailwind's red-500 (#ef4444) which is too pink-shifted
+ * against the warm ink palette. */
+.__sh_status_badge__ {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: #B91C1C;
+  /* Ink-900 ring to lift the dot off the (translucent) button surface
+   * even when the underlying video is also reddish. */
+  box-shadow:
+    0 0 0 1.5px rgba(26, 22, 20, 0.92),
+    0 0 0 0 rgba(185, 28, 28, 0.55);
+  animation: __sh_badge_pulse__ 1.6s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes __sh_badge_pulse__ {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1.5px rgba(26, 22, 20, 0.92),
+      0 0 0 0 rgba(185, 28, 28, 0.50);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1.5px rgba(26, 22, 20, 0.92),
+      0 0 0 5px rgba(185, 28, 28, 0);
+  }
+}
+
+/* First-time onboarding: until the user has clicked the button at
+ * least once, the idle button glows in a pulsing peach halo and a
+ * small label appears next to it pointing at the click target.
+ * Both auto-clear after the user clicks OR after 30 s.
+ *
+ * Color: --terra-soft #FED7AA (NOT --terra solid). DESIGN.md §1.4
+ * reserves --terra solid for value-bearing payment / Pro CTA chunks
+ * exclusively; using it on a generic onboarding signal would compete
+ * with the Pro upgrade slot once the user encounters one. terra-soft
+ * is the same warm peach already used on the tooltip arrow, so the
+ * onboarding signal reads as one consistent palette.
+ */
+.__sh_first_glow__ {
+  animation: __sh_first_glow__ 1.6s ease-in-out infinite;
+}
+@keyframes __sh_first_glow__ {
+  0%, 100% {
+    box-shadow:
+      inset 0  1px 0 rgba(255, 255, 255, 0.18),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.22),
+      0 16px 44px rgba(0, 0, 0, 0.36),
+      0 2px 6px rgba(0, 0, 0, 0.14),
+      0 0 0 0 rgba(254, 215, 170, 0.65);
+  }
+  50% {
+    box-shadow:
+      inset 0  1px 0 rgba(255, 255, 255, 0.18),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.22),
+      0 16px 44px rgba(0, 0, 0, 0.36),
+      0 2px 6px rgba(0, 0, 0, 0.14),
+      0 0 0 12px rgba(254, 215, 170, 0);
+  }
+}
+.__sh_onboarding_tooltip__ {
+  position: absolute;
+  z-index: 999999;
+  background: rgba(26, 22, 20, 0.96);
+  color: #FFFEFB;
+  font: 500 12px/1.4 -apple-system, "Hiragino Sans", "Apple SD Gothic Neo", sans-serif;
+  padding: 6px 11px;
+  border-radius: 8px;
+  white-space: nowrap;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    0 6px 24px rgba(26, 22, 20, 0.45);
+  pointer-events: none;
+  animation: __sh_tooltip_in__ 280ms cubic-bezier(0.16,1,0.3,1) both;
+}
+.__sh_onboarding_tooltip__ .__sh_arrow__ {
+  display: inline-block;
+  margin-left: 4px;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-weight: 400;
+  color: #FED7AA;
+  animation: __sh_arrow_nudge__ 1.2s ease-in-out infinite;
+}
+@keyframes __sh_arrow_nudge__ {
+  0%, 100% { transform: translateX(0); }
+  50%      { transform: translateX(3px); }
+}
+.__sh_onboarding_tooltip__::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: -5px;
+  transform: translateY(-50%);
+  border: 5px solid transparent;
+  border-left-color: rgba(26, 22, 20, 0.96);
+}
+@keyframes __sh_tooltip_in__ {
+  from { opacity: 0; transform: translateX(8px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* Quick-disable × badge. Sits in the top-left of the main button
+ * group, slightly overlapping. Hidden by default; revealed when the
+ * pointer hovers anywhere over the button group. Click → message SW
+ * to set sh.enabled=false + schedule re-enable alarm. The user gets
+ * a top-of-viewport toast confirming the duration so the action
+ * isn't silent. */
+.__sh_disable_btn__ {
+  position: absolute;
+  z-index: 1000000;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0.5px solid rgba(255, 255, 255, 0.16);
+  border-radius: 9999px;
+  background: rgba(26, 22, 20, 0.96);
+  color: rgba(255, 254, 251, 0.9);
+  font: 700 11px/18px -apple-system, "Hiragino Sans", "Apple SD Gothic Neo", sans-serif;
+  text-align: center;
+  cursor: pointer;
+  user-select: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    0 2px 6px rgba(26, 22, 20, 0.40);
+  opacity: 0;
+  transform: scale(0.85);
+  transition: opacity 160ms ease, transform 160ms ease, background-color 160ms ease;
+  pointer-events: none;
+}
+/* Reveal when hovering the main button OR the disable badge itself.
+ * Both selectors needed because the badge sits OUTSIDE the main
+ * button's bounding box, so :hover on the main button alone won't
+ * keep it visible while the cursor moves toward it. */
+.__sh_btn__:hover ~ .__sh_disable_btn__,
+.__sh_disable_btn__:hover {
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
+}
+.__sh_disable_btn__:hover {
+  background: rgba(185, 28, 28, 0.95);
+}
+
+/* Top-of-viewport toast for confirmation of quick-disable.
+ * Same Liquid-Glass recipe as the main button but on a wider, taller
+ * pill so it reads as a notification panel rather than a button. */
+.__sh_toast__ {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 92vw;
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 0.5px solid rgba(255, 255, 255, 0.10);
+  background: rgba(26, 22, 20, 0.65);
+  backdrop-filter: blur(40px) saturate(180%) brightness(1.05);
+  -webkit-backdrop-filter: blur(40px) saturate(180%) brightness(1.05);
+  color: #FFFEFB;
+  font: 500 13px/1.4 -apple-system, "Hiragino Sans", "Apple SD Gothic Neo", "Segoe UI", sans-serif;
+  box-shadow:
+    inset 0  1px 0 rgba(255, 255, 255, 0.16),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.22),
+    0 12px 32px rgba(26, 22, 20, 0.40);
+  animation: __sh_toast_in__ 220ms cubic-bezier(0.16,1,0.3,1) both;
+}
+.__sh_toast__ button {
+  background: transparent;
+  color: #FED7AA;
+  border: 0;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font: 600 12px/1 inherit;
+}
+.__sh_toast__ button:hover { background: rgba(254, 215, 170, 0.18); }
+@keyframes __sh_toast_in__ {
+  from { opacity: 0; transform: translate(-50%, -8px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
