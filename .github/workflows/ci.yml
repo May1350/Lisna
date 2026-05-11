@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Avoid stacking parallel CI runs when commits land back-to-back.
+# In-progress runs for an outdated commit are cancelled so the
+# latest commit's verdict is what we wait on.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies (frozen lockfile)
+        # Frozen-lockfile is the load-bearing safety: this is what catches
+        # a stale or hand-edited pnpm-lock.yaml before it lands on main.
+        # Local `pnpm install` regenerates the lockfile silently — only
+        # this CI step trips on the drift.
+        run: pnpm install --frozen-lockfile
+
+      # ── Backend ───────────────────────────────────────────────────────
+      - name: Backend — typecheck (tsc)
+        run: pnpm --filter backend build
+
+      - name: Backend — tests (104 vitest)
+        run: pnpm --filter backend test
+
+      # ── Extension ─────────────────────────────────────────────────────
+      - name: Extension — typecheck
+        run: pnpm --filter extension typecheck
+
+      - name: Extension — tests
+        run: pnpm --filter extension test
+
+      - name: Extension — build (dev mode, no CWS_BUILD)
+        # CWS_BUILD=1 omits the `key` field for store submission;
+        # we leave it default in CI so the build path that dev users
+        # actually load is what gets verified. Also: no .env.production
+        # in CI (gitignored) → shared/config.ts falls back to localhost
+        # URLs, which is fine for build verification (no deploy).
+        run: pnpm --filter extension build
+
+      # ── Web ───────────────────────────────────────────────────────────
+      - name: Web — build (Next.js)
+        # `next build` covers TypeScript checks + static-page generation.
+        # No separate typecheck/test scripts exist for this workspace yet.
+        run: pnpm --filter lisna-web build
