@@ -7,7 +7,7 @@
     "build": "pnpm -r build",
     "dev:extension": "pnpm --filter extension dev",
     "dev:backend": "pnpm --filter backend dev",
-    "dev:web": "pnpm --filter web dev",
+    "dev:web": "pnpm --filter lisna-web dev",
     "deploy:backend": "pnpm --filter backend deploy"
   }
 }
