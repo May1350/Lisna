@@ -1,6 +1,6 @@
-import Stripe from 'stripe'
 import { query } from '../lib/db.js'
 import { loadAppSecrets } from '../lib/env.js'
+import { getStripe } from '../lib/stripe.js'
 import { expireTrialGrant } from '../lib/trial.js'
 
 /**
@@ -15,7 +15,7 @@ import { expireTrialGrant } from '../lib/trial.js'
  */
 export const handler = async (): Promise<{ processed: number; errors: number }> => {
   await loadAppSecrets()
-  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)
+  const stripe = await getStripe()
 
   // Cap per-run work — Stripe API call (~300 ms) × N rows must fit
   // inside the 2-min Lambda timeout. 500 rows ≈ 2.5 min worst case but

@@ -1,5 +1,6 @@
 import { Pool, type QueryResultRow } from 'pg'
-import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager'
+import { GetSecretValueCommand } from '@aws-sdk/client-secrets-manager'
+import { getSecretsManager } from './aws-clients.js'
 
 let pool: Pool | undefined
 
@@ -7,8 +8,7 @@ async function resolveConnectionString(): Promise<string> {
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL
   const arn = process.env.DB_SECRET_ARN
   if (!arn) throw new Error('Neither DATABASE_URL nor DB_SECRET_ARN set')
-  const sm = new SecretsManagerClient({})
-  const out = await sm.send(new GetSecretValueCommand({ SecretId: arn }))
+  const out = await getSecretsManager().send(new GetSecretValueCommand({ SecretId: arn }))
   const s = JSON.parse(out.SecretString!)
   return `postgres://${s.username}:${s.password}@${s.host}:${s.port}/${s.dbname || 'studyhelper'}`
 }

@@ -2,15 +2,13 @@ import type { APIGatewayProxyHandlerV2 } from 'aws-lambda'
 import Stripe from 'stripe'
 import { query } from '../lib/db.js'
 import { loadAppSecrets } from '../lib/env.js'
+import { getStripe } from '../lib/stripe.js'
 
 export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   await loadAppSecrets()
   const sig = event.headers['stripe-signature']
   if (!sig || !event.body) return { statusCode: 400, body: 'missing signature' }
-  // Do NOT pin apiVersion — see stripe-checkout.ts for the rationale.
-  // tl;dr: pin caused a production outage when Stripe deprecated
-  // '2025-09-30.acacia'. SDK default tracks the SDK install.
-  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)
+  const stripe = await getStripe()
 
   let evt: Stripe.Event
   try {

@@ -1,8 +1,8 @@
 import type { APIGatewayProxyHandlerV2 } from 'aws-lambda'
-import Stripe from 'stripe'
 import { verifyJwt } from '../lib/auth.js'
 import { query } from '../lib/db.js'
 import { loadAppSecrets } from '../lib/env.js'
+import { getStripe } from '../lib/stripe.js'
 import { expireTrialGrant } from '../lib/trial.js'
 
 /**
@@ -37,7 +37,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     return { statusCode: 409, body: JSON.stringify({ error: 'already_converted' }) }
   }
 
-  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)
+  const stripe = await getStripe()
   await expireTrialGrant(stripe, {
     user_id: payload.sub,
     stripe_payment_method_id: grant[0].stripe_payment_method_id,

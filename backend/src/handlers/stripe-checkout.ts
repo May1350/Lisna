@@ -3,6 +3,7 @@ import Stripe from 'stripe'
 import { verifyJwt } from '../lib/auth.js'
 import { query } from '../lib/db.js'
 import { loadAppSecrets } from '../lib/env.js'
+import { getStripe } from '../lib/stripe.js'
 
 export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   await loadAppSecrets()
@@ -12,15 +13,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   try { payload = await verifyJwt(auth.slice(7)) }
   catch { return { statusCode: 401, body: 'invalid' } }
 
-  // Do NOT pin apiVersion — use whatever version the installed Stripe
-  // SDK was built against. We previously pinned to '2025-09-30.acacia'
-  // which Stripe deprecated, taking down all upgrades with a 400
-  // "Invalid Stripe API version". The canonical Stripe-recommended
-  // pattern is "upgrade SDK ⇒ upgrade pinned version together"; the
-  // simplest expression of that is to let the SDK default. When we
-  // bump `stripe@^N` in package.json we get the SDK's then-current
-  // pinned version automatically and the typings stay in sync.
-  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)
+  const stripe = await getStripe()
   const userRows = await query<{ email: string; stripe_customer_id: string | null }>(
     `SELECT email, stripe_customer_id FROM users WHERE id = $1`, [payload.sub]
   )

@@ -3,6 +3,7 @@ import Stripe from 'stripe'
 import { verifyJwt } from '../lib/auth.js'
 import { query } from '../lib/db.js'
 import { loadAppSecrets } from '../lib/env.js'
+import { getStripe } from '../lib/stripe.js'
 
 /**
  * Trial-end "Pro 가입 (원클릭)" path. User has used their 2 hours
@@ -54,7 +55,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     return { statusCode: 500, body: JSON.stringify({ error: 'missing_pm_or_customer' }) }
   }
 
-  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)
+  const stripe = await getStripe()
 
   // Stripe requires the PM to be attached to the customer before it
   // can be used as default for a subscription. Detach is reversible,

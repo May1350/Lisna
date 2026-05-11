@@ -1,8 +1,8 @@
 import type { APIGatewayProxyHandlerV2 } from 'aws-lambda'
-import Stripe from 'stripe'
 import { verifyJwt } from '../lib/auth.js'
 import { query } from '../lib/db.js'
 import { loadAppSecrets } from '../lib/env.js'
+import { getStripe } from '../lib/stripe.js'
 import { TRIAL_LIMIT_SECS } from '../lib/quota.js'
 
 /**
@@ -30,7 +30,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     return { statusCode: 400, body: JSON.stringify({ error: 'session_id_required' }) }
   }
 
-  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)
+  const stripe = await getStripe()
   const session = await stripe.checkout.sessions.retrieve(body.session_id, {
     expand: ['setup_intent'],
   })

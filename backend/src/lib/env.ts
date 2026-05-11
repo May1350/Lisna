@@ -1,4 +1,5 @@
-import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager'
+import { GetSecretValueCommand } from '@aws-sdk/client-secrets-manager'
+import { getSecretsManager } from './aws-clients.js'
 
 let cachedSecrets: Record<string, string> | undefined
 
@@ -9,8 +10,7 @@ export async function loadAppSecrets(): Promise<Record<string, string>> {
     cachedSecrets = process.env as Record<string, string>
     return cachedSecrets
   }
-  const sm = new SecretsManagerClient({})
-  const out = await sm.send(new GetSecretValueCommand({ SecretId: arn }))
+  const out = await getSecretsManager().send(new GetSecretValueCommand({ SecretId: arn }))
   cachedSecrets = JSON.parse(out.SecretString!)
   // Promote secret values into process.env, but NEVER overwrite values
   // the Lambda already received from CDK environment. The AppSecret

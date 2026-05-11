@@ -3,6 +3,7 @@ import Stripe from 'stripe'
 import { verifyJwt } from '../lib/auth.js'
 import { query } from '../lib/db.js'
 import { loadAppSecrets } from '../lib/env.js'
+import { getStripe } from '../lib/stripe.js'
 
 /**
  * Step 1 of the 2-hour trial flow: create a Stripe Checkout Session in
@@ -60,7 +61,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     return { statusCode: 409, body: JSON.stringify({ error: 'already_pro' }) }
   }
 
-  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)
+  const stripe = await getStripe()
   const baseUrl = process.env.PUBLIC_WEB_BASE_URL ?? 'https://lisna.jp'
 
   // Setup mode collects a payment method without charging. Pass

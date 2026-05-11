@@ -27,6 +27,19 @@ import { isWarmup, warmupResponse } from '../lib/warmup.js'
 import { z } from 'zod'
 import { classifyUpstreamError, publishUpstreamAlert } from '../lib/upstream-alert.js'
 
+// Launch-period diagnostic breadcrumbs, gated behind LISNA_DEBUG=1.
+// Default-off pays zero CloudWatch ingestion cost in normal ops.
+// Flip the function's LISNA_DEBUG env var to '1' in the AWS Console
+// for ~10 min when probing an incident, then revert. Error/warn
+// lines below stay unconditional — those are real incidents.
+const DEBUG = process.env.LISNA_DEBUG === '1'
+const dbg = (stage: string, fields: Record<string, unknown>): void => {
+  // Preserve the prior 2-arg log shape (`[session-curate] <stage>` + fields)
+  // so any CloudWatch subscription filter / log-search query that keyed on
+  // the old single-token prefix keeps working after the gate.
+  if (DEBUG) console.log(`[session-curate] ${stage}`, fields)
+}
+
 const Body = z.object({
   session_id: z.string().uuid(),
   // Optional flag: when true, drop previousOutline entirely so the model
@@ -46,24 +59,19 @@ interface TranscriptEntry { ts: number; text: string }
 export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   if (isWarmup(event)) return warmupResponse()
   await loadAppSecrets()
-  // Diagnostic: every non-warmup invocation logs ONE structured line so
-  // CloudWatch can answer "what reason did this call exit with?" without
-  // an extra deploy. Removed once the launch period stabilises — the
-  // logs aren't free, but at this stage observing real failure modes is
-  // worth more than the per-line cost. See follow-up issue for cleanup.
   const reqId = event.requestContext?.requestId ?? 'no-rid'
   const hasAuth = !!(event.headers.authorization || event.headers.Authorization)
-  console.log('[session-curate] entry', { reqId, hasAuth, bodyLen: (event.body ?? '').length })
+  dbg('entry', { reqId, hasAuth, bodyLen: (event.body ?? '').length })
   const auth = event.headers.authorization || event.headers.Authorization
   if (!auth?.startsWith('Bearer ')) {
-    console.log('[session-curate] exit', { reqId, status: 401, reason: 'no_bearer' })
+    dbg('exit', { reqId, status: 401, reason: 'no_bearer' })
     return { statusCode: 401, body: 'unauthorized' }
   }
 
   let payload
   try { payload = await verifyJwt(auth.slice(7)) }
   catch (e) {
-    console.log('[session-curate] exit', { reqId, status: 401, reason: 'jwt_invalid', err: e instanceof Error ? e.message : String(e) })
+    dbg('exit', { reqId, status: 401, reason: 'jwt_invalid', err: e instanceof Error ? e.message : String(e) })
     return { statusCode: 401, body: 'invalid token' }
   }
 
@@ -71,10 +79,10 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   try {
     body = Body.parse(JSON.parse(event.body || '{}'))
   } catch (e) {
-    console.log('[session-curate] exit', { reqId, status: 400, reason: 'body_parse', err: e instanceof Error ? e.message : String(e) })
+    dbg('exit', { reqId, status: 400, reason: 'body_parse', err: e instanceof Error ? e.message : String(e) })
     throw e
   }
-  console.log('[session-curate] auth ok', { reqId, sub: payload.sub, sessionId: body.session_id, fullRewrite: !!body.full_rewrite })
+  dbg('auth ok', { reqId, sub: payload.sub, sessionId: body.session_id, fullRewrite: !!body.full_rewrite })
 
   // Per-session curate lock (see migrations/003_curate_lock.sql).
   // Compare-and-swap on curate_lock_at: only acquire if either no
@@ -104,10 +112,10 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       [body.session_id, payload.sub],
     )
     if (owned.length === 0) {
-      console.log('[session-curate] exit', { reqId, status: 404, reason: 'session_not_found_or_wrong_owner' })
+      dbg('exit', { reqId, status: 404, reason: 'session_not_found_or_wrong_owner' })
       return { statusCode: 404, body: JSON.stringify({ error: 'session not found' }) }
     }
-    console.log('[session-curate] exit', { reqId, status: 409, reason: 'lock_held' })
+    dbg('exit', { reqId, status: 409, reason: 'lock_held' })
     return {
       statusCode: 409,
       headers: { 'Content-Type': 'application/json' },
@@ -132,11 +140,11 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     const transcripts = rows[0]?.transcripts ?? []
     const previousOutline = rows[0]?.outline ?? null
 
-    console.log('[session-curate] db read', { reqId, transcriptCount: transcripts.length, hasPrev: !!previousOutline })
+    dbg('db read', { reqId, transcriptCount: transcripts.length, hasPrev: !!previousOutline })
     // Empty session — nothing to curate. Caller should retry once the
     // user has actually played some audio.
     if (transcripts.length === 0) {
-      console.log('[session-curate] exit', { reqId, status: 200, reason: 'no_transcripts_yet' })
+      dbg('exit', { reqId, status: 200, reason: 'no_transcripts_yet' })
       return {
         statusCode: 200,
         headers: { 'Content-Type': 'application/json' },
@@ -195,7 +203,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
         }),
       }
     }
-    console.log('[session-curate] curator ok', { reqId, durationMs: Date.now() - t0, sectionCount: outline.sections?.length ?? 0 })
+    dbg('curator ok', { reqId, durationMs: Date.now() - t0, sectionCount: outline.sections?.length ?? 0 })
 
     // Persist + broadcast.
     await query(
