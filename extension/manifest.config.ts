@@ -31,7 +31,18 @@ export default defineManifest({
   // No `default_locale` — we don't use chrome.i18n / __MSG_*__ message references
   // (all UI strings are inline plain Japanese). Setting default_locale without a
   // matching `_locales/<lang>/messages.json` makes Chrome reject the extension.
-  permissions: ['storage', 'sidePanel', 'identity', 'tabs', 'alarms'],
+  // NOTE: no 'tabs' permission. The three chrome.tabs APIs we use
+  // (create, sendMessage, query) all work without it:
+  //   - tabs.create({url, active}): never requires `tabs`.
+  //   - tabs.sendMessage(tabId, …): satisfied by host_permissions
+  //     below (<all_urls> matches every tab origin).
+  //   - tabs.query({...}): without `tabs`, the returned Tab objects
+  //     strip url/title/favIconUrl. Audited every call site
+  //     (sw/messaging.ts, sw/notify.ts, side-panel/App.tsx) — all
+  //     consume only `id`/`windowId`, which stay populated regardless.
+  // Dropping `tabs` removes the "this extension can access your tabs"
+  // install warning on CWS — a real conversion win.
+  permissions: ['storage', 'sidePanel', 'identity', 'alarms'],
   host_permissions: ['<all_urls>'],
   // OAuth2 client used by chrome.identity.getAuthToken — Chrome Extension
   // type credential pointed at this extension's ID. Lets us skip the
