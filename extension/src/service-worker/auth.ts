@@ -1,6 +1,10 @@
 import { setToken, setUser, getToken } from '../shared/storage'
 import type { User, SlideItem } from '../shared/types'
 import { API_BASE_URL } from '../shared/config'
+// Shared wire schema — backend handler at /v1/auth/google parses the
+// SAME zod schema this type derives from. Any field rename on either
+// side trips a compile error here, not a runtime 400.
+import type { AuthGoogleBody } from 'shared'
 
 // Outline shape mirrors backend/src/lib/curator.ts. Inline rather than imported
 // because the extension build doesn't pull from the backend tree.
@@ -78,13 +82,14 @@ async function getGoogleAccessToken(): Promise<string> {
 export async function loginWithGoogle(currentUrl?: string): Promise<LoginResult> {
   const accessToken = await getGoogleAccessToken()
 
+  const body = {
+    access_token: accessToken,
+    ...(currentUrl ? { current_url: currentUrl } : {}),
+  } satisfies AuthGoogleBody
   const r = await fetch(`${API_BASE_URL}/v1/auth/google`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      access_token: accessToken,
-      ...(currentUrl ? { current_url: currentUrl } : {}),
-    }),
+    body: JSON.stringify(body),
   })
   if (!r.ok) {
     // Surface the backend's structured `{error: "..."}` reason instead

@@ -12,6 +12,8 @@ import { consumeFeedbackPrefill } from '../shared/feedback-prefill'
 import type { User, QuotaSnapshot } from '../shared/types'
 import { useT, interpolate, getLang, getNoteLang, setLang, setNoteLang, type LanguageCode, type NoteLanguageCode } from '../shared/i18n'
 import type { Translations } from '../shared/i18n'
+// Shared wire schema for /v1/feedback — see shared/src/index.ts.
+import type { FeedbackBody } from 'shared'
 
 // Default URL for the Obsidian Local REST API plugin's HTTP endpoint.
 // This is the same value for every user — 127.0.0.1 means "this
@@ -234,7 +236,7 @@ export function Options() {
         // metadata keeps the form simple, and prefilled URLs are
         // always lecture URLs which the user already knows they sent.
         ...(fbContextUrl ? { context_url: fbContextUrl } : {}),
-      })
+      } satisfies FeedbackBody)
       setFbStatus({ kind: 'ok' })
       setFbMessage('')
       setFbContextUrl(undefined)

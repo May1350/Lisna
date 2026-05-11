@@ -4,20 +4,10 @@ import { query } from '../lib/db.js'
 import { loadAppSecrets } from '../lib/env.js'
 import { isWarmup, warmupResponse } from '../lib/warmup.js'
 import { createHash } from 'node:crypto'
-import { z } from 'zod'
-
-// Accept EITHER an id_token (legacy launchWebAuthFlow path) OR an access_token
-// (new chrome.identity.getAuthToken path). Exactly one is required.
-const Body = z.object({
-  id_token: z.string().min(1).optional(),
-  access_token: z.string().min(1).optional(),
-  // Optional: when present, the response also returns the user's existing
-  // session for that page (if any), so the modal can hydrate notes/slides
-  // without an extra GET /v1/session round-trip.
-  current_url: z.string().url().optional(),
-}).refine(d => !!d.id_token || !!d.access_token, {
-  message: 'either id_token or access_token is required',
-})
+// Body schema now lives in the shared workspace (single source of
+// truth — extension caller imports `AuthGoogleBody` type from the
+// same module to catch wire-shape drift at compile time).
+import { authGoogleBodySchema as Body } from 'shared'
 
 interface SlideRow { ts: number; ocr_text?: string; image_key?: string }
 interface OutlineRow { title: string; sections: unknown[] }

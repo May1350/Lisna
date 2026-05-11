@@ -12,24 +12,12 @@
 
 import type { APIGatewayProxyHandlerV2 } from 'aws-lambda'
 import { SNSClient, PublishCommand } from '@aws-sdk/client-sns'
-import { z } from 'zod'
 import { verifyJwt } from '../lib/auth.js'
 import { query } from '../lib/db.js'
 import { loadAppSecrets } from '../lib/env.js'
 import { isWarmup, warmupResponse } from '../lib/warmup.js'
-
-const Body = z.object({
-  category: z.enum(['bug', 'feature_request', 'other']),
-  // Match the schema CHECK + the UI's maxLength.
-  message: z.string().trim().min(1).max(2000),
-  // Optional context — extension passes the active page URL when
-  // available so we can repro bug reports without playing
-  // 20-questions over email.
-  context_url: z.string().url().optional(),
-  ext_version: z.string().max(32).optional(),
-  // The browser's UA string. Capped to avoid pathological inputs.
-  user_agent: z.string().max(512).optional(),
-})
+// Body schema now lives in the shared workspace — see shared/src/index.ts.
+import { feedbackBodySchema as Body } from 'shared'
 
 let _sns: SNSClient | undefined
 function snsClient(): SNSClient {

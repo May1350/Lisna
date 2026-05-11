@@ -5,6 +5,9 @@ import { mountModal } from './in-page-modal'
 // the parse cost. CRX plugin v2 auto-registers the lazy chunk in WAR.
 import type { AudioCapture } from './audio-capture'
 import type { SlideDetector, Slide } from './slide-detector'
+// Shared wire schemas — backend handlers parse the same zod schemas.
+// Wire-shape drift fails compile here rather than 400ing at runtime.
+import type { SessionCurateBody, StreamAudioBody, StreamSlideBody } from 'shared'
 import { getEnabled } from '../shared/storage'
 import type { QuotaSnapshot } from '../shared/types'
 import { CURATE_URL } from '../shared/config'
@@ -764,7 +767,7 @@ async function startCapture(url: string): Promise<void> {
         duration_sec: p.durationSec,
         audio_b64: p.audio_b64,
         mime: p.mime,
-      },
+      } satisfies StreamAudioBody,
     }) as Promise<ChunkOk | ChunkErr | undefined>
 
   // Best-effort drain of the backlog. Runs after a successful live
@@ -984,7 +987,9 @@ async function startCapture(url: string): Promise<void> {
       // `url` is required by the backend's Zod validator — same shape as
       // /v1/stream/audio. Omitting it produced a 500 (ZodError surfaced
       // as Internal Server Error) on every slide upload.
-      body: { session_id: session.id, url, ts: slide.ts, image_b64: b64, mime: 'image/jpeg' },
+      body: {
+        session_id: session.id, url, ts: slide.ts, image_b64: b64, mime: 'image/jpeg',
+      } satisfies StreamSlideBody,
     }) as { ok: boolean; error?: string; status?: number } | null
     if (!r) warn('slide POST: empty response')
     else if (!r.ok) warn('slide POST failed', { status: r.status, error: r.error })
@@ -1067,7 +1072,11 @@ async function startCapture(url: string): Promise<void> {
       // sessions but will 503 on long ones.
       path: '/v1/session/curate',
       absoluteUrl: CURATE_URL || undefined,
-      body: { session_id: session.id, full_rewrite: reason === 'manual_full', note_lang: noteLang },
+      body: {
+        session_id: session.id,
+        full_rewrite: reason === 'manual_full',
+        note_lang: noteLang,
+      } satisfies SessionCurateBody,
     }).then((r: unknown) => {
       // Backend response shapes:
       //   200 { outline: {...} }                            ← success

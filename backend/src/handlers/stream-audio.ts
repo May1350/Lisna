@@ -8,7 +8,8 @@ import { loadAppSecrets } from '../lib/env.js'
 import { isWarmup, warmupResponse } from '../lib/warmup.js'
 import { classifyUpstreamError, publishUpstreamAlert } from '../lib/upstream-alert.js'
 import { createHash } from 'node:crypto'
-import { z } from 'zod'
+// Body schema now lives in the shared workspace — see shared/src/index.ts.
+import { streamAudioBodySchema as Body } from 'shared'
 
 // Phase 6.1 (2026-04-29): on-demand curator pivot.
 // stream-audio is now ONLY the live STT path:
@@ -30,15 +31,6 @@ import { z } from 'zod'
 // cost from ~$0.12 to ~$0.005 — a 96% reduction with HIGHER quality
 // because the on-demand call sees the full transcript instead of a
 // 16 K-char tail window.
-
-const Body = z.object({
-  session_id: z.string().uuid(),
-  url: z.string().url(),
-  start_time_sec: z.number().nonnegative(),
-  duration_sec: z.number().positive(),
-  audio_b64: z.string().min(1),
-  mime: z.string(),
-})
 
 interface TranscriptEntry { ts: number; text: string }
 

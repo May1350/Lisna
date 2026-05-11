@@ -5,18 +5,11 @@ import { query } from '../lib/db.js'
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
 import { presignGet } from '../lib/s3-presigned.js'
 import { loadAppSecrets } from '../lib/env.js'
-import { z } from 'zod'
 import { createHash } from 'node:crypto'
+// Body schema now lives in the shared workspace — see shared/src/index.ts.
+import { streamSlideBodySchema as Body } from 'shared'
 
 const s3 = new S3Client({})
-
-const Body = z.object({
-  session_id: z.string().uuid(),
-  url: z.string().url(),
-  ts: z.number().nonnegative(),
-  image_b64: z.string().min(1),
-  mime: z.literal('image/jpeg'),
-})
 
 interface SlideRow { ts: number; key: string; hash?: string }
 

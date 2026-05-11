@@ -24,8 +24,9 @@ import { sendToSession } from '../lib/ws-broadcast.js'
 import { query } from '../lib/db.js'
 import { loadAppSecrets } from '../lib/env.js'
 import { isWarmup, warmupResponse } from '../lib/warmup.js'
-import { z } from 'zod'
 import { classifyUpstreamError, publishUpstreamAlert } from '../lib/upstream-alert.js'
+// Body schema now lives in the shared workspace — see shared/src/index.ts.
+import { sessionCurateBodySchema as Body } from 'shared'
 
 // Launch-period diagnostic breadcrumbs, gated behind LISNA_DEBUG=1.
 // Default-off pays zero CloudWatch ingestion cost in normal ops.
@@ -39,20 +40,6 @@ const dbg = (stage: string, fields: Record<string, unknown>): void => {
   // the old single-token prefix keeps working after the gate.
   if (DEBUG) console.log(`[session-curate] ${stage}`, fields)
 }
-
-const Body = z.object({
-  session_id: z.string().uuid(),
-  // Optional flag: when true, drop previousOutline entirely so the model
-  // gets a fresh-perspective rebuild (used by the manual "regenerate"
-  // button in the modal).
-  full_rewrite: z.boolean().optional(),
-  // Output language for the generated note. Mirrors the extension's
-  // "Note language" Options control (NoteLanguageCode in
-  // shared/i18n/types.ts). When absent or 'auto' the curator detects
-  // from the transcript. Older extension builds that don't send this
-  // field still work — the curator falls back to auto.
-  note_lang: z.enum(['auto', 'ja', 'en', 'ko', 'zh']).optional(),
-})
 
 interface TranscriptEntry { ts: number; text: string }
 
