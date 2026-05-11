@@ -213,7 +213,7 @@ export const zh: Translations = {
   login: {
     title: 'Lisna',
     tagline: '实时为讲座视频\n生成 AI 摘要与笔记',
-    button: '使用 Google 登录',
+    button: '使用当前 Google 账户',
     busy: '正在登录…',
     failPrefix: '登录失败:',
     privacyNote: '我们仅获取您的邮箱地址,\n不会保存您的密码。',

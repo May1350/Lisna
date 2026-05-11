@@ -214,7 +214,7 @@ export const ko: Translations = {
   login: {
     title: 'Lisna',
     tagline: '강의 영상을 실시간으로\n요약·정리해드립니다',
-    button: 'Google로 로그인',
+    button: '현재 Google 계정으로 로그인',
     busy: '로그인 중…',
     failPrefix: '로그인에 실패했습니다: ',
     privacyNote: '이메일 주소만 가져옵니다.\n비밀번호는 저장하지 않습니다.',

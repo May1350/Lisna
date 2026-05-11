@@ -214,7 +214,7 @@ export const en: Translations = {
   login: {
     title: 'Lisna',
     tagline: 'Real-time AI summaries\nfor lecture videos',
-    button: 'Sign in with Google',
+    button: 'Use current Google account',
     busy: 'Signing in…',
     failPrefix: 'Sign-in failed: ',
     privacyNote: 'We only retrieve your email address.\nWe never store your password.',

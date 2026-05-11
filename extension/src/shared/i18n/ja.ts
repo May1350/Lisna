@@ -213,7 +213,7 @@ export const ja: Translations = {
   login: {
     title: 'Lisna',
     tagline: '講義動画をリアルタイムで\n要約・整理します',
-    button: 'Google でログイン',
+    button: '現在のGoogleアカウントでログイン',
     busy: 'サインイン中…',
     failPrefix: 'ログインに失敗しました: ',
     privacyNote: 'メールアドレスのみ取得します。\nパスワードを保存することはありません。',

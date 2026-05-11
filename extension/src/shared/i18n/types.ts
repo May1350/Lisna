@@ -251,7 +251,7 @@ export interface Translations {
   login: {
     title: string                        // "Lisna"
     tagline: string                      // "講義動画をリアルタイムで\n要約・整理します"
-    button: string                       // "Google でログイン"
+    button: string                       // "現在のGoogleアカウントでログイン" — Chrome に紐づいたアカウントで即時ログイン
     busy: string                         // "サインイン中…"
     failPrefix: string                   // "ログインに失敗しました: "
     privacyNote: string                  // "メールアドレスのみ取得します。\nパスワードを保存することはありません。"
