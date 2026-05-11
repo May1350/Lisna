@@ -45,8 +45,7 @@ function MockHeader({ title }: { title: string }) {
   return h(
     'div',
     {
-      className:
-        'sticky top-0 z-10 flex items-center gap-2 px-3 py-2 bg-paper-100/95 backdrop-blur border-b border-paper-edge',
+      className: 'lisna-sticky-toolbar',
     },
     h(
       'button',

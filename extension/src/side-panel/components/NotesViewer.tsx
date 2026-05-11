@@ -127,7 +127,7 @@ function Header({
   onOpenSource: () => void
 }) {
   return (
-    <div className="sticky top-0 z-10 flex items-center gap-2 px-3 py-2 bg-white/95 backdrop-blur border-b border-paper-edge">
+    <div className="lisna-sticky-toolbar">
       <button
         type="button"
         onClick={onBack}

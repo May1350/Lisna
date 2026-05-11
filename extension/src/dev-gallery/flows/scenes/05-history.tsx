@@ -318,7 +318,7 @@ function NotesHeader({ title }: { title: string }) {
   const backLabel = T.sidePanel.notesViewer_back
   const openLabel = T.sidePanel.notesViewer_openSource
   return (
-    <div className="sticky top-0 z-10 flex items-center gap-2 px-3 py-2 bg-paper-100/95 backdrop-blur border-b border-paper-edge">
+    <div className="lisna-sticky-toolbar">
       <button
         type="button"
         onClick={noop}

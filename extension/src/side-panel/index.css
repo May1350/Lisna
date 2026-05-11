@@ -93,3 +93,15 @@ html, body {
 .lisna-scroll::-webkit-scrollbar-track { background: transparent; }
 .lisna-scroll::-webkit-scrollbar-thumb { background: var(--paper-edge); border-radius: 2px; }
 .lisna-scroll::-webkit-scrollbar-thumb:hover { background: var(--ink-200); }
+
+/* Sticky toolbar — the row that pins to the top of the notes viewer
+ * (and the dev-gallery surfaces that mirror it). Used to live as a
+ * verbatim Tailwind string repeated across 3 files; centralized here
+ * so the token-mix is reviewed once. Note: variants like z-40 (page
+ * headers) and absolute-positioned banners stay inline — this class
+ * is specifically for the in-panel sticky scroll-anchor. */
+@layer components {
+  .lisna-sticky-toolbar {
+    @apply sticky top-0 z-10 flex items-center gap-2 px-3 py-2 backdrop-blur border-b border-paper-edge bg-paper-100/95;
+  }
+}
