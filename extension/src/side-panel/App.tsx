@@ -202,10 +202,24 @@ function EditableFilename({
   )
 }
 
+// Cold-start snapshot of the 3 storage keys the mount-time effects
+// need (token presence, cached quota, last-saved playback speed).
+// Populated ONCE by a single batched chrome.storage.local.get; the
+// downstream effects gate on it being non-null instead of issuing
+// their own (formerly 3-serial-IPC) reads. The trial-pending key
+// stays a separate focus-handler read since it can change between
+// mount and the Stripe-return focus event.
+interface BootStorage {
+  hasToken: boolean
+  cachedQuota: { quota?: QuotaSnapshot; ts?: number } | undefined
+  playback: unknown
+}
+
 export default function App() {
   const T = useT()
   const [consented, setConsented] = useState<boolean | null>(null)
   const [user, setUser] = useState<User | null>(null)
+  const [bootStorage, setBootStorage] = useState<BootStorage | null>(null)
   const [sessionId, setSessionId] = useState<string | null>(null)
   // Curated, hierarchical outline produced by the backend curator. Replaced
   // wholesale on every curator run (every ~30 s of lecture); the UI thus
@@ -332,8 +346,24 @@ export default function App() {
   // consented flip — including the initial null→false on a fresh
   // user — issuing a needless AUTH_GET_USER round-trip and clobbering
   // any in-flight setUser the login flow had just performed.
+  // Batch the storage reads that the three downstream effects need
+  // at mount: token presence (this effect's pre-flight), cached
+  // quota seed (same effect), and initial playback speed (separate
+  // effect below). Three serial chrome.storage.local.get IPCs
+  // (~5-15 ms each on cold start) collapse to one batched read.
   useEffect(() => {
-    if (consented !== true) return
+    void chrome.storage.local.get(['sh.token', 'sh.cachedQuota', 'sh.playback']).then((r) => {
+      const tok = r['sh.token']
+      setBootStorage({
+        hasToken: typeof tok === 'string' && tok.length > 0,
+        cachedQuota: r['sh.cachedQuota'] as { quota?: QuotaSnapshot; ts?: number } | undefined,
+        playback: r['sh.playback'],
+      })
+    })
+  }, [])
+
+  useEffect(() => {
+    if (consented !== true || !bootStorage) return
     void (async () => {
       // Pre-flight token guard. Without a JWT, every authed call below
       // (auth-me, stream-audio, etc.) silently 401s and the modal sits
@@ -343,9 +373,7 @@ export default function App() {
       // expiry-then-eviction), force a clean re-login by dropping the
       // stale user — the LoginScreen will mount and the user can
       // re-auth in one click.
-      const tokenStored = await chrome.storage.local.get('sh.token')
-      const hasToken = typeof tokenStored['sh.token'] === 'string' && (tokenStored['sh.token'] as string).length > 0
-      if (!hasToken) {
+      if (!bootStorage.hasToken) {
         // Drop any stale user record so the LoginScreen renders.
         void chrome.storage.local.remove('sh.user')
         setUser(null)
@@ -369,16 +397,17 @@ export default function App() {
     // network, etc). Cache lifetime ~30 min: long enough to bridge
     // network blips, short enough that a Pro upgrade taking effect
     // doesn't keep the user pinned behind a stale "exhausted" surface.
-    void chrome.storage.local.get('sh.cachedQuota').then((r) => {
-      const cached = r['sh.cachedQuota'] as { quota?: QuotaSnapshot; ts?: number } | undefined
-      if (!cached?.quota || typeof cached.ts !== 'number') return
-      if (Date.now() - cached.ts > 30 * 60 * 1000) return
+    // Seed from the boot-time snapshot rather than issuing a fresh
+    // chrome.storage.local.get — value is fixed at mount and the
+    // freshness window is the same 30 min check below either way.
+    const cached = bootStorage.cachedQuota
+    if (cached?.quota && typeof cached.ts === 'number' && Date.now() - cached.ts <= 30 * 60 * 1000) {
       setQuota((prev) => prev ?? cached.quota!)
       // Seed the live-tick counter from cached too, so the header's
       // countdown shows correctly on cold mount (without this it
       // stayed `null` until the first chunk's quota_update broadcast).
       setLiveRemainingSecs((prev) => prev ?? cached.quota!.remaining_secs)
-    })
+    }
     // Step 2: fresh fetch overwrites the cached fallback. On 401 we
     // treat the user as logged-out (token expired or invalidated):
     // clear storage + drop the React state so the LoginScreen mounts.
@@ -419,7 +448,9 @@ export default function App() {
     // ID rather than the whole user object because auth-me itself
     // calls setUser with a new object identity every time, which
     // would otherwise re-trigger the effect in an infinite loop.
-  }, [consented, user?.id])
+    // bootStorage is also a dep so the effect waits for the batched
+    // mount-time storage read before running its pre-flight check.
+  }, [consented, user?.id, bootStorage])
 
   // Keep the export-input ref in sync with the React state used by
   // the auto-download path inside applyEvent. Refs are commit-phase
@@ -434,14 +465,15 @@ export default function App() {
     return off
   }, [])
 
-  // Initial playback speed from storage. Shared key with the options page.
+  // Initial playback speed from storage. Shared key with the options
+  // page. Gated on bootStorage so we use the same one-shot batched
+  // read instead of issuing a third storage IPC on cold start.
   useEffect(() => {
-    void chrome.storage.local.get('sh.playback').then(r => {
-      const stored = r['sh.playback']
-      if (typeof stored === 'number') setPlaybackSpeed(stored)
-      else if (stored === 'auto' || stored === undefined) setPlaybackSpeed(2)
-    })
-  }, [])
+    if (!bootStorage) return
+    const stored = bootStorage.playback
+    if (typeof stored === 'number') setPlaybackSpeed(stored)
+    else if (stored === 'auto' || stored === undefined) setPlaybackSpeed(2)
+  }, [bootStorage])
 
   // Listen for SP_BROADCAST from content via SW. The embed (in-page modal)
   // and the side-panel (account view) both subscribe — quota updates are

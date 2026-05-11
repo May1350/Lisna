@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { callApi, ApiError } from '../api-client'
 import { useT, interpolate } from '../../shared/i18n'
 import type { Translations } from '../../shared/i18n'
@@ -208,6 +208,53 @@ export function SessionHistory({ onAuthExpired, onView }: Props) {
     }
   }, [onAuthExpired])
 
+  // Show-thresholds — hoisted so the keyboard-nav callback + flatOrder
+  // memo below can read them without depending on the post-early-return
+  // `list` alias. Cheap derived values, no useMemo needed.
+  const showSearch = (sessions?.length ?? 0) >= SEARCH_THRESHOLD
+  const showGrouping = (sessions?.length ?? 0) >= GROUP_THRESHOLD && query.trim() === ''
+
+  // Keyboard-nav handler — hoisted out of the render body so React.memo
+  // on SessionRow gets a stable reference identity between renders that
+  // don't change `visibleSessions`. Re-creates only when the filtered
+  // list shifts (which is also when each row's `idx` changes anyway).
+  const handleRowKeyNav = useCallback((e: React.KeyboardEvent, idx: number) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      const next = Math.min(idx + 1, visibleSessions.length - 1)
+      setFocusIndex(next)
+      const target = visibleSessions[next]
+      if (target) rowRefs.current.get(target.id)?.focus()
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      const next = Math.max(idx - 1, 0)
+      setFocusIndex(next)
+      const target = visibleSessions[next]
+      if (target) rowRefs.current.get(target.id)?.focus()
+    } else if (e.key === 'Delete' || e.key === 'Backspace') {
+      e.preventDefault()
+      const target = visibleSessions[idx]
+      if (target) setConfirmId(target.id)
+    }
+  }, [visibleSessions])
+
+  // Flatten the grouped (or ungrouped) on-screen order ONCE so each
+  // row can look up its keyboard-nav index in O(1) and React.memo's
+  // shallow equality on `idx` (a number) skips rows whose order
+  // didn't change.
+  const flatOrder = useMemo<SessionSummary[]>(() => {
+    if (visibleSessions.length === 0) return []
+    return showGrouping
+      ? (['today', 'yesterday', 'thisWeek', 'thisMonth', 'earlier'] as Bucket[]).flatMap(b => grouped[b])
+      : visibleSessions
+  }, [visibleSessions, grouped, showGrouping])
+
+  const idxById = useMemo(() => {
+    const m = new Map<string, number>()
+    flatOrder.forEach((s, i) => m.set(s.id, i))
+    return m
+  }, [flatOrder])
+
   // ── Render branches ─────────────────────────────────────────────────
 
   // 401 case: render nothing — parent handles UX.
@@ -238,29 +285,6 @@ export function SessionHistory({ onAuthExpired, onView }: Props) {
   // Empty state (no sessions, no query).
   if (list.length === 0) {
     return <EmptyState T={T} />
-  }
-
-  const showSearch = list.length >= SEARCH_THRESHOLD
-  const showGrouping = list.length >= GROUP_THRESHOLD && query.trim() === ''
-
-  const handleRowKeyNav = (e: React.KeyboardEvent, idx: number) => {
-    if (e.key === 'ArrowDown') {
-      e.preventDefault()
-      const next = Math.min(idx + 1, visibleSessions.length - 1)
-      setFocusIndex(next)
-      const target = visibleSessions[next]
-      if (target) rowRefs.current.get(target.id)?.focus()
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault()
-      const next = Math.max(idx - 1, 0)
-      setFocusIndex(next)
-      const target = visibleSessions[next]
-      if (target) rowRefs.current.get(target.id)?.focus()
-    } else if (e.key === 'Delete' || e.key === 'Backspace') {
-      e.preventDefault()
-      const target = visibleSessions[idx]
-      if (target) setConfirmId(target.id)
-    }
   }
 
   return (
@@ -332,80 +356,94 @@ export function SessionHistory({ onAuthExpired, onView }: Props) {
        * yielded the wrong order when buckets reshuffle items across
        * groups (so ↑/↓ between adjacent on-screen rows could skip).
        */}
-      {visibleSessions.length > 0 && (() => {
-        const flatOrder: SessionSummary[] = showGrouping
-          ? (['today', 'yesterday', 'thisWeek', 'thisMonth', 'earlier'] as Bucket[]).flatMap(b => grouped[b])
-          : visibleSessions
-        const idxById = new Map<string, number>()
-        flatOrder.forEach((s, i) => idxById.set(s.id, i))
-        const rowProps = (s: SessionSummary) => {
-          const idx = idxById.get(s.id) ?? 0
-          return {
-            key: s.id,
-            session: s,
-            T,
-            isFlashing: flashId === s.id,
-            isConfirming: confirmId === s.id,
-            onView,
-            onRequestConfirm: () => setConfirmId(s.id),
-            onCancelConfirm: () => setConfirmId(null),
-            onConfirmDelete: () => void onDeleteConfirmed(s),
-            registerRef: (el: HTMLButtonElement | null) => {
-              if (el) rowRefs.current.set(s.id, el)
-              else rowRefs.current.delete(s.id)
-            },
-            onKeyNav: (e: React.KeyboardEvent) => handleRowKeyNav(e, idx),
-            onFocus: () => setFocusIndex(idx),
-            tabIndex: focusIndex === idx || (focusIndex === null && idx === 0) ? 0 : -1,
-          }
-        }
-
-        return showGrouping ? (
-          <div>
-            {(['today', 'yesterday', 'thisWeek', 'thisMonth', 'earlier'] as Bucket[]).map(bucket => {
-              const items = grouped[bucket]
-              if (items.length === 0) return null
-              return (
-                <div key={bucket}>
-                  <div className="px-3 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wide text-ink-300 bg-paper-200/60">
-                    {bucketLabel(bucket, T)}
-                  </div>
-                  <ul className="divide-y divide-gray-200">
-                    {items.map(s => <SessionRow {...rowProps(s)} />)}
-                  </ul>
+      {visibleSessions.length > 0 && (showGrouping ? (
+        <div>
+          {(['today', 'yesterday', 'thisWeek', 'thisMonth', 'earlier'] as Bucket[]).map(bucket => {
+            const items = grouped[bucket]
+            if (items.length === 0) return null
+            return (
+              <div key={bucket}>
+                <div className="px-3 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wide text-ink-300 bg-paper-200/60">
+                  {bucketLabel(bucket, T)}
                 </div>
-              )
-            })}
-          </div>
-        ) : (
-          <ul className="divide-y divide-gray-200">
-            {visibleSessions.map(s => <SessionRow {...rowProps(s)} />)}
-          </ul>
-        )
-      })()}
+                <ul className="divide-y divide-gray-200">
+                  {items.map(s => {
+                    const idx = idxById.get(s.id) ?? 0
+                    return (
+                      <SessionRow
+                        key={s.id}
+                        session={s}
+                        T={T}
+                        idx={idx}
+                        isFlashing={flashId === s.id}
+                        isConfirming={confirmId === s.id}
+                        tabIndex={focusIndex === idx || (focusIndex === null && idx === 0) ? 0 : -1}
+                        rowRefs={rowRefs}
+                        onView={onView}
+                        onConfirmDelete={onDeleteConfirmed}
+                        setConfirmId={setConfirmId}
+                        setFocusIndex={setFocusIndex}
+                        onRowKeyNav={handleRowKeyNav}
+                      />
+                    )
+                  })}
+                </ul>
+              </div>
+            )
+          })}
+        </div>
+      ) : (
+        <ul className="divide-y divide-gray-200">
+          {visibleSessions.map(s => {
+            const idx = idxById.get(s.id) ?? 0
+            return (
+              <SessionRow
+                key={s.id}
+                session={s}
+                T={T}
+                idx={idx}
+                isFlashing={flashId === s.id}
+                isConfirming={confirmId === s.id}
+                tabIndex={focusIndex === idx || (focusIndex === null && idx === 0) ? 0 : -1}
+                rowRefs={rowRefs}
+                onView={onView}
+                onConfirmDelete={onDeleteConfirmed}
+                setConfirmId={setConfirmId}
+                setFocusIndex={setFocusIndex}
+                onRowKeyNav={handleRowKeyNav}
+              />
+            )
+          })}
+        </ul>
+      ))}
     </div>
   )
 }
 
 // ── Subcomponents ─────────────────────────────────────────────────────
 
-function SessionRow({
-  session, T, isFlashing, isConfirming, onView,
-  onRequestConfirm, onCancelConfirm, onConfirmDelete,
-  registerRef, onKeyNav, onFocus, tabIndex,
+// Memoized: the row only re-renders when one of its primitive props
+// changes (isFlashing/isConfirming/tabIndex/idx) or when `session` /
+// `T` identity changes. Parent state churn on confirmId/flashId/
+// focusIndex only re-renders the 1-2 rows actually affected, instead
+// of all rows in the list.
+const SessionRow = memo(function SessionRow({
+  session, T, idx, isFlashing, isConfirming, tabIndex,
+  rowRefs, onView, onConfirmDelete,
+  setConfirmId, setFocusIndex, onRowKeyNav,
 }: {
   session: SessionSummary
   T: Translations
+  idx: number
   isFlashing: boolean
   isConfirming: boolean
-  onView?: (session: SessionSummary) => void
-  onRequestConfirm: () => void
-  onCancelConfirm: () => void
-  onConfirmDelete: () => void
-  registerRef: (el: HTMLButtonElement | null) => void
-  onKeyNav: (e: React.KeyboardEvent) => void
-  onFocus: () => void
   tabIndex: number
+  rowRefs: React.MutableRefObject<Map<string, HTMLButtonElement>>
+  onView?: (session: SessionSummary) => void
+  onConfirmDelete: (s: SessionSummary) => Promise<void>
+  setConfirmId: React.Dispatch<React.SetStateAction<string | null>>
+  setFocusIndex: React.Dispatch<React.SetStateAction<number | null>>
+  onRowKeyNav: (e: React.KeyboardEvent, idx: number) => void
 }) {
   // Primary row click → view notes inline. Falls back to opening the
   // source URL if no onView handler is wired (lets this component
@@ -417,6 +455,15 @@ function SessionRow({
   const onOpenSource = () => {
     void chrome.tabs.create({ url: session.url, active: true })
   }
+  const registerRef = (el: HTMLButtonElement | null) => {
+    if (el) rowRefs.current.set(session.id, el)
+    else rowRefs.current.delete(session.id)
+  }
+  const onKeyNav = (e: React.KeyboardEvent) => onRowKeyNav(e, idx)
+  const onFocus = () => setFocusIndex(idx)
+  const onRequestConfirm = () => setConfirmId(session.id)
+  const onCancelConfirm = () => setConfirmId(null)
+  const onConfirmDeleteRow = () => void onConfirmDelete(session)
   const title = session.title?.trim() || T.sidePanel.historyTitle_untitled
   const date = formatRelativeDate(session.updated_at, T)
   const meta = session.has_outline
@@ -495,12 +542,12 @@ function SessionRow({
         <ConfirmStrip
           T={T}
           onCancel={onCancelConfirm}
-          onConfirm={onConfirmDelete}
+          onConfirm={onConfirmDeleteRow}
         />
       )}
     </li>
   )
-}
+})
 
 function ConfirmStrip({
   T, onCancel, onConfirm,
