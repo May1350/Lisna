@@ -18,6 +18,7 @@ import { QuotaExhaustedIdle } from './components/QuotaExhaustedIdle'
 import { TrialEndModal } from './components/TrialEndModal'
 import { callApi, connectWs, getCurrentUser, logout, ApiError } from './api-client'
 import type { LiveTranscriptItem, Outline } from './api-client'
+import { useQuota } from './hooks/useQuota'
 import { reportError } from '../shared/errors'
 import { useT } from '../shared/i18n'
 import { setFeedbackPrefill } from '../shared/feedback-prefill'
@@ -202,15 +203,15 @@ function EditableFilename({
   )
 }
 
-// Cold-start snapshot of the 2 storage keys the mount-time effects
-// can safely freeze (cached quota seed, last-saved playback speed).
-// Populated ONCE by a single batched chrome.storage.local.get; the
-// downstream effects gate on it being non-null instead of issuing
-// their own (formerly 2-serial-IPC) reads. The trial-pending key
-// stays a separate focus-handler read since it can change between
-// mount and the Stripe-return focus event. The token key is read
-// fresh inside the auth effect for the same live-changes reason
-// (see BootStorage comment below).
+// Cold-start snapshot of one storage key the mount-time effect can
+// safely freeze: last-saved playback speed. The cachedQuota seed has
+// moved to useQuota (it now reads `sh.cachedQuota` itself on mount —
+// see hooks/useQuota.ts). The trial-pending key stays a separate
+// focus-handler read since it can change between mount and the
+// Stripe-return focus event. The token key is read fresh inside the
+// auth effect for the same live-changes reason — see the BootStorage
+// comment block below.
+//
 // `sh.token` is deliberately NOT cached in this snapshot. The token
 // is the one mount-time storage value that LIVE-CHANGES (login flow
 // writes it after mount); freezing it here caused a flicker
@@ -220,7 +221,6 @@ function EditableFilename({
 // `sh.token` fresh on each run instead (rare — only on consented
 // flip or user?.id change).
 interface BootStorage {
-  cachedQuota: { quota?: QuotaSnapshot; ts?: number } | undefined
   playback: unknown
 }
 
@@ -259,21 +259,19 @@ export default function App() {
   // 100% blocking. `quotaBlocked` flips true on a 402 response and turns
   // the banner red even if the snapshot itself isn't yet at 100% (race
   // window where the period rolled before the next chunk).
-  const [quota, setQuota] = useState<QuotaSnapshot | null>(null)
-  const [quotaBlocked, setQuotaBlocked] = useState(false)
-  // Single source of truth for "this user is functionally out of
-  // capture budget". Three triggers, any one of which counts:
-  //   1. server forced 402 (`quotaBlocked`) — authoritative
-  //   2. percent_used rounded ≥ 100 — backend's own rounding
-  //   3. remaining_secs ≤ 0 — covers the rounding-down edge where
-  //      backend reports e.g. percent_used=99 (Math.round(99.4))
-  //      but remaining_secs=0. Without this, a free user with zero
-  //      budget could still see IdleSessionState because the
-  //      percent number happened to round down.
-  // Used by: QuotaBanner suppression, QuotaExhaustedIdle gate, and
-  // SessionControls quota-mode gate. Keep these three sites in sync
-  // via this helper rather than duplicating the inline check.
-  const exhausted = quotaBlocked || (!!quota && (quota.percent_used >= 100 || quota.remaining_secs <= 0))
+  // quota / quotaBlocked / liveRemainingSecs + the `exhausted` derived
+  // flag now live in useQuota. The 1 Hz live-remaining tick and the
+  // cold-start cached-quota seed migrated there too. App.tsx still
+  // owns isCapturing / videoPlaying (until Phase 3a migrates them
+  // into useSession), so the tick reads those values through refs
+  // that get sync'd in the render body below.
+  const isCapturingRef = useRef(false)
+  const videoPlayingRef = useRef<boolean | null>(null)
+  const {
+    quota, quotaBlocked, liveRemainingSecs, exhausted,
+    setQuota, setQuotaBlocked, setLiveRemainingSecs,
+    reset: resetQuota,
+  } = useQuota({ isCapturingRef, videoPlayingRef })
   // Active 2-hour trial — drives the "Trial" badge in PanelHeader and
   // (combined with `exhausted`) opens the trial-end decision modal.
   const trialActive = quota?.trial_active === true
@@ -299,15 +297,10 @@ export default function App() {
   // capture stops — the user explicitly asked: "stopping should still
   // leave note generation possible."
   const [isCapturing, setIsCapturing] = useState(false)
-  // Locally-ticked remaining-seconds counter for the modal header. The
-  // backend's quota_update events arrive once per ~10 s audio chunk;
-  // between updates the user is still consuming their free minutes.
-  // We re-sync this value to the backend's authoritative number on
-  // every quota_update, then decrement 1/sec while actively capturing
-  // + video is playing — gives a smooth real-time visualisation that
-  // the user can plan around (notice "1分しか残ってない" mid-lecture
-  // and decide to upgrade BEFORE hitting the blocking 100% wall).
-  const [liveRemainingSecs, setLiveRemainingSecs] = useState<number | null>(null)
+  // liveRemainingSecs moved to useQuota (it owns the 1 Hz tick that
+  // decrements this counter). The setter is exposed back via the
+  // destructured `setLiveRemainingSecs` above; downstream call sites
+  // (applyEvent / auth-me / trial-confirm) keep their existing usage.
   // Lecture title used for the export filename. Initial value is a
   // generic placeholder; we replace it with `outline.title` (the
   // curator-extracted lecture topic) the moment the first outline
@@ -371,14 +364,11 @@ export default function App() {
     setTranscripts([])
     setCurating(false)
     setCurateError(null)
-    setQuota(null)
-    setQuotaBlocked(false)
-    setLiveRemainingSecs(null)
+    resetQuota()
     setVideoPlaying(null)
     setIsCapturing(false)
     setViewingSession(null)
-    setBootStorage((prev) => (prev ? { ...prev, cachedQuota: undefined } : null))
-  }, [])
+  }, [resetQuota])
 
   // Cross-context auth sync. When ANY extension surface — Options
   // page logout, switch-account flow, a side-panel logout in a second
@@ -409,39 +399,22 @@ export default function App() {
   // consented flip — including the initial null→false on a fresh
   // user — issuing a needless AUTH_GET_USER round-trip and clobbering
   // any in-flight setUser the login flow had just performed.
-  // Batch the storage reads that the two downstream mount-time
-  // effects need: cached quota seed and initial playback speed.
+  // Playback speed only — cachedQuota seed moved to useQuota.
   // `sh.token` is read fresh inside the auth effect on each run
   // (see BootStorage comment for the live-changes rationale).
   useEffect(() => {
-    void chrome.storage.local.get(['sh.cachedQuota', 'sh.playback']).then((r) => {
-      setBootStorage({
-        cachedQuota: r['sh.cachedQuota'] as { quota?: QuotaSnapshot; ts?: number } | undefined,
-        playback: r['sh.playback'],
-      })
+    void chrome.storage.local.get('sh.playback').then((r) => {
+      setBootStorage({ playback: r['sh.playback'] })
     })
   }, [])
 
   useEffect(() => {
     if (consented !== true || !bootStorage) return
 
-    // Seed quota from the boot-time cached snapshot before /v1/auth/me
-    // lands. Without this, users at 100 % see IdleSessionState
-    // ("waiting for video") for the 200-500 ms auth-me round-trip
-    // window — and permanently if that call later silently fails.
-    // Cache window 30 min: bridges network blips, short enough that
-    // a Pro upgrade taking effect doesn't keep the user pinned behind
-    // a stale "exhausted" surface. Pure storage read (no IPC, no API
-    // call) — runs unconditionally because it has zero side effects
-    // for unauthenticated mounts (the React state stays prev-or-null).
-    const cached = bootStorage.cachedQuota
-    if (cached?.quota && typeof cached.ts === 'number' && Date.now() - cached.ts <= 30 * 60 * 1000) {
-      setQuota((prev) => prev ?? cached.quota!)
-      // Seed the live-tick counter from cached too, so the header's
-      // countdown shows correctly on cold mount (without this it
-      // stayed `null` until the first chunk's quota_update broadcast).
-      setLiveRemainingSecs((prev) => prev ?? cached.quota!.remaining_secs)
-    }
+    // (Cached-quota seed migrated to useQuota in Phase 5c step 1 —
+    // useQuota reads `sh.cachedQuota` itself on mount; the `prev ??`
+    // guard inside its setters means the seed never clobbers a
+    // fresher /v1/auth/me result.)
 
     void (async () => {
       // Pre-flight token guard. Without a JWT, every authed call below
@@ -522,6 +495,14 @@ export default function App() {
   // the auto-download path inside applyEvent. Refs are commit-phase
   // safe to write from the render body — no useEffect needed.
   exportCtxRef.current = { parentUrl, sessionId, title, slides }
+
+  // Mirror capture/play state into refs read by useQuota's 1 Hz tick.
+  // The tick lives inside useQuota for its whole lifetime; refs are
+  // the bridge from App.tsx-owned state to that long-lived interval
+  // without forcing the interval to be torn down + rebuilt on each
+  // state change. Same commit-phase-safe pattern as exportCtxRef.
+  isCapturingRef.current = isCapturing
+  videoPlayingRef.current = videoPlaying
 
   // ON/OFF state — only meaningful in the side-panel (account) view, but we
   // load + subscribe regardless so the source of truth is storage.
@@ -930,31 +911,13 @@ export default function App() {
     return () => { mounted = false; handle?.close() }
   }, [sessionId])
 
-  // 1 Hz tick-down for the live remaining-secs display. Only ticks
-  // while the user is ACTIVELY consuming their quota (capturing AND
-  // video playing) — pause/scrub/non-capturing states freeze the
-  // counter where it is. The next chunk's quota_update will resync
-  // to the backend's authoritative value, so any tiny drift is
-  // bounded by the ~10 s chunk cadence.
-  //
-  // Deps are [isCapturing, videoPlaying] only — we do NOT list
-  // liveRemainingSecs even though we read it. Listing it would tear
-  // down + rebuild the interval every second (since the state
-  // updates every tick), which is wasteful and races: the new
-  // setInterval starts ~0 ms after the previous tick fired, so the
-  // wall-clock cadence drifts. Instead we read the current value
-  // through the functional setter form, where `prev` is always the
-  // freshest state regardless of when the closure was created.
-  useEffect(() => {
-    if (!isCapturing || videoPlaying !== true) return
-    const id = window.setInterval(() => {
-      setLiveRemainingSecs(prev => {
-        if (prev === null) return prev
-        return prev > 0 ? prev - 1 : 0
-      })
-    }, 1000)
-    return () => window.clearInterval(id)
-  }, [isCapturing, videoPlaying])
+  // (1 Hz live-remaining tick migrated to useQuota in Phase 5c step 1.
+  // It now lives inside the hook and reads isCapturing / videoPlaying
+  // from the refs sync'd in the render body below — see
+  // isCapturingRef / videoPlayingRef. The hook's setInterval runs
+  // unconditionally for the hook lifetime and early-returns when the
+  // refs say "not capturing or paused"; CPU cost of one ref read per
+  // second is imperceptible.)
 
   // Watchdog for the `curating` flag. Defensive against ANY curate path
   // (manual modal click, content-script auto-trigger on session-end,
