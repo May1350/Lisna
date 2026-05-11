@@ -24,6 +24,14 @@ const chromeMock = {
   runtime: {
     getURL: vi.fn((path: string) => `chrome-extension://test/${path}`),
     sendMessage: vi.fn(() => Promise.resolve({ ok: true })),
+    // The SP_BROADCAST transport listener inside useSession (and any
+    // future hook that subscribes to SW broadcasts) calls this at
+    // hook mount. The default no-op + matching removeListener keeps
+    // the listener subscription path lifecycle-clean across tests.
+    onMessage: {
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+    },
   },
   storage: {
     local: {

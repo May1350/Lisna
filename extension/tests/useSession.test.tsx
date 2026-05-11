@@ -45,6 +45,13 @@ describe('useSession — hydrateFromLogin', () => {
         exportCtxRef,
         setTitle: vi.fn(),
         titleFallback: 'fallback',
+        // Phase 3b: useSession now writes through useQuota's setters
+        // when applyEvent receives quota_update / quota_exceeded.
+        // Pass stubs — the hydrateFromLogin path under test here
+        // never invokes them.
+        setQuota: vi.fn(),
+        setQuotaBlocked: vi.fn(),
+        setLiveRemainingSecs: vi.fn(),
       })
     })
 
@@ -82,6 +89,13 @@ describe('useSession — hydrateFromLogin', () => {
         exportCtxRef,
         setTitle: vi.fn(),
         titleFallback: 'fallback',
+        // Phase 3b: useSession now writes through useQuota's setters
+        // when applyEvent receives quota_update / quota_exceeded.
+        // Pass stubs — the hydrateFromLogin path under test here
+        // never invokes them.
+        setQuota: vi.fn(),
+        setQuotaBlocked: vi.fn(),
+        setLiveRemainingSecs: vi.fn(),
       })
     })
 

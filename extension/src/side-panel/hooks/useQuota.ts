@@ -7,15 +7,21 @@
 //     App.tsx's bootStorage read).
 //   - the 1 Hz live-remaining tick.
 //
+// Owns (added in Phase 3b):
+//   - persistence write of `sh.cachedQuota` whenever a CONCRETE
+//     quota value lands via the returned setQuota. The setter is a
+//     thin wrapper around the underlying useState setter that also
+//     fire-and-forget writes to chrome.storage.local. Single source
+//     of truth: applyEvent / useAuth-me / useTrial / onTrialResolved
+//     used to each call `chrome.storage.local.set('sh.cachedQuota')`
+//     separately; that drift surface is gone.
+//   - the cold-start cached-quota seed (already present from Phase 1).
+//
 // Does NOT own:
-//   - persistence write of `sh.cachedQuota` after a fresh quota lands
-//     (applyEvent in App.tsx still does the write directly during
-//     phase 1; consolidation moves to Phase 3b when applyEvent migrates
-//     to useSession).
 //   - the auth-me effect's quota seeding — that path stays in App.tsx
-//     for phase 1; Phase 4 (useAuth) inverts the dependency.
+//     until Phase 4 (useAuth) inverts the dependency.
 import { useCallback, useEffect, useState } from 'react'
-import type { RefObject } from 'react'
+import type { Dispatch, RefObject, SetStateAction } from 'react'
 import type { QuotaSnapshot } from '../../shared/types'
 
 export interface UseQuotaArgs {
@@ -42,9 +48,16 @@ export interface UseQuotaReturn {
   //      backend reports percent_used=99 (Math.round(99.4)) but
   //      remaining_secs=0.
   exhausted: boolean
-  setQuota: (q: QuotaSnapshot | null) => void
+  // Wrapper around setState: also persists fresh quota snapshots to
+  // chrome.storage.local('sh.cachedQuota') so the next cold start
+  // can seed before /v1/auth/me lands. Accepts the full
+  // SetStateAction shape — functional updaters skip persistence
+  // because they don't carry a stable "new" value at call site
+  // (the cached-quota seed itself uses functional form on purpose
+  // to avoid writing the just-read cached value back to storage).
+  setQuota: Dispatch<SetStateAction<QuotaSnapshot | null>>
   setQuotaBlocked: (b: boolean) => void
-  setLiveRemainingSecs: (n: number | null) => void
+  setLiveRemainingSecs: Dispatch<SetStateAction<number | null>>
   // Called by App.tsx's resetAll orchestrator on logout / 401.
   reset: () => void
 }
@@ -55,11 +68,23 @@ export interface UseQuotaReturn {
 const CACHED_QUOTA_TTL_MS = 30 * 60 * 1000
 
 export function useQuota({ isCapturingRef, videoPlayingRef }: UseQuotaArgs): UseQuotaReturn {
-  const [quota, setQuota] = useState<QuotaSnapshot | null>(null)
+  const [quota, setQuotaInternal] = useState<QuotaSnapshot | null>(null)
   const [quotaBlocked, setQuotaBlocked] = useState(false)
   const [liveRemainingSecs, setLiveRemainingSecs] = useState<number | null>(null)
 
   const exhausted = quotaBlocked || (!!quota && (quota.percent_used >= 100 || quota.remaining_secs <= 0))
+
+  // Wrapper exposed as the public setQuota. Persists CONCRETE quota
+  // snapshots to chrome.storage.local('sh.cachedQuota'); functional
+  // updaters skip the persistence side-effect because the seed-from-
+  // cache path uses functional form and would otherwise round-trip
+  // the value back to storage (harmless but useless).
+  const setQuota: Dispatch<SetStateAction<QuotaSnapshot | null>> = useCallback((next) => {
+    setQuotaInternal(next)
+    if (typeof next !== 'function' && next) {
+      void chrome.storage.local.set({ 'sh.cachedQuota': { quota: next, ts: Date.now() } })
+    }
+  }, [])
 
   // Cold-start cached-quota seed. Runs once on mount; the `prev ??`
   // guards on both setters mean a fresher auth-me / quota_update
@@ -77,7 +102,7 @@ export function useQuota({ isCapturingRef, videoPlayingRef }: UseQuotaArgs): Use
         && typeof cached.ts === 'number'
         && Date.now() - cached.ts <= CACHED_QUOTA_TTL_MS
       ) {
-        setQuota((prev) => prev ?? cached.quota!)
+        setQuotaInternal((prev) => prev ?? cached.quota!)
         setLiveRemainingSecs((prev) => prev ?? cached.quota!.remaining_secs)
       }
     })
@@ -101,7 +126,12 @@ export function useQuota({ isCapturingRef, videoPlayingRef }: UseQuotaArgs): Use
   }, [isCapturingRef, videoPlayingRef])
 
   const reset = useCallback(() => {
-    setQuota(null)
+    // Reset via the raw internal setter — no need to persist a null
+    // to storage (logout() already wiped 'sh.cachedQuota' via SW's
+    // PER_USER_STORAGE_KEYS). Calling the wrapper would no-op for
+    // null anyway, but going through internal makes the "reset
+    // doesn't touch storage" invariant explicit.
+    setQuotaInternal(null)
     setQuotaBlocked(false)
     setLiveRemainingSecs(null)
   }, [])

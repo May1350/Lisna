@@ -92,9 +92,11 @@ export function useTrial({
         // Refetch quota so UI flips immediately.
         const r = await callApi<{ user: User; quota: QuotaSnapshot }>('/v1/auth/me', 'GET')
         if (r.quota) {
+          // setQuota is useQuota's wrapper — persists sh.cachedQuota
+          // internally; the explicit storage.set was removed in
+          // Phase 5c step 3b (single source of truth).
           setQuota(r.quota)
           setLiveRemainingSecs(r.quota.remaining_secs)
-          void chrome.storage.local.set({ 'sh.cachedQuota': { quota: r.quota, ts: Date.now() } })
         }
         if (r.user) setUser(r.user as User)
       } catch (e) {

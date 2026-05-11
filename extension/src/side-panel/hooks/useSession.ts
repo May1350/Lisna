@@ -22,13 +22,15 @@
 //   - pendingAutoDownloadRef — used only inside applyEvent, follows
 //     it into Phase 3b.
 //   - the /v1/auth/me-style fan-out on 401. Phase 4 wires that.
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Dispatch, RefObject, SetStateAction } from 'react'
 import { ApiError, callApi, connectWs } from '../api-client'
 import type { LiveTranscriptItem, Outline } from '../api-client'
-import type { SlideItem, User } from '../../shared/types'
+import type { QuotaSnapshot, SlideItem, User } from '../../shared/types'
 import { CURATE_URL } from '../../shared/config'
 import { getNoteLang } from '../../shared/i18n'
+import { getAutoDownload, getObsidianConfig } from '../../shared/storage'
+import { exportZip, pushToObsidian } from '../lib/export'
 
 // Bounded ring buffer cap for the live-transcript surface. Each 10 s
 // audio chunk now yields 3-7 sentence-bounded segments instead of 1
@@ -40,24 +42,33 @@ export interface UseSessionArgs {
   user: User | null
   parentUrl: string | null
   // App.tsx-owned ref kept in sync from the render body. applyEvent
-  // (still in App.tsx during Phase 3a) reads this to decide whether
-  // a session_started broadcast for the SAME sessionId should clobber
-  // an already-loaded outline (`isResume` guard).
+  // reads this to decide whether a session_started broadcast for
+  // the SAME sessionId should clobber an already-loaded outline
+  // (the `isResume` guard), and the auto-download branch uses it
+  // to read fresh title/slides/sessionId at fire-time without
+  // closing over stale state.
   exportCtxRef: RefObject<{
     parentUrl: string | null
     sessionId: string | null
     title: string
     slides: SlideItem[]
   }>
-  // App.tsx-owned setter for the curator-extracted title. /v1/session
-  // GET adopts the title when an outline exists; LoginScreen onSuccess
-  // does the same via hydrateFromLogin's return value (App.tsx applies
-  // the returned outlineTitle).
+  // App.tsx-owned setter for the curator-extracted title. Adopted
+  // by the /v1/session GET hydrate, by hydrateFromLogin's return
+  // path (App.tsx applies the returned outlineTitle), and by the
+  // applyEvent('outline_updated') branch when a new curated title
+  // arrives mid-session.
   setTitle: (t: string) => void
-  // Locale-aware filename placeholder. Hooked in by App.tsx (which
-  // owns the useT() instance for the rendering tree). Used by the
-  // /v1/session GET effect to reset title before the response lands.
+  // Locale-aware filename placeholder. Used by the /v1/session GET
+  // effect to reset title before the response lands.
   titleFallback: string
+  // useQuota's setters — applyEvent's quota_update / quota_exceeded
+  // cases mutate quota state through these. setQuota is the wrapper
+  // that internally persists sh.cachedQuota, so applyEvent no longer
+  // writes storage explicitly (single source of truth).
+  setQuota: Dispatch<SetStateAction<QuotaSnapshot | null>>
+  setQuotaBlocked: (b: boolean) => void
+  setLiveRemainingSecs: Dispatch<SetStateAction<number | null>>
 }
 
 export interface UseSessionReturn {
@@ -70,18 +81,6 @@ export interface UseSessionReturn {
   curateError: string | null
   isCapturing: boolean
   videoPlaying: boolean | null
-  // Leaky abstraction during Phase 3a — applyEvent still lives in
-  // App.tsx and mutates these via the destructured setters. Phase 3b
-  // removes them from the return surface.
-  setSessionId: (s: string | null) => void
-  setSlides: Dispatch<SetStateAction<SlideItem[]>>
-  setOutline: (o: Outline | null) => void
-  setOutlineUpdatedAt: (n: number | null) => void
-  setTranscripts: Dispatch<SetStateAction<LiveTranscriptItem[]>>
-  setCurating: (b: boolean) => void
-  setCurateError: (s: string | null) => void
-  setIsCapturing: (b: boolean) => void
-  setVideoPlaying: (b: boolean | null) => void
   // Eager-apply session data from LoginScreen.onSuccess. Returns the
   // curated outline title so App.tsx can adopt it into setTitle.
   hydrateFromLogin: (s: {
@@ -94,15 +93,43 @@ export interface UseSessionReturn {
   reset: () => void
 }
 
+// Canonical session-event names. Both transports normalise their
+// transport-specific names to this set so the dispatch switch only
+// has to deal with one form.
+type AppEventKind =
+  | 'session_started'
+  | 'session_ended'
+  | 'outline_updated'
+  | 'curate_failed'
+  | 'curating'
+  | 'video_state'
+  | 'quota_update'
+  | 'quota_exceeded'
+type AppEventPayload = {
+  sessionId?: string
+  quota?: QuotaSnapshot
+  outline?: Outline
+  playing?: boolean
+  reason?: string
+}
+const normaliseEventKind = (raw: string | undefined): AppEventKind | null => {
+  switch ((raw ?? '').toLowerCase()) {
+    case 'session_started':  return 'session_started'
+    case 'session_ended':    return 'session_ended'
+    case 'outline_updated':  return 'outline_updated'
+    case 'curate_failed':    return 'curate_failed'
+    case 'curating':         return 'curating'
+    case 'video_state':      return 'video_state'
+    case 'quota_update':     return 'quota_update'
+    case 'quota_exceeded':   return 'quota_exceeded'
+    default: return null
+  }
+}
+
 export function useSession({
   isEmbed, user, parentUrl, exportCtxRef, setTitle, titleFallback,
+  setQuota, setQuotaBlocked, setLiveRemainingSecs,
 }: UseSessionArgs): UseSessionReturn {
-  // exportCtxRef is referenced via .current inside applyEvent (still
-  // in App.tsx during 3a), so the arg is accepted but not consumed
-  // by the hook body itself in Phase 3a — present for forward-
-  // compatibility with Phase 3b.
-  void exportCtxRef
-
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [slides, setSlides] = useState<SlideItem[]>([])
   const [outline, setOutline] = useState<Outline | null>(null)
@@ -112,6 +139,12 @@ export function useSession({
   const [curateError, setCurateError] = useState<string | null>(null)
   const [isCapturing, setIsCapturing] = useState(false)
   const [videoPlaying, setVideoPlaying] = useState<boolean | null>(null)
+
+  // Arms when session_ended fires; consumed on the next
+  // outline_updated to fire the auto-download zip path (gated on
+  // the user's opt-in setting). Clears after one fire so a later
+  // manual regenerate doesn't re-download.
+  const pendingAutoDownloadRef = useRef(false)
 
   // Embed: load existing session for the parent page's URL. Silent
   // catch — failure here just leaves the modal in its placeholder
@@ -236,6 +269,191 @@ export function useSession({
     return () => { mounted = false; handle?.close() }
   }, [sessionId])
 
+  // Central state-mutation dispatcher for session events delivered
+  // by EITHER transport (chrome.runtime SP_BROADCAST or window
+  // postMessage from sh-frame). Pre-split this lived in App.tsx; the
+  // two transport useEffects below feed it. Centralising guarantees
+  // the two transports produce identical UI behavior (earlier they
+  // drifted — one transport cleared curateError on outline updates
+  // and the other didn't).
+  const applyEvent = useCallback((kind: AppEventKind, p: AppEventPayload): void => {
+    switch (kind) {
+      case 'session_started': {
+        if (!isEmbed || !p.sessionId) return
+        // Distinguish "resume same session" vs "fresh session". When the
+        // user reopens the modal on a URL they've curated before, the
+        // /v1/session GET hydrate has already populated outline /
+        // slides / sessionId from the DB. The first audio chunk POSTed
+        // after they press play returns the SAME canonical session id
+        // (backend UPSERTs on (user_id, url_hash) so the existing row
+        // wins). Without this guard we'd then wipe the just-loaded
+        // outline + slides — the user perceives this as "the modal
+        // suddenly forgot my notes 5 s after I pressed play".
+        const isResume = exportCtxRef.current?.sessionId === p.sessionId
+        setSessionId(p.sessionId)
+        // Live captions are per-viewing UI and always start fresh.
+        setTranscripts([])
+        setQuotaBlocked(false); setCurateError(null)
+        setIsCapturing(true)
+        if (!isResume) {
+          // Brand new session — wipe DB-backed state.
+          setSlides([])
+          setOutline(null)
+          setOutlineUpdatedAt(null)
+          setCurating(false)
+        }
+        return
+      }
+      case 'session_ended':
+        if (!isEmbed) return
+        // Capture is over (user-stop OR natural ended). Hide the 停止
+        // button but KEEP sessionId / outline / slides so the user can
+        // still trigger manual re-curate or export.
+        setIsCapturing(false)
+        // Wipe any stale curateError carried over from a mid-session
+        // failure — the fallback copy becomes a contradiction the
+        // moment capture stops. If the content-script then fires
+        // triggerCurate('ended') and that fails, the curate_failed
+        // broadcast that follows will re-set curateError with a fresh
+        // accurate reason.
+        setCurateError(null)
+        // Arm the auto-download flag. The next outline_updated will
+        // fire exportZip if the user has opted into the setting.
+        pendingAutoDownloadRef.current = true
+        return
+      case 'outline_updated':
+        if (!isEmbed || !p.outline) return
+        // Fallback path: content script forwards the curate HTTP 200
+        // outline here in case the WS broadcast was lost (long
+        // curator runs can outlive an idle WS connection). Idempotent
+        // — overwrites with the latest outline.
+        setOutline(p.outline)
+        // Stamp the indicator clock to NOW: the curator just produced
+        // this outline. Without this the OutlineView's content-diff
+        // guard would early-return on byte-identical regenerates and
+        // the timestamp would stay stuck on the hydrate value.
+        setOutlineUpdatedAt(Date.now())
+        // Update the export filename to match the curated lecture
+        // topic. Empty / whitespace-only titles fall back to the
+        // generic placeholder.
+        if (p.outline.title?.trim()) setTitle(p.outline.title.trim())
+        setCurating(false)
+        setCurateError(null)
+        // Obsidian REST API auto-sync (fire-and-forget; failures
+        // land in the console rather than blocking the read flow
+        // on a transient localhost network blip).
+        void (async () => {
+          const cfg = await getObsidianConfig()
+          if (!cfg.autoSync || !cfg.apiUrl || !cfg.apiKey) return
+          const cur = exportCtxRef.current
+          if (!cur || !cur.parentUrl || !cur.sessionId) return
+          try {
+            const r = await pushToObsidian({
+              sourceUrl: cur.parentUrl,
+              title: cur.title,
+              slides: cur.slides,
+              sessionId: cur.sessionId,
+            })
+            // eslint-disable-next-line no-console
+            console.log('[useSession] obsidian auto-sync:', r.ok ? `${r.files} files in ${r.durationMs | 0}ms` : `FAIL ${r.error}`)
+          } catch (e) {
+            // eslint-disable-next-line no-console
+            console.warn('[useSession] obsidian auto-sync threw:', e)
+          }
+        })()
+        // Auto-download check: if session ended and user opted in,
+        // fire the zip export now that the final outline has landed.
+        // The ref disarms after one fire so a manual regenerate
+        // later doesn't re-download.
+        if (pendingAutoDownloadRef.current) {
+          pendingAutoDownloadRef.current = false
+          void (async () => {
+            const enabled = await getAutoDownload()
+            if (!enabled) return
+            const cur = exportCtxRef.current
+            if (!cur || !cur.parentUrl || !cur.sessionId) return
+            try {
+              await exportZip({
+                sourceUrl: cur.parentUrl,
+                title: cur.title,
+                slides: cur.slides,
+                sessionId: cur.sessionId,
+              })
+            } catch (e) {
+              // eslint-disable-next-line no-console
+              console.warn('[useSession] auto-download failed:', e)
+            }
+          })()
+        }
+        return
+      case 'curating':
+        if (!isEmbed) return
+        setCurating(true)
+        setCurateError(null)
+        return
+      case 'curate_failed':
+        if (!isEmbed) return
+        setCurating(false)
+        setCurateError(p.reason ?? 'unknown')
+        return
+      case 'video_state':
+        if (!isEmbed || typeof p.playing !== 'boolean') return
+        setVideoPlaying(p.playing)
+        return
+      case 'quota_update':
+        if (!p.quota) return
+        // setQuota is useQuota's wrapper — persistence to
+        // sh.cachedQuota happens internally. The content script's
+        // pre-flight check (handleActivate) reads that cache to
+        // decide whether to call startCapture or skip it (avoids a
+        // wasted 10 s audio chunk + 402 dance at 100 % quota).
+        setQuota(p.quota)
+        // Re-sync the live-ticking remaining counter to the backend
+        // authoritative value on every chunk. Drift between the
+        // counter and reality is bounded by chunk cadence (~10 s).
+        setLiveRemainingSecs(p.quota.remaining_secs)
+        // Refresh-out-of-blocked: if the backend reset the period
+        // (1st of the month rollover) the user can be unblocked
+        // mid-session.
+        if (p.quota.percent_used < 100) setQuotaBlocked(false)
+        return
+      case 'quota_exceeded':
+        if (!p.quota) return
+        setQuota(p.quota)
+        setLiveRemainingSecs(p.quota.remaining_secs)
+        setQuotaBlocked(true)
+        return
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEmbed, exportCtxRef, setTitle, setQuota, setQuotaBlocked, setLiveRemainingSecs])
+
+  // Transport 1: SP_BROADCAST via the SW. Reaches embed AND
+  // side-panel contexts. Server-format event names (snake_case).
+  useEffect(() => {
+    const listener = (msg: { type: string; payload?: { type: string } & AppEventPayload }) => {
+      if (msg.type !== 'SP_BROADCAST' || !msg.payload) return
+      const kind = normaliseEventKind(msg.payload.type)
+      if (kind) applyEvent(kind, msg.payload)
+    }
+    chrome.runtime.onMessage.addListener(listener)
+    return () => chrome.runtime.onMessage.removeListener(listener)
+  }, [applyEvent])
+
+  // Transport 2: window.postMessage from the content frame inside
+  // the embed iframe (top-frame postMessage relay → modal iframe).
+  // Uses SCREAMING_SNAKE event names; normaliseEventKind lowercases.
+  useEffect(() => {
+    if (!isEmbed) return
+    const listener = (e: MessageEvent) => {
+      const data = e.data as ({ source?: string; type?: string } & AppEventPayload) | null
+      if (!data || data.source !== 'sh-frame') return
+      const kind = normaliseEventKind(data.type)
+      if (kind) applyEvent(kind, data)
+    }
+    window.addEventListener('message', listener)
+    return () => window.removeEventListener('message', listener)
+  }, [isEmbed, applyEvent])
+
   // Curating watchdog. Defensive against ANY curate path (manual
   // modal click, content-script auto-trigger on session-end, future
   // trigger types) leaving the modal stuck in "ノート生成中…" when the
@@ -325,13 +543,15 @@ export function useSession({
     setCurateError(null)
     setIsCapturing(false)
     setVideoPlaying(null)
+    // Disarm any pending auto-download flag so the next user's
+    // first outline_updated doesn't fire a stale zip export under
+    // the new account's auth.
+    pendingAutoDownloadRef.current = false
   }, [])
 
   return {
     sessionId, slides, outline, outlineUpdatedAt, transcripts,
     curating, curateError, isCapturing, videoPlaying,
-    setSessionId, setSlides, setOutline, setOutlineUpdatedAt, setTranscripts,
-    setCurating, setCurateError, setIsCapturing, setVideoPlaying,
     hydrateFromLogin, onTriggerCurate, reset,
   }
 }

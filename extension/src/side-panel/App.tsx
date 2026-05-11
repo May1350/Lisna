@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import type { SlideItem, User, QuotaSnapshot } from '../shared/types'
-import { hasConsent, setConsent, getEnabled, onEnabledChange, getAutoDownload, getObsidianConfig } from '../shared/storage'
-import { exportZip, pushToObsidian } from './lib/export'
+import { hasConsent, setConsent, getEnabled, onEnabledChange } from '../shared/storage'
 import { ConsentModal } from './components/ConsentModal'
 import { LoginScreen } from './components/LoginScreen'
 import { OutlineView } from './components/OutlineView'
@@ -16,7 +15,6 @@ import { SessionControls } from './components/SessionControls'
 import { QuotaExhaustedIdle } from './components/QuotaExhaustedIdle'
 import { TrialEndModal } from './components/TrialEndModal'
 import { callApi, getCurrentUser, logout, ApiError } from './api-client'
-import type { Outline } from './api-client'
 import { useQuota } from './hooks/useQuota'
 import { useTrial } from './hooks/useTrial'
 import { useSession } from './hooks/useSession'
@@ -245,14 +243,8 @@ export default function App() {
     setQuota, setQuotaBlocked, setLiveRemainingSecs,
     reset: resetQuota,
   } = useQuota({ isCapturingRef, videoPlayingRef })
-  // When the video ends (content script broadcasts session_ended) we
-  // arm a flag that fires the auto-download zip path on the very next
-  // outline_updated — provided the user has opted into the setting in
-  // the Options page. The flag clears after one fire so a subsequent
-  // outline update (e.g. the user manually clicks regenerate) doesn't
-  // re-trigger the download. Stays in App.tsx during Phase 3a;
-  // follows applyEvent into useSession in Phase 3b.
-  const pendingAutoDownloadRef = useRef(false)
+  // (pendingAutoDownloadRef moved to useSession in Phase 5c step 3b
+  // — it's hook-internal now since applyEvent lives there.)
   // Lecture title used for the export filename. Initial value is a
   // generic placeholder; we replace it with `outline.title` (the
   // curator-extracted lecture topic) the moment the first outline
@@ -295,32 +287,25 @@ export default function App() {
   const { isEmbed, parentUrl } = ctx
 
   // Session state slice (sessionId / slides / outline / transcripts /
-  // curating / isCapturing / videoPlaying / hydrateFromLogin /
-  // onTriggerCurate) lives in useSession. The hook also owns the
-  // /v1/session GET hydrate, the WS connect-and-route, and the
-  // curating watchdog. setTitle is forwarded in so the /v1/session
-  // GET can adopt the curator-extracted title when an outline exists.
-  // applyEvent still lives in App.tsx during Phase 3a and writes
-  // through the destructured setters; Phase 3b moves it in and the
-  // setters drop from the return.
+  // curating / isCapturing / videoPlaying) lives in useSession. The
+  // hook owns the /v1/session GET hydrate, the WS connect-and-route,
+  // the curating watchdog, applyEvent + its two transport listeners
+  // (SP_BROADCAST + window.postMessage), the auto-download arm/fire
+  // flag, and onTriggerCurate. setTitle is forwarded in so /v1/session
+  // GET / outline_updated can adopt the curator-extracted title.
+  // useQuota's setters flow in so applyEvent's quota_update /
+  // quota_exceeded cases can write through; setQuota is the wrapper
+  // that internally persists sh.cachedQuota.
   const {
     sessionId, slides, outline, outlineUpdatedAt, transcripts,
     curating, curateError, isCapturing, videoPlaying,
-    setSessionId, setSlides, setOutline, setOutlineUpdatedAt, setTranscripts,
-    setCurating, setCurateError, setIsCapturing, setVideoPlaying,
     hydrateFromLogin, onTriggerCurate, reset: resetSession,
   } = useSession({
     isEmbed, user, parentUrl,
     exportCtxRef,
-    // Direct setter reference (NOT `(t) => setTitle(t)` — that arrow
-    // is a fresh function identity every render, which would cycle
-    // useSession's /v1/session GET effect by tripping its deps;
-    // each cycle fired setTitle(fallback) → setTitle(curated) and
-    // produced a visible flicker between placeholder and the
-    // curator-extracted title). useState setters are stable per
-    // React; pass it unwrapped.
     setTitle,
     titleFallback: TITLE_FALLBACK,
+    setQuota, setQuotaBlocked, setLiveRemainingSecs,
   })
 
   // Single source of truth for the React-side auth wipe. Every piece
@@ -446,12 +431,15 @@ export default function App() {
         const r = await callApi<{ user: User; quota: QuotaSnapshot }>('/v1/auth/me', 'GET')
         if (r.user) setUser(r.user as User)
         if (r.quota) {
+          // setQuota is useQuota's wrapper — it persists sh.cachedQuota
+          // internally on every concrete-value call. Explicit
+          // storage.local.set here was removed in Phase 5c step 3b
+          // (single source of truth for cached-quota persistence).
           setQuota(r.quota)
-          // Same seed as the cached path — keeps the header countdown
-          // accurate from the moment auth-me lands rather than waiting
-          // for the first stream-audio response.
+          // Seed the header countdown to the backend-authoritative
+          // value the moment auth-me lands rather than waiting for
+          // the first stream-audio response.
           setLiveRemainingSecs(r.quota.remaining_secs)
-          void chrome.storage.local.set({ 'sh.cachedQuota': { quota: r.quota, ts: Date.now() } })
         }
       } catch (e) {
         const status = e instanceof ApiError ? e.status : undefined
@@ -515,243 +503,6 @@ export default function App() {
     else if (stored === 'auto' || stored === undefined) setPlaybackSpeed(2)
   }, [bootStorage])
 
-  // Listen for SP_BROADCAST from content via SW. The embed (in-page modal)
-  // and the side-panel (account view) both subscribe — quota updates are
-  // useful in both contexts, while session_started is embed-only.
-  //
-  // Two transports flow into the same set of state mutations:
-  //   - SP_BROADCAST messages from the SW (content script → SW → here)
-  //     use snake_case event names ('session_started', 'quota_update',
-  //     'outline_updated', 'curate_failed', 'video_state').
-  //   - window.postMessage from the in-page content frame uses
-  //     SCREAMING_SNAKE ('CURATING', 'OUTLINE_UPDATED', 'CURATE_FAILED',
-  //     'VIDEO_STATE', 'QUOTA_UPDATE', 'QUOTA_EXCEEDED').
-  // The two name lists were maintained separately in earlier versions,
-  // which led to drift (e.g. one transport cleared `curateError` on
-  // outline updates and the other didn't). `applyEvent` centralises the
-  // state-mutation logic so the two transports are guaranteed to
-  // produce identical UI behavior.
-  type AppEventPayload = {
-    sessionId?: string
-    quota?: QuotaSnapshot
-    outline?: Outline
-    playing?: boolean
-    reason?: string
-  }
-  type AppEventKind =
-    | 'session_started'
-    | 'session_ended'
-    | 'outline_updated'
-    | 'curate_failed'
-    | 'curating'
-    | 'video_state'
-    | 'quota_update'
-    | 'quota_exceeded'
-  // Single normalisation point. Both transports lower-case the event
-  // name so the switch deals with one canonical form.
-  const normaliseEventKind = (raw: string | undefined): AppEventKind | null => {
-    switch ((raw ?? '').toLowerCase()) {
-      case 'session_started':  return 'session_started'
-      case 'session_ended':    return 'session_ended'
-      case 'outline_updated':  return 'outline_updated'
-      case 'curate_failed':    return 'curate_failed'
-      case 'curating':         return 'curating'
-      case 'video_state':      return 'video_state'
-      case 'quota_update':     return 'quota_update'
-      case 'quota_exceeded':   return 'quota_exceeded'
-      default: return null
-    }
-  }
-  const applyEvent = useCallback((kind: AppEventKind, p: AppEventPayload): void => {
-    switch (kind) {
-      case 'session_started': {
-        if (!isEmbed || !p.sessionId) return
-        // Distinguish "resume same session" vs "fresh session". When the
-        // user reopens the modal on a URL they've curated before, the
-        // useEffect that GETs /v1/session has already populated outline /
-        // slides / sessionId from the DB. The first audio chunk POSTed
-        // after they press play returns the SAME canonical session id
-        // (backend UPSERTs on (user_id, url_hash) so the existing row
-        // wins). Without this guard we'd then wipe the just-loaded
-        // outline + slides — the user perceives this as "the modal
-        // suddenly forgot my notes 5 s after I pressed play".
-        const isResume = exportCtxRef.current.sessionId === p.sessionId
-        setSessionId(p.sessionId)
-        // Live captions are per-viewing UI and always start fresh.
-        setTranscripts([])
-        setQuotaBlocked(false); setCurateError(null)
-        setIsCapturing(true)
-        if (!isResume) {
-          // Brand new session — wipe DB-backed state.
-          setSlides([])
-          setOutline(null)
-          setOutlineUpdatedAt(null)
-          setCurating(false)
-        }
-        return
-      }
-      case 'session_ended':
-        if (!isEmbed) return
-        // Capture is over (user-stop OR natural ended). Hide the 停止
-        // button but KEEP sessionId / outline / slides so the user can
-        // still trigger manual re-curate or export.
-        setIsCapturing(false)
-        // Wipe any stale curateError carried over from a mid-session
-        // failure. The fallback copy ("녹음은 계속되고 있어요" /
-        // "Recording continues") becomes a contradiction the moment
-        // capture stops, since the post-session UI also shows the
-        // green "녹음이 종료되었습니다" hint right beneath. If
-        // content-script fires triggerCurate('ended') here and that
-        // call fails, the curate_failed broadcast that follows will
-        // re-set curateError with a fresh, accurate reason — this
-        // clear runs synchronously before any async response arrives.
-        setCurateError(null)
-        // Arm the auto-download flag. The next outline_updated will
-        // fire exportZip if the user has opted into the setting.
-        pendingAutoDownloadRef.current = true
-        return
-      case 'outline_updated':
-        if (!isEmbed || !p.outline) return
-        // Fallback path: content script forwards the curate HTTP 200
-        // outline here in case the WS broadcast was lost (long curator
-        // runs can outlive an idle WS connection). Idempotent —
-        // overwrites with the latest outline.
-        setOutline(p.outline)
-        // Stamp the indicator clock to NOW: the curator just produced
-        // this outline, regardless of whether the JSON happened to
-        // match a previous version (e.g. user clicked regenerate
-        // without new content). Without this the OutlineView's
-        // content-diff guard would early-return and the timestamp
-        // would stay stuck on the hydrate value (3시간 전 etc).
-        setOutlineUpdatedAt(Date.now())
-        // Update the export filename to match the curated lecture
-        // topic. Empty / whitespace-only titles fall back to the
-        // generic placeholder — better than naming a file ".zip".
-        if (p.outline.title?.trim()) setTitle(p.outline.title.trim())
-        setCurating(false)
-        setCurateError(null)
-        // v0.3 auto-sync: when the user has enabled Obsidian REST API
-        // sync, push the freshly-curated lecture to their vault now.
-        // Fire-and-forget; failures land in the console rather than
-        // blocking the modal so a transient network blip on localhost
-        // doesn't disrupt the read flow.
-        void (async () => {
-          const cfg = await getObsidianConfig()
-          if (!cfg.autoSync || !cfg.apiUrl || !cfg.apiKey) return
-          const cur = exportCtxRef.current
-          if (!cur.parentUrl || !cur.sessionId) return
-          try {
-            const r = await pushToObsidian({
-              sourceUrl: cur.parentUrl,
-              title: cur.title,
-              slides: cur.slides,
-              sessionId: cur.sessionId,
-            })
-            // eslint-disable-next-line no-console
-            console.log('[App] obsidian auto-sync:', r.ok ? `${r.files} files in ${r.durationMs|0}ms` : `FAIL ${r.error}`)
-          } catch (e) {
-            // eslint-disable-next-line no-console
-            console.warn('[App] obsidian auto-sync threw:', e)
-          }
-        })()
-        // Auto-download check: if session ended and user opted in,
-        // fire the zip export now that the final outline has landed.
-        // Guarded by the ref so a manually-triggered regenerate later
-        // doesn't re-download.
-        if (pendingAutoDownloadRef.current) {
-          pendingAutoDownloadRef.current = false
-          void (async () => {
-            const enabled = await getAutoDownload()
-            if (!enabled) return
-            // Read fresh state from the ref so we don't fire on stale
-            // closure values from the moment applyEvent was created.
-            const cur = exportCtxRef.current
-            if (!cur.parentUrl || !cur.sessionId) return
-            try {
-              await exportZip({
-                sourceUrl: cur.parentUrl,
-                title: cur.title,
-                slides: cur.slides,
-                sessionId: cur.sessionId,
-              })
-            } catch (e) {
-              // eslint-disable-next-line no-console
-              console.warn('[App] auto-download failed:', e)
-            }
-          })()
-        }
-        return
-      case 'curating':
-        if (!isEmbed) return
-        setCurating(true)
-        setCurateError(null)
-        return
-      case 'curate_failed':
-        if (!isEmbed) return
-        setCurating(false)
-        setCurateError(p.reason ?? 'unknown')
-        return
-      case 'video_state':
-        if (!isEmbed || typeof p.playing !== 'boolean') return
-        setVideoPlaying(p.playing)
-        return
-      case 'quota_update':
-        if (!p.quota) return
-        setQuota(p.quota)
-        // Cache for the content script's pre-flight check. handleActivate
-        // reads this synchronously from chrome.storage to decide whether
-        // to call startCapture or skip it (saves a wasted 10 s audio
-        // chunk and 402 dance every time the user clicks the inline
-        // button at quota = 100%).
-        void chrome.storage.local.set({ 'sh.cachedQuota': { quota: p.quota, ts: Date.now() } })
-        // Re-sync the live-ticking remaining counter to the backend
-        // authoritative value on every chunk. Drift between the
-        // counter and reality is bounded by chunk cadence (~10 s).
-        setLiveRemainingSecs(p.quota.remaining_secs)
-        // Refresh-out-of-blocked: if the backend reset the period
-        // (1st of the month rollover) the user can be unblocked
-        // mid-session.
-        if (p.quota.percent_used < 100) setQuotaBlocked(false)
-        return
-      case 'quota_exceeded':
-        if (!p.quota) return
-        setQuota(p.quota)
-        void chrome.storage.local.set({ 'sh.cachedQuota': { quota: p.quota, ts: Date.now() } })
-        setLiveRemainingSecs(p.quota.remaining_secs)
-        setQuotaBlocked(true)
-        return
-    }
-  }, [isEmbed])
-
-  // Transport 1: SP_BROADCAST via the SW. Reaches embed AND side-panel
-  // contexts. Server-format event names (snake_case).
-  useEffect(() => {
-    const listener = (msg: { type: string; payload?: { type: string } & AppEventPayload }) => {
-      if (msg.type !== 'SP_BROADCAST' || !msg.payload) return
-      const kind = normaliseEventKind(msg.payload.type)
-      if (kind) applyEvent(kind, msg.payload)
-    }
-    chrome.runtime.onMessage.addListener(listener)
-    return () => chrome.runtime.onMessage.removeListener(listener)
-    // applyEvent is stable per isEmbed; normaliseEventKind is local.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [applyEvent])
-
-  // Transport 2: window.postMessage from the content frame inside the
-  // embed iframe (top-frame postMessage relay → modal iframe). Uses
-  // SCREAMING_SNAKE event names; normaliseEventKind lowercases them.
-  useEffect(() => {
-    if (!isEmbed) return
-    const listener = (e: MessageEvent) => {
-      const data = e.data as ({ source?: string; type?: string } & AppEventPayload) | null
-      if (!data || data.source !== 'sh-frame') return
-      const kind = normaliseEventKind(data.type)
-      if (kind) applyEvent(kind, data)
-    }
-    window.addEventListener('message', listener)
-    return () => window.removeEventListener('message', listener)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isEmbed, applyEvent])
 
 
 
