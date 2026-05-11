@@ -202,26 +202,28 @@ function EditableFilename({
   )
 }
 
-// Cold-start snapshot of one storage key the mount-time effect can
-// safely freeze: last-saved playback speed. The cachedQuota seed has
-// moved to useQuota (it now reads `sh.cachedQuota` itself on mount —
-// see hooks/useQuota.ts). The trial-pending key stays a separate
-// focus-handler read since it can change between mount and the
-// Stripe-return focus event. The token key is read fresh inside the
-// auth effect for the same live-changes reason — see the BootStorage
-// comment block below.
+// Side-panel root component. Phase 5c (commits a72e765 → e00ff4c)
+// decomposed this file from a 1500+ line single component into a
+// composition of four domain hooks:
 //
-// `sh.token` is deliberately NOT cached in this snapshot. The token
-// is the one mount-time storage value that LIVE-CHANGES (login flow
-// writes it after mount); freezing it here caused a flicker
-// regression — the auth effect re-runs on `user?.id` change after
-// login, saw a stale `hasToken: false` from mount, and reset
-// setUser(null) back to LoginScreen. The auth effect reads
-// `sh.token` fresh on each run instead (rare — only on consented
-// flip or user?.id change).
-interface BootStorage {
-  playback: unknown
-}
+//   - useQuota    → quota / quotaBlocked / liveRemainingSecs +
+//                    cached-quota seed + 1 Hz live tick + the
+//                    setQuota wrapper that persists sh.cachedQuota.
+//   - useAuth     → user + sh.token storage listener + auth-me
+//                    effect (with 401 → onAuthExpired fallback).
+//   - useSession  → session/outline/slides/transcript/capture
+//                    state + /v1/session GET hydrate + WS lifecycle
+//                    + applyEvent + 2 transport listeners +
+//                    onTriggerCurate + hydrateFromLogin.
+//   - useTrial    → trialStarting + onTrialStart / onTrialResolved
+//                    + visibility-handler for trial-confirm + the
+//                    `trialActive` derived flag.
+//
+// App.tsx owns: composition + the rendering tree + the small
+// remainder of App-level state (title / enabled / playbackSpeed /
+// viewingSession / upgrading) + the resetAuthState orchestrator
+// that fans out to each hook's reset on logout / 401 / cross-
+// context storage event.
 
 export default function App() {
   const T = useT()
@@ -231,7 +233,6 @@ export default function App() {
   // (composed below). setUser is re-exposed from useAuth's return
   // so the LoginScreen.onSuccess eager-apply path + useTrial's
   // trial-confirm refetch keep their existing usage.
-  const [bootStorage, setBootStorage] = useState<BootStorage | null>(null)
   // Most session-derived state (sessionId / slides / outline /
   // outlineUpdatedAt / transcripts / curating / curateError /
   // isCapturing / videoPlaying) now lives in useSession — composed
@@ -354,19 +355,6 @@ export default function App() {
 
 
   useEffect(() => { void hasConsent().then(setConsented) }, [])
-  // Wait until the user has explicitly consented before fetching the
-  // session. Earlier deps `[consented]` made this re-run on every
-  // consented flip — including the initial null→false on a fresh
-  // user — issuing a needless AUTH_GET_USER round-trip and clobbering
-  // any in-flight setUser the login flow had just performed.
-  // Playback speed only — cachedQuota seed moved to useQuota.
-  // `sh.token` is read fresh inside the auth effect on each run
-  // (see BootStorage comment for the live-changes rationale).
-  useEffect(() => {
-    void chrome.storage.local.get('sh.playback').then((r) => {
-      setBootStorage({ playback: r['sh.playback'] })
-    })
-  }, [])
 
 
   // Keep the export-input ref in sync with the React state used by
@@ -390,15 +378,18 @@ export default function App() {
     return off
   }, [])
 
-  // Initial playback speed from storage. Shared key with the options
-  // page. Gated on bootStorage so we use the same one-shot batched
-  // read instead of issuing a third storage IPC on cold start.
+  // Initial playback speed from storage. Shared key with the
+  // Options page. Slim direct-read effect — the batched bootStorage
+  // snapshot that gated this in earlier phases was retired in step
+  // 5 once useQuota took over cachedQuota persistence; the net cost
+  // is one extra storage IPC at cold start (sub-millisecond).
   useEffect(() => {
-    if (!bootStorage) return
-    const stored = bootStorage.playback
-    if (typeof stored === 'number') setPlaybackSpeed(stored)
-    else if (stored === 'auto' || stored === undefined) setPlaybackSpeed(2)
-  }, [bootStorage])
+    void chrome.storage.local.get('sh.playback').then((r) => {
+      const stored = r['sh.playback']
+      if (typeof stored === 'number') setPlaybackSpeed(stored)
+      else if (stored === 'auto' || stored === undefined) setPlaybackSpeed(2)
+    })
+  }, [])
 
 
 
