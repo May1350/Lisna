@@ -312,7 +312,14 @@ export default function App() {
   } = useSession({
     isEmbed, user, parentUrl,
     exportCtxRef,
-    setTitle: (t: string) => setTitle(t),
+    // Direct setter reference (NOT `(t) => setTitle(t)` — that arrow
+    // is a fresh function identity every render, which would cycle
+    // useSession's /v1/session GET effect by tripping its deps;
+    // each cycle fired setTitle(fallback) → setTitle(curated) and
+    // produced a visible flicker between placeholder and the
+    // curator-extracted title). useState setters are stable per
+    // React; pass it unwrapped.
+    setTitle,
     titleFallback: TITLE_FALLBACK,
   })
 
@@ -342,7 +349,13 @@ export default function App() {
     resetTrialRef.current()
     resetSession()
     setViewingSession(null)
-  }, [resetQuota, resetSession])
+    // Title is App-owned (not in useSession's slice). Without an
+    // explicit reset, the previous user's curated lecture title
+    // would linger on the next user's first paint of the modal
+    // until useSession's /v1/session GET fired and adopted either
+    // the new outline.title or the fallback. Cheap to set here.
+    setTitle(TITLE_FALLBACK)
+  }, [resetQuota, resetSession, TITLE_FALLBACK])
   // Stable onAuthExpired identity for hooks that pass it as a dep
   // into their internal useEffect (useTrial's visibility handler
   // listener, future useAuth's storage listener). Without this, each

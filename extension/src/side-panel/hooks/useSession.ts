@@ -171,7 +171,17 @@ export function useSession({
         }
       } catch { /* ignore */ }
     })()
-  }, [user, isEmbed, parentUrl, setTitle, titleFallback])
+    // setTitle / titleFallback are deliberately excluded from the
+    // dep list. setTitle is a React useState setter (stable per
+    // React); titleFallback is a locale-derived string constant
+    // (re-runs are only desirable when consent/user/parentUrl
+    // change, not when the i18n module emits a new reference for
+    // an unchanged language). Including them caused an infinite
+    // fallback↔curated title flicker before the inline-arrow fix
+    // on the caller side — disabling exhaustive-deps here is a
+    // defence-in-depth seatbelt for that regression.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, isEmbed, parentUrl])
 
   // Connect WS when sessionId arrives. The handle returned by
   // connectWs owns its own reconnect-with-backoff loop (see
