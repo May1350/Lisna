@@ -1,6 +1,6 @@
-# Study-Helper — Session Handoff
+# Lisna — Session Handoff
 
-**Last updated**: 2026-05-01
+**Last updated**: 2026-05-12
 **Purpose**: Bring a new session up to speed in <5 min. Read top → bottom in order.
 **Reader**: future-self (or another Claude). Skip what you already know.
 
@@ -8,10 +8,17 @@
 
 ## 1. Project at a glance
 
-Chrome extension that produces real-time AI-generated study notes from
-**non-downloadable lecture videos** at Japanese universities (Keio LMS is
-the primary target; YouTube also works for fixtures and dev). Live audio
-capture → STT → on-demand LLM curator → Obsidian-flavored markdown export.
+**Concept**: every spoken sound, structured on the user's own device.
+See [PRD.md](PRD.md) for the locked yardstick + scenario set; this
+section covers only how the current stack (v1, cloud) realises it.
+
+The shipping surface today is a Chrome extension that produces
+real-time AI-generated notes from **non-downloadable lecture videos**
+at Japanese universities (Keio LMS is the primary target; YouTube also
+works for fixtures + dev). The same pipeline — live audio → STT →
+on-demand LLM curator → Obsidian-flavored markdown — is what the v2
+desktop native + on-device build will replace, with cloud kept as
+fallback (see PRD §Stack stage).
 
 ```
 Browser (Chrome ext)                     AWS (CDK)
