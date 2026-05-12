@@ -1,11 +1,15 @@
+import os from 'node:os';
 import { ipcMain } from 'electron';
-import type { ChunkPayload } from '@shared/ipc-protocol';
+import type { Capabilities, ChunkPayload } from '@shared/ipc-protocol';
+import { isMacAudioLoopbackSupported } from './platform/hardware-check';
 
 export const CHANNELS = {
   startRecording: 'recording/start',
   stopRecording: 'recording/stop',
   /** renderer → main: a finalized PCM chunk for downstream STT */
   chunk: 'recording/chunk',
+  /** renderer → main: query platform capabilities on mount (sync, cheap) */
+  capabilities: 'platform/capabilities',
 } as const;
 
 export function registerIpc() {
@@ -19,4 +23,9 @@ export function registerIpc() {
     console.log('chunk received', payload.index, payload.samples.length, 'samples');
     return { ok: true };
   });
+  ipcMain.handle(CHANNELS.capabilities, (): Capabilities => ({
+    systemAudio: isMacAudioLoopbackSupported(),
+    platform: process.platform,
+    osRelease: os.release(),
+  }));
 }

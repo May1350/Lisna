@@ -28,3 +28,17 @@ Records of one-off runtime verifications that can't be fully automated.
   - Confirm `new URL('./pcm-worklet.js', import.meta.url)` resolves in both dev (electron-vite serves) and packaged (file://) builds; if not, move `pcm-worklet.js` under `src/renderer/public/` and switch to a `/pcm-worklet.js` string URL
   - Confirm Float32Array survives the IPC structured clone with `samples.length === payload.samples.length` (no truncation, no detach); the fallback is to send `samples.buffer` (ArrayBuffer) and reconstruct on the main side
 - Result: DEFERRED — no live Electron runtime available in the agent session that wrote this code (2026-05-13). Unit tests in `src/renderer/audio/__tests__/orchestrator.test.ts` cover the orchestrator state machine; the AudioWorklet + IPC wiring will be exercised in Phase 2 when the whisper sidecar consumer is plugged in.
+
+## macOS 13 (Darwin 22.x) graceful fallback — verified DEFERRED
+
+- Setup: run on actual macOS 13 OR force `os.release()` stub in `hardware-check.ts` to return `"22.6.0"` temporarily (the threshold is Darwin 23.4 ≈ macOS 14.4, so anything below trips the fallback path)
+- Expected on macOS 13 (or stubbed):
+  1. Recording route loads without errors
+  2. The "System audio" radio button is `disabled` (greyed; the disabled state is the affordance — not hidden)
+  3. `SystemAudioUnavailableNotice` (`#fff7e6` aside) is visible below the source picker with the macOS 14.4 explanation copy
+  4. Mic-only recording still works end-to-end (Start → speak → Stop → chunk counter increments, no console errors)
+- Expected on macOS 14.4+ (sanity baseline):
+  1. System-audio radio is enabled and selectable
+  2. The notice is NOT rendered
+- Result: DEFERRED — no macOS 13 machine in agent session; full manual matrix lands at Phase 6.4 per the on-device v2 plan. Unit tests in `src/main/platform/__tests__/hardware-check.test.ts` pin the Darwin 23.4 threshold (23.3 → false, 23.4 → true), which is the load-bearing branch.
+- Electron / macOS versions observed: DEFERRED

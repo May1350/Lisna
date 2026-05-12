@@ -19,6 +19,19 @@ export interface ChunkPayload {
   samples: Float32Array;
 }
 
+/**
+ * Platform capability summary queried by the renderer once on mount.
+ * `systemAudio=false` means loopback/system-audio capture is unavailable on
+ * this OS build (e.g. macOS < 14.4, where `desktopCapturer.enableLocalLoopback`
+ * is not exposed) — the UI must gate the "system" recording source.
+ */
+export interface Capabilities {
+  systemAudio: boolean;
+  platform: NodeJS.Platform;
+  /** Raw `os.release()` — Darwin kernel string on macOS (e.g. "23.4.0"). */
+  osRelease: string;
+}
+
 export type SidecarRequest =
   | { id: string; type: 'load'; kind: 'stt'; path: string; language: Language }
   | { id: string; type: 'load'; kind: 'llm'; path: string }
