@@ -2,6 +2,7 @@ import { app, BrowserWindow } from 'electron';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { registerIpc } from './ipc';
+import { installSystemAudioHandler } from './audio/system-audio-handler';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -24,5 +25,8 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  installSystemAudioHandler();
+  createWindow();
+});
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
