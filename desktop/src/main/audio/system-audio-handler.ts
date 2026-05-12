@@ -4,6 +4,12 @@ import { session, desktopCapturer } from 'electron';
 type StreamsWithLoopback = Electron.Streams & { enableLocalLoopback: boolean };
 
 export function installSystemAudioHandler(): void {
+  // Both deny paths below (empty sources + catch) call cb({}) — this empty-object
+  // shape is the deny contract for Electron's setDisplayMediaRequestHandler:
+  // the renderer-side getDisplayMedia() promise rejects rather than hanging.
+  // Electron's docs do not document a deny sentinel; verified by
+  // system-audio-handler.test.ts + docs/manual-verification.md
+  // "cb({}) deny semantics" section (Electron 39, 2026-05-13).
   session.defaultSession.setDisplayMediaRequestHandler(async (_req, cb) => {
     try {
       const sources = await desktopCapturer.getSources({ types: ['screen'] });
@@ -16,8 +22,6 @@ export function installSystemAudioHandler(): void {
       };
       cb(streams);
     } catch {
-      // deny → renderer getDisplayMedia() rejects rather than hanging
-      // (cb({}) contract verified by system-audio-handler.test.ts + docs/manual-verification.md, Electron 39, 2026-05-13)
       cb({});
     }
   }, { useSystemPicker: false });

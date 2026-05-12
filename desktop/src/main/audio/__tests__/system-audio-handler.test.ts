@@ -13,13 +13,12 @@ describe('system-audio-handler — deny semantics', () => {
 
   function captureHandler() {
     installSystemAudioHandler();
-    const setter = session.defaultSession.setDisplayMediaRequestHandler as unknown as { mock: { calls: unknown[][] } };
+    const setter = vi.mocked(session.defaultSession.setDisplayMediaRequestHandler);
     return setter.mock.calls[0]![0] as (req: unknown, cb: (arg: unknown) => void) => Promise<void>;
   }
 
   it('빈 sources → cb 는 video/audio 키 없는 객체 (= 거부)', async () => {
-    (desktopCapturer.getSources as unknown as { mockResolvedValueOnce: (v: unknown) => void })
-      .mockResolvedValueOnce([]);
+    vi.mocked(desktopCapturer.getSources).mockResolvedValueOnce([]);
     const handler = captureHandler();
     const cb = vi.fn();
     await handler({}, cb);
@@ -30,8 +29,7 @@ describe('system-audio-handler — deny semantics', () => {
   });
 
   it('getSources throw → cb 도 video/audio 키 없는 객체 (= 거부)', async () => {
-    (desktopCapturer.getSources as unknown as { mockRejectedValueOnce: (e: Error) => void })
-      .mockRejectedValueOnce(new Error('boom'));
+    vi.mocked(desktopCapturer.getSources).mockRejectedValueOnce(new Error('boom'));
     const handler = captureHandler();
     const cb = vi.fn();
     await handler({}, cb);
