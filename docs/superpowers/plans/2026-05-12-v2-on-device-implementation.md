@@ -3547,7 +3547,7 @@ Plan complete and saved to `docs/superpowers/plans/2026-05-12-v2-on-device-imple
 
 본 plan 의 execution 과 병렬로 결정/발주해야 하는 워크스트림:
 
-1. **50-meeting JA eval-set (v2.1 diarisation 의존성)** — *owner 지정 필수.* 본 plan 의 어느 phase 에도 들어가지 않지만, v2.0 freeze 전에 결정 안 하면 v2.1 diarisation bakeoff 가 자동 슬립. 의사결정 항목 별도 정리 (이 plan 문서 끝의 § 평가셋 owner 결정 참고).
+1. **50-meeting JA eval-set (v2.1 diarisation 의존성)** — *owner = founder (옵션 A, 2026-05-12 결정).* 본 plan 의 어느 phase 에도 들어가지 않음. v2.0 코드 일정 슬립 수용. 부록 B 참고.
 2. **모델 URL / sha256 핀 (Task 4.2 의 TBD-AT-FREEZE)** — v2.0 freeze 직전 별도 commit. Hugging Face revision + 자체 mirror 결정 포함. 라이선스(Apache 2.0 / Gemma terms) 검토 결과도 함께.
 3. **Gemma 4 4B vs Gemma 3 4B 최종 결정** — 위와 동일 시점. 결정 root cause: `huggingface.co` 검색에서 `gemma-4-4b-it-q4_k_m.gguf` 또는 동등이 존재하면 Gemma 4, 아니면 Gemma 3.
 4. **알파 사용자 모집 + 피드백 채널** — Task 6.5 의 알파 빌드 직후. 일본 JP 우선 (concept lock 정합).
@@ -3559,9 +3559,11 @@ Plan complete and saved to `docs/superpowers/plans/2026-05-12-v2-on-device-imple
 
 스펙 §9 의 명시: *"Owner of this workstream needs to be named before v2.0 feature freeze, otherwise v2.1 diarisation bakeoff slips."*
 
+**결정 (2026-05-12, founder):** **옵션 A — founder 본인이 직접 발주 + 라벨링 책임.** v2.0 코드 일정의 슬립을 받아들이고, JP-native concept lock 정합성을 1인 검수로 확보. v2.0 코드는 본 plan 으로 계속 진행하되, 일정 압박이 올 때 "non-critical 스코프 컷" 이 디폴트 응답 — founder 시간을 "더 짜내기" 가 아니라.
+
 **현재 상황:** 1인 founder 운영 + 본 prod 코드 작업이 메인 트랙. eval-set procurement (50시간 일본어 회의 오디오 + JP-native 라벨링) 는 *코딩이 아닌 데이터/오퍼레이션 워크스트림* — 엔지니어링 시간으로 흡수 시 v2.0 코드 슬립.
 
-**선택지 (대화 별도 결정 필요):**
+**고려된 선택지 (참고용으로 보존):**
 
 | 옵션 | 비용 | 슬립 리스크 | 비고 |
 |---|---|---|---|
