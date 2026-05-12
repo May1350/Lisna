@@ -8,6 +8,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "build:sidecar": "bash sidecar/scripts/build.sh",
+    "test:sidecar": "bash sidecar/scripts/build.sh test",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src",
     "test": "vitest run --passWithNoTests",
