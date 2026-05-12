@@ -102,4 +102,22 @@ describe('RecordingOrchestrator', () => {
     expect(c0.samples.length).toBe(SR * 2);
     expect(c1.samples.length).toBe(SR * 10);
   });
+
+  it('start() is idempotent — second call on same instance does not double-init', async () => {
+    // Regression guard for the `if (this.capturer) return;` protection inside
+    // RecordingOrchestrator.start(). Recording.tsx layer protects against
+    // two orchestrator *instances* via startingRef; this test pins the
+    // per-instance protection so a future refactor can't quietly drop it.
+    const fake = makeFakeCapturer();
+    const sender = vi.fn();
+    const startSpy = vi.spyOn(fake, 'start');
+    const orch = new RecordingOrchestrator({
+      sender,
+      capturerFactory: () => fake as unknown as Capturer,
+    });
+
+    await orch.start('mic');
+    await orch.start('mic'); // second call must early-return
+    expect(startSpy).toHaveBeenCalledTimes(1);
+  });
 });
