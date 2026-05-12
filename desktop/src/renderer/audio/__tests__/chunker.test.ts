@@ -34,4 +34,13 @@ describe('ChunkAccumulator (16kHz mono Float32, 2s 초기 / 10s 후속)', () => 
     expect(emitted).toHaveLength(2);
     expect(emitted[1]!.length).toBe(SR * 3);
   });
+
+  it('단일 push 가 첫→후속 경계 넘어가면 정확히 2s + 10s 로 분할', () => {
+    const emitted: Float32Array[] = [];
+    const acc = new ChunkAccumulator({ onChunk: c => emitted.push(c) });
+    acc.push(new Float32Array(SR * 12));
+    expect(emitted).toHaveLength(2);
+    expect(emitted[0]!.length).toBe(SR * 2);
+    expect(emitted[1]!.length).toBe(SR * 10);
+  });
 });

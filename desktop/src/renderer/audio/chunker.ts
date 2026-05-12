@@ -15,16 +15,22 @@ export class ChunkAccumulator {
   private readonly onChunk: (c: Float32Array) => void;
 
   constructor(opts: ChunkAccumulatorOptions) {
-    this.firstSamples = (opts.firstChunkSec ?? 2) * SAMPLE_RATE;
-    this.subsequentSamples = (opts.chunkSec ?? 10) * SAMPLE_RATE;
+    const firstSec = opts.firstChunkSec ?? 2;
+    const restSec = opts.chunkSec ?? 10;
+    if (firstSec < 0 || restSec <= 0) {
+      throw new Error('ChunkAccumulator: chunk durations must be positive (firstChunkSec >= 0, chunkSec > 0)');
+    }
+    this.firstSamples = firstSec * SAMPLE_RATE;
+    this.subsequentSamples = restSec * SAMPLE_RATE;
     this.onChunk = opts.onChunk;
   }
 
   push(samples: Float32Array): void {
     this.buffer.push(samples);
     this.bufferLen += samples.length;
-    const need = this.chunkIndex === 0 ? this.firstSamples : this.subsequentSamples;
-    while (this.bufferLen >= need) {
+    while (true) {
+      const need = this.chunkIndex === 0 ? this.firstSamples : this.subsequentSamples;
+      if (this.bufferLen < need) break;
       this.emit(need);
     }
   }
