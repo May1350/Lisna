@@ -592,6 +592,203 @@ git commit -m "feat(desktop): lock STTEngine/LLMEngine + sidecar IPC types"
 
 ---
 
+## Phase 0.5 — 사이드카 codesign/notarize 파이프라인 스모크 테스트 (de-risk)
+
+목표: Phase 2 의 whisper.cpp 사이드카가 들어가기 전에, 헬로월드 C++ 바이너리 1개로 build → sign → notarize → staple → 실행 파이프라인 전 구간을 한번 통과시켜 entitlement / hardened-runtime / signing chain / notarytool credential 이슈를 미리 노출. 첫 노터라이즈에서 발견되는 이슈는 멀티-시간 피드백 루프라, Phase 2/3 의 실 사이드카·LLM 작업이 들어가기 전에 토대를 잠가두는 게 목적.
+
+스펙 근거: §7 (signing, notarization, hardened-runtime). 추가 근거: 독립 검토자 권고 (feasibility review, 2026-05-13) — "the first time the sidecar is signed + notarized is Phase 6 itself" 리스크 사전 차단.
+
+**전제 (블로커):**
+- Apple Developer Program 가입 + Developer ID Application 인증서가 로컬 keychain 에 있어야 함. 미가입 상태면 cert 발급 대기 (가입 후 ~1~3 영업일). 이 전제가 충족 안 되면 Phase 0.5 는 cert 도착 시까지 보류 — Phase 1 진행은 가능.
+- 환경 변수 (notarize 단계): `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`.
+
+**Phase 6 와의 관계:** Phase 0.5 에서 만든 `desktop/build/{entitlements.mac.plist, afterPack.cjs, afterSign.cjs}` + `desktop/electron-builder.yml` + `desktop/sidecar/CMakeLists.txt` + `desktop/sidecar/scripts/build.sh` 는 그대로 후속 phase 에 인계됨. Phase 2.1 의 CMake 는 이 베이스 위에 whisper.cpp 만 얹는 형태로, Phase 6.1 의 Step 1~4 는 "이미 됨" 으로 축소됨.
+
+### Task 0.5.1: 헬로월드 C++ 사이드카 + electron-builder + sign + notarize 1회 통과
+
+**Files:**
+- Create: `desktop/sidecar/CMakeLists.txt` (최소 — Phase 2.1 의 베이스)
+- Create: `desktop/sidecar/src/main.cpp` (stdin NDJSON echo)
+- Create: `desktop/sidecar/scripts/build.sh`
+- Create: `desktop/electron-builder.yml`
+- Create: `desktop/build/entitlements.mac.plist`
+- Create: `desktop/build/afterPack.cjs`
+- Create: `desktop/build/afterSign.cjs`
+- Create: `desktop/docs/codesign-notes.md` (이슈 + 해소법 기록)
+- Modify: `desktop/package.json` (devDeps: `@electron/notarize`, `electron-builder`; scripts: `package`)
+- Modify: `desktop/resources/.gitkeep` 옆에 빌드 산출물 복사 hook
+
+- [ ] **Step 1: 헬로월드 C++ 사이드카 — Phase 2 의 형태를 흉내**
+
+stdin 으로 NDJSON 한 줄 받고 `{"event":"pong","echo":...}` 한 줄 출력하는 최소 바이너리. Phase 2.1 의 main loop 시그니처와 동일하게 줄단위 처리.
+
+`desktop/sidecar/src/main.cpp`:
+```cpp
+#include <iostream>
+#include <string>
+int main() {
+  std::string line;
+  while (std::getline(std::cin, line)) {
+    // 최소 JSON escape (따옴표/백슬래시만) — Phase 2.1 의 nlohmann/json 으로 교체될 자리
+    std::string esc;
+    for (char c : line) {
+      if (c == '"' || c == '\\') esc.push_back('\\');
+      esc.push_back(c);
+    }
+    std::cout << "{\"event\":\"pong\",\"echo\":\"" << esc << "\"}" << std::endl;
+  }
+  return 0;
+}
+```
+
+`desktop/sidecar/CMakeLists.txt`:
+```cmake
+cmake_minimum_required(VERSION 3.20)
+project(lisna_sidecar CXX)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_OSX_ARCHITECTURES "arm64")
+add_executable(lisna_sidecar src/main.cpp)
+```
+
+`desktop/sidecar/scripts/build.sh`:
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+mkdir -p build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+cmake --build . -j
+mkdir -p ../../resources
+cp lisna_sidecar ../../resources/sidecar
+chmod +x ../../resources/sidecar
+```
+
+빌드 1회 검증: `bash desktop/sidecar/scripts/build.sh` 후 `desktop/resources/sidecar` 가 실행 가능 바이너리로 존재.
+
+- [ ] **Step 2: entitlements + electron-builder.yml + afterPack + afterSign**
+
+이 파일들은 Phase 6.1 Step 2/3/4 와 **동일한 내용** 으로 작성. Phase 6.1 의 해당 step 들은 "이미 됨 (Phase 0.5)" 으로 축소됨.
+
+`desktop/build/entitlements.mac.plist`:
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-jit</key><true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key><true/>
+  <key>com.apple.security.cs.disable-library-validation</key><true/>
+  <key>com.apple.security.device.audio-input</key><true/>
+</dict>
+</plist>
+```
+
+`desktop/build/afterPack.cjs`:
+```cjs
+const { execSync } = require('child_process');
+const { join } = require('path');
+module.exports = async (context) => {
+  if (context.electronPlatformName !== 'darwin') return;
+  const sidecar = join(
+    context.appOutDir,
+    context.packager.appInfo.productFilename + '.app',
+    'Contents', 'Resources', 'sidecar'
+  );
+  execSync(`test -f "${sidecar}"`);  // 위치 검증만 — 사이닝은 electron-builder 가 처리
+};
+```
+
+`desktop/build/afterSign.cjs`:
+```cjs
+const { notarize } = require('@electron/notarize');
+module.exports = async (context) => {
+  if (context.electronPlatformName !== 'darwin') return;
+  const appPath = `${context.appOutDir}/${context.packager.appInfo.productFilename}.app`;
+  await notarize({
+    tool: 'notarytool',
+    appPath,
+    appleId: process.env.APPLE_ID,
+    appleIdPassword: process.env.APPLE_APP_SPECIFIC_PASSWORD,
+    teamId: process.env.APPLE_TEAM_ID,
+  });
+};
+```
+
+`desktop/electron-builder.yml`:
+```yaml
+appId: jp.lisna.desktop
+productName: Lisna
+artifactName: ${productName}-${version}-${arch}.${ext}
+directories:
+  output: dist
+files:
+  - out/**
+extraResources:
+  - from: resources/sidecar
+    to: sidecar
+asar: true
+mac:
+  target:
+    - target: dmg
+      arch: [arm64]
+  category: public.app-category.productivity
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+afterPack: build/afterPack.cjs
+afterSign: build/afterSign.cjs
+```
+
+(`identity` 는 keychain 의 Developer ID 가 자동 선택되도록 일단 비움. 명시 필요 시 `identity: ${APPLE_TEAM_ID}` 추가.)
+
+`desktop/package.json` 변경:
+- devDeps 추가: `@electron/notarize`, `electron-builder`
+- scripts 추가: `"package": "electron-vite build && electron-builder"`
+
+- [ ] **Step 3: 빌드 + 사이닝 + 노터라이즈 1회 실행**
+
+```bash
+bash desktop/sidecar/scripts/build.sh
+APPLE_ID=... APPLE_APP_SPECIFIC_PASSWORD=... APPLE_TEAM_ID=... \
+  pnpm --filter @lisna/desktop package
+```
+
+Expected:
+- `desktop/dist/Lisna-0.0.1-arm64.dmg` 생성
+- `xcrun stapler validate desktop/dist/mac-arm64/Lisna.app` → "validated"
+- `codesign --verify --deep --strict desktop/dist/mac-arm64/Lisna.app` → exit 0
+- `spctl --assess --type execute desktop/dist/mac-arm64/Lisna.app` → "accepted"
+
+**여기서 발견되는 이슈를 모두 해소하고 `desktop/docs/codesign-notes.md` 에 패턴 기록.** 흔한 함정:
+- entitlement 한 줄 누락 → notarize log 에 "code not signed properly" 류 에러
+- `hardened-runtime: false` 로 빌드되면 notarize 거부
+- `APPLE_APP_SPECIFIC_PASSWORD` 가 일반 비번이면 notarytool 403
+- Developer ID 인증서가 expire 됐거나 chain 이 끊겼으면 codesign 시점에 "unable to build chain"
+- `afterSign.cjs` 에서 throw 가 swallow 되면 notarize 실패도 빌드 성공으로 보고됨 — 로그 꼭 확인
+
+- [ ] **Step 4: 검증 — DMG 마운트 → 드래그 인스톨 → 실행 → 사이드카 호출**
+
+수동 검증 (실기 1회):
+
+1. `open desktop/dist/Lisna-0.0.1-arm64.dmg` → 드래그로 `/Applications/Lisna.app` 설치
+2. Finder 에서 더블클릭 → 게이트키퍼가 "확인되지 않은 개발자" 경고 없이 바로 실행되는지 확인 (있다면 notarize/staple 실패)
+3. 메인 프로세스에서 임시 디버그 코드로 `extraResources/sidecar` 를 spawn, stdin 으로 `{"hello":1}\n` 쓰고 stdout 에서 `{"event":"pong","echo":"{\"hello\":1}"}` 가 돌아오는지 확인
+4. `Console.app` 의 시스템 로그에서 "code signature invalid" / "untrusted developer" 류 메시지 없는지 확인
+
+검증 결과 (성공/실패, 발견 이슈, 해소 패치) 를 `desktop/docs/codesign-notes.md` 에 기록. 디버그 spawn 코드는 검증 후 제거 — Phase 2.5 의 supervisor 가 같은 역할을 정식 구현.
+
+- [ ] **Step 5: 커밋 + Phase 2/6 의 가정 갱신 메모**
+
+```bash
+git add desktop/sidecar desktop/electron-builder.yml desktop/build desktop/package.json desktop/docs/codesign-notes.md desktop/resources
+git commit -m "feat(packaging): hello-world sidecar through full sign+notarize pipeline (Phase 0.5 de-risk)"
+```
+
+커밋 메시지 본문에 "Phase 6.1 의 Steps 2-4 는 이 커밋으로 선이행됨" 한 줄 명시.
+
+---
+
 ## Phase 1 — 오디오 캡쳐 (마이크 + 시스템 오디오)
 
 목표: Renderer 의 녹음 버튼 → Main 의 캡쳐 파이프라인 → 16kHz mono Float32 청크가 IPC 이벤트로 흘러나오는 상태까지. 사이드카는 아직 없음 — 청크는 임시 디스크 저장으로 검증.
@@ -1004,6 +1201,106 @@ Expected:
 ```bash
 git add desktop/src/main/audio/system-audio-handler.ts desktop/src/main/platform/hardware-check.ts desktop/src/renderer/audio/system-capture.ts desktop/src/main/index.ts
 git commit -m "feat(audio): system audio loopback via Electron 39 enableLocalLoopback"
+```
+
+---
+
+### Task 1.4.1: `cb({})` deny 시맨틱 잠그기 — 단위 테스트 + 실기 1회
+
+**Files:**
+- Modify: `desktop/src/main/audio/system-audio-handler.ts` (등록 로직을 named export 함수로 추출, 동작 동일)
+- Modify: `desktop/src/main/index.ts` (새 export 함수 호출로 교체)
+- Create: `desktop/src/main/audio/__tests__/system-audio-handler.test.ts`
+- Modify: `desktop/docs/manual-verification.md` (실기 1회 entry 추가, 없으면 신규)
+
+**근거:** Electron 의 `session.setDisplayMediaRequestHandler` 공식 문서는 deny sentinel 을 정의하지 않음. 현재 코드의 `cb({})` 가 renderer 의 `getDisplayMedia()` 를 reject 시킨다는 주석은 implementer 가정. 독립 검토자 권고 (feasibility review, 2026-05-13): 단위 테스트로 우리 호출 contract 를 잠그고, 실 Electron runtime 에서 reject 여부는 수동 1회로 확인. Electron major bump 때 회귀하면 단위 테스트가 깨지지는 않지만 manual-verification 의 재실행 의무가 깨진다.
+
+- [ ] **Step 1: 실패 테스트 — 두 가지 deny 경로 모두 `cb({})` 호출**
+
+`desktop/src/main/audio/__tests__/system-audio-handler.test.ts`:
+```ts
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+vi.mock('electron', () => ({
+  desktopCapturer: { getSources: vi.fn() },
+  session: { defaultSession: { setDisplayMediaRequestHandler: vi.fn() } },
+}));
+
+import { desktopCapturer, session } from 'electron';
+import { registerSystemAudioHandler } from '../system-audio-handler';
+
+describe('system-audio-handler — deny semantics', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  async function captureHandler() {
+    registerSystemAudioHandler();
+    const setter = session.defaultSession.setDisplayMediaRequestHandler as unknown as { mock: { calls: any[][] } };
+    return setter.mock.calls[0][0] as (req: unknown, cb: (arg: unknown) => void) => Promise<void>;
+  }
+
+  it('빈 sources → cb 는 video/audio 키 없는 객체 (= 거부)', async () => {
+    (desktopCapturer.getSources as unknown as { mockResolvedValueOnce: (v: unknown) => void })
+      .mockResolvedValueOnce([]);
+    const handler = await captureHandler();
+    const cb = vi.fn();
+    await handler({}, cb);
+    expect(cb).toHaveBeenCalledTimes(1);
+    const arg = cb.mock.calls[0][0] as { video?: unknown; audio?: unknown };
+    expect(arg.video).toBeUndefined();
+    expect(arg.audio).toBeUndefined();
+  });
+
+  it('getSources throw → cb 도 video/audio 키 없는 객체 (= 거부)', async () => {
+    (desktopCapturer.getSources as unknown as { mockRejectedValueOnce: (e: Error) => void })
+      .mockRejectedValueOnce(new Error('boom'));
+    const handler = await captureHandler();
+    const cb = vi.fn();
+    await handler({}, cb);
+    expect(cb).toHaveBeenCalledTimes(1);
+    const arg = cb.mock.calls[0][0] as { video?: unknown; audio?: unknown };
+    expect(arg.video).toBeUndefined();
+    expect(arg.audio).toBeUndefined();
+  });
+});
+```
+
+- [ ] **Step 2: 실패 확인**
+
+Run: `cd desktop && pnpm test system-audio-handler`
+Expected: FAIL — `registerSystemAudioHandler` 가 named export 가 아니므로 import 에러.
+
+- [ ] **Step 3: 구현 — inline 등록을 named export 함수로 추출**
+
+기존 `desktop/src/main/audio/system-audio-handler.ts` 의 `session.defaultSession.setDisplayMediaRequestHandler(...)` 등록 코드를 `export function registerSystemAudioHandler() { ... }` 로 감싸기. `desktop/src/main/index.ts` 에서 그 함수를 호출하도록 import 한 줄 + 호출 한 줄 변경. **런타임 동작은 동일** — 단지 테스트 가능한 형태로 모양만 바꿈.
+
+기존 `cb({})` 호출 라인의 deny 의도 주석은 유지하되, "verified via system-audio-handler.test.ts + manual-verification.md (Electron 39, 2026-05-13)" 한 줄 추가.
+
+- [ ] **Step 4: 테스트 통과 + 실기 1회 검증**
+
+```bash
+cd desktop && pnpm test system-audio-handler
+```
+Expected: 2 tests pass.
+
+`desktop/docs/manual-verification.md` 에 entry 추가 (있다면 append, 없으면 신규 — Phase 1 Task 1.4 에서 이미 생성됐을 가능성 큼):
+
+```markdown
+### cb({}) deny semantics — Electron 39 (verified 2026-05-13)
+- Setup: macOS dev 환경, `pnpm --filter @lisna/desktop dev` 로 띄움
+- Steps:
+  1. 시스템 오디오가 없는 환경에서 (또는 임시로 getSources 가 [] 반환하도록 가드) renderer 가 `navigator.mediaDevices.getDisplayMedia({ audio: true })` 호출
+  2. promise 가 reject 되는지 확인 (hang 도 X, empty stream resolve 도 X)
+- Expected: `NotFoundError` 또는 `NotAllowedError` 로 reject
+- Result: [PASS/FAIL] — Electron 버전: [실제 버전 기록]
+```
+
+실기 환경이 없는 세션이면 [실기 보류] 마킹 후 GitHub issue 또는 다음 세션 todo 로 넘기되, **단위 테스트는 반드시 통과**.
+
+- [ ] **Step 5: 커밋**
+
+```bash
+git add desktop/src/main/audio desktop/src/main/index.ts desktop/docs/manual-verification.md
+git commit -m "test(audio): lock cb({}) deny contract for displayMedia handler"
 ```
 
 ---
