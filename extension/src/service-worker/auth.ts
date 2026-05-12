@@ -219,18 +219,45 @@ export async function loginWithGoogleAccountPicker(currentUrl?: string): Promise
   authUrl.searchParams.set('prompt', 'select_account')
   authUrl.searchParams.set('state', state)
 
-  const redirectResult = await new Promise<string | null>((resolve) => {
+  // chrome.runtime.lastError is only readable inside the callback —
+  // capture its message synchronously so the outer error branch can
+  // include it in the thrown message and the diagnostic log.
+  const flowResult = await new Promise<
+    { ok: true; redirectedTo: string } | { ok: false; lastError: string | null }
+  >((resolve) => {
     chrome.identity.launchWebAuthFlow(
       { url: authUrl.toString(), interactive: true },
       (redirectedTo) => {
-        if (chrome.runtime.lastError || !redirectedTo) return resolve(null)
-        resolve(redirectedTo)
+        const lastErr = chrome.runtime.lastError?.message ?? null
+        if (lastErr || !redirectedTo) return resolve({ ok: false, lastError: lastErr })
+        resolve({ ok: true, redirectedTo })
       },
     )
   })
-  if (!redirectResult) {
-    throw new Error('Account picker cancelled or failed')
+  if (!flowResult.ok) {
+    // Most common cause is a user-cancelled popup, but it ALSO covers
+    // `redirect_uri_mismatch` (Google's 400 page never resolves to a
+    // redirect, so Chrome reports the same "User did not approve access"
+    // lastError on close — JS cannot distinguish the two cases). Use
+    // console.warn (not error) so a routine user cancel doesn't paint
+    // a red entry in the SW console; the diagnostic payload is still
+    // discoverable via chrome://extensions → service worker → Inspect.
+    // An operator chasing redirect_uri_mismatch can compare extensionId
+    // / redirectUri / webClientId against GCP's "Authorized redirect
+    // URIs" list at a glance.
+    console.warn('[loginWithGoogleAccountPicker] launchWebAuthFlow failed', {
+      lastError: flowResult.lastError,
+      extensionId: chrome.runtime.id,
+      redirectUri,
+      webClientId: WEB_OAUTH_CLIENT_ID,
+    })
+    throw new Error(
+      flowResult.lastError
+        ? `Account picker failed: ${flowResult.lastError}`
+        : 'Account picker cancelled or failed',
+    )
   }
+  const redirectResult = flowResult.redirectedTo
 
   // Token + state arrive in the URL fragment (implicit flow). Google
   // surfaces a user-cancelled-consent as `?error=access_denied` in the
