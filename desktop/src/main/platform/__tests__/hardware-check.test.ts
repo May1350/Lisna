@@ -1,12 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock node:os BEFORE importing the SUT. The function under test uses
-// `import os from 'node:os'` (default), so the mocked module must expose
-// both a default export and a named `release` to cover both import styles.
+// `import os from 'node:os'` (default), so only the default export needs
+// to be mocked.
 const releaseMock = vi.fn<() => string>();
 vi.mock('node:os', () => ({
   default: { release: () => releaseMock() },
-  release: () => releaseMock(),
 }));
 
 describe('isMacAudioLoopbackSupported', () => {

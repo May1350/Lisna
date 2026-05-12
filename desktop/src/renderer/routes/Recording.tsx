@@ -27,16 +27,29 @@ export function Recording() {
   async function start() {
     if (running) return;
     await window.lisna.startRecording(source);
-    const orch = new RecordingOrchestrator({
-      capturerFactory: (s) => createCapturer(s),
-      sender: (chunk) => {
-        setChunks((c) => c + 1);
-        void window.lisna.sendChunk(chunk);
-      },
-    });
-    orchRef.current = orch;
-    await orch.start(source);
-    setRunning(true);
+    // If orchestrator init fails (worklet load, mic permission, AudioContext),
+    // the main side already flipped to recording=true — roll it back so the
+    // next Start click can re-enter cleanly. Without this, a single failure
+    // wedges the app: main thinks it's recording forever, renderer's button
+    // says "Start", and we double-register on the next click.
+    try {
+      const orch = new RecordingOrchestrator({
+        capturerFactory: (s) => createCapturer(s),
+        sender: (chunk) => {
+          setChunks((c) => c + 1);
+          void window.lisna.sendChunk(chunk);
+        },
+      });
+      orchRef.current = orch;
+      await orch.start(source);
+      setRunning(true);
+    } catch (err) {
+      orchRef.current = null;
+      await window.lisna.stopRecording().catch(() => {
+        /* best-effort rollback — don't mask the original error */
+      });
+      console.error('Recording start failed', err);
+    }
   }
 
   async function stop() {
