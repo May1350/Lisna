@@ -11,12 +11,7 @@ int main() {
   std::string line;
   while (std::getline(std::cin, line)) {
     if (line.empty()) continue;
-    try {
-      auto resp = lisna::ipc::dispatch(line);
-      std::cout << resp << "\n" << std::flush;
-    } catch (const std::exception& e) {
-      std::cout << R"({"id":"-","type":"error","code":"parse","message":")" << e.what() << R"("})" << "\n" << std::flush;
-    }
+    std::cout << lisna::ipc::dispatch_or_error(line) << "\n" << std::flush;
   }
   return 0;
 }
