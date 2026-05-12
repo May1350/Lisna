@@ -124,4 +124,4 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Desktop — CI gate + typecheck + lint + test
-        run: pnpm --filter @lisna/desktop ci
+        run: pnpm --filter @lisna/desktop verify

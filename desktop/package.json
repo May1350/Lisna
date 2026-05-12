@@ -13,7 +13,7 @@
     "test": "vitest run --passWithNoTests",
     "test:e2e": "playwright test",
     "package": "pnpm build:sidecar && pnpm build && electron-builder --mac",
-    "ci": "tsx ci/gates.ts && pnpm typecheck && pnpm lint && pnpm test"
+    "verify": "tsx ci/gates.ts && pnpm typecheck && pnpm lint && pnpm test"
   },
   "devDependencies": {
     "@types/node": "^20",
@@ -24,6 +24,7 @@
     "electron-builder": "^25.0.0",
     "electron-vite": "^3.0.0",
     "eslint": "^9",
+    "eslint-plugin-react-hooks": "^5",
     "tsx": "^4.21.0",
     "typescript": "~5.5.0",
     "typescript-eslint": "^8",
