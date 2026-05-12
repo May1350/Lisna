@@ -9,10 +9,11 @@
     "build": "electron-vite build",
     "build:sidecar": "bash sidecar/scripts/build.sh",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "eslint src --ext .ts,.tsx",
-    "test": "vitest run",
+    "lint": "eslint src",
+    "test": "vitest run --passWithNoTests",
     "test:e2e": "playwright test",
-    "package": "pnpm build:sidecar && pnpm build && electron-builder --mac"
+    "package": "pnpm build:sidecar && pnpm build && electron-builder --mac",
+    "ci": "tsx ci/gates.ts && pnpm typecheck && pnpm lint && pnpm test"
   },
   "devDependencies": {
     "@types/node": "^20",
@@ -23,7 +24,9 @@
     "electron-builder": "^25.0.0",
     "electron-vite": "^3.0.0",
     "eslint": "^9",
+    "tsx": "^4.21.0",
     "typescript": "~5.5.0",
+    "typescript-eslint": "^8",
     "vite": "^5.4.0",
     "vitest": "^2"
   },
