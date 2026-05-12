@@ -16,5 +16,19 @@ export default tseslint.config(
       },
     },
   },
+  {
+    // AudioWorklet processor file: runs in AudioWorkletGlobalScope where
+    // `AudioWorkletProcessor` and `registerProcessor` are provided by the host.
+    files: ['src/**/*-worklet.js', 'src/**/*.worklet.js'],
+    languageOptions: {
+      globals: {
+        AudioWorkletProcessor: 'readonly',
+        registerProcessor: 'readonly',
+        sampleRate: 'readonly',
+        currentFrame: 'readonly',
+        currentTime: 'readonly',
+      },
+    },
+  },
   { ignores: ['out/**', 'dist/**', 'resources/**', 'sidecar/**', 'ci/**'] }
 );
