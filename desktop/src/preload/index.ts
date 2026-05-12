@@ -1,15 +1,11 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { CHANNELS, type IncomingChunkPayload } from '../main/ipc';
+import { CHANNELS } from '../main/ipc';
+import type { ChunkPayload } from '@shared/ipc-protocol';
 
 contextBridge.exposeInMainWorld('lisna', {
   startRecording: (source: 'mic' | 'system') => ipcRenderer.invoke(CHANNELS.startRecording, { source }),
   stopRecording: () => ipcRenderer.invoke(CHANNELS.stopRecording),
-  sendChunk: (chunk: IncomingChunkPayload) => ipcRenderer.invoke(CHANNELS.chunk, chunk),
-  onChunk: (cb: (chunk: { index: number; durationMs: number }) => void) => {
-    const sub = (_: unknown, payload: { index: number; durationMs: number }) => cb(payload);
-    ipcRenderer.on(CHANNELS.onChunk, sub);
-    return () => ipcRenderer.off(CHANNELS.onChunk, sub);
-  },
+  sendChunk: (chunk: ChunkPayload) => ipcRenderer.invoke(CHANNELS.chunk, chunk),
 });
 
 declare global {
@@ -17,8 +13,7 @@ declare global {
     lisna: {
       startRecording(source: 'mic' | 'system'): Promise<{ ok: boolean; source: string }>;
       stopRecording(): Promise<{ ok: boolean }>;
-      sendChunk(chunk: IncomingChunkPayload): Promise<{ ok: boolean }>;
-      onChunk(cb: (chunk: { index: number; durationMs: number }) => void): () => void;
+      sendChunk(chunk: ChunkPayload): Promise<{ ok: boolean }>;
     };
   }
 }

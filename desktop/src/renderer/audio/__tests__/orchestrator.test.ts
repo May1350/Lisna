@@ -55,6 +55,32 @@ describe('RecordingOrchestrator', () => {
     expect(fake.stop).toHaveBeenCalled();
   });
 
+  it('chunk timestamps: first [0, 2000), second [2000, 12000)', async () => {
+    const fake = makeFakeCapturer();
+    const sender = vi.fn();
+    const orch = new RecordingOrchestrator({
+      sender,
+      capturerFactory: () => fake as unknown as Capturer,
+    });
+
+    await orch.start('mic');
+    // Use a tick size (12100 samples) that does NOT divide the 2s (32000) or
+    // 12s (192000) chunk boundary. The 3rd tick (cumulative 36300) crosses
+    // the first boundary mid-push, and the 16th tick (cumulative 193600)
+    // crosses the second boundary mid-push. Any emit-time clock reading
+    // post-push sample counts will overshoot. Pinning the chunk's true
+    // boundary catches that.
+    for (let i = 0; i < 16; i++) fake.onSamples!(new Float32Array(12100));
+    await orch.stop();
+
+    const c0 = sender.mock.calls[0]![0] as ChunkPayload;
+    const c1 = sender.mock.calls[1]![0] as ChunkPayload;
+    expect(c0.startMs).toBe(0);
+    expect(c0.endMs).toBe(2000);
+    expect(c1.startMs).toBe(2000);
+    expect(c1.endMs).toBe(12000);
+  });
+
   it('indices increase monotonically: 12s of audio → index=0 then index=1', async () => {
     const fake = makeFakeCapturer();
     const sender = vi.fn();

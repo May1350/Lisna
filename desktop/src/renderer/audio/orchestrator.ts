@@ -1,19 +1,7 @@
 import { ChunkAccumulator, SAMPLE_RATE } from './chunker';
+import type { ChunkPayload, RecordingSource } from '@shared/ipc-protocol';
 
-export type RecordingSource = 'mic' | 'system';
-
-/**
- * Payload shape sent from renderer → main for each finalized chunk.
- * `samples` is a Float32Array of 16kHz mono PCM; Electron's structured-clone
- * IPC path preserves it (no manual ArrayBuffer conversion needed).
- */
-export interface ChunkPayload {
-  index: number;
-  source: RecordingSource;
-  startMs: number;
-  endMs: number;
-  samples: Float32Array;
-}
+export type { ChunkPayload, RecordingSource };
 
 /**
  * Capturer abstracts the audio source (mic / system / fake-for-test).
@@ -34,7 +22,12 @@ export interface OrchestratorOptions {
 
 /**
  * Coordinates: Capturer → ChunkAccumulator → sender (IPC bridge).
- * Tracks elapsed sample count so each chunk carries accurate [startMs, endMs).
+ * Tracks emitted sample count so each chunk carries accurate [startMs, endMs).
+ *
+ * Critical: timestamps are derived from `samplesEmitted` (total samples already
+ * shipped in finalized chunks), NOT from the running input counter. A single
+ * push from the capturer may straddle a chunk boundary, so the input counter
+ * can advance past the chunk's true end before `emitChunk` runs.
  */
 export class RecordingOrchestrator {
   private readonly sender: (chunk: ChunkPayload) => void;
@@ -45,7 +38,7 @@ export class RecordingOrchestrator {
   private capturer: Capturer | null = null;
   private acc: ChunkAccumulator | null = null;
   private source: RecordingSource | null = null;
-  private samplesSeen = 0;
+  private samplesEmitted = 0;
   private chunkIndex = 0;
 
   constructor(opts: OrchestratorOptions) {
@@ -58,7 +51,7 @@ export class RecordingOrchestrator {
   async start(source: RecordingSource): Promise<void> {
     if (this.capturer) return; // already running
     this.source = source;
-    this.samplesSeen = 0;
+    this.samplesEmitted = 0;
     this.chunkIndex = 0;
     this.acc = new ChunkAccumulator({
       firstChunkSec: this.firstChunkSec,
@@ -82,15 +75,16 @@ export class RecordingOrchestrator {
 
   private onSamples(s: Float32Array): void {
     if (!this.acc) return;
-    this.samplesSeen += s.length;
     this.acc.push(s);
   }
 
   private emitChunk(chunk: Float32Array): void {
     const source = this.source;
     if (!source) return;
-    const endMs = Math.round((this.samplesSeen / SAMPLE_RATE) * 1000);
-    const startMs = Math.round(endMs - (chunk.length / SAMPLE_RATE) * 1000);
+    const startSamples = this.samplesEmitted;
+    this.samplesEmitted += chunk.length;
+    const startMs = Math.round((startSamples / SAMPLE_RATE) * 1000);
+    const endMs = Math.round((this.samplesEmitted / SAMPLE_RATE) * 1000);
     const payload: ChunkPayload = {
       index: this.chunkIndex++,
       source,

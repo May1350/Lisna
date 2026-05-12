@@ -1,5 +1,24 @@
 import type { Language, TranscriptSegment } from './types';
 
+export type RecordingSource = 'mic' | 'system';
+
+/**
+ * Finalized PCM chunk emitted by the renderer-side capture pipeline and
+ * shipped over IPC to the main process for downstream STT. Single source of
+ * truth across renderer (orchestrator), preload (sendChunk bridge), and main
+ * (recording/chunk handler). Electron's structured-clone IPC preserves
+ * Float32Array directly — no ArrayBuffer conversion needed.
+ */
+export interface ChunkPayload {
+  index: number;
+  source: RecordingSource;
+  /** Inclusive start of the chunk relative to recording start, in ms. */
+  startMs: number;
+  /** Exclusive end of the chunk relative to recording start, in ms. */
+  endMs: number;
+  samples: Float32Array;
+}
+
 export type SidecarRequest =
   | { id: string; type: 'load'; kind: 'stt'; path: string; language: Language }
   | { id: string; type: 'load'; kind: 'llm'; path: string }
