@@ -16,7 +16,9 @@ export function installSystemAudioHandler(): void {
       };
       cb(streams);
     } catch {
-      cb({}); // deny → renderer getDisplayMedia() rejects rather than hanging
+      // deny → renderer getDisplayMedia() rejects rather than hanging
+      // (cb({}) contract verified by system-audio-handler.test.ts + docs/manual-verification.md, Electron 39, 2026-05-13)
+      cb({});
     }
   }, { useSystemPicker: false });
 }
