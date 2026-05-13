@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { RecordingSource } from '@shared/ipc-protocol';
+import type { TranscriptSegment } from '@shared/types';
 import { RecordingOrchestrator } from '../audio/orchestrator';
 import { createCapturer } from '../audio/worklet-capturer';
 import { SystemAudioUnavailableNotice } from '../components/SystemAudioUnavailableNotice';
@@ -13,6 +14,7 @@ export function Recording() {
   // capabilities round-trip confirms it. A slow IPC response should NOT
   // let the user click the system radio and then fail downstream.
   const [systemAudioAvailable, setSystemAudioAvailable] = useState(false);
+  const [segments, setSegments] = useState<TranscriptSegment[]>([]);
   const orchRef = useRef<RecordingOrchestrator | null>(null);
   // Synchronous re-entry guard. A useState-only guard is racy because setState
   // is async — a second click that arrives before the next React render still
@@ -30,6 +32,15 @@ export function Recording() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  // Subscribe to STT segment results pushed from the main process.
+  // Returns an unsubscribe function so Strict Mode double-mounts don't stack listeners.
+  useEffect(() => {
+    const unsub = window.lisna.onChunk((msg) => {
+      setSegments((prev) => [...prev, ...msg.segments]);
+    });
+    return unsub;
   }, []);
 
   // Unmount cleanup. If the component unmounts while a recording is active
@@ -51,6 +62,7 @@ export function Recording() {
     if (running || startingRef.current) return;
     startingRef.current = true;
     setStarting(true);
+    setSegments([]);
     try {
       await window.lisna.startRecording(source);
       // If orchestrator init fails (worklet load, mic permission, AudioContext),
@@ -119,5 +131,17 @@ export function Recording() {
       {running ? 'Stop' : starting ? 'Starting…' : 'Start'}
     </button>
     <p>Chunks captured: {chunks}</p>
+    {segments.length > 0 && (
+      <div>
+        <h3>Live captions</h3>
+        <ul style={{ listStyle: 'none', padding: 0 }}>
+          {segments.map((seg, i) => (
+            <li key={i} style={{ fontFamily: 'monospace', marginBottom: '0.25em' }}>
+              [{seg.startSec.toFixed(1)}] {seg.text}
+            </li>
+          ))}
+        </ul>
+      </div>
+    )}
   </section>;
 }

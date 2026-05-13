@@ -4,16 +4,13 @@ import { dirname, join } from 'node:path';
 import { registerIpc } from './ipc';
 import { installSystemAudioHandler } from './audio/system-audio-handler';
 import { SidecarSupervisor } from './sidecar/supervisor';
+import { WhisperCppSTT } from './engines/whisper-cpp-stt';
+import type { STTEngine } from '@shared/engine-interfaces';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-registerIpc();
-
-// Module-level so the before-quit hook can reach it. `sidecarReady` is declared
-// for Phase 2.6/2.7 IPC handlers to gate on; not used yet in Phase 2.5.
+// Module-level so the before-quit hook can reach it.
 let supervisor: SidecarSupervisor | undefined;
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-let sidecarReady = false;
 // Set on first `before-quit` so the second pass (after `shutdown()` resolves)
 // skips the preventDefault gate and lets Electron quit normally.
 let shuttingDown = false;
@@ -42,13 +39,29 @@ app.whenReady().then(async () => {
   });
   const client = supervisor.start();
   client.onEvent((e) => console.log('[sidecar event]', e.type));
+
+  let stt: STTEngine | undefined;
+
   try {
     const ready = await client.waitForReady(5000);
-    sidecarReady = true;
     console.log('[sidecar] ready', ready);
+
+    const modelPath = process.env.LISNA_DEV_STT_MODEL;
+    if (modelPath) {
+      try {
+        const adapter = new WhisperCppSTT(client);
+        await adapter.loadModel(modelPath, 'ja');
+        stt = adapter;
+        console.log('[stt] model loaded from', modelPath);
+      } catch (err) {
+        console.error('[stt] model load failed — recording will work without captions:', err);
+      }
+    }
   } catch (err) {
-    console.error('[sidecar] failed to reach ready state:', err);
+    console.error('[sidecar] failed to reach ready state — recording will work without captions:', err);
   }
+
+  registerIpc({ stt });
   createWindow();
 });
 

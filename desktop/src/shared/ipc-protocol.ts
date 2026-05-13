@@ -3,6 +3,17 @@ import type { Language, TranscriptSegment } from './types';
 export type RecordingSource = 'mic' | 'system';
 
 /**
+ * Pushed from main → renderer when the STT adapter returns segments for a
+ * committed chunk. Renderer subscribes via `window.lisna.onChunk`.
+ */
+export interface ChunkResultPayload {
+  index: number;
+  segments: TranscriptSegment[];
+  /** Inclusive start of the original chunk, relative to recording start, in ms. */
+  startMs: number;
+}
+
+/**
  * Finalized PCM chunk emitted by the renderer-side capture pipeline and
  * shipped over IPC to the main process for downstream STT. Single source of
  * truth across renderer (orchestrator), preload (sendChunk bridge), and main
