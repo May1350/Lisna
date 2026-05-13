@@ -16,6 +16,7 @@ add_subdirectory(deps/whisper.cpp EXCLUDE_FROM_ALL)
 add_executable(lisna_sidecar
   src/main.cpp
   src/ipc/json_protocol.cpp
+  src/ipc/base64.cpp
   src/stt/whisper_engine.cpp
 )
 target_include_directories(lisna_sidecar PRIVATE src deps/json)
