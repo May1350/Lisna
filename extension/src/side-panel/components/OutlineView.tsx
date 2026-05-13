@@ -972,7 +972,7 @@ function SlideStrip({ slides, onJump, onSlideRemove }: { slides: SlideItem[]; on
                   e.stopPropagation()
                   onSlideRemove(slide.key)
                 }}
-                className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center rounded-full bg-ink-900/85 hover:bg-warn-red text-paper-100 text-[11px] leading-none opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity z-10 cursor-pointer"
+                className="absolute -top-2 -right-2 w-4 h-4 flex items-center justify-center rounded-full bg-ink-900/90 hover:bg-warn-red text-paper-100 text-[10px] leading-none opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity z-10 cursor-pointer shadow-sm ring-1 ring-paper-100/60"
               >×</button>
             )}
           </div>
