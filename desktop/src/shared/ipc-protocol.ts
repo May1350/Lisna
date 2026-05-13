@@ -48,5 +48,11 @@ export type SidecarResponse =
 
 export type SidecarEvent =
   | { type: 'ready'; pid: number; version: string }
-  | { type: 'log'; level: 'info' | 'warn' | 'error'; message: string }
+  | {
+      type: 'log';
+      level: 'debug' | 'info' | 'warn' | 'error';
+      /** Origin of the log line — set by the sidecar to disambiguate whisper.cpp / ggml internal logs from our own. */
+      source: string;
+      message: string;
+    }
   | { type: 'memory'; rssBytes: number; phase: 'idle' | 'stt' | 'llm' | 'transition' };
