@@ -44,11 +44,21 @@ void advise_release_and_wait(void* addr, size_t length,
   }
   // Timed out without confirmation — unload() Promise will still resolve, but
   // log so swap-class regressions are diagnosable in production logs.
-  fprintf(stderr,
-          "[os_reclaim] target %zu bytes not met within %d ms; "
-          "RSS before=%zu now=%zu drop=%lld\n",
-          targetDropBytes, timeoutMs, before, now,
-          static_cast<long long>(before) - static_cast<long long>(now));
+  // now=0 means the mach probe failed (per process_rss_bytes contract), NOT
+  // "RSS dropped to zero" — split the branch so debuggers don't chase a
+  // phantom 2.5GB drain.
+  if (now == 0) {
+    fprintf(stderr,
+            "[os_reclaim] target %zu bytes not met within %d ms; "
+            "RSS before=%zu now=unknown (probe failed)\n",
+            targetDropBytes, timeoutMs, before);
+  } else {
+    fprintf(stderr,
+            "[os_reclaim] target %zu bytes not met within %d ms; "
+            "RSS before=%zu now=%zu drop=%lld\n",
+            targetDropBytes, timeoutMs, before, now,
+            static_cast<long long>(before) - static_cast<long long>(now));
+  }
 }
 
 } // namespace lisna::memory
