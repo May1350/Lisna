@@ -136,9 +136,18 @@ export function OutlineView({ outline, slides = [], onJump, displayTitle, outlin
   const scrollToSection = (i: number) => {
     setLastClickedIdx(i)
     const target = sectionRefs.current[i]
-    const container = scrollContainerRef.current
-    if (!target || !container) return
-    container.scrollTo({ top: target.offsetTop - 8, behavior: 'smooth' })
+    if (!target) return
+    // scrollIntoView walks UP from the target to find the nearest scrollable
+    // ancestor and scrolls IT. Previously we used container.scrollTo() with
+    // target.offsetTop, which broke in two cases:
+    //   (a) target.offsetParent ≠ scrollContainerRef.current — nested layout
+    //       (e.g. mini-TOC labels wrapping) makes offsetTop relative to an
+    //       intermediate offsetParent, so the math was off.
+    //   (b) the scroll container's content fit in its visible height (short
+    //       outline, narrow modal) — scrollTo was a silent no-op.
+    // scrollIntoView is immune to both; it doesn't care which ancestor
+    // actually overflows.
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
   // Modal-width awareness for the Section Rail wide mode (DESIGN.md

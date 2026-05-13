@@ -546,7 +546,7 @@ export default function App() {
     const hasContent = !!outline?.sections.length
     const hasTranscripts = transcripts.length > 0
     return (
-      <div className="min-h-screen flex flex-col bg-paper-200">
+      <div className="h-screen flex flex-col bg-paper-200">
         <PanelHeader
           user={user}
           isEmbed
@@ -777,7 +777,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-paper-200">
+    <div className="h-screen flex flex-col bg-paper-200">
       <PanelHeader
         user={user}
         isEmbed={false}
