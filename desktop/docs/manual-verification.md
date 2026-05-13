@@ -42,3 +42,30 @@ Records of one-off runtime verifications that can't be fully automated.
   2. The notice is NOT rendered
 - Result: DEFERRED — no macOS 13 machine in agent session; full manual matrix lands at Phase 6.4 per the on-device v2 plan. Unit tests in `src/main/platform/__tests__/hardware-check.test.ts` pin the Darwin 23.4 threshold (23.3 → false, 23.4 → true), which is the load-bearing branch.
 - Electron / macOS versions observed: DEFERRED
+
+## Capture → sidecar → live JA captions (Task 2.7, PASS 2026-05-13)
+
+- Setup:
+  - macOS 15.x dev environment, `LISNA_DEV_STT_MODEL=~/.lisna-test-models/ggml-kotoba-whisper-v2.0-q5_0.bin pnpm --filter @lisna/desktop dev`
+  - Model: `ggml-kotoba-whisper-v2.0-q5_0.bin` (Q5_0, 538 MB, sha256 `4a3b9219…03658`)
+  - Microphone permission granted to Electron
+- Steps:
+  1. Boot path: main process logs `[sidecar] ready` (sidecar reaches its `ready` event over NDJSON) and `[stt] model loaded from <path>` (WhisperCppSTT.loadModel resolved)
+  2. Open the Recording route — UI shows `Lisna v2 — on-device` / `Recording` / Source picker / Start button. Header no longer says "Phase 1 stub"
+  3. Click Start, speak Japanese in a live classroom for ~2 minutes (13 chunks ≈ 2s + 12×10s), click Stop
+- Expected:
+  - Main-process log shows `chunk received N M samples` for each captured chunk (renderer-side `Chunks captured: N` increments alongside)
+  - `Live captions` section appears under the Stop button with `[startSec] text` lines accumulating
+  - Each chunk's segments push back through `recording/chunk-result` and append to the renderer's segment list while a session is running
+  - Stop clears the running flag synchronously; any late `transcribe()` result that resolves post-Stop is silently dropped (no cross-session bleed)
+- Observed:
+  - 13 chunks captured, 6 caption lines rendered with recognizable Japanese phrases drawn from the lecture audio (`組織の形が変わっていく時に発生する問題`, etc.)
+  - No crash, no UI error state, no console errors
+  - "Chunks captured: 13" counter consistent with audio length
+- Known limitations (NOT regressions — by design at this phase; tracked in plan §Phase 4-5):
+  - **Timestamps display chunk-relative `startSec`, not recording-absolute time.** `ChunkResultPayload.startMs` is carried but not yet rendered. Phase 4 UI polish will fold `startMs + segment.startSec` into a wall-clock label.
+  - **No chunk overlap or VAD.** A word straddling a 10-second chunk boundary is cut, producing short fragments or empty hallucinated lines. Phase 5 (memory soak + transcript stitching) handles this with sliding-window chunks and silence-gating.
+  - **Q5_0 quantization (538 MB) trades quality for size.** Phase 4's model registry will expose the full 1.52 GB Kotoba-Whisper as an opt-in for users who prioritize accuracy.
+  - **Whisper silence-hallucinations occur on low-energy chunks** (canonical examples: `どうもありがとうございました`, `字幕`). Phase 4-5 will gate transcription on a VAD threshold and optionally pass the previous segment as `initial_prompt` for context continuity.
+- Result: **PASS** — end-to-end pipeline (renderer audio capture → main IPC → sidecar transcribe → renderer caption push) is live for Japanese audio. Phase 2 acceptance: ✅. Quality work is plan-scoped to Phase 4-5.
+- Electron / model versions observed: Electron 39.8.10, whisper.cpp v1.7.6 + Metal, Kotoba-Whisper v2.0 Q5_0 GGML.
