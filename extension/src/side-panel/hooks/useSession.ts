@@ -90,6 +90,11 @@ export interface UseSessionReturn {
     updated_at?: string
   }) => { outlineTitle?: string }
   onTriggerCurate: (full?: boolean) => Promise<void>
+  // User clicked the hover-X on a slide thumbnail. Optimistically
+  // removes it from local state, then asks the backend to drop it
+  // from the session's slides JSONB. parentUrl must be set (we hit
+  // /v1/session/slides/delete with that as the lookup key).
+  removeSlide: (key: string) => void
   reset: () => void
 }
 
@@ -533,6 +538,31 @@ export function useSession({
     }
   }, [sessionId])
 
+  const removeSlide = useCallback((key: string) => {
+    if (!parentUrl) return
+    // Optimistic update — strip the slide from local state immediately
+    // so the thumbnail disappears the moment the user clicks the X.
+    // Backend POST is fire-and-forget; if it fails (network, 4xx, etc.)
+    // we just log — the slide will reappear on next session-get refresh,
+    // which is a clear-enough revert signal for the user to retry.
+    setSlides(prev => prev.filter(s => s.key !== key))
+    void chrome.runtime.sendMessage({
+      type: 'API_FETCH',
+      method: 'POST',
+      path: '/v1/session/slides/delete',
+      body: { url: parentUrl, key },
+    }).then((resp) => {
+      const r = resp as { ok?: boolean; error?: string; status?: number } | null
+      if (!r?.ok) {
+        // eslint-disable-next-line no-console
+        console.warn('[useSession] slide delete failed; refresh to revert', { key, status: r?.status, error: r?.error })
+      }
+    }).catch((e) => {
+      // eslint-disable-next-line no-console
+      console.warn('[useSession] slide delete threw', e)
+    })
+  }, [parentUrl])
+
   const reset = useCallback(() => {
     setSessionId(null)
     setSlides([])
@@ -552,6 +582,6 @@ export function useSession({
   return {
     sessionId, slides, outline, outlineUpdatedAt, transcripts,
     curating, curateError, isCapturing, videoPlaying,
-    hydrateFromLogin, onTriggerCurate, reset,
+    hydrateFromLogin, onTriggerCurate, removeSlide, reset,
   }
 }

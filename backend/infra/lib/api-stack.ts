@@ -330,6 +330,29 @@ export class ApiStack extends Stack {
       integration: new HttpLambdaIntegration('SDInt', sessionDelete),
     })
 
+    // POST /v1/session/slides/delete — manual single-slide removal.
+    // The user clicks the hover-X on a thumbnail in OutlineView; the
+    // frontend posts { url, key }, and this handler filters that key
+    // out of the session's slides JSONB array. Hard delete today
+    // (no soft-delete column); S3 object cleanup deferred to a
+    // background sweep so this stays a single short SQL update.
+    const sessionSlideDelete = new NodejsFunction(this, 'SessSlideDelFn', {
+      entry: path.join(__dirname, '../../src/handlers/session-slide-delete.ts'),
+      runtime: Runtime.NODEJS_20_X,
+      timeout: Duration.seconds(10),
+      environment: commonEnv,
+      vpc: props.vpc,
+      logRetention: RetentionDays.ONE_MONTH,
+    })
+    props.dbSecret.grantRead(sessionSlideDelete)
+    props.appSecret.grantRead(sessionSlideDelete)
+
+    api.addRoutes({
+      path: '/v1/session/slides/delete',
+      methods: [HttpMethod.POST],
+      integration: new HttpLambdaIntegration('SSDInt', sessionSlideDelete),
+    })
+
     // ---- T11: Stripe checkout + webhook ----
     const stripeCheckout = new NodejsFunction(this, 'StripeCheckoutFn', {
       entry: path.join(__dirname, '../../src/handlers/stripe-checkout.ts'),

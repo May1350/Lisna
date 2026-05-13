@@ -37,6 +37,11 @@ interface Props {
    *  thumbnail strip to the section whose ts range covers each slide. */
   slides?: SlideItem[]
   onJump?: (ts: number) => void
+  /** User clicked the hover-X on a thumbnail. App.tsx wires this to
+   *  useSession.removeSlide which strips local state + POSTs the
+   *  backend. Optional — when omitted, thumbnails render without the
+   *  delete affordance (the strip stays read-only). */
+  onSlideRemove?: (key: string) => void
   /** Optional override for the lecture title. When the user edits the
    *  filename via EditableFilename, the modal should reflect that
    *  edit immediately so the H1 here matches what the export will
@@ -76,7 +81,7 @@ function bucketSlides(sections: OutlineSection[], slides: SlideItem[]): SlideIte
   return buckets
 }
 
-export function OutlineView({ outline, slides = [], onJump, displayTitle, outlineUpdatedAt }: Props) {
+export function OutlineView({ outline, slides = [], onJump, onSlideRemove, displayTitle, outlineUpdatedAt }: Props) {
   const T = useT()
   // Flash a brief visual cue whenever the outline content actually
   // changes — the curator rewrites the whole document each run, and
@@ -323,6 +328,7 @@ export function OutlineView({ outline, slides = [], onJump, displayTitle, outlin
         outline={outline}
         slides={slides}
         onJump={onJump}
+        onSlideRemove={onSlideRemove}
         compact={compact}
         sectionRefs={sectionRefs}
       />
@@ -490,12 +496,14 @@ function SectionList({
   outline,
   slides,
   onJump,
+  onSlideRemove,
   compact,
   sectionRefs,
 }: {
   outline: Outline
   slides: SlideItem[]
   onJump?: (ts: number) => void
+  onSlideRemove?: (key: string) => void
   compact: boolean
   sectionRefs: React.MutableRefObject<(HTMLElement | null)[]>
 }) {
@@ -511,6 +519,7 @@ function SectionList({
           section={section}
           slides={buckets[i]}
           onJump={onJump}
+          onSlideRemove={onSlideRemove}
           compact={compact}
           sectionRef={(el) => { sectionRefs.current[i] = el }}
           index={i}
@@ -650,6 +659,7 @@ function SectionBlock({
   section,
   slides = [],
   onJump,
+  onSlideRemove,
   compact = false,
   sectionRef,
   index,
@@ -657,6 +667,7 @@ function SectionBlock({
   section: OutlineSection
   slides?: SlideItem[]
   onJump?: (ts: number) => void
+  onSlideRemove?: (key: string) => void
   /** When true (Compact toggle, DESIGN.md §7 C2), hides everything
    *  except heading + takeaway + important points. Lets the user
    *  switch to an exam-cram view without losing the underlying
@@ -714,7 +725,7 @@ function SectionBlock({
 
       {collapsed ? null : <>
 
-      {slides.length > 0 && !compact && <SlideStrip slides={slides} onJump={onJump} />}
+      {slides.length > 0 && !compact && <SlideStrip slides={slides} onJump={onJump} onSlideRemove={onSlideRemove} />}
 
       {/* Takeaway = warm emphasis card per DESIGN.md §2.1.1
           (terra-tint surface + terra-soft border + terra leftbar).
@@ -879,7 +890,7 @@ function TsButton({ ts, onJump }: { ts: number; onJump?: (ts: number) => void })
 // most common intent ("I want to look at the slide bigger") differs from
 // "I want to scrub the video," and conflating them led to misclicks in
 // early prototypes.
-function SlideStrip({ slides, onJump }: { slides: SlideItem[]; onJump?: (ts: number) => void }) {
+function SlideStrip({ slides, onJump, onSlideRemove }: { slides: SlideItem[]; onJump?: (ts: number) => void; onSlideRemove?: (key: string) => void }) {
   const T = useT()
   const [openIdx, setOpenIdx] = useState<number | null>(null)
   // Per-slide load failure flag, keyed by slide.key. Lets us hide the
@@ -913,36 +924,58 @@ function SlideStrip({ slides, onJump }: { slides: SlideItem[]; onJump?: (ts: num
     <>
       <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
         {visibleSlides.map((slide) => (
-          <button
-            key={slide.key}
-            type="button"
-            // Map the click target's position in `visibleSlides` to its
-            // index in `uniqSorted` (which is what the lightbox iterates).
-            // Without this, broken-and-hidden thumbnails earlier in the
-            // strip would offset the lightbox's startIdx and the user
-            // would land on the wrong slide.
-            onClick={() => setOpenIdx(uniqSorted.findIndex(s => s.key === slide.key))}
-            className="shrink-0 group relative rounded overflow-hidden border border-paper-edge hover:border-ink-200 transition-colors focus:outline-none focus:ring-2 focus:ring-ink-900/20"
-            title={interpolate(T.outline.slideThumbTitle, { ts: fmtTs(slide.ts) })}
-          >
-            <img
-              src={slide.url}
-              alt={`slide ${fmtTs(slide.ts)}`}
-              loading="lazy"
-              className="block w-24 h-14 object-cover bg-paper-300"
-              onError={() => {
-                // Presigned URLs expire after 1 h. Drop the whole
-                // button from the strip instead of showing a
-                // broken-image placeholder. The slide is still in the
-                // session record on the backend; reloading the modal
-                // will fetch fresh URLs.
-                setBroken(prev => prev[slide.key] ? prev : { ...prev, [slide.key]: true })
-              }}
-            />
-            <span className="absolute bottom-0 right-0 bg-black/60 text-white text-[9px] px-1 font-mono leading-snug">
-              {fmtTs(slide.ts)}
-            </span>
-          </button>
+          // Wrapper div so we can add a sibling X-button. The thumbnail
+          // itself is still a <button> (lightbox open); HTML doesn't
+          // allow nesting <button> inside <button>, hence the sibling
+          // pattern. X-button is absolute-positioned on top-right with
+          // opacity 0 → 100 on group-hover.
+          <div key={slide.key} className="shrink-0 group relative">
+            <button
+              type="button"
+              // Map the click target's position in `visibleSlides` to its
+              // index in `uniqSorted` (which is what the lightbox iterates).
+              // Without this, broken-and-hidden thumbnails earlier in the
+              // strip would offset the lightbox's startIdx and the user
+              // would land on the wrong slide.
+              onClick={() => setOpenIdx(uniqSorted.findIndex(s => s.key === slide.key))}
+              className="rounded overflow-hidden border border-paper-edge hover:border-ink-200 transition-colors focus:outline-none focus:ring-2 focus:ring-ink-900/20"
+              title={interpolate(T.outline.slideThumbTitle, { ts: fmtTs(slide.ts) })}
+            >
+              <img
+                src={slide.url}
+                alt={`slide ${fmtTs(slide.ts)}`}
+                loading="lazy"
+                className="block w-24 h-14 object-cover bg-paper-300"
+                onError={() => {
+                  // Presigned URLs expire after 1 h. Drop the whole
+                  // button from the strip instead of showing a
+                  // broken-image placeholder. The slide is still in the
+                  // session record on the backend; reloading the modal
+                  // will fetch fresh URLs.
+                  setBroken(prev => prev[slide.key] ? prev : { ...prev, [slide.key]: true })
+                }}
+              />
+              <span className="absolute bottom-0 right-0 bg-black/60 text-white text-[9px] px-1 font-mono leading-snug">
+                {fmtTs(slide.ts)}
+              </span>
+            </button>
+            {onSlideRemove && (
+              <button
+                type="button"
+                aria-label="Delete this slide"
+                title="이 슬라이드 삭제"
+                onClick={(e) => {
+                  // stopPropagation prevents the thumbnail's onClick
+                  // (lightbox open) from also firing; the two buttons
+                  // are siblings but the click visually lands inside
+                  // the thumbnail's bounding box at the top-right.
+                  e.stopPropagation()
+                  onSlideRemove(slide.key)
+                }}
+                className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center rounded-full bg-ink-900/85 hover:bg-warn-red text-paper-100 text-[11px] leading-none opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity z-10 cursor-pointer"
+              >×</button>
+            )}
+          </div>
         ))}
       </div>
       {openIdx !== null && (

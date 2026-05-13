@@ -320,7 +320,7 @@ export default function App() {
   const {
     sessionId, slides, outline, outlineUpdatedAt, transcripts,
     curating, curateError, isCapturing, videoPlaying,
-    hydrateFromLogin, onTriggerCurate, reset: resetSession,
+    hydrateFromLogin, onTriggerCurate, removeSlide, reset: resetSession,
   } = useSession({
     isEmbed, user, parentUrl,
     exportCtxRef,
@@ -631,6 +631,7 @@ export default function App() {
             outlineUpdatedAt={outlineUpdatedAt}
             slides={slides}
             onJump={onJump}
+            onSlideRemove={removeSlide}
             displayTitle={title}
           />
         )}
