@@ -30,6 +30,7 @@ class FakeChild extends EventEmitter {
   stdin = Object.assign(new EventEmitter(), { write: vi.fn() });
   killed = false;
   pid = 9999;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   kill(_sig?: NodeJS.Signals) {
     this.killed = true;
     return true;
@@ -96,6 +97,7 @@ describe('SidecarSupervisor', () => {
     // crashes — that lets in-flight orch.stop() / orch.onChunk() complete
     // their `finally` (clearing ipc.ts state) BEFORE supervisor's handleExit
     // calls onExit → handleSidecarExit.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const onExitCalls: ((...args: any[]) => void)[] = [];
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     proc.on = vi.fn((event: string, listener: any) => {
