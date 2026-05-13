@@ -50,9 +50,7 @@ describe('SidecarClient with /bin/cat (raw line buffering)', () => {
 
     // Now exercise a real round-trip: cat echoes our line back with the same
     // id, the client matches it, the promise resolves with the echoed body.
-    // We pass `type: 'ping'` even though it's not in the SidecarRequest union;
-    // the protocol accepts ping in dispatch but isn't formally typed yet.
-    const respPromise = client.send({ type: 'ping' } as never, { timeoutMs: 200 });
+    const respPromise = client.send({ type: 'ping' }, { timeoutMs: 200 });
     await expect(respPromise).resolves.toMatchObject({ type: 'ping' });
   });
 
@@ -72,16 +70,14 @@ describe('SidecarClient send() timeout', () => {
     // `sleep` does not echo stdin, so the response never comes.
     const proc = spawn('sleep', ['10'], { stdio: ['pipe', 'pipe', 'pipe'] });
     const client = new SidecarClient(proc);
-    await expect(client.send({ type: 'ping' } as never, { timeoutMs: 50 })).rejects.toThrow(
-      /timed out/,
-    );
+    await expect(client.send({ type: 'ping' }, { timeoutMs: 50 })).rejects.toThrow(/timed out/);
     proc.kill('SIGKILL');
   });
 
   it('rejects all pending requests when child exits', async () => {
     const proc = spawn('sleep', ['10'], { stdio: ['pipe', 'pipe', 'pipe'] });
     const client = new SidecarClient(proc);
-    const sendPromise = client.send({ type: 'ping' } as never, { timeoutMs: 5000 });
+    const sendPromise = client.send({ type: 'ping' }, { timeoutMs: 5000 });
     // Kill while the request is in flight.
     setTimeout(() => proc.kill('SIGKILL'), 20);
     await expect(sendPromise).rejects.toThrow(/sidecar process exited/);
@@ -111,7 +107,7 @@ describe.skipIf(!existsSync(sidecarPath))(
       try {
         const ready = await client.waitForReady(2000);
         expect(ready.type).toBe('ready');
-        const resp = await client.send({ type: 'ping' } as never, { timeoutMs: 1000 });
+        const resp = await client.send({ type: 'ping' }, { timeoutMs: 1000 });
         expect(resp.type).toBe('ok');
       } finally {
         proc.kill('SIGTERM');
@@ -134,7 +130,7 @@ describe.skipIf(!existsSync(sidecarPath))(
             kind: 'stt',
             path: '/tmp/lisna-nonexistent-model.gguf',
             language: 'ja',
-          } as never,
+          },
           { timeoutMs: 5000 },
         );
         expect(resp.type).toBe('error');

@@ -14,6 +14,9 @@ registerIpc();
 let supervisor: SidecarSupervisor | undefined;
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 let sidecarReady = false;
+// Set on first `before-quit` so the second pass (after `shutdown()` resolves)
+// skips the preventDefault gate and lets Electron quit normally.
+let shuttingDown = false;
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -49,8 +52,19 @@ app.whenReady().then(async () => {
   createWindow();
 });
 
-app.on('before-quit', async () => {
-  await supervisor?.shutdown();
+// Electron's `before-quit` does NOT await async listeners — the app proceeds
+// to teardown as soon as the listener returns synchronously. An `async` body
+// that awaits `supervisor.shutdown()` therefore races against process exit
+// and the SIGTERM→SIGKILL chain may never run to completion. The standard
+// Electron pattern is to `preventDefault()` the first pass, run the async
+// teardown, then call `app.quit()` to fire `before-quit` a second time —
+// gated by a `shuttingDown` flag — which Electron then lets proceed.
+app.on('before-quit', (event) => {
+  if (shuttingDown) return;
+  if (!supervisor) return;
+  event.preventDefault();
+  shuttingDown = true;
+  supervisor.shutdown().finally(() => app.quit());
 });
 
 app.on('window-all-closed', () => {

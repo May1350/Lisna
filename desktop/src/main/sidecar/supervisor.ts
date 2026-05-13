@@ -10,7 +10,13 @@ interface SupervisorOptions {
   maxConsecutiveFailures?: number;
   /** Default 500ms — short backoff between crash and respawn so transient OS hiccups (file lock, etc.) settle. */
   restartDelayMs?: number;
-  /** If the sidecar runs cleanly for this long without exiting, reset the consecutive-failure counter. Default 30s. */
+  /**
+   * If the sidecar runs cleanly for this long without exiting, reset the
+   * consecutive-failure counter. Default 60s — 30s was too aggressive: a
+   * `29s alive → crash → 29s alive → crash` sequence would hit the 2-strike
+   * give-up after only ~60s of total uptime, which a transient hiccup during
+   * model warmup can plausibly cause.
+   */
   healthyUptimeResetMs?: number;
 }
 
@@ -39,7 +45,7 @@ export class SidecarSupervisor {
     this.onCrash = opts.onCrash;
     this.maxFailures = opts.maxConsecutiveFailures ?? 2;
     this.restartDelayMs = opts.restartDelayMs ?? 500;
-    this.healthyUptimeResetMs = opts.healthyUptimeResetMs ?? 30_000;
+    this.healthyUptimeResetMs = opts.healthyUptimeResetMs ?? 60_000;
   }
 
   /**

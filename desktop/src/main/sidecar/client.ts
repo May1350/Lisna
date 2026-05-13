@@ -5,7 +5,13 @@ import type { SidecarRequest, SidecarResponse, SidecarEvent } from '@shared/ipc-
 type Pending = {
   resolve: (r: SidecarResponse) => void;
   reject: (e: Error) => void;
-  timer: NodeJS.Timeout;
+  /**
+   * Timeout handle, or null when the caller passed `timeoutMs: Infinity`.
+   * Modeling absent-by-design as `null` (instead of an unobservable 24.8-day
+   * dummy timer) keeps the code honest and avoids Node's silent coercion of
+   * over-max delays to 1ms.
+   */
+  timer: NodeJS.Timeout | null;
 };
 
 interface SendOptions {
@@ -16,6 +22,18 @@ interface SendOptions {
    */
   timeoutMs?: number;
 }
+
+/**
+ * Distributive `Omit` — TS's stock `Omit<T, K>` does not distribute over a
+ * discriminated union; it flattens to an intersection of common props,
+ * dropping per-variant fields like `kind` / `path` / `language`. This variant
+ * applies `Omit` to each constituent in turn so callers can pass any
+ * `SidecarRequest` variant without `id` and keep its variant-specific keys.
+ */
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+
+/** A `SidecarRequest` minus its `id` — the public `send()` argument shape. */
+export type SidecarSendRequest = DistributiveOmit<SidecarRequest, 'id'>;
 
 /**
  * Thin TS wrapper over the sidecar binary's stdio.
@@ -44,6 +62,10 @@ export class SidecarClient {
     proc.stdout.setEncoding('utf8');
     proc.stdout.on('data', (chunk: string) => this.onData(chunk));
     proc.stderr?.on('data', (d) => console.error('[sidecar stderr]', d.toString()));
+    // Without this listener, an EPIPE on `stdin.write` after the sidecar has
+    // closed its end becomes an unhandled `'error'` event and crashes the main
+    // process. Phase 3's high request volume will eventually race a shutdown.
+    proc.stdin.on('error', (err) => console.error('[sidecar stdin error]', err));
     proc.on('exit', () => this.rejectAllPending(new Error('sidecar process exited')));
   }
 
@@ -69,19 +91,14 @@ export class SidecarClient {
    * (default 5000ms) — always, so callers can't silently hang. Pass
    * `timeoutMs: Infinity` for genuinely unbounded ops.
    */
-  send(req: Omit<SidecarRequest, 'id'>, opts: SendOptions = {}): Promise<SidecarResponse> {
+  send(req: SidecarSendRequest, opts: SendOptions = {}): Promise<SidecarResponse> {
     const id = randomUUID();
     const full = JSON.stringify({ id, ...req });
     const timeoutMs = opts.timeoutMs ?? 5000;
     return new Promise((resolve, reject) => {
-      const timer: NodeJS.Timeout =
+      const timer: NodeJS.Timeout | null =
         timeoutMs === Infinity
-          ? // setTimeout's max safe delay is 2^31-1 ms (~24.8 days). Anything
-            // larger silently coerces to 1ms in Node — defeating the
-            // "Infinity = wait forever" intent. Cap at the max instead.
-            (setTimeout(() => {
-              /* noop */
-            }, 2_147_483_647) as unknown as NodeJS.Timeout)
+          ? null
           : setTimeout(() => {
               this.pending.delete(id);
               reject(new Error(`sidecar request ${id} timed out after ${timeoutMs}ms`));
@@ -135,7 +152,7 @@ export class SidecarClient {
         const p = this.pending.get(id);
         if (p) {
           this.pending.delete(id);
-          clearTimeout(p.timer);
+          if (p.timer) clearTimeout(p.timer);
           p.resolve(obj as SidecarResponse);
         }
       } else {
@@ -146,7 +163,7 @@ export class SidecarClient {
 
   private rejectAllPending(err: Error): void {
     for (const [, p] of this.pending) {
-      clearTimeout(p.timer);
+      if (p.timer) clearTimeout(p.timer);
       p.reject(err);
     }
     this.pending.clear();

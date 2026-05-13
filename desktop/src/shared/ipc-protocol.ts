@@ -33,6 +33,7 @@ export interface Capabilities {
 }
 
 export type SidecarRequest =
+  | { id: string; type: 'ping' }
   | { id: string; type: 'load'; kind: 'stt'; path: string; language: Language }
   | { id: string; type: 'load'; kind: 'llm'; path: string }
   | { id: string; type: 'unload'; kind: 'stt' | 'llm' }
@@ -51,8 +52,14 @@ export type SidecarEvent =
   | {
       type: 'log';
       level: 'debug' | 'info' | 'warn' | 'error';
-      /** Origin of the log line — set by the sidecar to disambiguate whisper.cpp / ggml internal logs from our own. */
-      source: string;
+      /**
+       * Origin of the log line. `whisper` and `ggml` come from the bundled
+       * upstream log callbacks; `system` is reserved for our own sidecar code.
+       * Kept as a closed union so callers `filter(e => e.source === 'whisper')`
+       * are typo-protected at compile time — extend deliberately when adding a
+       * new emit site.
+       */
+      source: 'whisper' | 'ggml' | 'system';
       message: string;
     }
   | { type: 'memory'; rssBytes: number; phase: 'idle' | 'stt' | 'llm' | 'transition' };
