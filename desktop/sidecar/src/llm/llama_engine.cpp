@@ -51,6 +51,8 @@ void LlamaEngine::generate(const std::string& prompt, const GenOpts& opts,
   if (!impl_->ctx || !impl_->vocab) return;
 
   // Tokenize prompt. Two-pass: probe size, then fill.
+  // add_special=true: include BOS. parse_special=true: chat-template markers
+  // (e.g. Gemma <start_of_turn>) tokenize as their special IDs, not literal text.
   const int n_prompt_probe = -llama_tokenize(
       impl_->vocab, prompt.c_str(), static_cast<int32_t>(prompt.size()),
       nullptr, 0, true, true);
@@ -78,6 +80,8 @@ void LlamaEngine::generate(const std::string& prompt, const GenOpts& opts,
     new_token = llama_sampler_sample(smpl, impl_->ctx, -1);
     if (llama_vocab_is_eog(impl_->vocab, new_token)) break;
 
+    // special=false: chat-template markers (e.g. <end_of_turn>) render as
+    // empty so they don't leak into the streamed token JSON.
     const int32_t n = llama_token_to_piece(
         impl_->vocab, new_token, piece_buf, sizeof(piece_buf), 0, false);
     if (n > 0) onToken(std::string(piece_buf, n));

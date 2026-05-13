@@ -10,8 +10,10 @@
 namespace lisna::ipc {
 
 namespace {
-// Process-level STT singleton. Owned by an unnamed namespace so it is invisible
-// outside this translation unit. Lazily instantiated on first STT load.
+// Process-level STT + LLM singletons. Owned by an unnamed namespace so they
+// stay invisible outside this translation unit. Lazily instantiated on first
+// load. Single-threaded: dispatch assumes one in-flight request at a time; do
+// not parallelize without adding a request mutex.
 std::unique_ptr<lisna::stt::WhisperEngine> g_stt;
 std::unique_ptr<lisna::llm::LlamaEngine> g_llm;
 } // namespace
@@ -121,9 +123,9 @@ std::string dispatch(const std::string& jsonLine) {
     opts.temperature = req.value("temperature", 0.4f);
     g_llm->generate(req["prompt"].get<std::string>(), opts,
                     [&](const std::string& tok) {
-      std::cout << nlohmann::json{
+      emit_event(nlohmann::json{
           {"id", id}, {"type", "token"}, {"token", tok}
-      }.dump() << "\n" << std::flush;
+      }.dump());
     });
     return nlohmann::json{{"id", id}, {"type", "done"}}.dump();
   }
