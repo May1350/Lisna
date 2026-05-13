@@ -51,6 +51,10 @@ describeIf('WhisperCppSTT (real model)', () => {
 
       // WAV header is exactly 44 bytes (generated with ffmpeg -map_metadata -1 -bitexact).
       const wavBuf = readFileSync(wavPath);
+      if (wavBuf.subarray(0, 4).toString('ascii') !== 'RIFF') throw new Error('not a RIFF WAV');
+      if (wavBuf.subarray(36, 40).toString('ascii') !== 'data') {
+        throw new Error('header is not exactly 44 bytes — regenerate with generate-ja-30s.sh');
+      }
       const pcmInt16 = new Int16Array(wavBuf.buffer, wavBuf.byteOffset + 44, (wavBuf.byteLength - 44) / 2);
       const pcmFloat32 = new Float32Array(pcmInt16.length);
       for (let i = 0; i < pcmInt16.length; i++) {
