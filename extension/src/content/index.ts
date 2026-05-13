@@ -67,6 +67,13 @@ let activeSession: CaptureSession | null = null
 // rebroadcast video state when the user has actually stopped capture.
 let captureCleanup: (() => void) | null = null
 
+// Iframe-side handle to the DRIVE_VIDEO_TICK broadcaster setInterval.
+// Tracked so we can: (a) guard against double-start on a second
+// START_CAPTURE in the same page life (idempotent reopen), and
+// (b) tear down when STOP_CAPTURE / MODAL_CLOSED arrives, so the
+// iframe doesn't keep posting tick messages indefinitely.
+let driveIframeTickTimer: number | null = null
+
 // Drive-viewer-only: captured `location.href` of the YouTube embed iframe,
 // reported by that iframe at video-detection time via a `DRIVE_IFRAME_URL`
 // postMessage. We use this as `parentUrl` when mounting the modal in the
@@ -98,6 +105,14 @@ let driveSlideLastEmitTs = -1
 let driveSlideBaselineEmitted = false
 let driveSlideStartedAtMs = 0
 let driveSlideSessionId: string | null = null
+// Replay-dedup parity with SlideDetector.wasAlreadyEmittedNear:
+// user seeks back to t=10s after capturing at t=120s → both the diff
+// trigger AND the per-tick capture would re-emit at ts already covered.
+// Backend SHA256 catches identical JPEG bytes (common for static slides),
+// but JPEG encoder output isn't strictly deterministic, so a non-trivial
+// fraction slips through and becomes duplicate rows.
+const DRIVE_EMIT_DEDUP_SEC = 2
+let driveEmittedTimes: Set<number> = new Set()
 
 function setButtonStatus(s: InlineButtonState): void {
   button?.setStatus(s)
@@ -164,6 +179,13 @@ const DRIVE_MIN_GAP_SEC = 3
 const DRIVE_BASELINE_DELAY_MS = 2000
 const DRIVE_HIGH_RES_MAX_W = 1280
 
+function driveWasAlreadyEmittedNear(ts: number): boolean {
+  for (const prior of driveEmittedTimes) {
+    if (Math.abs(prior - ts) < DRIVE_EMIT_DEDUP_SEC) return true
+  }
+  return false
+}
+
 function drivePixelDiff(a: ImageData, b: ImageData): number {
   const A = a.data, B = b.data
   let diffPixels = 0
@@ -175,22 +197,13 @@ function drivePixelDiff(a: ImageData, b: ImageData): number {
   return diffPixels / total
 }
 
-function driveBufToB64(buf: ArrayBuffer): string {
-  let s = ''
-  const u8 = new Uint8Array(buf)
-  const chunk = 0x8000
-  for (let i = 0; i < u8.length; i += chunk) {
-    s += String.fromCharCode.apply(null, Array.from(u8.subarray(i, i + chunk)))
-  }
-  return btoa(s)
-}
-
 function startDriveSlideCapture(captureUrl: string): void {
   if (driveSlideTimer !== null) return
   driveSlideStartedAtMs = Date.now()
   driveSlideBaselineEmitted = false
   driveSlidePrev = null
   driveSlideLastEmitTs = -1
+  driveEmittedTimes = new Set()
   driveSlideSessionId = (typeof crypto?.randomUUID === 'function'
     ? crypto.randomUUID()
     : `drv-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`)
@@ -246,15 +259,39 @@ async function driveSlideTick(captureUrl: string): Promise<void> {
     return
   }
 
+  // Skip if iframe is scrolled entirely out of viewport — there's nothing
+  // visually meaningful to capture, and below we'd otherwise produce a
+  // blank canvas that spuriously fires pixelDiff.
+  if (rect.bottom < 0 || rect.top > window.innerHeight
+      || rect.right < 0 || rect.left > window.innerWidth) {
+    return
+  }
+
   // captureVisibleTab returns the screenshot at device-pixel resolution.
   // Scale the rect's CSS pixels by the image-to-viewport ratio (typically
   // window.devicePixelRatio, but compute from the image to be exact in
   // edge cases like zoom).
   const ratio = img.naturalWidth / window.innerWidth
-  const sx = Math.max(0, rect.left * ratio)
-  const sy = Math.max(0, rect.top * ratio)
-  const sw = rect.width * ratio
-  const sh = rect.height * ratio
+  let sx = rect.left * ratio
+  let sy = rect.top * ratio
+  let sw = rect.width * ratio
+  let sh = rect.height * ratio
+
+  // Clamp source rect to image bounds. drawImage silently clips when sx/sy
+  // are negative or sw/sh exceed image dimensions, leaving the rest of the
+  // destination canvas blank (transparent) — which JPEG-encodes as a black
+  // strip and spuriously fires pixelDiff vs the previous frame.
+  // Adjust dest rect proportionally so the cropped portion retains its
+  // aspect ratio and lands in the correct part of the hi-res canvas.
+  let destOffsetX = 0
+  let destOffsetY = 0
+  let destScaleX = 1
+  let destScaleY = 1
+  if (sx < 0) { destOffsetX = -sx / sw; sw += sx; sx = 0 }
+  if (sy < 0) { destOffsetY = -sy / sh; sh += sy; sy = 0 }
+  if (sx + sw > img.naturalWidth)  { destScaleX = (img.naturalWidth  - sx) / sw; sw = img.naturalWidth  - sx }
+  if (sy + sh > img.naturalHeight) { destScaleY = (img.naturalHeight - sy) / sh; sh = img.naturalHeight - sy }
+  if (sw <= 0 || sh <= 0) return
 
   // Hi-res canvas for the eventual JPEG upload (capped for bandwidth).
   const targetW = Math.min(rect.width, DRIVE_HIGH_RES_MAX_W)
@@ -263,7 +300,11 @@ async function driveSlideTick(captureUrl: string): Promise<void> {
   hi.width = targetW; hi.height = targetH
   const hiCtx = hi.getContext('2d')
   if (!hiCtx) return
-  hiCtx.drawImage(img, sx, sy, sw, sh, 0, 0, targetW, targetH)
+  const dx = destOffsetX * targetW
+  const dy = destOffsetY * targetH
+  const dw = destScaleX * targetW * (1 - destOffsetX)
+  const dh = destScaleY * targetH * (1 - destOffsetY)
+  hiCtx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh)
 
   // Low-res for diff.
   const diffCanvas = document.createElement('canvas')
@@ -278,7 +319,7 @@ async function driveSlideTick(captureUrl: string): Promise<void> {
     const blob = await new Promise<Blob | null>(resolve => hi.toBlob(resolve, 'image/jpeg', 0.9))
     if (!blob || !driveSlideSessionId) return
     const buf = await blob.arrayBuffer()
-    const b64 = driveBufToB64(buf)
+    const b64 = arrayBufferToBase64(buf)
     log('drive-slide → POST /v1/stream/slide', { ts: ts.toFixed(1), bytes: blob.size })
     void chrome.runtime.sendMessage({
       type: 'API_FETCH',
@@ -292,17 +333,30 @@ async function driveSlideTick(captureUrl: string): Promise<void> {
     const diff = drivePixelDiff(driveSlidePrev, cur)
     const willEmit = diff > DRIVE_DIFF_THRESHOLD && ts - driveSlideLastEmitTs > DRIVE_MIN_GAP_SEC
     if (willEmit) {
-      driveSlideLastEmitTs = ts
-      driveSlideBaselineEmitted = true
-      log('drive-slide diff EMIT', { ts: ts.toFixed(1), diff: (diff * 100).toFixed(1) + '%' })
-      await emit()
+      if (driveWasAlreadyEmittedNear(ts)) {
+        log('drive-slide replay-dedup skip', { ts: ts.toFixed(1) })
+      } else {
+        driveSlideLastEmitTs = ts
+        driveSlideBaselineEmitted = true
+        driveEmittedTimes.add(Math.round(ts))
+        log('drive-slide diff EMIT', { ts: ts.toFixed(1), diff: (diff * 100).toFixed(1) + '%' })
+        await emit()
+      }
     } else if (!driveSlideBaselineEmitted && Date.now() - driveSlideStartedAtMs >= DRIVE_BASELINE_DELAY_MS) {
       // Force-emit the first slide ~2s after start so the opening frame
       // (title slide) is captured even when there's no diff trigger yet.
-      driveSlideBaselineEmitted = true
-      driveSlideLastEmitTs = ts
-      log('drive-slide baseline EMIT', { ts: ts.toFixed(1) })
-      await emit()
+      if (driveWasAlreadyEmittedNear(ts)) {
+        // Already covered (re-entry into a previously-captured region);
+        // mark baseline as satisfied so we don't keep retrying.
+        driveSlideBaselineEmitted = true
+        log('drive-slide baseline replay-dedup skip', { ts: ts.toFixed(1) })
+      } else {
+        driveSlideBaselineEmitted = true
+        driveSlideLastEmitTs = ts
+        driveEmittedTimes.add(Math.round(ts))
+        log('drive-slide baseline EMIT', { ts: ts.toFixed(1) })
+        await emit()
+      }
     }
   }
   driveSlidePrev = cur
@@ -796,6 +850,13 @@ if (__sh_first_boot__ && isTopFrame) {
 
     if (data.type === 'MODAL_CLOSED') {
       onModalClosed()
+      // Drive viewer: stop the DRIVE_VIDEO_TICK broadcaster on modal
+      // close. STOP_CAPTURE branch already does this via stopCaptureLocal,
+      // but plain MODAL_CLOSED (modal X-button) bypasses that path.
+      if (driveIframeTickTimer !== null) {
+        window.clearInterval(driveIframeTickTimer)
+        driveIframeTickTimer = null
+      }
     } else if (data.type === 'SET_SPEED' && typeof data.speed === 'number') {
       applySpeed(data.speed)
     } else if (data.type === 'STOP_CAPTURE') {
@@ -815,8 +876,12 @@ if (__sh_first_boot__ && isTopFrame) {
       // <video> element directly, so we broadcast its state (paused /
       // currentTime / readyState) at 1Hz. Top frame uses this to gate
       // its captureVisibleTab calls and to stamp each slide's ts.
-      if (isHostedInDriveViewer()) {
-        window.setInterval(() => {
+      //
+      // Idempotent: re-opens of the modal (each one re-broadcasts
+      // START_CAPTURE) must not stack multiple intervals. Stored in
+      // driveIframeTickTimer; cleared on STOP_CAPTURE / MODAL_CLOSED.
+      if (isHostedInDriveViewer() && driveIframeTickTimer === null) {
+        driveIframeTickTimer = window.setInterval(() => {
           if (!activeVideo) return
           window.parent.postMessage({
             source: 'sh-frame',
@@ -905,6 +970,12 @@ chrome.runtime.onMessage.addListener((msg, _s, sendResponse) => {
 }  // end if (__sh_first_boot__)
 
 function stopCaptureLocal(): void {
+  // Tear down the iframe-side DRIVE_VIDEO_TICK broadcaster if running.
+  // No-op outside Drive viewer (timer never started).
+  if (driveIframeTickTimer !== null) {
+    window.clearInterval(driveIframeTickTimer)
+    driveIframeTickTimer = null
+  }
   // Run the wrap-up handler — pauses the underlying <video>, runs the
   // final curate, broadcasts session_ended, and detaches every per-
   // session listener that the closure registered. Calling this from
