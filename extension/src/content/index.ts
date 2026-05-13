@@ -78,6 +78,27 @@ let captureCleanup: (() => void) | null = null
 // surfaces as "modal opens empty, notes never appear".
 let driveIframeFrameUrl: string | null = null
 
+// Top-frame Drive slide-capture state. The YouTube embed's <video> element
+// returns near-blank frames to canvas drawImage (frame buffer not exposed —
+// confirmed empirically 2026-05-13: paused=false, readyState=4, but pixels
+// uniformly white), so the standard SlideDetector running inside the iframe
+// has nothing to capture. We instead drive a top-frame loop that:
+//   1. caches the iframe's video tick state broadcast (paused/currentTime/readyState)
+//   2. asks the SW for a captureVisibleTab screenshot
+//   3. crops the YouTube iframe rect from that screenshot
+//   4. runs the same pixelDiff + MIN_GAP gating as SlideDetector
+//   5. emits via the same /v1/stream/slide path the iframe normally uses
+//      (with a top-frame-generated session_id — backend keys on url_hash,
+//      so this row coalesces with the iframe's audio uploads automatically).
+interface DriveVideoTick { paused: boolean; currentTime: number; readyState: number }
+let driveVideoTick: DriveVideoTick | null = null
+let driveSlideTimer: number | null = null
+let driveSlidePrev: ImageData | null = null
+let driveSlideLastEmitTs = -1
+let driveSlideBaselineEmitted = false
+let driveSlideStartedAtMs = 0
+let driveSlideSessionId: string | null = null
+
 function setButtonStatus(s: InlineButtonState): void {
   button?.setStatus(s)
 }
@@ -129,6 +150,162 @@ function findVideoIframeForDriveViewer(): HTMLIFrameElement | null {
   return document.querySelector<HTMLIFrameElement>(
     'iframe[src*="youtube.googleapis.com/embed"], iframe[src*="youtube.com/embed"]',
   )
+}
+
+// ── Drive top-frame slide capture (Plan A: chrome.tabs.captureVisibleTab) ─
+// Constants mirror slide-detector.ts so the user-perceived emit rate is the
+// same as on other sites. Slight latency penalty per tick (~50-150ms SW
+// round-trip + JPEG decode) — still well under the 1Hz tick budget.
+const DRIVE_TICK_MS = 1000
+const DRIVE_DIFF_W = 32
+const DRIVE_DIFF_H = 18
+const DRIVE_DIFF_THRESHOLD = 0.18
+const DRIVE_MIN_GAP_SEC = 3
+const DRIVE_BASELINE_DELAY_MS = 2000
+const DRIVE_HIGH_RES_MAX_W = 1280
+
+function drivePixelDiff(a: ImageData, b: ImageData): number {
+  const A = a.data, B = b.data
+  let diffPixels = 0
+  const total = A.length / 4
+  for (let i = 0; i < A.length; i += 4) {
+    const dr = A[i] - B[i], dg = A[i + 1] - B[i + 1], db = A[i + 2] - B[i + 2]
+    if (Math.abs(dr) + Math.abs(dg) + Math.abs(db) > 60) diffPixels++
+  }
+  return diffPixels / total
+}
+
+function driveBufToB64(buf: ArrayBuffer): string {
+  let s = ''
+  const u8 = new Uint8Array(buf)
+  const chunk = 0x8000
+  for (let i = 0; i < u8.length; i += chunk) {
+    s += String.fromCharCode.apply(null, Array.from(u8.subarray(i, i + chunk)))
+  }
+  return btoa(s)
+}
+
+function startDriveSlideCapture(captureUrl: string): void {
+  if (driveSlideTimer !== null) return
+  driveSlideStartedAtMs = Date.now()
+  driveSlideBaselineEmitted = false
+  driveSlidePrev = null
+  driveSlideLastEmitTs = -1
+  driveSlideSessionId = (typeof crypto?.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `drv-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`)
+  log('drive-slide: start', { sessionId: driveSlideSessionId, captureUrl })
+  driveSlideTimer = window.setInterval(() => {
+    void driveSlideTick(captureUrl)
+  }, DRIVE_TICK_MS)
+}
+
+function stopDriveSlideCapture(): void {
+  if (driveSlideTimer !== null) {
+    window.clearInterval(driveSlideTimer)
+    driveSlideTimer = null
+  }
+  driveSlidePrev = null
+  driveSlideLastEmitTs = -1
+  driveSlideBaselineEmitted = false
+}
+
+async function driveSlideTick(captureUrl: string): Promise<void> {
+  // captureVisibleTab returns the active tab in the sender's window; if the
+  // user has switched tabs, skip rather than capture the wrong page.
+  if (document.visibilityState !== 'visible') return
+  const v = driveVideoTick
+  if (!v) return                              // haven't heard from iframe yet
+  if (v.paused || v.readyState < 2) return    // mirror SlideDetector tick guard
+
+  const ifr = findVideoIframeForDriveViewer()
+  if (!ifr) return
+  const rect = ifr.getBoundingClientRect()
+  if (rect.width < 100 || rect.height < 100) return
+
+  type CaptureResp = { ok?: boolean; data?: { dataUrl?: string }; error?: string } | null
+  let resp: CaptureResp = null
+  try {
+    const raw = await chrome.runtime.sendMessage({ type: 'CAPTURE_VISIBLE_TAB' })
+    resp = raw as CaptureResp
+  } catch {
+    return
+  }
+  if (!resp?.ok || !resp.data?.dataUrl) return
+  const dataUrl = resp.data.dataUrl
+
+  let img: HTMLImageElement
+  try {
+    img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image()
+      el.onload = () => resolve(el)
+      el.onerror = () => reject(new Error('image decode failed'))
+      el.src = dataUrl
+    })
+  } catch {
+    return
+  }
+
+  // captureVisibleTab returns the screenshot at device-pixel resolution.
+  // Scale the rect's CSS pixels by the image-to-viewport ratio (typically
+  // window.devicePixelRatio, but compute from the image to be exact in
+  // edge cases like zoom).
+  const ratio = img.naturalWidth / window.innerWidth
+  const sx = Math.max(0, rect.left * ratio)
+  const sy = Math.max(0, rect.top * ratio)
+  const sw = rect.width * ratio
+  const sh = rect.height * ratio
+
+  // Hi-res canvas for the eventual JPEG upload (capped for bandwidth).
+  const targetW = Math.min(rect.width, DRIVE_HIGH_RES_MAX_W)
+  const targetH = Math.round(rect.height * (targetW / rect.width))
+  const hi = document.createElement('canvas')
+  hi.width = targetW; hi.height = targetH
+  const hiCtx = hi.getContext('2d')
+  if (!hiCtx) return
+  hiCtx.drawImage(img, sx, sy, sw, sh, 0, 0, targetW, targetH)
+
+  // Low-res for diff.
+  const diffCanvas = document.createElement('canvas')
+  diffCanvas.width = DRIVE_DIFF_W; diffCanvas.height = DRIVE_DIFF_H
+  const diffCtx = diffCanvas.getContext('2d')
+  if (!diffCtx) return
+  diffCtx.drawImage(hi, 0, 0, DRIVE_DIFF_W, DRIVE_DIFF_H)
+  const cur = diffCtx.getImageData(0, 0, DRIVE_DIFF_W, DRIVE_DIFF_H)
+
+  const ts = v.currentTime
+  const emit = async () => {
+    const blob = await new Promise<Blob | null>(resolve => hi.toBlob(resolve, 'image/jpeg', 0.9))
+    if (!blob || !driveSlideSessionId) return
+    const buf = await blob.arrayBuffer()
+    const b64 = driveBufToB64(buf)
+    log('drive-slide → POST /v1/stream/slide', { ts: ts.toFixed(1), bytes: blob.size })
+    void chrome.runtime.sendMessage({
+      type: 'API_FETCH',
+      method: 'POST',
+      path: '/v1/stream/slide',
+      body: { session_id: driveSlideSessionId, url: captureUrl, ts, image_b64: b64, mime: 'image/jpeg' },
+    })
+  }
+
+  if (driveSlidePrev) {
+    const diff = drivePixelDiff(driveSlidePrev, cur)
+    const willEmit = diff > DRIVE_DIFF_THRESHOLD && ts - driveSlideLastEmitTs > DRIVE_MIN_GAP_SEC
+    if (willEmit) {
+      driveSlideLastEmitTs = ts
+      driveSlideBaselineEmitted = true
+      log('drive-slide diff EMIT', { ts: ts.toFixed(1), diff: (diff * 100).toFixed(1) + '%' })
+      await emit()
+    } else if (!driveSlideBaselineEmitted && Date.now() - driveSlideStartedAtMs >= DRIVE_BASELINE_DELAY_MS) {
+      // Force-emit the first slide ~2s after start so the opening frame
+      // (title slide) is captured even when there's no diff trigger yet.
+      driveSlideBaselineEmitted = true
+      driveSlideLastEmitTs = ts
+      log('drive-slide baseline EMIT', { ts: ts.toFixed(1) })
+      await emit()
+    }
+  }
+  driveSlidePrev = cur
 }
 
 // Robust video detection.
@@ -278,6 +455,9 @@ function handleActivate(): void {
       onClose: () => {
         broadcastToFrames({ source: 'sh-parent', type: 'MODAL_CLOSED' })
         onModalClosed()
+        // Tear down the Drive-only screenshot loop along with the modal so
+        // we don't keep round-tripping the SW after the user is done.
+        stopDriveSlideCapture()
       },
       onSetSpeed: (speed: number) => {
         // No local <video> here — relay the speed change to the iframe.
@@ -291,6 +471,10 @@ function handleActivate(): void {
     setButtonStatus('hidden')
     // Tell the YouTube embed iframe (which holds the <video>) to begin capture.
     broadcastToFrames({ source: 'sh-parent', type: 'START_CAPTURE' })
+    // Start our top-frame slide-capture loop (canvas drawImage of the
+    // <video> doesn't work in Drive's embed, so we screenshot the tab
+    // and crop the iframe rect instead).
+    startDriveSlideCapture(driveIframeFrameUrl ?? ifr?.src ?? location.href)
     return
   }
 
@@ -511,6 +695,17 @@ if (__sh_first_boot__ && isTopFrame) {
       return
     }
 
+    if (data.type === 'DRIVE_VIDEO_TICK') {
+      // YouTube embed iframe is broadcasting its <video> state so our
+      // top-frame slide-capture loop can decide when to tick (we have no
+      // direct DOM access to the video element from this frame).
+      const t = data as unknown as { paused?: boolean; currentTime?: number; readyState?: number }
+      if (typeof t.paused === 'boolean' && typeof t.currentTime === 'number' && typeof t.readyState === 'number') {
+        driveVideoTick = { paused: t.paused, currentTime: t.currentTime, readyState: t.readyState }
+      }
+      return
+    }
+
     if (data.type === 'DRIVE_IFRAME_URL' && typeof data.frameUrl === 'string') {
       // Drive-viewer mode: the YouTube embed iframe has reported its real
       // location.href so that when the user clicks our button, handleActivate
@@ -616,6 +811,22 @@ if (__sh_first_boot__ && isTopFrame) {
         if (exhausted) { log('skip START_CAPTURE — cached quota at 100%'); return }
         void startCapture(location.href)
       })()
+      // Drive-only: the top frame's slide-capture loop can't read our
+      // <video> element directly, so we broadcast its state (paused /
+      // currentTime / readyState) at 1Hz. Top frame uses this to gate
+      // its captureVisibleTab calls and to stamp each slide's ts.
+      if (isHostedInDriveViewer()) {
+        window.setInterval(() => {
+          if (!activeVideo) return
+          window.parent.postMessage({
+            source: 'sh-frame',
+            type: 'DRIVE_VIDEO_TICK',
+            paused: activeVideo.paused,
+            currentTime: activeVideo.currentTime,
+            readyState: activeVideo.readyState,
+          }, '*')
+        }, 1000)
+      }
     } else if (data.type === 'JUMP_TO' && typeof data.ts === 'number') {
       // Top frame relays modal jump requests here. Only the frame with
       // the actual <video> acts (others have activeVideo === null).

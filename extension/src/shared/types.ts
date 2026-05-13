@@ -63,6 +63,15 @@ export type SwRequest =
   // Lambda warmup ping — fired from SW startup + content script video page entry
   // to pay the cold-start cost before the user actually clicks anything.
   | { type: 'WARMUP' }
+  // Drive viewer special path. The YouTube embed's <video> element does not
+  // expose its painted frame to canvas (drawImage returns near-blank pixels —
+  // not cross-origin taint, the frame buffer simply isn't there). So instead
+  // of slide-detector reading from <video>, the top-frame content script
+  // asks the SW to capture the visible tab via chrome.tabs.captureVisibleTab
+  // and then crops the YouTube iframe's bounding rect from that screenshot.
+  // Returns { dataUrl: <jpeg-base64-url> } on success. Active-tab restriction:
+  // only the sender's currently-visible window/tab can be captured.
+  | { type: 'CAPTURE_VISIBLE_TAB' }
 
 export type SwResponse =
   | { ok: true; data: unknown }
