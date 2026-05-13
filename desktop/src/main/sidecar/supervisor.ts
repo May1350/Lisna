@@ -6,6 +6,18 @@ import { SidecarClient } from './client';
 interface SupervisorOptions {
   /** Called when the sidecar has crashed `maxConsecutiveFailures` times in a row and the supervisor is giving up. */
   onCrash: (msg: string) => void;
+  /**
+   * Called on EVERY unexpected sidecar exit (before respawn is scheduled).
+   * Fires once per exit, including the give-up case. NOT called during a
+   * graceful `shutdown()` (gated by the `shuttingDown` flag).
+   *
+   * Use this for stateful subscribers (e.g. ipc.ts) that need to clear
+   * session state and notify the renderer. The single-source-of-truth for
+   * "sidecar is no longer usable, in-flight ops are dead." `onCrash` is
+   * demoted to a log-only signal — both fire on give-up but `onExit` fires
+   * first.
+   */
+  onExit?: () => void;
   /** Default 2 — fail-fast policy: a binary that won't survive its own startup twice in a row likely won't on the third try either. */
   maxConsecutiveFailures?: number;
   /** Default 500ms — short backoff between crash and respawn so transient OS hiccups (file lock, etc.) settle. */
@@ -36,13 +48,18 @@ export class SidecarSupervisor {
   private failuresInARow = 0;
   private healthyResetTimer?: NodeJS.Timeout;
   private shuttingDown = false;
+  /** Monotonically incremented on each `start()` call. Closures capture the
+   * generation at the time of spawn; stale exit-listeners are silently ignored. */
+  private generation = 0;
   private readonly onCrash: (msg: string) => void;
+  private readonly onExit?: () => void;
   private readonly maxFailures: number;
   private readonly restartDelayMs: number;
   private readonly healthyUptimeResetMs: number;
 
   constructor(opts: SupervisorOptions) {
     this.onCrash = opts.onCrash;
+    this.onExit = opts.onExit;
     this.maxFailures = opts.maxConsecutiveFailures ?? 2;
     this.restartDelayMs = opts.restartDelayMs ?? 500;
     this.healthyUptimeResetMs = opts.healthyUptimeResetMs ?? 60_000;
@@ -65,8 +82,19 @@ export class SidecarSupervisor {
     if (this.client) return this.client;
     const bin = this.resolveBinPath();
     this.proc = spawn(bin, [], { stdio: ['pipe', 'pipe', 'pipe'] });
+    // CRITICAL ORDER INVARIANT: SidecarClient must register its own
+    // proc.on('exit', rejectAllPending) listener BEFORE supervisor's
+    // proc.on('exit', handleExit) is attached. Node emits listeners in
+    // registration order, so client's pending-rejection fires first when
+    // the sidecar crashes — that lets any in-flight orch.stop() / orch.onChunk()
+    // reject synchronously and run their `finally` (which clears
+    // ipc.ts module state) BEFORE supervisor's handleExit calls onExit →
+    // handleSidecarExit. Without this order, handleSidecarExit would clobber
+    // state mid-finally and push session/error while the renderer already saw
+    // a handler rejection. Do not reorder.
     this.client = new SidecarClient(this.proc);
-    this.proc.on('exit', (code, sig) => this.handleExit(code, sig));
+    const gen = ++this.generation;
+    this.proc.on('exit', (code, sig) => this.handleExit(code, sig, gen));
     this.proc.on('error', (err) => console.error('[sidecar spawn error]', err));
     // After a healthy uptime window, reset the failure counter so isolated
     // crashes much later don't immediately push us to the give-up threshold.
@@ -81,7 +109,17 @@ export class SidecarSupervisor {
     return this.client;
   }
 
-  private handleExit(code: number | null, sig: NodeJS.Signals | null): void {
+  private handleExit(
+    code: number | null,
+    sig: NodeJS.Signals | null,
+    spawnGeneration: number,
+  ): void {
+    // Guard: stale exit-listeners from a previous spawn cycle (possible when
+    // the test mock returns the same ChildProcess object for every spawn() call)
+    // must not double-fire onExit/onCrash. The generation counter monotonically
+    // increments with each start(); the current generation only matches the
+    // latest spawn.
+    if (spawnGeneration !== this.generation) return;
     if (this.healthyResetTimer) {
       clearTimeout(this.healthyResetTimer);
       this.healthyResetTimer = undefined;
@@ -89,6 +127,10 @@ export class SidecarSupervisor {
     this.client = undefined;
     this.proc = undefined;
     if (this.shuttingDown) return; // expected exit during shutdown()
+    // onExit fires AFTER the shuttingDown gate (so deliberate teardown
+    // doesn't trigger false crash signals) and BEFORE the failure-counter
+    // logic (so ipc.ts can clean up before a respawn schedules).
+    this.onExit?.();
     this.failuresInARow += 1;
     if (this.failuresInARow >= this.maxFailures) {
       this.onCrash(

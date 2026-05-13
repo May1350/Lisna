@@ -80,7 +80,7 @@ describe('SidecarSupervisor', () => {
     // Wait for respawn timer to fire and start() to be called again.
     await new Promise((r) => setTimeout(r, 30));
     // Second proc was created by the respawn. Replace our local handle.
-    proc = spawnMock.mock.results[spawnMock.mock.results.length - 1].value as FakeChild;
+    proc = spawnMock.mock.results[spawnMock.mock.results.length - 1]!.value as FakeChild;
     // Second crash → onExit + onCrash (give-up).
     proc.emit('exit', 1, null);
     expect(onExit).toHaveBeenCalledTimes(2);
@@ -111,7 +111,7 @@ describe('SidecarSupervisor', () => {
     expect(onExitCalls.length).toBeGreaterThanOrEqual(2);
     // First listener is from SidecarClient (rejectAllPending closes over `this.pending`,
     // does NOT reference `failuresInARow`).
-    expect(onExitCalls[0].toString()).not.toContain('failuresInARow');
-    expect(onExitCalls[0].toString()).toMatch(/rejectAllPending|sidecar process exited/);
+    expect(onExitCalls[0]!.toString()).not.toContain('failuresInARow');
+    expect(onExitCalls[0]!.toString()).toMatch(/rejectAllPending|sidecar process exited/);
   });
 });
