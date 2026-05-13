@@ -113,6 +113,9 @@ let driveSlideSessionId: string | null = null
 // fraction slips through and becomes duplicate rows.
 const DRIVE_EMIT_DEDUP_SEC = 2
 let driveEmittedTimes: Set<number> = new Set()
+// Perceptual cache: see DRIVE_CACHE_SIZE / DRIVE_CACHE_SIMILARITY constants
+// above. FIFO of the last N emitted low-res ImageData buffers.
+let driveEmittedCache: ImageData[] = []
 
 function setButtonStatus(s: InlineButtonState): void {
   button?.setStatus(s)
@@ -168,22 +171,44 @@ function findVideoIframeForDriveViewer(): HTMLIFrameElement | null {
 }
 
 // ── Drive top-frame slide capture (Plan A: chrome.tabs.captureVisibleTab) ─
-// Constants mirror slide-detector.ts so the user-perceived emit rate is the
-// same as on other sites. Slight latency penalty per tick (~50-150ms SW
-// round-trip + JPEG decode) — still well under the 1Hz tick budget.
+// Tuned tighter than slide-detector.ts because captureVisibleTab includes
+// player UI overlays (audio icon, hover chrome) that SlideDetector's
+// video-only drawImage doesn't see. Those overlays flicker and would
+// push pixelDiff over a low (18%) threshold even on a static slide —
+// empirically observed false emits at 21-25% diff while real slide
+// changes register 45%+.
 const DRIVE_TICK_MS = 1000
 const DRIVE_DIFF_W = 32
 const DRIVE_DIFF_H = 18
-const DRIVE_DIFF_THRESHOLD = 0.18
-const DRIVE_MIN_GAP_SEC = 3
-const DRIVE_BASELINE_DELAY_MS = 2000
+const DRIVE_DIFF_THRESHOLD = 0.30          // was 0.18 — raised to skip UI flicker
+const DRIVE_MIN_GAP_SEC = 5                // was 3   — extra guard for repeated UI flicker pulses
+const DRIVE_BASELINE_DELAY_MS = 5000       // was 2000 — first slide must be fully painted (player chrome / loading frame had been getting captured)
 const DRIVE_HIGH_RES_MAX_W = 1280
+// Perceptual cache: keep the last N emitted DIFF-canvas ImageData. A new
+// candidate within DRIVE_CACHE_SIMILARITY of ANY entry is skipped — catches
+// "same slide re-emitted with a small UI delta" (player chrome shift,
+// caption rendered, animation step within a slide) cases that hash-dedup
+// at the backend can't because the bytes differ.
+const DRIVE_CACHE_SIZE = 5
+const DRIVE_CACHE_SIMILARITY = 0.05
 
 function driveWasAlreadyEmittedNear(ts: number): boolean {
   for (const prior of driveEmittedTimes) {
     if (Math.abs(prior - ts) < DRIVE_EMIT_DEDUP_SEC) return true
   }
   return false
+}
+
+function driveIsVisuallyDuplicate(cur: ImageData): boolean {
+  for (const past of driveEmittedCache) {
+    if (drivePixelDiff(past, cur) < DRIVE_CACHE_SIMILARITY) return true
+  }
+  return false
+}
+
+function driveRememberEmittedFrame(cur: ImageData): void {
+  driveEmittedCache.push(cur)
+  if (driveEmittedCache.length > DRIVE_CACHE_SIZE) driveEmittedCache.shift()
 }
 
 function drivePixelDiff(a: ImageData, b: ImageData): number {
@@ -204,6 +229,7 @@ function startDriveSlideCapture(captureUrl: string): void {
   driveSlidePrev = null
   driveSlideLastEmitTs = -1
   driveEmittedTimes = new Set()
+  driveEmittedCache = []
   driveSlideSessionId = (typeof crypto?.randomUUID === 'function'
     ? crypto.randomUUID()
     : `drv-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`)
@@ -335,25 +361,33 @@ async function driveSlideTick(captureUrl: string): Promise<void> {
     if (willEmit) {
       if (driveWasAlreadyEmittedNear(ts)) {
         log('drive-slide replay-dedup skip', { ts: ts.toFixed(1) })
+      } else if (driveIsVisuallyDuplicate(cur)) {
+        log('drive-slide visual-dedup skip', { ts: ts.toFixed(1), diff: (diff * 100).toFixed(1) + '%' })
       } else {
         driveSlideLastEmitTs = ts
         driveSlideBaselineEmitted = true
         driveEmittedTimes.add(Math.round(ts))
+        driveRememberEmittedFrame(cur)
         log('drive-slide diff EMIT', { ts: ts.toFixed(1), diff: (diff * 100).toFixed(1) + '%' })
         await emit()
       }
     } else if (!driveSlideBaselineEmitted && Date.now() - driveSlideStartedAtMs >= DRIVE_BASELINE_DELAY_MS) {
-      // Force-emit the first slide ~2s after start so the opening frame
-      // (title slide) is captured even when there's no diff trigger yet.
+      // Force-emit the first slide after BASELINE_DELAY so the opening
+      // frame (title slide) is captured even when there's no diff trigger
+      // yet. Delay is intentionally generous (5s) — we need the YouTube
+      // embed to be done with its own startup chrome (loading spinner,
+      // audio icon flicker) before we lock in a "first slide" capture.
       if (driveWasAlreadyEmittedNear(ts)) {
-        // Already covered (re-entry into a previously-captured region);
-        // mark baseline as satisfied so we don't keep retrying.
         driveSlideBaselineEmitted = true
         log('drive-slide baseline replay-dedup skip', { ts: ts.toFixed(1) })
+      } else if (driveIsVisuallyDuplicate(cur)) {
+        driveSlideBaselineEmitted = true
+        log('drive-slide baseline visual-dedup skip', { ts: ts.toFixed(1) })
       } else {
         driveSlideBaselineEmitted = true
         driveSlideLastEmitTs = ts
         driveEmittedTimes.add(Math.round(ts))
+        driveRememberEmittedFrame(cur)
         log('drive-slide baseline EMIT', { ts: ts.toFixed(1) })
         await emit()
       }
