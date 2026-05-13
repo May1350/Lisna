@@ -92,8 +92,16 @@ const GAP = 8
 // listeners that fired on every scroll forever.
 let currentHandle: InlineButtonHandle | null = null
 
+// Anchor element the button is positioned over. Normally a <video>, but
+// for sites that swallow clicks inside the player iframe (Drive viewer
+// → YouTube embed) we mount in the TOP frame anchored to the <iframe>
+// element itself — the iframe's rect equals the visible video area.
+// Both HTMLVideoElement and HTMLIFrameElement satisfy getBoundingClientRect
+// and ResizeObserver.observe, which is all this module touches.
+export type InlineButtonAnchor = HTMLVideoElement | HTMLIFrameElement
+
 export function mountInlineButton(
-  video: HTMLVideoElement,
+  video: InlineButtonAnchor,
   onActivate: () => void,
 ): InlineButtonHandle | null {
   // Note: no top-frame guard. The inline button mounts in WHATEVER frame
@@ -103,6 +111,10 @@ export function mountInlineButton(
   // iframe (positions are relative to the iframe's own viewport, which is
   // exactly what we want — the button visually overlays the video element
   // wherever that iframe is rendered in the parent page).
+  // Exception: Drive viewer embeds the player in a cross-origin iframe
+  // whose pointer events are pre-empted by Drive's own overlay; for that
+  // case the caller passes the <iframe> element and mounts in the top
+  // frame instead.
   ensureStyle()
 
   // Tear down the prior instance if any, so we don't leak listeners.

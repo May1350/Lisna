@@ -67,8 +67,68 @@ let activeSession: CaptureSession | null = null
 // rebroadcast video state when the user has actually stopped capture.
 let captureCleanup: (() => void) | null = null
 
+// Drive-viewer-only: captured `location.href` of the YouTube embed iframe,
+// reported by that iframe at video-detection time via a `DRIVE_IFRAME_URL`
+// postMessage. We use this as `parentUrl` when mounting the modal in the
+// top frame so the backend `/v1/session` lookup hits the same `url_hash`
+// the iframe will POST audio chunks under. `iframe.src` (the HTML
+// attribute as read from the top frame) can drift from the iframe's
+// actual `location.href` after YouTube embed runs its own internal
+// navigation, so relying on `src` would risk a url_hash mismatch that
+// surfaces as "modal opens empty, notes never appear".
+let driveIframeFrameUrl: string | null = null
+
 function setButtonStatus(s: InlineButtonState): void {
   button?.setStatus(s)
+}
+
+// ── Drive viewer special-case ─────────────────────────────────────────
+// Google Drive's video viewer (drive.google.com/file/<id>/view) renders
+// the file via a YouTube embed iframe (youtube.googleapis.com/embed/…).
+// Drive's top frame lays a transparent click-handler overlay on top of
+// that iframe to drive its own play/pause UI, which swallows pointer
+// events before they reach the iframe — so a button mounted inside the
+// iframe is visible but unclickable. Detected 2026-05-13.
+//
+// Workaround: mount the button in the TOP frame, anchored to the
+// iframe's bounding rect (which equals the visible video area). The
+// YouTube iframe still detects its <video> and runs capture there;
+// the top frame click handler tells it to start via a START_CAPTURE
+// postMessage (sibling to the existing SET_SPEED / STOP_CAPTURE
+// control verbs).
+function isDriveViewerTop(): boolean {
+  return isTopFrame
+    && location.host === 'drive.google.com'
+    // Drive file viewer pathname shape: /file/d/<id>/view
+    // (sometimes followed by ?usp=… query — already excluded since
+    // location.pathname is query-stripped).
+    && /^\/file\/d\/[^/]+\/view/.test(location.pathname)
+}
+
+// True when THIS frame is a descendant of a drive.google.com viewer
+// page. Used by iframes (the YouTube embed) to suppress their own
+// button mount — the top frame owns the button in this configuration.
+// location.ancestorOrigins is a Chrome/Safari/Edge API (not Firefox);
+// Lisna ships only to Chromium so the optional-chain fallback is just
+// defensive.
+function isHostedInDriveViewer(): boolean {
+  if (isTopFrame) return false
+  try {
+    const a = (location as Location & { ancestorOrigins?: DOMStringList }).ancestorOrigins
+    if (!a) return false
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] === 'https://drive.google.com') return true
+    }
+    return false
+  } catch {
+    return false
+  }
+}
+
+function findVideoIframeForDriveViewer(): HTMLIFrameElement | null {
+  return document.querySelector<HTMLIFrameElement>(
+    'iframe[src*="youtube.googleapis.com/embed"], iframe[src*="youtube.com/embed"]',
+  )
 }
 
 // Robust video detection.
@@ -208,6 +268,32 @@ function handleActivate(): void {
     }
     void startCapture(location.href)
   }
+  if (isDriveViewerTop()) {
+    // Drive viewer: modal in top frame, capture in the YouTube embed iframe.
+    // parentUrl is the iframe's src so /v1/session lookup matches the URL
+    // the capture frame uses when POSTing chunks (mirroring the K-LMS /
+    // Vimeo path that uses data.frameUrl for the same reason).
+    const ifr = findVideoIframeForDriveViewer()
+    mountModal({
+      onClose: () => {
+        broadcastToFrames({ source: 'sh-parent', type: 'MODAL_CLOSED' })
+        onModalClosed()
+      },
+      onSetSpeed: (speed: number) => {
+        // No local <video> here — relay the speed change to the iframe.
+        broadcastToFrames({ source: 'sh-parent', type: 'SET_SPEED', speed })
+      },
+      // Prefer the iframe-reported location.href (matches POST-time url_hash);
+      // fall back to the HTML iframe.src attribute (may drift after embed
+      // internal navigation), then to our own top-frame URL as a last resort.
+      parentUrl: driveIframeFrameUrl ?? ifr?.src ?? location.href,
+    })
+    setButtonStatus('hidden')
+    // Tell the YouTube embed iframe (which holds the <video>) to begin capture.
+    broadcastToFrames({ source: 'sh-parent', type: 'START_CAPTURE' })
+    return
+  }
+
   if (isTopFrame) {
     // Direct flow — modal in same frame, capture in same frame
     mountModal({
@@ -238,6 +324,43 @@ function handleActivate(): void {
 
 function tryMountButton(): void {
   if (detected) return
+
+  // Drive viewer: top frame owns the button (anchored to the video iframe's
+  // rect). The iframe still detects its <video> below for capture, but its
+  // button mount is suppressed via the isHostedInDriveViewer() branch.
+  if (isDriveViewerTop()) {
+    const ifr = findVideoIframeForDriveViewer()
+    if (!ifr) return
+    detected = true
+    // activeVideo stays null in this frame — the YouTube iframe holds it
+    log('drive-viewer top: mounting button anchored to video iframe', { src: ifr.src })
+    button = mountInlineButton(ifr, () => { handleActivate() })
+    void chrome.runtime.sendMessage({ type: 'WARMUP' }).catch(() => { /* ignore */ })
+    return
+  }
+
+  // YouTube embed iframe inside Drive viewer: detect the video so START_CAPTURE
+  // (postMessage from top) can drive startCapture(), but DON'T mount our own
+  // button — clicks here would be lost to Drive's overlay anyway, and the top
+  // frame already mounted one anchored over this iframe.
+  if (isHostedInDriveViewer()) {
+    const v = findBestVideo()
+    if (!v) return
+    detected = true
+    activeVideo = v
+    // Hand the top frame our real location.href so its modal mounts with a
+    // matching parentUrl. Top frame can't read this via `iframe.src` because
+    // the attribute drifts after embed-internal navigation.
+    try {
+      window.parent.postMessage(
+        { source: 'sh-frame', type: 'DRIVE_IFRAME_URL', frameUrl: location.href },
+        '*',
+      )
+    } catch { /* ignore */ }
+    log('drive-viewer iframe: video detected, mount skipped, frameUrl reported', { videoW: v.videoWidth })
+    return
+  }
+
   const v = findBestVideo()
   if (!v) return
   detected = true
@@ -388,6 +511,18 @@ if (__sh_first_boot__ && isTopFrame) {
       return
     }
 
+    if (data.type === 'DRIVE_IFRAME_URL' && typeof data.frameUrl === 'string') {
+      // Drive-viewer mode: the YouTube embed iframe has reported its real
+      // location.href so that when the user clicks our button, handleActivate
+      // can mount the modal with a parentUrl that matches what the iframe
+      // POSTs under. Stored once at detection time; subsequent reports
+      // (e.g. iframe re-init) overwrite — the most recent value is what
+      // the iframe will be using when it next POSTs a chunk.
+      driveIframeFrameUrl = data.frameUrl
+      log('top: stored drive iframe frameUrl', { frameUrl: data.frameUrl })
+      return
+    }
+
     if (data.type === 'REQUEST_MODAL') {
       mountModal({
         onClose: () => {
@@ -470,6 +605,17 @@ if (__sh_first_boot__ && isTopFrame) {
       applySpeed(data.speed)
     } else if (data.type === 'STOP_CAPTURE') {
       stopCaptureLocal()
+    } else if (data.type === 'START_CAPTURE') {
+      // Drive viewer: top frame received the inline-button click and asked
+      // us (the YouTube embed iframe that actually holds the <video>) to
+      // begin capture. Mirrors the local startCapture branch in
+      // handleActivate(), minus the modal mount (top already did it).
+      log('START_CAPTURE received from top frame')
+      void (async () => {
+        const exhausted = await isQuotaExhaustedCached()
+        if (exhausted) { log('skip START_CAPTURE — cached quota at 100%'); return }
+        void startCapture(location.href)
+      })()
     } else if (data.type === 'JUMP_TO' && typeof data.ts === 'number') {
       // Top frame relays modal jump requests here. Only the frame with
       // the actual <video> acts (others have activeVideo === null).
