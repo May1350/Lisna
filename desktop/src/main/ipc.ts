@@ -13,6 +13,14 @@ export const CHANNELS = {
   onChunk: 'recording/chunk-result',
   /** renderer → main: query platform capabilities on mount (sync, cheap) */
   capabilities: 'platform/capabilities',
+  /** renderer → main: create SessionOrchestrator + load STT */
+  sessionStart: 'session/start',
+  /** renderer → main: orch.stop() returning Note */
+  sessionStop: 'session/stop',
+  /** main → renderer: phase indicator during long awaits */
+  sessionPhase: 'session/phase',
+  /** main → renderer: sidecar crashed mid-session */
+  sessionError: 'session/error',
 } as const;
 
 export interface IpcDeps {
