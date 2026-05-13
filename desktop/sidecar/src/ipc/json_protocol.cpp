@@ -1,6 +1,7 @@
 #include "json_protocol.h"
 #include "base64.h"
 #include "stt/whisper_engine.h"
+#include <cstring>
 #include <iostream>
 #include <memory>
 #include "json.hpp"
@@ -34,6 +35,11 @@ std::string dispatch(const std::string& jsonLine) {
       if (!req.contains("path") || !req.contains("language")) {
         return err("missing_field", "path/language required");
       }
+      // Explicit type guards — without these, `.get<std::string>()` throws a
+      // type_error that bounces out through dispatch_or_error as `code:parse`,
+      // which is misleading (the JSON was valid, the field type was wrong).
+      if (!req["path"].is_string()) return err("invalid_type", "path must be string");
+      if (!req["language"].is_string()) return err("invalid_type", "language must be string");
       if (!g_stt) g_stt = std::make_unique<lisna::stt::WhisperEngine>();
       if (!g_stt->load(req["path"].get<std::string>(),
                        req["language"].get<std::string>())) {
@@ -54,20 +60,34 @@ std::string dispatch(const std::string& jsonLine) {
   }
 
   if (type == "transcribe") {
-    if (!g_stt || !g_stt->loaded()) {
-      return err("not_loaded", "stt model not loaded");
-    }
+    // Validate input shape BEFORE engine state — symmetric with the load
+    // branch, and makes wrong-type cases testable from an unloaded state.
     if (!req.contains("audioBase64") || !req.contains("sampleRate")) {
       return err("missing_field", "audioBase64/sampleRate required");
+    }
+    if (!req["audioBase64"].is_string()) {
+      return err("invalid_type", "audioBase64 must be string");
+    }
+    if (!req["sampleRate"].is_number_integer()) {
+      return err("invalid_type", "sampleRate must be integer");
+    }
+    if (!g_stt || !g_stt->loaded()) {
+      return err("not_loaded", "stt model not loaded");
     }
     auto raw = b64_decode(req["audioBase64"].get<std::string>());
     if (raw.empty()) return err("invalid_payload", "audioBase64 decoded to empty");
     if (raw.size() % sizeof(float) != 0) {
       return err("invalid_payload", "audioBase64 length not float-aligned");
     }
-    const float* samples = reinterpret_cast<const float*>(raw.data());
-    const size_t n = raw.size() / sizeof(float);
-    auto segs = g_stt->transcribe(samples, n, req["sampleRate"].get<int>());
+    // raw.data() is uint8_t* (1-byte aligned). reinterpret_cast<const float*>
+    // would be UB on stricter ARM stacks even if it works on Apple Silicon.
+    // memcpy into a properly-aligned std::vector<float> — one allocation,
+    // defined behavior.
+    std::vector<float> samples_aligned(raw.size() / sizeof(float));
+    std::memcpy(samples_aligned.data(), raw.data(), raw.size());
+    auto segs = g_stt->transcribe(samples_aligned.data(),
+                                  samples_aligned.size(),
+                                  req["sampleRate"].get<int>());
     auto arr = nlohmann::json::array();
     for (const auto& s : segs) {
       arr.push_back({{"startSec", s.startSec},

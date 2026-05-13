@@ -178,3 +178,43 @@ TEST_F(JsonProtocolDispatchSTT, TranscribeWithoutLoadReturnsNotLoaded) {
   EXPECT_EQ(r["type"], "error");
   EXPECT_EQ(r["code"], "not_loaded");
 }
+
+// ---- invalid_type guards ----
+//
+// Pre-fix: a non-string path / non-int sampleRate would throw `type_error`
+// inside `.get<T>()`, bouncing out through dispatch_or_error as `code:parse`.
+// That's misleading — the JSON parsed fine, the field type was wrong. The
+// guards return an explicit `code:invalid_type` so callers can distinguish.
+
+TEST_F(JsonProtocolDispatchSTT, LoadSttWrongTypePathReturnsInvalidType) {
+  auto r = json::parse(lisna::ipc::dispatch(
+      R"({"id":"t1","type":"load","kind":"stt","path":42,"language":"ja"})"));
+  EXPECT_EQ(r["id"], "t1");
+  EXPECT_EQ(r["type"], "error");
+  EXPECT_EQ(r["code"], "invalid_type");
+}
+
+TEST_F(JsonProtocolDispatchSTT, LoadSttWrongTypeLanguageReturnsInvalidType) {
+  auto r = json::parse(lisna::ipc::dispatch(
+      R"({"id":"t2","type":"load","kind":"stt","path":"/tmp/x.gguf","language":true})"));
+  EXPECT_EQ(r["type"], "error");
+  EXPECT_EQ(r["code"], "invalid_type");
+}
+
+TEST_F(JsonProtocolDispatchSTT, TranscribeWrongTypeSampleRateReturnsInvalidType) {
+  // sampleRate is a string instead of an integer. The transcribe branch
+  // validates input shape before checking engine state, so this fires
+  // even though no model is loaded.
+  auto r = json::parse(lisna::ipc::dispatch(
+      R"({"id":"t3","type":"transcribe","audioBase64":"AAAA","sampleRate":"16000"})"));
+  EXPECT_EQ(r["id"], "t3");
+  EXPECT_EQ(r["type"], "error");
+  EXPECT_EQ(r["code"], "invalid_type");
+}
+
+TEST_F(JsonProtocolDispatchSTT, TranscribeWrongTypeAudioBase64ReturnsInvalidType) {
+  auto r = json::parse(lisna::ipc::dispatch(
+      R"({"id":"t4","type":"transcribe","audioBase64":123,"sampleRate":16000})"));
+  EXPECT_EQ(r["type"], "error");
+  EXPECT_EQ(r["code"], "invalid_type");
+}
