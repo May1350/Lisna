@@ -152,7 +152,7 @@ TEST_F(JsonProtocolDispatchSTT, LoadSttFakePathReturnsLoadFailed) {
 
 TEST_F(JsonProtocolDispatchSTT, LoadUnknownKindReturnsUnimpl) {
   auto r = json::parse(lisna::ipc::dispatch(
-      R"({"id":"1","type":"load","kind":"llm","path":"/tmp/x","language":"ja"})"));
+      R"({"id":"1","type":"load","kind":"banana","path":"/tmp/x","language":"ja"})"));
   EXPECT_EQ(r["type"], "error");
   EXPECT_EQ(r["code"], "unimpl");
 }
@@ -166,7 +166,7 @@ TEST_F(JsonProtocolDispatchSTT, UnloadWithoutLoadReturnsOk) {
 
 TEST_F(JsonProtocolDispatchSTT, UnloadUnknownKindReturnsUnimpl) {
   auto r = json::parse(lisna::ipc::dispatch(
-      R"({"id":"4","type":"unload","kind":"llm"})"));
+      R"({"id":"4","type":"unload","kind":"banana"})"));
   EXPECT_EQ(r["type"], "error");
   EXPECT_EQ(r["code"], "unimpl");
 }
@@ -217,4 +217,12 @@ TEST_F(JsonProtocolDispatchSTT, TranscribeWrongTypeAudioBase64ReturnsInvalidType
       R"({"id":"t4","type":"transcribe","audioBase64":123,"sampleRate":16000})"));
   EXPECT_EQ(r["type"], "error");
   EXPECT_EQ(r["code"], "invalid_type");
+}
+
+// ---- LLM dispatch (generate without load) ----
+
+TEST(JsonProtocol, GenerateWithoutLoadReturnsNotLoaded) {
+  auto r = json::parse(lisna::ipc::dispatch(R"({"id":"g1","type":"generate","prompt":"hi"})"));
+  EXPECT_EQ(r["type"], "error");
+  EXPECT_EQ(r["code"], "not_loaded");
 }

@@ -1,5 +1,6 @@
 #include "json_protocol.h"
 #include "base64.h"
+#include "llm/llama_engine.h"
 #include "stt/whisper_engine.h"
 #include <cstring>
 #include <iostream>
@@ -12,6 +13,7 @@ namespace {
 // Process-level STT singleton. Owned by an unnamed namespace so it is invisible
 // outside this translation unit. Lazily instantiated on first STT load.
 std::unique_ptr<lisna::stt::WhisperEngine> g_stt;
+std::unique_ptr<lisna::llm::LlamaEngine> g_llm;
 } // namespace
 
 std::string dispatch(const std::string& jsonLine) {
@@ -47,6 +49,15 @@ std::string dispatch(const std::string& jsonLine) {
       }
       return nlohmann::json{{"id", id}, {"type", "ok"}}.dump();
     }
+    if (kind == "llm") {
+      if (!req.contains("path")) return err("missing_field", "path required");
+      if (!req["path"].is_string()) return err("invalid_type", "path must be string");
+      if (!g_llm) g_llm = std::make_unique<lisna::llm::LlamaEngine>();
+      if (!g_llm->load(req["path"].get<std::string>())) {
+        return err("load_failed", "llama init failed");
+      }
+      return nlohmann::json{{"id", id}, {"type", "ok"}}.dump();
+    }
     return err("unimpl", "load kind=" + kind);
   }
 
@@ -54,6 +65,10 @@ std::string dispatch(const std::string& jsonLine) {
     const std::string kind = req.value("kind", "");
     if (kind == "stt") {
       if (g_stt) g_stt->unload();
+      return nlohmann::json{{"id", id}, {"type", "ok"}}.dump();
+    }
+    if (kind == "llm") {
+      if (g_llm) g_llm->unload();
       return nlohmann::json{{"id", id}, {"type", "ok"}}.dump();
     }
     return err("unimpl", "unload kind=" + kind);
@@ -95,6 +110,22 @@ std::string dispatch(const std::string& jsonLine) {
                      {"text", s.text}});
     }
     return nlohmann::json{{"id", id}, {"type", "segments"}, {"segments", arr}}.dump();
+  }
+
+  if (type == "generate") {
+    if (!g_llm || !g_llm->loaded()) return err("not_loaded", "llm not loaded");
+    if (!req.contains("prompt")) return err("missing_field", "prompt required");
+    if (!req["prompt"].is_string()) return err("invalid_type", "prompt must be string");
+    lisna::llm::GenOpts opts;
+    opts.maxTokens = req.value("maxTokens", 1024);
+    opts.temperature = req.value("temperature", 0.4f);
+    g_llm->generate(req["prompt"].get<std::string>(), opts,
+                    [&](const std::string& tok) {
+      std::cout << nlohmann::json{
+          {"id", id}, {"type", "token"}, {"token", tok}
+      }.dump() << "\n" << std::flush;
+    });
+    return nlohmann::json{{"id", id}, {"type", "done"}}.dump();
   }
 
   return nlohmann::json{
