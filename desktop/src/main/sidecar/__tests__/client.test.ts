@@ -197,7 +197,7 @@ describe('SidecarClient.sendStream with /bin/cat', () => {
     expect(out).toEqual(['t0', 't1', 't2', 't3']);
   });
 
-  it('Infinity timeout opts out of the no-progress watchdog', async () => {
+  it('Infinity timeout permits delayed-start streams', async () => {
     const client = new SidecarClient(proc);
     const pump = preparePump(proc, client);
     const stream = client.sendStream(

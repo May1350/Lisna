@@ -131,6 +131,9 @@ export class SidecarClient {
    * pre-token output (e.g. the echoed request, in tests) before consuming.
    * Cleanup runs in the inner generator's `finally`, covering normal drain,
    * early `break`, and thrown error paths alike.
+   *
+   * Multiple concurrent calls on the same client are safe: each gets a fresh
+   * UUID and isolated queue/listener/timer state.
    */
   sendStream(req: SidecarSendRequest, opts: SendOptions = {}): AsyncIterable<string> {
     const id = randomUUID();
