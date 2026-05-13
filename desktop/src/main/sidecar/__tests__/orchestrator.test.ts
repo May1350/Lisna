@@ -73,6 +73,7 @@ describe('SessionOrchestrator', () => {
       generate: vi.fn(async function* () { yield '#'; yield ' note'; }),
     };
     const orch = new SessionOrchestrator({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       stt: fakeStt as any, llm: fakeLlm as any,
       sttModelPath: '/stt', llmModelPath: '/llm', language: 'ja',
     });
@@ -98,6 +99,7 @@ describe('SessionOrchestrator', () => {
       }),
     };
     const orch = new SessionOrchestrator({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       stt: fakeStt as any, llm: fakeLlm as any,
       sttModelPath: '/stt', llmModelPath: '/llm', language: 'ja',
     });
@@ -120,6 +122,7 @@ describe('SessionOrchestrator', () => {
       generate: vi.fn(),
     };
     const orch = new SessionOrchestrator({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       stt: fakeStt as any, llm: fakeLlm as any,
       sttModelPath: '/stt', llmModelPath: '/llm', language: 'ja',
     });
