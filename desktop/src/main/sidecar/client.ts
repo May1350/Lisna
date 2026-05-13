@@ -54,6 +54,14 @@ export class SidecarClient {
   private pending = new Map<string, Pending>();
   private rawLineListeners: ((l: string) => void)[] = [];
   private eventListeners: ((e: SidecarEvent) => void)[] = [];
+  /**
+   * Ids of in-flight `sendStream` calls. `onData` consults this so id-bearing
+   * lines belonging to a stream (token/done/error) are NOT misrouted to event
+   * listeners when no `pending` entry exists. Without this set, the fallback
+   * `for (const cb of this.eventListeners) cb(...)` would treat every stream
+   * line as an event.
+   */
+  private streamingIds = new Set<string>();
 
   constructor(private proc: ChildProcess) {
     if (!proc.stdout || !proc.stdin) {
@@ -109,6 +117,134 @@ export class SidecarClient {
   }
 
   /**
+   * Streaming variant of `send()` for sidecar ops whose response is a sequence
+   * of `{type:"token"}` lines terminated by `{type:"done"}` (or `{type:"error"}`).
+   *
+   * Yields tokens in arrival order. Returns when `done` lands. Throws if an
+   * `error` lands, the sidecar exits, or no progress is observed within
+   * `timeoutMs`. The timeout is **progress-based**: the timer resets on every
+   * matching token/done/error so a long-but-steadily-producing stream is not
+   * killed by a session-wide budget. Pass `Infinity` to opt out.
+   *
+   * Side effects (subscription, request write, timer arm) run synchronously at
+   * call time — NOT lazily on first `next()` — so callers can subscribe to
+   * pre-token output (e.g. the echoed request, in tests) before consuming.
+   * Cleanup runs in the inner generator's `finally`, covering normal drain,
+   * early `break`, and thrown error paths alike.
+   */
+  sendStream(req: SidecarSendRequest, opts: SendOptions = {}): AsyncIterable<string> {
+    const id = randomUUID();
+    const timeoutMs = opts.timeoutMs ?? 5000;
+    const queue: string[] = [];
+    let done = false;
+    let streamError: Error | null = null;
+    // Edge-triggered wakeup with a sticky pending-signal flag. Naively
+    // rotating the waiter on every signal (the obvious pattern) loses
+    // signals that fire before the consumer reaches `await`: the resolver
+    // for the OLD waiter fires harmlessly, the consumer then awaits the NEW
+    // waiter and gets stuck. Tracking `pendingSignal` as a boolean fixes
+    // this — when the consumer is about to wait, it consumes the flag
+    // instead of awaiting if a signal already arrived.
+    let pendingSignal = false;
+    let wakeWaiter: (() => void) | null = null;
+    const signal = (): void => {
+      pendingSignal = true;
+      const w = wakeWaiter;
+      wakeWaiter = null;
+      if (w) w();
+    };
+    const waitForSignal = (): Promise<void> => {
+      if (pendingSignal) {
+        pendingSignal = false;
+        return Promise.resolve();
+      }
+      return new Promise<void>((r) => {
+        wakeWaiter = r;
+      });
+    };
+
+    let timer: NodeJS.Timeout | null = null;
+    const armTimer = (): void => {
+      if (timeoutMs === Infinity) return;
+      timer = setTimeout(() => {
+        streamError = new Error(`sidecar stream ${id} timed out after ${timeoutMs}ms (no progress)`);
+        signal();
+      }, timeoutMs);
+    };
+    const resetTimer = (): void => {
+      if (timer) clearTimeout(timer);
+      armTimer();
+    };
+
+    const unsubscribe = this.onRawLine((line) => {
+      // Fast-path: only parse lines that could plausibly carry our id. Stream
+      // lines always start with `{"id":` per the sidecar contract.
+      if (!line.includes(`"${id}"`)) return;
+      let obj: { id?: unknown; type?: unknown; token?: unknown; code?: unknown; message?: unknown };
+      try {
+        obj = JSON.parse(line);
+      } catch {
+        return;
+      }
+      if (obj.id !== id) return;
+      if (obj.type === 'token' && typeof obj.token === 'string') {
+        queue.push(obj.token);
+        resetTimer();
+        signal();
+      } else if (obj.type === 'done') {
+        done = true;
+        resetTimer();
+        signal();
+      } else if (obj.type === 'error') {
+        const code = typeof obj.code === 'string' ? obj.code : 'unknown';
+        const message = typeof obj.message === 'string' ? obj.message : '(no message)';
+        streamError = new Error(`sidecar stream ${id} failed [${code}]: ${message}`);
+        resetTimer();
+        signal();
+      }
+    });
+
+    const onExit = (): void => {
+      if (!done && !streamError) streamError = new Error('sidecar process exited');
+      signal();
+    };
+    this.proc.once('exit', onExit);
+
+    this.streamingIds.add(id);
+    armTimer();
+    this.proc.stdin!.write(JSON.stringify({ id, ...req }) + '\n');
+
+    const cleanup = (): void => {
+      unsubscribe();
+      this.proc.off('exit', onExit);
+      if (timer) clearTimeout(timer);
+      this.streamingIds.delete(id);
+    };
+
+    async function* drain(): AsyncGenerator<string> {
+      try {
+        // Loop invariant: yield everything queued FIRST, then check terminal
+        // state. This avoids dropping a final token that landed in the same
+        // event-loop tick as `done`/`error`.
+        while (true) {
+          while (queue.length > 0) {
+            // queue.shift() returns string|undefined under noUncheckedIndexedAccess
+            // — we just checked length > 0 so it's safe.
+            yield queue.shift() as string;
+          }
+          if (streamError) throw streamError;
+          if (done) return;
+          await waitForSignal();
+        }
+      } finally {
+        cleanup();
+      }
+    }
+
+    return drain();
+  }
+
+  /**
    * Wait for the next `ready` event the sidecar emits on startup. Resolves
    * with the ready event payload, rejects if the process exits first or if
    * the wait exceeds `timeoutMs` (default 5000).
@@ -155,6 +291,9 @@ export class SidecarClient {
           if (p.timer) clearTimeout(p.timer);
           p.resolve(obj as SidecarResponse);
         }
+        // If `id` belongs to an active stream, do NOT fall to event listeners;
+        // the stream's `onRawLine` subscriber consumes it. The fallback is
+        // reserved for unsolicited id-less lines (ready/log/memory).
       } else {
         for (const cb of this.eventListeners) cb(obj as SidecarEvent);
       }

@@ -65,6 +65,248 @@ describe('SidecarClient with /bin/cat (raw line buffering)', () => {
   });
 });
 
+// Helper: drive `sendStream` against /bin/cat by capturing the id from the
+// echoed request line and writing fake token/done/error lines back through
+// stdin. Subscribes BEFORE the caller invokes sendStream (since `sendStream`
+// now writes the request synchronously, the echo can arrive before any
+// post-call subscriber attaches).
+function preparePump(
+  proc: ChildProcess,
+  client: SidecarClient,
+): { feed: (lines: (id: string) => string[]) => Promise<string> } {
+  let resolveId: (id: string) => void;
+  const idPromise = new Promise<string>((r) => (resolveId = r));
+  const unsub = client.onRawLine((l) => {
+    try {
+      const obj = JSON.parse(l) as { id?: string; type?: string };
+      // The echoed request line carries our id and is the only one with
+      // `type === 'generate'` (cat echoes the request the sidecar would
+      // normally consume).
+      if (obj.type === 'generate' && typeof obj.id === 'string') {
+        unsub();
+        resolveId(obj.id);
+      }
+    } catch {
+      /* ignore */
+    }
+  });
+  return {
+    feed: async (lines) => {
+      const id = await idPromise;
+      for (const l of lines(id)) proc.stdin!.write(l + '\n');
+      return id;
+    },
+  };
+}
+
+describe('SidecarClient.sendStream with /bin/cat', () => {
+  let proc: ChildProcess;
+  beforeEach(() => {
+    proc = spawn('cat', [], { stdio: ['pipe', 'pipe', 'pipe'] });
+  });
+  afterEach(() => {
+    proc.kill('SIGKILL');
+  });
+
+  it('yields tokens in order and terminates cleanly on done', async () => {
+    const client = new SidecarClient(proc);
+    const pump = preparePump(proc, client);
+    const stream = client.sendStream(
+      { type: 'generate', prompt: 'hi', maxTokens: 4 },
+      { timeoutMs: 2000 },
+    );
+    await pump.feed((id) => [
+      JSON.stringify({ id, type: 'token', token: 'A' }),
+      JSON.stringify({ id, type: 'token', token: 'B' }),
+      JSON.stringify({ id, type: 'token', token: 'C' }),
+      JSON.stringify({ id, type: 'done' }),
+    ]);
+    const out: string[] = [];
+    for await (const tok of stream) out.push(tok);
+    expect(out).toEqual(['A', 'B', 'C']);
+  });
+
+  it('throws on error response with code+message in the thrown error', async () => {
+    const client = new SidecarClient(proc);
+    const pump = preparePump(proc, client);
+    const stream = client.sendStream(
+      { type: 'generate', prompt: 'x' },
+      { timeoutMs: 2000 },
+    );
+    await pump.feed((id) => [
+      JSON.stringify({ id, type: 'token', token: 'partial' }),
+      JSON.stringify({ id, type: 'error', code: 'EBOOM', message: 'kaboom' }),
+    ]);
+    const iter = stream[Symbol.asyncIterator]();
+    const first = await iter.next();
+    expect(first.value).toBe('partial');
+    // Combined assertion: the thrown error includes both code and message.
+    await expect(iter.next()).rejects.toThrow(/EBOOM.*kaboom/);
+  });
+
+  it('throws when the child process exits mid-stream', async () => {
+    const client = new SidecarClient(proc);
+    const stream = client.sendStream(
+      { type: 'generate', prompt: 'x' },
+      { timeoutMs: 5000 },
+    );
+    // Kill cat AFTER it has echoed the request — give a tick so the request
+    // round-trips into the client's onData buffer first.
+    setTimeout(() => proc.kill('SIGKILL'), 30);
+    const consume = async () => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      for await (const _tok of stream) { /* drain */ }
+    };
+    await expect(consume()).rejects.toThrow(/sidecar process exited/);
+  });
+
+  it('rejects when no progress within the timeout window', async () => {
+    const client = new SidecarClient(proc);
+    const stream = client.sendStream(
+      { type: 'generate', prompt: 'x' },
+      { timeoutMs: 50 },
+    );
+    const consume = async () => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      for await (const _tok of stream) { /* drain */ }
+    };
+    await expect(consume()).rejects.toThrow(/timed out/);
+  });
+
+  it('progress-based timeout: resets on each token, terminates only after silence > timeoutMs', async () => {
+    const client = new SidecarClient(proc);
+    const pump = preparePump(proc, client);
+    const stream = client.sendStream(
+      { type: 'generate', prompt: 'x' },
+      { timeoutMs: 80 },
+    );
+    // Drip-feed tokens every 40ms (under 80ms budget). Total ~160ms — longer
+    // than the timeout, but no individual gap exceeds it.
+    const drip = async () => {
+      const id = await pump.feed(() => []);
+      for (let i = 0; i < 4; i++) {
+        await new Promise((r) => setTimeout(r, 40));
+        proc.stdin!.write(JSON.stringify({ id, type: 'token', token: `t${i}` }) + '\n');
+      }
+      await new Promise((r) => setTimeout(r, 40));
+      proc.stdin!.write(JSON.stringify({ id, type: 'done' }) + '\n');
+    };
+    void drip();
+    const out: string[] = [];
+    for await (const tok of stream) out.push(tok);
+    expect(out).toEqual(['t0', 't1', 't2', 't3']);
+  });
+
+  it('Infinity timeout opts out of the no-progress watchdog', async () => {
+    const client = new SidecarClient(proc);
+    const pump = preparePump(proc, client);
+    const stream = client.sendStream(
+      { type: 'generate', prompt: 'x' },
+      { timeoutMs: Infinity },
+    );
+    setTimeout(() => {
+      void pump.feed((id) => [
+        JSON.stringify({ id, type: 'token', token: 'late' }),
+        JSON.stringify({ id, type: 'done' }),
+      ]);
+    }, 80);
+    const out: string[] = [];
+    for await (const tok of stream) out.push(tok);
+    expect(out).toEqual(['late']);
+  });
+
+  it('handles tokens that arrive BEFORE consumer pulls (no missed signal)', async () => {
+    const client = new SidecarClient(proc);
+    const pump = preparePump(proc, client);
+    const stream = client.sendStream(
+      { type: 'generate', prompt: 'x' },
+      { timeoutMs: 2000 },
+    );
+    // Push two tokens + done synchronously, then sleep long enough for cat
+    // to echo them all before we start the for-await loop. The naive
+    // "rotate-waiter" pattern would lose the second signal here.
+    await pump.feed((id) => [
+      JSON.stringify({ id, type: 'token', token: 'one' }),
+      JSON.stringify({ id, type: 'token', token: 'two' }),
+      JSON.stringify({ id, type: 'done' }),
+    ]);
+    await new Promise((r) => setTimeout(r, 50));
+    const out: string[] = [];
+    for await (const tok of stream) out.push(tok);
+    expect(out).toEqual(['one', 'two']);
+  });
+
+  it('does NOT leak stream lines into onEvent subscribers', async () => {
+    const client = new SidecarClient(proc);
+    const events: unknown[] = [];
+    client.onEvent((e) => events.push(e));
+    const pump = preparePump(proc, client);
+    const stream = client.sendStream(
+      { type: 'generate', prompt: 'x' },
+      { timeoutMs: 2000 },
+    );
+    await pump.feed((id) => [
+      JSON.stringify({ id, type: 'token', token: 'a' }),
+      JSON.stringify({ id, type: 'done' }),
+    ]);
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    for await (const _tok of stream) { /* drain */ }
+    // Echoed request line has id but type=generate, no matching pending —
+    // before the streamingIds fix it would have leaked to event listeners.
+    expect(events).toHaveLength(0);
+  });
+
+  it('cleans up subscription after generator completes (no leak)', async () => {
+    const client = new SidecarClient(proc);
+    const before = countRawLineListeners(client);
+    const pump = preparePump(proc, client);
+    const stream = client.sendStream(
+      { type: 'generate', prompt: 'x' },
+      { timeoutMs: 2000 },
+    );
+    await pump.feed((id) => [
+      JSON.stringify({ id, type: 'token', token: 'a' }),
+      JSON.stringify({ id, type: 'done' }),
+    ]);
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    for await (const _tok of stream) { /* drain */ }
+    const after = countRawLineListeners(client);
+    expect(after).toBe(before);
+  });
+
+  it('cleans up subscription on early break', async () => {
+    const client = new SidecarClient(proc);
+    const before = countRawLineListeners(client);
+    const pump = preparePump(proc, client);
+    const stream = client.sendStream(
+      { type: 'generate', prompt: 'x' },
+      { timeoutMs: 2000 },
+    );
+    await pump.feed((id) => [
+      JSON.stringify({ id, type: 'token', token: 'a' }),
+      JSON.stringify({ id, type: 'token', token: 'b' }),
+      JSON.stringify({ id, type: 'done' }),
+    ]);
+    for await (const _tok of stream) {
+      void _tok;
+      break; // bail after the first token — finally must still run
+    }
+    // Give the buffered tokens a tick to land + finally to run.
+    await new Promise((r) => setTimeout(r, 30));
+    const after = countRawLineListeners(client);
+    expect(after).toBe(before);
+  });
+});
+
+// Test-only introspection: read the private `rawLineListeners` array to
+// confirm `sendStream` doesn't leak its subscription. Exposing a public
+// `listenerCount`-style API would only exist for tests; reaching in via a
+// targeted cast keeps the production surface clean.
+function countRawLineListeners(client: SidecarClient): number {
+  const internal = client as unknown as { rawLineListeners: unknown[] };
+  return internal.rawLineListeners.length;
+}
+
 describe('SidecarClient send() timeout', () => {
   it('rejects with timeout error when no response arrives', async () => {
     // `sleep` does not echo stdin, so the response never comes.
