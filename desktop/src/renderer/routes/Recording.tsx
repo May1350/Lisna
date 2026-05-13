@@ -23,6 +23,11 @@ export function Recording() {
   // emitting duplicate-index chunks (e.g. "chunk received 0 32000 samples"
   // twice). A ref flips synchronously and closes that window.
   const startingRef = useRef(false);
+  // Synchronous session-active guard. setRunning is async — a late transcribe()
+  // result that resolves after the user clicks Stop must not land in the next
+  // session's captions. runningRef flips synchronously so the onChunk gate is
+  // reliable even before the next React render cycle.
+  const runningRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -36,8 +41,11 @@ export function Recording() {
 
   // Subscribe to STT segment results pushed from the main process.
   // Returns an unsubscribe function so Strict Mode double-mounts don't stack listeners.
+  // Guard on runningRef: late results from a stopped session are silently dropped
+  // so they cannot bleed into the next session's captions.
   useEffect(() => {
     const unsub = window.lisna.onChunk((msg) => {
+      if (!runningRef.current) return;
       setSegments((prev) => [...prev, ...msg.segments]);
     });
     return unsub;
@@ -79,6 +87,7 @@ export function Recording() {
       });
       orchRef.current = orch;
       await orch.start(source);
+      runningRef.current = true;
       setRunning(true);
     } catch (err) {
       orchRef.current = null;
@@ -93,6 +102,8 @@ export function Recording() {
   }
 
   async function stop() {
+    runningRef.current = false;
+    setSegments([]);
     const orch = orchRef.current;
     orchRef.current = null;
     if (orch) await orch.stop();
@@ -101,7 +112,7 @@ export function Recording() {
   }
 
   return <section>
-    <h2>Recording (Phase 1 stub)</h2>
+    <h2>Recording</h2>
     <fieldset disabled={running || starting}>
       <legend>Source</legend>
       <label>

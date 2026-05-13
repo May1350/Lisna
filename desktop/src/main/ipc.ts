@@ -52,7 +52,7 @@ export async function handleChunk(
   return { ok: true };
 }
 
-export function registerIpc(deps: IpcDeps = {}) {
+export function registerIpc(deps: IpcDeps) {
   ipcMain.handle(CHANNELS.startRecording, async (_e, opts: { source: 'mic' | 'system' }) => {
     // Phase 1 후속 task 에서 audio/index.ts 의 startRecording 호출로 교체
     return { ok: true, source: opts.source };
