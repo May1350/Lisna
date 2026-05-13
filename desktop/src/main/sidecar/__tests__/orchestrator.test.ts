@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { SessionOrchestrator } from '../orchestrator';
+import type { SessionPhase } from '@shared/ipc-protocol';
 
 describe('SessionOrchestrator', () => {
   it('start → 2 chunks → stop → load LLM → generate → unload 순서', async () => {
@@ -57,5 +58,74 @@ describe('SessionOrchestrator', () => {
     await orch.start();
     await expect(orch.stop()).rejects.toThrow('boom');
     expect(events).toEqual(['stt-load', 'stt-unload', 'llm-load', 'llm-gen', 'llm-unload']);
+  });
+
+  it('fires onPhase callback in order during stop()', async () => {
+    const phaseEvents: SessionPhase[] = [];
+    const fakeStt = {
+      loadModel: vi.fn(async () => {}),
+      unloadModel: vi.fn(async () => {}),
+      transcribe: vi.fn(async () => [{ startSec: 0, endSec: 1, text: 'こんにちは' }]),
+    };
+    const fakeLlm = {
+      loadModel: vi.fn(async () => {}),
+      unloadModel: vi.fn(async () => {}),
+      generate: vi.fn(async function* () { yield '#'; yield ' note'; }),
+    };
+    const orch = new SessionOrchestrator({
+      stt: fakeStt as any, llm: fakeLlm as any,
+      sttModelPath: '/stt', llmModelPath: '/llm', language: 'ja',
+    });
+    await orch.start();
+    await orch.onChunk(new Float32Array(16000));
+    await orch.stop((p) => phaseEvents.push(p));
+    expect(phaseEvents).toEqual(['stt-unloading', 'llm-loading', 'generating']);
+  });
+
+  it('still fires earlier phases when stop() throws mid-generate', async () => {
+    const phaseEvents: SessionPhase[] = [];
+    const fakeStt = {
+      loadModel: vi.fn(async () => {}),
+      unloadModel: vi.fn(async () => {}),
+      transcribe: vi.fn(async () => []),
+    };
+    const fakeLlm = {
+      loadModel: vi.fn(async () => {}),
+      unloadModel: vi.fn(async () => {}),
+      generate: vi.fn(async function* () {
+        yield 'partial';
+        throw new Error('llm boom');
+      }),
+    };
+    const orch = new SessionOrchestrator({
+      stt: fakeStt as any, llm: fakeLlm as any,
+      sttModelPath: '/stt', llmModelPath: '/llm', language: 'ja',
+    });
+    await orch.start();
+    await expect(orch.stop((p) => phaseEvents.push(p))).rejects.toThrow('llm boom');
+    expect(phaseEvents).toEqual(['stt-unloading', 'llm-loading', 'generating']);
+    expect(fakeLlm.unloadModel).toHaveBeenCalled();
+  });
+
+  it('emits only stt-unloading when stt.unloadModel throws', async () => {
+    const phaseEvents: SessionPhase[] = [];
+    const fakeStt = {
+      loadModel: vi.fn(async () => {}),
+      unloadModel: vi.fn(async () => { throw new Error('stt boom'); }),
+      transcribe: vi.fn(async () => []),
+    };
+    const fakeLlm = {
+      loadModel: vi.fn(async () => {}),
+      unloadModel: vi.fn(async () => {}),
+      generate: vi.fn(),
+    };
+    const orch = new SessionOrchestrator({
+      stt: fakeStt as any, llm: fakeLlm as any,
+      sttModelPath: '/stt', llmModelPath: '/llm', language: 'ja',
+    });
+    await orch.start();
+    await expect(orch.stop((p) => phaseEvents.push(p))).rejects.toThrow('stt boom');
+    expect(phaseEvents).toEqual(['stt-unloading']);
+    expect(fakeLlm.loadModel).not.toHaveBeenCalled();
   });
 });
