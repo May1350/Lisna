@@ -32,4 +32,30 @@ describe('SessionOrchestrator', () => {
     expect(note.transcriptSegments).toHaveLength(2);
     expect(new Date(note.generatedAt).toString()).not.toBe('Invalid Date');
   });
+
+  it('still unloads LLM when generate throws mid-stream', async () => {
+    const events: string[] = [];
+    const fakeStt = {
+      loadModel: vi.fn(async () => { events.push('stt-load'); }),
+      unloadModel: vi.fn(async () => { events.push('stt-unload'); }),
+      transcribe: vi.fn(async () => []),
+    };
+    const fakeLlm = {
+      loadModel: vi.fn(async () => { events.push('llm-load'); }),
+      unloadModel: vi.fn(async () => { events.push('llm-unload'); }),
+      generate: vi.fn(async function* () {
+        events.push('llm-gen');
+        yield '#';
+        throw new Error('boom');
+      }),
+    };
+    const orch = new SessionOrchestrator({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      stt: fakeStt as any, llm: fakeLlm as any,
+      sttModelPath: '/stt', llmModelPath: '/llm', language: 'ja',
+    });
+    await orch.start();
+    await expect(orch.stop()).rejects.toThrow('boom');
+    expect(events).toEqual(['stt-load', 'stt-unload', 'llm-load', 'llm-gen', 'llm-unload']);
+  });
 });

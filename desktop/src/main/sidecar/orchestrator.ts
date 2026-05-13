@@ -31,17 +31,21 @@ export class SessionOrchestrator {
   }
 
   async stop(): Promise<Note> {
-    await this.opts.stt.unloadModel();      // OS reclaim 까지 await (어댑터 → 사이드카 → C++)
-    await this.opts.llm.loadModel(this.opts.llmModelPath);
-    const prompt = (this.opts.buildPrompt ?? defaultPrompt)(this.opts.language, this.segments);
-    let md = '';
-    for await (const tok of this.opts.llm.generate(prompt, { maxTokens: 4096, temperature: 0.4 })) md += tok;
-    await this.opts.llm.unloadModel();
-    return {
-      language: this.opts.language,
-      generatedAt: new Date().toISOString(),
-      markdown: md,
-      transcriptSegments: this.segments,
-    };
+    try {
+      await this.opts.stt.unloadModel();      // OS reclaim 까지 await (어댑터 → 사이드카 → C++)
+      await this.opts.llm.loadModel(this.opts.llmModelPath);
+      const prompt = (this.opts.buildPrompt ?? defaultPrompt)(this.opts.language, this.segments);
+      let md = '';
+      for await (const tok of this.opts.llm.generate(prompt, { maxTokens: 4096, temperature: 0.4 })) md += tok;
+      return {
+        language: this.opts.language,
+        generatedAt: new Date().toISOString(),
+        markdown: md,
+        transcriptSegments: this.segments,
+      };
+    } finally {
+      // Best-effort unload — swallow secondary errors so we don't mask the primary throw.
+      await this.opts.llm.unloadModel().catch(() => {});
+    }
   }
 }
