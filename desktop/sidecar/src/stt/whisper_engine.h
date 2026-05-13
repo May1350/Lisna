@@ -1,4 +1,5 @@
 #pragma once
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -25,7 +26,9 @@ public:
 
 private:
   struct Impl;
-  Impl* impl_;
+  // NOTE: Impl is incomplete here; the destructor MUST be defined in the .cpp
+  // (where Impl is complete) so unique_ptr can call ~Impl. Do not inline ~WhisperEngine.
+  std::unique_ptr<Impl> impl_;
 };
 
 } // namespace lisna::stt

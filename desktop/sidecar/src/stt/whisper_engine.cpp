@@ -9,8 +9,8 @@ struct WhisperEngine::Impl {
   std::string lang;
 };
 
-WhisperEngine::WhisperEngine() : impl_(new Impl{}) {}
-WhisperEngine::~WhisperEngine() { unload(); delete impl_; }
+WhisperEngine::WhisperEngine() : impl_(std::make_unique<Impl>()) {}
+WhisperEngine::~WhisperEngine() { unload(); } // unique_ptr handles Impl delete
 
 bool WhisperEngine::loaded() const { return impl_->ctx != nullptr; }
 
@@ -35,7 +35,9 @@ std::vector<Segment> WhisperEngine::transcribe(const float* samples, size_t n, i
   (void)sampleRate; // caller guarantees 16kHz Float32 (Task 2.6 adapter will validate)
   if (!impl_->ctx) return out;
   whisper_full_params p = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
-  p.language = impl_->lang.c_str();
+  // Empty langCode → explicit "auto" so the auto-detect path is visible at the
+  // call site (whisper.cpp treats "" the same way, but we want intent on record).
+  p.language = impl_->lang.empty() ? "auto" : impl_->lang.c_str();
   p.translate = false;
   p.print_realtime = false;
   p.print_progress = false;
