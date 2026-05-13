@@ -5,11 +5,21 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(LISNA_WITH_TESTS "Build GoogleTest tests" OFF)
 
+# whisper.cpp options — Metal on (Apple Silicon target), strip examples + tests.
+# v1.7.x renamed WHISPER_METAL → GGML_METAL (lives in ggml/CMakeLists.txt now);
+# on APPLE GGML_METAL_DEFAULT is already ON, but we force it for explicitness.
+set(GGML_METAL ON CACHE BOOL "" FORCE)
+set(WHISPER_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(WHISPER_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+add_subdirectory(deps/whisper.cpp EXCLUDE_FROM_ALL)
+
 add_executable(lisna_sidecar
   src/main.cpp
   src/ipc/json_protocol.cpp
+  src/stt/whisper_engine.cpp
 )
 target_include_directories(lisna_sidecar PRIVATE src deps/json)
+target_link_libraries(lisna_sidecar PRIVATE whisper)
 
 if(LISNA_WITH_TESTS)
   enable_testing()
