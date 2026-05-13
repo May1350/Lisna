@@ -1,5 +1,6 @@
 import type { STTEngine, LLMEngine, Language, TranscriptSegment } from '@shared/engine-interfaces';
 import type { Note } from '@shared/types';
+import type { SessionPhase } from '@shared/ipc-protocol';
 
 interface Opts {
   stt: STTEngine;
@@ -25,7 +26,10 @@ const defaultPrompt = (lang: Language, segs: TranscriptSegment[]): string => {
  * - `onChunk(audio)` is valid only in `recording` state; appends transcribed segments.
  * - `stop()` transitions recording → finalizing → done. Unloads STT, loads LLM,
  *   generates note, unloads LLM. LLM unload runs in `finally`, so a thrown
- *   `generate()` does not leave the model resident.
+ *   `generate()` does not leave the model resident. Optional `onPhase`
+ *   callback observes the three internal awaits (stt-unloading → llm-loading
+ *   → generating) before each begins; the final `llm.unloadModel()` in
+ *   `finally` is intentionally silent (renderer is already past 'Generating').
  *
  * **Out-of-order callers (`onChunk` before `start()`, double `start()`, double
  * `stop()`) are NOT guarded by this class.** Callers (typically the `session/*`
@@ -51,10 +55,21 @@ export class SessionOrchestrator {
     return segs;
   }
 
-  async stop(): Promise<Note> {
+  /**
+   * @param onPhase Optional observer fired synchronously BEFORE each of the
+   *   three internal awaits: 'stt-unloading' → 'llm-loading' → 'generating'.
+   *   Return value is ignored (fire-and-forget — do not await side effects
+   *   from inside). Callback errors are not caught; caller must ensure
+   *   non-throwing behavior. Caller emits 'stt-loading' around `start()`
+   *   separately (in this codebase: from the `session/start` IPC handler).
+   */
+  async stop(onPhase?: (phase: SessionPhase) => void): Promise<Note> {
     try {
+      onPhase?.('stt-unloading');
       await this.opts.stt.unloadModel();      // OS reclaim 까지 await (어댑터 → 사이드카 → C++)
+      onPhase?.('llm-loading');
       await this.opts.llm.loadModel(this.opts.llmModelPath);
+      onPhase?.('generating');
       const prompt = (this.opts.buildPrompt ?? defaultPrompt)(this.opts.language, this.segments);
       let md = '';
       for await (const tok of this.opts.llm.generate(prompt, { maxTokens: 4096, temperature: 0.4 })) md += tok;
