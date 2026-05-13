@@ -251,8 +251,10 @@ describe('SidecarClient.sendStream with /bin/cat', () => {
     ]);
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     for await (const _tok of stream) { /* drain */ }
-    // Echoed request line has id but type=generate, no matching pending —
-    // before the streamingIds fix it would have leaked to event listeners.
+    // Stream tokens carry an `id` that matches no `pending` entry. The
+    // `streamingIds` set + the `onData` structural guard (skip if id-bearing
+    // *and* in `streamingIds`) together keep them out of `onEvent`
+    // subscribers — the `onEvent` fan-out fires only for id-less lines.
     expect(events).toHaveLength(0);
   });
 

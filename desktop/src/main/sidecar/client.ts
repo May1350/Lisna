@@ -284,6 +284,14 @@ export class SidecarClient {
       }
       if (!obj || typeof obj !== 'object') continue;
       const id = (obj as { id?: unknown }).id;
+      // Streaming ids own their lines entirely: the `sendStream` consumer
+      // already handled this line via its `onRawLine` subscriber above. Bail
+      // before pending lookup / event dispatch. Today this is defense in
+      // depth — the `if/else` below already keeps id-bearing lines out of
+      // event listeners — but it cements the invariant locally so a future
+      // refactor restructuring the branching can't silently leak stream
+      // token/done/error lines to `onEvent` subscribers.
+      if (typeof id === 'string' && this.streamingIds.has(id)) continue;
       if (typeof id === 'string') {
         const p = this.pending.get(id);
         if (p) {
