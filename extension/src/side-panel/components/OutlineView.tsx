@@ -922,7 +922,15 @@ function SlideStrip({ slides, onJump, onSlideRemove }: { slides: SlideItem[]; on
 
   return (
     <>
-      <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
+      {/* Outer scroll container keeps horizontal scrolling, but its
+          `overflow-x-auto` ALSO clips vertical overflow (CSS spec: when one
+          axis is non-visible, the other is forced to a clipping value).
+          That clipped the hover-X buttons that sit at -top-2 / -right-2
+          on each thumbnail wrapper. So we split: outer = scroll, inner =
+          flex with enough vertical/right padding for the X to breathe
+          (overflow-visible by default). */}
+      <div className="overflow-x-auto -mx-1 px-1 pb-1">
+      <div className="flex gap-1.5 pt-2 pr-2">
         {visibleSlides.map((slide) => (
           // Wrapper div so we can add a sibling X-button. The thumbnail
           // itself is still a <button> (lightbox open); HTML doesn't
@@ -977,6 +985,7 @@ function SlideStrip({ slides, onJump, onSlideRemove }: { slides: SlideItem[]; on
             )}
           </div>
         ))}
+      </div>
       </div>
       {openIdx !== null && (
         <SlideLightbox
