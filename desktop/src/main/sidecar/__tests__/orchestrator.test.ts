@@ -28,5 +28,8 @@ describe('SessionOrchestrator', () => {
       'llm-load', 'llm-gen', 'llm-unload',
     ]);
     expect(note.markdown).toBe('# note');
+    expect(note.language).toBe('ja');
+    expect(note.transcriptSegments).toHaveLength(2);
+    expect(new Date(note.generatedAt).toString()).not.toBe('Invalid Date');
   });
 });
