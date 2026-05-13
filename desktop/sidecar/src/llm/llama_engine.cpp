@@ -1,5 +1,7 @@
 #include "llama_engine.h"
+#include "memory/os_reclaim.h"
 #include <llama.h>
+#include <algorithm>
 #include <vector>
 
 namespace lisna::llm {
@@ -35,6 +37,10 @@ bool LlamaEngine::load(const std::string& path) {
 }
 
 void LlamaEngine::unload() {
+  if (!impl_->ctx && !impl_->model) return;
+  // Snapshot RSS once before both frees — combined model+ctx is the thing we
+  // want the OS to actually reclaim before resolving unload() upstream.
+  const size_t before = lisna::memory::process_rss_bytes();
   if (impl_->ctx) {
     llama_free(impl_->ctx);
     impl_->ctx = nullptr;
@@ -44,6 +50,9 @@ void LlamaEngine::unload() {
     impl_->model = nullptr;
   }
   impl_->vocab = nullptr;
+  const size_t target = std::max<size_t>(before / 4,
+                                         static_cast<size_t>(100) * 1024 * 1024);
+  lisna::memory::advise_release_and_wait(nullptr, 0, target, 2000);
 }
 
 void LlamaEngine::generate(const std::string& prompt, const GenOpts& opts,

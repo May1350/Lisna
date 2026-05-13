@@ -14,10 +14,12 @@ FetchContent_MakeAvailable(googletest)
 # First cold build picks up whisper.cpp (~15-30s); subsequent builds cached.
 add_executable(sidecar_tests
   test_json_protocol.cpp
+  test_os_reclaim.cpp
   ../src/ipc/json_protocol.cpp
   ../src/ipc/base64.cpp
   ../src/stt/whisper_engine.cpp
   ../src/llm/llama_engine.cpp
+  ../src/memory/os_reclaim.cpp
 )
 target_include_directories(sidecar_tests PRIVATE ../src ../deps/json)
 target_link_libraries(sidecar_tests PRIVATE gtest_main whisper llama)

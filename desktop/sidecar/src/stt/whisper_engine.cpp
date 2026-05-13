@@ -1,5 +1,7 @@
 #include "whisper_engine.h"
+#include "memory/os_reclaim.h"
 #include <whisper.h>
+#include <algorithm>
 #include <cstring>
 
 namespace lisna::stt {
@@ -24,10 +26,18 @@ bool WhisperEngine::load(const std::string& path, const std::string& langCode) {
 }
 
 void WhisperEngine::unload() {
-  if (impl_->ctx) {
-    whisper_free(impl_->ctx);
-    impl_->ctx = nullptr;
-  }
+  if (!impl_->ctx) return;
+  // Snapshot RSS first so the post-free poll can confirm the kernel actually
+  // returned pages (KO/ZH path transitions STT 1.5GB → LLM 2.5GB; without this
+  // confirmation the user briefly swaps).
+  const size_t before = lisna::memory::process_rss_bytes();
+  whisper_free(impl_->ctx);
+  impl_->ctx = nullptr;
+  // Target: a quarter of pre-free RSS (model is the dominant allocation), with
+  // a 100MB floor so small models don't make this trivially satisfied.
+  const size_t target = std::max<size_t>(before / 4,
+                                         static_cast<size_t>(100) * 1024 * 1024);
+  lisna::memory::advise_release_and_wait(nullptr, 0, target, 2000);
 }
 
 std::vector<Segment> WhisperEngine::transcribe(const float* samples, size_t n, int sampleRate) {

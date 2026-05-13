@@ -32,6 +32,7 @@ add_executable(lisna_sidecar
   src/ipc/base64.cpp
   src/stt/whisper_engine.cpp
   src/llm/llama_engine.cpp
+  src/memory/os_reclaim.cpp
 )
 target_include_directories(lisna_sidecar PRIVATE src deps/json)
 target_link_libraries(lisna_sidecar PRIVATE whisper llama)
