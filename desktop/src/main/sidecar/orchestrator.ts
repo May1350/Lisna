@@ -15,6 +15,27 @@ const defaultPrompt = (lang: Language, segs: TranscriptSegment[]): string => {
   return `You are a meeting note writer. Output Markdown.\nLanguage: ${lang}\n\nTranscript:\n${transcript}\n\nNote:\n`;
 };
 
+/**
+ * Coordinates STT → LLM in time-sliced order for a single recording session.
+ *
+ * **Lifecycle (single-use, strict FSM):**
+ *   idle → recording → finalizing → done
+ *
+ * - `start()` transitions idle → recording (loads STT, clears segments).
+ * - `onChunk(audio)` is valid only in `recording` state; appends transcribed segments.
+ * - `stop()` transitions recording → finalizing → done. Unloads STT, loads LLM,
+ *   generates note, unloads LLM. LLM unload runs in `finally`, so a thrown
+ *   `generate()` does not leave the model resident.
+ *
+ * **Out-of-order callers (`onChunk` before `start()`, double `start()`, double
+ * `stop()`) are NOT guarded by this class.** Callers (typically the `session/*`
+ * IPC handlers registered by the main process) are responsible for ordering.
+ * Treat each instance as a single-use disposable per session.
+ *
+ * Memory floor (8GB RAM) requires STT and LLM never coexist in resident memory;
+ * `stt.unloadModel()` blocks until OS-confirmed RSS drop (mach API, Task 3.4)
+ * before `llm.loadModel()` is invoked.
+ */
 export class SessionOrchestrator {
   private segments: TranscriptSegment[] = [];
   constructor(private opts: Opts) {}
