@@ -26,7 +26,7 @@ bool WhisperEngine::load(const std::string& path, const std::string& langCode) {
 }
 
 void WhisperEngine::unload() {
-  if (!impl_->ctx) return;
+  if (!impl_->ctx) return; // skip the 2s RSS-poll for the no-op case (dtor after failed load).
   // Snapshot RSS first so the post-free poll can confirm the kernel actually
   // returned pages (KO/ZH path transitions STT 1.5GB → LLM 2.5GB; without this
   // confirmation the user briefly swaps).

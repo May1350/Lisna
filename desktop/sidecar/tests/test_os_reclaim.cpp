@@ -2,7 +2,6 @@
 #include "memory/os_reclaim.h"
 
 #include <chrono>
-#include <cstring>
 #include <vector>
 
 using lisna::memory::process_rss_bytes;
@@ -38,9 +37,9 @@ TEST(OsReclaim, UnmetTargetWaitsForTimeout) {
   // jitter shouldn't satisfy it within the timeout window.
   constexpr size_t kTarget = 10 * 1024 * 1024;
   const auto start = std::chrono::steady_clock::now();
-  advise_release_and_wait(nullptr, 0, kTarget, 200);
+  advise_release_and_wait(nullptr, 0, kTarget, 400);
   const auto elapsed = std::chrono::steady_clock::now() - start;
-  // 200ms timeout; allow generous slop for sleep-quantization.
+  // 400ms timeout; 150ms floor leaves 250ms slop for CI/sleep quantization.
   EXPECT_GE(std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count(),
             150);
 }

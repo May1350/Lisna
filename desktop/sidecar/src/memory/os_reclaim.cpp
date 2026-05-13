@@ -6,6 +6,7 @@
 #include <sys/mman.h>
 
 #include <chrono>
+#include <cstdio>
 #include <thread>
 
 namespace lisna::memory {
@@ -35,11 +36,19 @@ void advise_release_and_wait(void* addr, size_t length,
 
   const auto deadline =
       std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+  size_t now = before;
   while (std::chrono::steady_clock::now() < deadline) {
-    const size_t now = process_rss_bytes();
+    now = process_rss_bytes();
     if (now != 0 && now <= threshold) return;
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
   }
+  // Timed out without confirmation — unload() Promise will still resolve, but
+  // log so swap-class regressions are diagnosable in production logs.
+  fprintf(stderr,
+          "[os_reclaim] target %zu bytes not met within %d ms; "
+          "RSS before=%zu now=%zu drop=%lld\n",
+          targetDropBytes, timeoutMs, before, now,
+          static_cast<long long>(before) - static_cast<long long>(now));
 }
 
 } // namespace lisna::memory

@@ -16,6 +16,11 @@ size_t process_rss_bytes();
 // from the pre-call baseline OR timeoutMs elapses. Returns either way — this is
 // a best-effort barrier, not a hard guarantee, so unload() Promise resolution
 // can claim "memory has been returned" with reasonable honesty.
+//
+// Baseline RSS is sampled inside this call (post-madvise), not threaded in from
+// the caller. Reclamation lags free() so this matches the pre-free reading in
+// practice; callers needing exact pre-free RSS for diagnostics should snapshot
+// it themselves.
 void advise_release_and_wait(void* addr, size_t length,
                              size_t targetDropBytes, int timeoutMs);
 

@@ -37,7 +37,7 @@ bool LlamaEngine::load(const std::string& path) {
 }
 
 void LlamaEngine::unload() {
-  if (!impl_->ctx && !impl_->model) return;
+  if (!impl_->ctx && !impl_->model) return; // skip the 2s RSS-poll for the no-op case (dtor after failed load).
   // Snapshot RSS once before both frees — combined model+ctx is the thing we
   // want the OS to actually reclaim before resolving unload() upstream.
   const size_t before = lisna::memory::process_rss_bytes();
