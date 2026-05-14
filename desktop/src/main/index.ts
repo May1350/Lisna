@@ -1,16 +1,16 @@
 import { app, BrowserWindow } from 'electron';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { registerIpc } from './ipc';
+import { registerIpc, handleSidecarExit, setAppQuitting } from './ipc';
 import { installSystemAudioHandler } from './audio/system-audio-handler';
 import { SidecarSupervisor } from './sidecar/supervisor';
-import { WhisperCppSTT } from './engines/whisper-cpp-stt';
-import type { STTEngine } from '@shared/engine-interfaces';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// Module-level so the before-quit hook can reach it.
+// Module-level so the before-quit hook + handleSidecarExit's safeSend
+// (via getMainWindow getter) can reach it.
 let supervisor: SidecarSupervisor | undefined;
+let mainWindow: BrowserWindow | undefined;
 // Set on first `before-quit` so the second pass (after `shutdown()` resolves)
 // skips the preventDefault gate and lets Electron quit normally.
 let shuttingDown = false;
@@ -25,6 +25,10 @@ function createWindow() {
       sandbox: false,
     },
   });
+  mainWindow = win;
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = undefined;
+  });
   if (process.env.ELECTRON_RENDERER_URL) {
     win.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
@@ -35,34 +39,40 @@ function createWindow() {
 app.whenReady().then(async () => {
   installSystemAudioHandler();
   supervisor = new SidecarSupervisor({
-    onCrash: (msg) => console.error('[sidecar fatal]', msg),
+    // Log-only breadcrumb. The renderer-visible session/error push comes from
+    // onExit → handleSidecarExit. Demoting onCrash prevents double-pushes on
+    // the give-up case (where both onExit and onCrash fire — onExit first).
+    onCrash: (msg) => console.error('[sidecar give-up]', msg),
+    // Single source of truth for renderer notification: clears session state
+    // and pushes session/error from ipc.ts module scope.
+    onExit: handleSidecarExit,
   });
   const client = supervisor.start();
   client.onEvent((e) => console.log('[sidecar event]', e.type));
 
-  let stt: STTEngine | undefined;
-
   try {
     const ready = await client.waitForReady(5000);
     console.log('[sidecar] ready', ready);
-
-    const modelPath = process.env.LISNA_DEV_STT_MODEL;
-    if (modelPath) {
-      try {
-        const adapter = new WhisperCppSTT(client);
-        await adapter.loadModel(modelPath, 'ja');
-        stt = adapter;
-        console.log('[stt] model loaded from', modelPath);
-      } catch (err) {
-        console.error('[stt] model load failed — recording will work without captions:', err);
-      }
-    }
   } catch (err) {
-    console.error('[sidecar] failed to reach ready state — recording will work without captions:', err);
+    console.error('[sidecar] failed to reach ready state — recording will fail until restart:', err);
   }
 
-  registerIpc({ stt });
+  // Dev hook until Phase 4 packaging completes. Both required for v2.0 —
+  // session/start throws MODELS_NOT_CONFIGURED if either missing. Set in shell
+  // before `pnpm dev` (or .env / launch.json):
+  //   LISNA_DEV_STT_MODEL=/abs/path/to/ggml-large-v3.bin
+  //   LISNA_DEV_LLM_MODEL=/abs/path/to/Llama-3.2-3B-Instruct-Q4_K_M.gguf
+  // See desktop/docs/manual-verification.md for working model paths.
+  const sttModelPath = process.env.LISNA_DEV_STT_MODEL;
+  const llmModelPath = process.env.LISNA_DEV_LLM_MODEL;
+
   createWindow();
+  registerIpc({
+    getMainWindow: () => mainWindow,  // getter — survives darwin re-create
+    supervisor,
+    sttModelPath,
+    llmModelPath,
+  });
 });
 
 // Electron's `before-quit` does NOT await async listeners — the app proceeds
@@ -77,9 +87,23 @@ app.on('before-quit', (event) => {
   if (!supervisor) return;
   event.preventDefault();
   shuttingDown = true;
+  // setAppQuitting BEFORE supervisor.shutdown so in-flight session/stop
+  // catches read it after sidecar SIGTERM rejects their orch.stop.
+  setAppQuitting();
   supervisor.shutdown().finally(() => app.quit());
 });
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+// darwin re-open: recreate the window. State (current/recording in ipc.ts) is
+// already idle by the time this fires (window-all-closed → app.quit kills the
+// process). This hook is defensive against future policy changes that keep the
+// app alive past window-all-closed.
+app.on('activate', () => {
+  if (BrowserWindow.getAllWindows().length === 0) createWindow();
 });
+
+// v2.0 alpha policy: all-windows-closed always quits, even on darwin (the macOS
+// default is "stay in dock"). Rationale: single-window app, closing the window
+// with a session active would leave ipc.ts current/recording flag stale. Quit
+// fully resets the process. v2.1 may revisit when a menu-bar icon or background
+// sync arrives.
+app.on('window-all-closed', () => app.quit());
