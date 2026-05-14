@@ -1,7 +1,9 @@
 import type { STTEngine, LLMEngine, Language, TranscriptSegment } from '@shared/engine-interfaces';
 import type { Note } from '@shared/types';
 import type { SessionPhase } from '@shared/ipc-protocol';
+import { withTimeout } from '@shared/with-timeout';
 import { buildJaNoteV1Prompt } from './prompts/ja-note-v1';
+import { TIMEOUTS, TIMEOUT_CODES } from './timeouts';
 
 interface Opts {
   stt: STTEngine;
@@ -53,7 +55,14 @@ export class SessionOrchestrator {
 
   async start(): Promise<void> {
     this.segments = [];
-    await this.opts.stt.loadModel(this.opts.sttModelPath, this.opts.language);
+    // Cap STT cold load. 60s budget covers TCC mic-permission prompt + GGUF
+    // mmap + Metal init on M1 (see TIMEOUTS comment for the calibration).
+    // Throws STT_TIMEOUT if the sidecar wedges.
+    await withTimeout(
+      this.opts.stt.loadModel(this.opts.sttModelPath, this.opts.language),
+      TIMEOUTS.STT_LOAD_MS,
+      TIMEOUT_CODES.STT_TIMEOUT,
+    );
   }
 
   async onChunk(audio: Float32Array): Promise<TranscriptSegment[]> {
@@ -80,16 +89,37 @@ export class SessionOrchestrator {
     // routing the user to a NoteView containing LLM-confabulated content.
     if (this.segments.length === 0) {
       onPhase?.('stt-unloading');
-      await this.opts.stt.unloadModel();
+      // 5s timeout cap on unload. If unload throws a non-timeout error
+      // (sidecar said `error`, etc.), propagate it — that's a diagnostic
+      // the user/devs need to see. The EMPTY_TRANSCRIPT throw below only
+      // fires if unload resolved cleanly.
+      await withTimeout(
+        this.opts.stt.unloadModel(),
+        TIMEOUTS.STT_UNLOAD_MS,
+        TIMEOUT_CODES.STT_TIMEOUT,
+      );
       throw new Error('EMPTY_TRANSCRIPT');
     }
     try {
       onPhase?.('stt-unloading');
-      await this.opts.stt.unloadModel();      // OS reclaim 까지 await (어댑터 → 사이드카 → C++)
+      // 5s STT unload — see TIMEOUTS comment. Throws STT_TIMEOUT.
+      await withTimeout(
+        this.opts.stt.unloadModel(),
+        TIMEOUTS.STT_UNLOAD_MS,
+        TIMEOUT_CODES.STT_TIMEOUT,
+      );
       onPhase?.('llm-loading');
-      await this.opts.llm.loadModel(this.opts.llmModelPath);
+      // 30s LLM load (Q4_K_M mmap + Metal init). Throws LLM_LOAD_TIMEOUT.
+      await withTimeout(
+        this.opts.llm.loadModel(this.opts.llmModelPath),
+        TIMEOUTS.LLM_LOAD_MS,
+        TIMEOUT_CODES.LLM_LOAD_TIMEOUT,
+      );
       onPhase?.('generating');
       const prompt = (this.opts.buildPrompt ?? defaultPrompt)(this.opts.language, this.segments);
+      // generate() is per-token streaming; the GENERATE_TIMEOUT (no-progress
+      // 60s) is enforced inside LlamaCppLLM → SidecarClient.sendStream, so
+      // no extra wrapping here.
       let md = '';
       for await (const tok of this.opts.llm.generate(prompt, { maxTokens: 4096, temperature: 0.4 })) md += tok;
       return {
@@ -100,7 +130,14 @@ export class SessionOrchestrator {
       };
     } finally {
       // Best-effort unload — swallow secondary errors so we don't mask the primary throw.
-      await this.opts.llm.unloadModel().catch(() => {});
+      // Also cap with timeout so a wedged sidecar can't strand the renderer in Finalizing
+      // forever. 5s budget; on timeout we just move on (the renderer has already left
+      // 'generating' phase by the time finally runs).
+      await withTimeout(
+        this.opts.llm.unloadModel(),
+        TIMEOUTS.LLM_UNLOAD_MS,
+        TIMEOUT_CODES.LLM_UNLOAD_TIMEOUT,
+      ).catch(() => {});
     }
   }
 }

@@ -168,6 +168,56 @@ describe('LlamaCppLLM with fake ChildProcess', () => {
     await expect(consume()).rejects.toThrow(/EOOM.*out of memory/);
   });
 
+  it('generate remaps SidecarClient "no progress" timeout to GENERATE_TIMEOUT', async () => {
+    // SidecarClient.sendStream rejects with a "no progress" timeout error
+    // when no token/done/error arrives within the configured window. The
+    // adapter must remap that to the typed `GENERATE_TIMEOUT` so ErrorView's
+    // friendly-map can show a meaningful message. Non-timeout errors stay
+    // unchanged (covered by the previous 'error during stream' test).
+    //
+    // To force the timeout without actually sleeping 60s, we use vi.useFakeTimers
+    // + advanceTimersByTimeAsync.
+    const { vi } = await import('vitest');
+    vi.useFakeTimers();
+    try {
+      const stream = llm.generate('hi', {});
+      // Don't await — just begin consumption. The sendStream registered its
+      // no-progress timer on entry. Advancing past the timeout window fires
+      // the rejection.
+      const consume = async (): Promise<string> => {
+        let out = '';
+        for await (const tok of stream) out += tok;
+        return out;
+      };
+      const consumePromise = consume();
+      const guarded = consumePromise.catch((e) => e);
+      // Advance well past the GENERATE_NO_PROGRESS_MS budget (60s).
+      await vi.advanceTimersByTimeAsync(70_000);
+      const err = await guarded;
+      expect(err).toBeInstanceOf(Error);
+      expect((err as Error).message).toBe('GENERATE_TIMEOUT');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('generate preserves non-timeout error messages (does NOT remap to GENERATE_TIMEOUT)', async () => {
+    // Sanity-check the remap is keyed on the "no progress" substring, not a
+    // catch-all. A sidecar `error` response still produces the original
+    // "[code]: message" string so logs stay diagnostic.
+    const stream = llm.generate('hi', {});
+    const id = await lastRequestId('generate');
+    fake.writeLine(
+      JSON.stringify({ id, type: 'error', code: 'EOOM', message: 'out of memory' }),
+    );
+    const consume = async (): Promise<string> => {
+      let out = '';
+      for await (const tok of stream) out += tok;
+      return out;
+    };
+    await expect(consume()).rejects.toThrow(/EOOM.*out of memory/);
+  });
+
   it('generate forwards prompt and opts (maxTokens/temperature/stop) into the request line', async () => {
     const stream = llm.generate('prompt-text', {
       maxTokens: 32,

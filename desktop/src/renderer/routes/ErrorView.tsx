@@ -30,6 +30,12 @@ const FRIENDLY: Record<string, string> = {
   SESSION_ACTIVE: 'A recording session is already in progress.',
   NO_ACTIVE_SESSION: 'No active recording session.',
   SESSION_NOT_READY: 'The recording engine is still starting. Please wait.',
+  // Step 5 §3.5 operation-timeout codes (interim EN copy; Phase E replaces
+  // wholesale with JA per ADR §3).
+  STT_TIMEOUT: 'The transcription model is taking too long to respond. Please try again.',
+  LLM_LOAD_TIMEOUT: 'The note-writing model took too long to load. Please try again.',
+  LLM_UNLOAD_TIMEOUT: 'The note-writing model is taking too long to release. Please try again.',
+  GENERATE_TIMEOUT: 'Note generation stalled. Please try again.',
 };
 
 function toFriendly(rawMessage: string): string {
