@@ -70,3 +70,64 @@ Records of one-off runtime verifications that can't be fully automated.
   - **Supervisor restart loses the loaded model.** `SidecarSupervisor` respawns the sidecar binary on crash (`src/main/sidecar/supervisor.ts:99-102`), but `src/main/index.ts:43-65` captures the initial `SidecarClient` reference into a closure and hands that exact instance to `WhisperCppSTT`. After a crash + respawn, the adapter still points at the dead client and the model is not auto-reloaded — recording continues, IPC writes silently land in the dead-stdin error handler, and no captions come back. Surfaced by Phase 2 final review. Phase 3 boot reorganization will lift model load + adapter binding into an `onRespawn` callback the supervisor invokes after each successful `ready` event.
 - Result: **PASS** — end-to-end pipeline (renderer audio capture → main IPC → sidecar transcribe → renderer caption push) is live for Japanese audio. Phase 2 acceptance: ✅. Quality work is plan-scoped to Phase 4-5; the supervisor-restart cohesion gap is plan-scoped to Phase 3.
 - Electron / model versions observed: Electron 39.8.10, whisper.cpp v1.7.6 + Metal, Kotoba-Whisper v2.0 Q5_0 GGML.
+
+## ja-note-v1 prompt — golden Note (Phase B placeholder, awaiting §6 smoke)
+
+**Prompt source**: `desktop/src/main/sidecar/prompts/ja-note-v1.ts` (version: `ja-note-v1`)
+**ADR**: `docs/superpowers/decisions/2026-05-15-step-5-section-9-decisions.md` §2
+**Status**: PLACEHOLDER — final wording is locked once we observe real LLM output from §6 manual smoke.
+
+### Eval-anchor structure (Step 5 §3.1 task 3)
+
+The Step 5 plan mandates 2–3 LLM-as-judge eval-set anchors. Each anchor is a `(transcript_input, expected_note_shape)` pair where the judge LLM scores the actual model output on three axes:
+
+| Axis | Pass criterion | Rationale |
+|------|----------------|-----------|
+| Format compliance | 0 Markdown tokens (`#`, `*`, `-` at line-start, no triple-backtick), all section headers use `【…】`, all bullets use `・` | The `<pre>` renderer makes any Markdown leak immediately visible to users |
+| Polite-desu/masu register | Body uses です/ます endings; no casual だ/である; no formal-keigo (お〜になります) | ADR §3 lock — register consistency across the app |
+| Section omission | Empty sections do NOT appear with a header-only stub | Prompt instruction; verify the LLM obeys |
+
+### Anchor 1 — Standalone JA TTS (TTS-clean transcript, established 2026-05-13)
+
+**Input transcript**: `tests/fixtures/transcripts/ja-30s.txt`
+> 今日は良い天気ですね。これは日本語音声認識のテストです。コトバウィスパーというモデルを使って、サイドカープロセスで文字起こしを行います。三十秒ほど話し続けるので、しっかり認識できるか確認します。日本語の発音は明瞭で、機械翻訳と音声認識の両方に重要な役割を果たしています。
+
+**Expected note shape** (PLACEHOLDER — finalize once real LLM output is observed):
+
+```
+【要点】
+・(本日の天気と日本語音声認識テストに関する内容など、要点を中黒で並列)
+
+【次のアクション】
+(該当する内容が無い場合はこのセクションごと省略)
+
+【決定事項】
+(同上)
+```
+
+**Observed note (DEFERRED §6)**: not yet recorded — awaiting real LLM smoke run.
+
+**Judge scorecard (DEFERRED §6)**: not yet scored.
+
+### Anchor 2 — Real meeting audio (founder-provided, DEFERRED)
+
+**Input transcript**: TBD — founder records a 2-minute JA meeting per §9 Item 5 escalation.
+
+**Expected note shape**: TBD — three sections likely populated (要点 + 次のアクション + 決定事項).
+
+**Observed note (DEFERRED §6)**: not yet recorded.
+
+### Anchor 3 — Silence-hallucination boundary (regression for whisper drift)
+
+**Input transcript**: TBD — capture a session with 1–2 chunks of pure silence interspersed with speech, exposing the kotoba-whisper silence-hallucination text (e.g. `字幕`, `ご視聴ありがとうございました`).
+
+**Expected note shape**: the LLM should ignore the obvious silence-artifact lines OR fail gracefully (not invent a meeting topic from them).
+
+**Observed note (DEFERRED §6)**: not yet recorded.
+
+### Notes for the implementer who finalizes this
+
+- Run `pnpm dev` with both `LISNA_DEV_STT_MODEL` and `LISNA_DEV_LLM_MODEL` env set; play the audio file through system audio (or record live).
+- After Stop → NoteView renders, copy the raw `note.markdown` into the "Observed note" block of the matching anchor.
+- Score each axis (format / register / omission) manually. If any axis fails on a real recording, iterate the prompt template in `ja-note-v1.ts` (do NOT bump version unless the change is intentionally non-backward-compatible).
+- A future LLM-as-judge harness (Step 6+) automates the scoring; the manual rows are the data source for that harness.

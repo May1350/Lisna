@@ -1,6 +1,7 @@
 import type { STTEngine, LLMEngine, Language, TranscriptSegment } from '@shared/engine-interfaces';
 import type { Note } from '@shared/types';
 import type { SessionPhase } from '@shared/ipc-protocol';
+import { buildJaNoteV1Prompt } from './prompts/ja-note-v1';
 
 interface Opts {
   stt: STTEngine;
@@ -11,10 +12,16 @@ interface Opts {
   buildPrompt?(language: Language, segments: TranscriptSegment[]): string;
 }
 
-const defaultPrompt = (lang: Language, segs: TranscriptSegment[]): string => {
-  const transcript = segs.map(s => `[${s.startSec.toFixed(1)}s] ${s.text}`).join('\n');
-  return `You are a meeting note writer. Output Markdown.\nLanguage: ${lang}\n\nTranscript:\n${transcript}\n\nNote:\n`;
-};
+/**
+ * Default prompt builder. v2.0 alpha is JA-only (concept-lock), so we route
+ * everything through the JA-note-v1 plain-text builder. See
+ * `prompts/ja-note-v1.ts` for the format contract.
+ *
+ * The `buildPrompt?` opt remains as an injection seam: tests override it
+ * with a fixed string (no need to validate prompt content) and a future
+ * multilingual v2.1 can dispatch on `language`.
+ */
+const defaultPrompt = buildJaNoteV1Prompt;
 
 /**
  * Coordinates STT → LLM in time-sliced order for a single recording session.
