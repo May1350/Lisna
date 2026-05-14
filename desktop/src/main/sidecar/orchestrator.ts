@@ -64,6 +64,18 @@ export class SessionOrchestrator {
    *   separately (in this codebase: from the `session/start` IPC handler).
    */
   async stop(onPhase?: (phase: SessionPhase) => void): Promise<Note> {
+    // Empty-transcript guard: if no segments were captured (silence-only
+    // recording, or user clicked Start/Stop without speaking), skip the
+    // LLM round-trip entirely. Loading a 2GB GGUF to generate hallucinated
+    // text from an empty prompt is a 10-30s waste that produces garbage.
+    // Throw EMPTY_TRANSCRIPT so the renderer can show a friendly error
+    // ("It looks like nothing was recorded — please try again") instead of
+    // routing the user to a NoteView containing LLM-confabulated content.
+    if (this.segments.length === 0) {
+      onPhase?.('stt-unloading');
+      await this.opts.stt.unloadModel();
+      throw new Error('EMPTY_TRANSCRIPT');
+    }
     try {
       onPhase?.('stt-unloading');
       await this.opts.stt.unloadModel();      // OS reclaim 까지 await (어댑터 → 사이드카 → C++)

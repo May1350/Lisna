@@ -163,6 +163,12 @@ describe('main/ipc FSM', () => {
     const supervisor = makeFakeSupervisor({});
     ipc.registerIpc({ getMainWindow: () => win, supervisor, sttModelPath: '/s', llmModelPath: '/l' });
     await ipcHandlers['session/start']!({}, { language: 'ja' });
+    // Feed one chunk so segments isn't empty (M1 EMPTY_TRANSCRIPT guard would
+    // otherwise throw before reaching the llm-loading / generating phases).
+    await ipcHandlers['recording/chunk']!(
+      { sender: { send: vi.fn() } },
+      { index: 0, source: 'mic', startMs: 0, endMs: 2000, samples: new Float32Array(32000) },
+    );
     await ipcHandlers['session/stop']!({}, undefined);
     const phases = send.mock.calls
       .filter((c) => c[0] === 'session/phase')
@@ -180,7 +186,7 @@ describe('main/ipc FSM', () => {
     // Sidecar crash here = "user has been recording, now sidecar died." Push expected.
     ipc.handleSidecarExit();
     expect(send).toHaveBeenCalledWith('session/error', expect.objectContaining({ message: expect.any(String) }));
-    // Subsequent session/stop should reject (state cleared)
+    // Subsequent session/stop should reject (state cleared by handleSidecarExit)
     await expect(ipcHandlers['session/stop']!({}, undefined)).rejects.toThrow('NO_ACTIVE_SESSION');
   });
 
@@ -216,6 +222,11 @@ describe('main/ipc FSM', () => {
     const supervisor = makeFakeSupervisor({});
     ipc.registerIpc({ getMainWindow: () => win, supervisor, sttModelPath: '/s', llmModelPath: '/l' });
     await ipcHandlers['session/start']!({}, { language: 'ja' });
+    // Feed one chunk so segments isn't empty (avoids M1 EMPTY_TRANSCRIPT guard).
+    await ipcHandlers['recording/chunk']!(
+      { sender: { send: vi.fn() } },
+      { index: 0, source: 'mic', startMs: 0, endMs: 2000, samples: new Float32Array(32000) },
+    );
     send.mockClear();
     // Simulate: session/stop in flight, supervisor.onExit fires while orch.stop is awaiting.
     const stopPromise = ipcHandlers['session/stop']!({}, undefined);
@@ -268,8 +279,12 @@ describe('main/ipc FSM', () => {
       shutdown: vi.fn(),
     };
     ipc.registerIpc({ getMainWindow: () => win, supervisor, sttModelPath: '/s', llmModelPath: '/l' });
-    // First session
+    // First session — feed a chunk to avoid M1 EMPTY_TRANSCRIPT guard.
     await ipcHandlers['session/start']!({}, { language: 'ja' });
+    await ipcHandlers['recording/chunk']!(
+      { sender: { send: vi.fn() } },
+      { index: 0, source: 'mic', startMs: 0, endMs: 2000, samples: new Float32Array(32000) },
+    );
     await ipcHandlers['session/stop']!({}, undefined);
     // Second session — supervisor.getClient now returns clientB (simulating respawn)
     await ipcHandlers['session/start']!({}, { language: 'ja' });
