@@ -21,6 +21,14 @@ export interface OrchestratorOptions {
 }
 
 /**
+ * Renderer-side audio capture orchestrator. **Not** the same as main-side
+ * `SessionOrchestrator` (`desktop/src/main/sidecar/orchestrator.ts`) which
+ * coordinates STT→LLM. This class handles mic / system audio source +
+ * worklet capture + chunking; the rendered chunks are shipped over IPC to
+ * main, where `SessionOrchestrator` picks them up. Full rename to
+ * `AudioCaptureOrchestrator` is deferred (see Step 4 spec §9 —
+ * codebase-wide refactor scope).
+ *
  * Coordinates: Capturer → ChunkAccumulator → sender (IPC bridge).
  * Tracks emitted sample count so each chunk carries accurate [startMs, endMs).
  *
