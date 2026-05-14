@@ -4,6 +4,15 @@ import type { TranscriptSegment, Note } from '@shared/types';
 import { RecordingOrchestrator } from '../audio/orchestrator';
 import { createCapturer } from '../audio/worklet-capturer';
 import { SystemAudioUnavailableNotice } from '../components/SystemAudioUnavailableNotice';
+import { Spinner } from '../components/Spinner';
+
+/**
+ * Step 5 §3.3 — after this many ms of "Loading model…" without resolution,
+ * show the "taking longer than usual…" subtext. 8s matches the spec's R2
+ * finding — STT cold load is normally 3-10s; >8s suggests TCC permission
+ * prompt is stacked or sidecar is slow.
+ */
+const SLOW_LOAD_HINT_MS = 8_000;
 
 interface Props {
   segments: TranscriptSegment[];
@@ -15,6 +24,10 @@ interface Props {
 export function Recording({ segments, onFinalizing, onNote, onError }: Props) {
   const [running, setRunning] = useState(false);
   const [starting, setStarting] = useState(false);
+  // Flips true SLOW_LOAD_HINT_MS into the `starting=true` window so we can
+  // add a "taking longer than usual…" hint. Resets to false on every start
+  // attempt and on completion. Step 5 §3.3 task 2.
+  const [slowLoad, setSlowLoad] = useState(false);
   const [source, setSource] = useState<RecordingSource>('mic');
   // Pessimistic default: assume system audio is unavailable until the
   // capabilities round-trip confirms it. A slow IPC response should NOT
@@ -38,6 +51,19 @@ export function Recording({ segments, onFinalizing, onNote, onError }: Props) {
       cancelled = true;
     };
   }, []);
+
+  // Slow-load hint timer. Schedule once when `starting` flips true; clear
+  // on cleanup so a fast resolution doesn't leave a stale flip pending. The
+  // setState happens after SLOW_LOAD_HINT_MS only if `starting` is still
+  // true at the moment of fire (cleanup runs first on resolution).
+  useEffect(() => {
+    if (!starting) {
+      setSlowLoad(false);
+      return;
+    }
+    const t = setTimeout(() => setSlowLoad(true), SLOW_LOAD_HINT_MS);
+    return () => clearTimeout(t);
+  }, [starting]);
 
   // Unmount cleanup. If the component unmounts while a recording is active
   // (Strict Mode dev double-mount, app close), tear down the audio
@@ -145,8 +171,17 @@ export function Recording({ segments, onFinalizing, onNote, onError }: Props) {
       </fieldset>
       {!systemAudioAvailable && <SystemAudioUnavailableNotice />}
       <button disabled={starting} onClick={running ? stop : start}>
-        {running ? 'Stop' : starting ? 'Loading model…' : 'Start'}
+        {running ? 'Stop' : starting ? (
+          <>
+            <Spinner /> Loading model…
+          </>
+        ) : 'Start'}
       </button>
+      {starting && slowLoad && (
+        <p style={{ color: '#888', fontSize: '0.9em', marginTop: '0.25em' }}>
+          (taking longer than usual…)
+        </p>
+      )}
       {segments.length > 0 && (
         <div>
           <h3>Live captions</h3>
