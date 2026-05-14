@@ -265,9 +265,12 @@ export function handleSidecarExit() {
   current = null;
   recording = false;
   if (wasHandlerInFlight) return;  // IPC rejection handles renderer transition
-  _safeSend?.(CHANNELS.sessionError, {
-    message: 'Recording engine restarted. Please try again.',
-  });
+  // Code-only payload — renderer maps it to JA copy via `toFriendlyJa`.
+  // Previously this was an EN sentence which the substring matcher couldn't
+  // resolve to any known code → user got the generic JA fallback. SIDECAR_DOWN
+  // is the right code: the supervisor will respawn within 500ms; on success
+  // the next session/start passes the SIDECAR_DOWN guard.
+  _safeSend?.(CHANNELS.sessionError, { message: 'SIDECAR_DOWN' });
 }
 
 /**
@@ -295,8 +298,13 @@ export function handleSidecarGiveUp() {
   _sidecarGaveUp = true;
   current = null;
   recording = false;
+  // Code-only payload like handleSidecarExit. ErrorView's `permanent` branch
+  // forces the SIDECAR_GAVE_UP JA copy regardless of `message`, but emitting
+  // the matching code keeps the contract uniform (App.tsx onError path with
+  // its includes-check still sees a recognizable code if the IPC channel
+  // ever lost the permanent flag in transit).
   _safeSend?.(CHANNELS.sessionError, {
-    message: 'The recording engine could not recover. Please restart the app.',
+    message: 'SIDECAR_GAVE_UP',
     permanent: true,
   });
 }
