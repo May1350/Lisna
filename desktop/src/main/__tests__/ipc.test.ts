@@ -168,6 +168,25 @@ describe('main/ipc FSM', () => {
     await startPromise;
   });
 
+  // R3 polish: end-to-end EMPTY_TRANSCRIPT through the ipc.ts handler boundary.
+  // The orchestrator unit test (sidecar/__tests__/orchestrator.test.ts) covers
+  // the throw mechanic; this one covers the integration:
+  //   - session/start succeeds, then
+  //   - session/stop fires WITHOUT any chunks having been fed, →
+  //   - the handler propagates EMPTY_TRANSCRIPT through the IPC contract, AND
+  //   - module state is cleared so the next session/start can claim it.
+  it('session/stop with no chunks fed → EMPTY_TRANSCRIPT bubbles through handler + state reset', async () => {
+    const { win } = makeFakeWindow();
+    const supervisor = makeFakeSupervisor({});
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, sttModelPath: '/s', llmModelPath: '/l' });
+    await ipcHandlers['session/start']!({}, { language: 'ja' });
+    // No `recording/chunk` calls → segments is empty when stop fires.
+    await expect(ipcHandlers['session/stop']!({}, undefined)).rejects.toThrow('EMPTY_TRANSCRIPT');
+    // Post-rejection: state must be cleared (finally block runs even on
+    // EMPTY_TRANSCRIPT throw). A second session/start succeeding proves it.
+    await expect(ipcHandlers['session/start']!({}, { language: 'ja' })).resolves.toBeUndefined();
+  });
+
   it('session/stop emits stt-unloading, llm-loading, generating phases in order', async () => {
     const { win, send } = makeFakeWindow();
     const supervisor = makeFakeSupervisor({});

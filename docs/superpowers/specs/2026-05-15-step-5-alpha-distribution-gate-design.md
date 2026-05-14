@@ -183,9 +183,9 @@ Step 5 phase order (each phase blocks the next):
   I. Onboarding doc (§5.3)           Alpha ready
 ```
 
-A and G can parallelize partially (founder works on model paths while AI works on smoke flow). B-F are all AI work; can sequence behind A.
+A and G can parallelize partially (founder works on model paths while AI works on smoke flow). B-F are all AI work; can sequence behind A. **F can also parallelize with E** — file logger setup has no dependency on the i18n copy and unblocks remote-debug from day 1, so running them concurrently shortens calendar time without coupling commits.
 
-Estimated calendar: A: ~1 day. B-F: ~3-4 days. G-I: depends on founder timeline (Apple Developer enrollment is ~1 day, GGUF licensing/CDN is the unknown).
+Estimated calendar: A: ~1 day. B-F: ~3-4 days. G-I: depends on founder timeline (Apple Developer enrollment is 1-7 business days end-to-end — D-U-N-S resolution + 2FA verification on a paid account; the ~1-day estimate was too optimistic — GGUF licensing/CDN is the other unknown).
 
 ---
 
