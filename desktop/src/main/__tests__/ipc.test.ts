@@ -206,6 +206,7 @@ describe('main/ipc FSM', () => {
     (llmModule.LlamaCppLLM as any).mockImplementationOnce(function (this: any) {
       this.loadModel = vi.fn(async () => {});
       this.unloadModel = vi.fn(async () => {});
+      // eslint-disable-next-line require-yield -- intentional: simulate immediate throw before any token
       this.generate = vi.fn(async function* () {
         throw new Error('sidecar process exited');
       });
