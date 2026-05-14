@@ -59,6 +59,11 @@ export interface IpcDeps {
 let current: SessionOrchestrator | null = null;
 let recording = false;
 let _appQuitting = false;
+// True while session/start or session/stop handler body is awaiting (not for
+// recording/chunk). Read by handleSidecarExit to suppress the duplicate
+// session/error push when the in-flight handler's IPC rejection will surface
+// the error to the renderer.
+let _sessionHandlerInFlight = false;
 
 // Captured by registerIpc — null only until first registerIpc call. handleSidecarExit
 // is invoked by main/index.ts via supervisor.onExit; supervisor.start() runs in
@@ -121,6 +126,7 @@ export function registerIpc(deps: IpcDeps) {
       language,
     });
     current = orch;  // claim BEFORE await — concurrent start re-entry blocked synchronously
+    _sessionHandlerInFlight = true;
     try {
       safeSend(CHANNELS.sessionPhase, { phase: 'stt-loading' });
       await orch.start();
@@ -129,6 +135,8 @@ export function registerIpc(deps: IpcDeps) {
       console.error('[session] start failed', err);
       current = null;
       throw err;
+    } finally {
+      _sessionHandlerInFlight = false;
     }
   });
 
@@ -149,6 +157,7 @@ export function registerIpc(deps: IpcDeps) {
     if (!recording) throw new Error('SESSION_NOT_READY');  // start in flight
     const orch = current;
     recording = false;  // sync: post-stop chunks immediately no-op
+    _sessionHandlerInFlight = true;
     try {
       return await orch.stop((phase: SessionPhase) => safeSend(CHANNELS.sessionPhase, { phase }));
     } catch (err) {
@@ -156,6 +165,7 @@ export function registerIpc(deps: IpcDeps) {
       throw err;
     } finally {
       current = null;
+      _sessionHandlerInFlight = false;
     }
   });
 }
@@ -171,15 +181,30 @@ export function setAppQuitting() {
 
 /**
  * Called by main/index.ts via supervisor.onExit on every unexpected sidecar exit.
- * Clears session state and pushes session/error to renderer. Idempotent — guard
- * prevents push when no session was active.
+ * Clears session state and pushes `session/error` to renderer.
+ *
+ * **Why the in-flight guard:** the supervisor's `proc.on('exit', handleExit)`
+ * listener fires synchronously; SidecarClient's `rejectAllPending` schedules
+ * pending rejections on the microtask queue. So when a sidecar crashes
+ * mid-`session/start` or mid-`session/stop`, this function runs BEFORE the
+ * in-flight handler's catch/finally completes — `current` is still non-null.
+ * Without the guard, we'd push `session/error` AND the IPC handler would also
+ * reject to the renderer → two transitions to error view. With the guard:
+ * when a session handler is in-flight, the IPC rejection alone surfaces the
+ * error and we suppress the push. State (`current`/`recording`) is still
+ * cleared synchronously so the next session/start can proceed.
+ *
+ * Chunk handler crashes do NOT trigger a session handler — `recording/chunk`
+ * swallows transcribe errors. So for chunk-in-flight + crash, the push fires
+ * (which is correct — renderer has no other signal).
  */
 export function handleSidecarExit() {
-  if (current || recording) {
-    current = null;
-    recording = false;
-    _safeSend?.(CHANNELS.sessionError, {
-      message: 'Recording engine restarted. Please try again.',
-    });
-  }
+  if (!current && !recording) return;
+  const wasHandlerInFlight = _sessionHandlerInFlight;
+  current = null;
+  recording = false;
+  if (wasHandlerInFlight) return;  // IPC rejection handles renderer transition
+  _safeSend?.(CHANNELS.sessionError, {
+    message: 'Recording engine restarted. Please try again.',
+  });
 }

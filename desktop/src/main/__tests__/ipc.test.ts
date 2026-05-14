@@ -170,12 +170,14 @@ describe('main/ipc FSM', () => {
     expect(phases).toEqual(['stt-loading', 'stt-unloading', 'llm-loading', 'generating']);
   });
 
-  it('handleSidecarExit clears flags + pushes session/error when session active', async () => {
+  it('handleSidecarExit clears flags + pushes session/error when session active (no handler in-flight)', async () => {
     const { win, send } = makeFakeWindow();
     const supervisor = makeFakeSupervisor({});
     ipc.registerIpc({ getMainWindow: () => win, supervisor, sttModelPath: '/s', llmModelPath: '/l' });
     await ipcHandlers['session/start']!({}, { language: 'ja' });
     send.mockClear();
+    // session/start has resolved, so _sessionHandlerInFlight is false.
+    // Sidecar crash here = "user has been recording, now sidecar died." Push expected.
     ipc.handleSidecarExit();
     expect(send).toHaveBeenCalledWith('session/error', expect.objectContaining({ message: expect.any(String) }));
     // Subsequent session/stop should reject (state cleared)
@@ -188,6 +190,70 @@ describe('main/ipc FSM', () => {
     ipc.registerIpc({ getMainWindow: () => win, supervisor, sttModelPath: '/s', llmModelPath: '/l' });
     ipc.handleSidecarExit();
     expect(send).not.toHaveBeenCalled();
+  });
+
+  // C2 regression: sidecar crash mid-session/stop. Two error paths converge:
+  // (a) supervisor.onExit → handleSidecarExit (synchronous), and (b) the
+  // in-flight orch.stop rejects → session/stop IPC promise rejects (microtask).
+  // Without the _sessionHandlerInFlight guard in handleSidecarExit, BOTH would
+  // surface to the renderer → two transitions to ErrorView (and the second
+  // could clobber preserved transcript segments). With the guard:
+  // handleSidecarExit observes _sessionHandlerInFlight=true and skips the push,
+  // letting the IPC rejection alone surface the error.
+  it('sidecar crash mid-session/stop → only handler rejects, no duplicate session/error push', async () => {
+    const llmModule = await import('../engines/llama-cpp-llm');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (llmModule.LlamaCppLLM as any).mockImplementationOnce(function (this: any) {
+      this.loadModel = vi.fn(async () => {});
+      this.unloadModel = vi.fn(async () => {});
+      this.generate = vi.fn(async function* () {
+        throw new Error('sidecar process exited');
+      });
+    });
+
+    const { win, send } = makeFakeWindow();
+    const supervisor = makeFakeSupervisor({});
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, sttModelPath: '/s', llmModelPath: '/l' });
+    await ipcHandlers['session/start']!({}, { language: 'ja' });
+    send.mockClear();
+    // Simulate: session/stop in flight, supervisor.onExit fires while orch.stop is awaiting.
+    const stopPromise = ipcHandlers['session/stop']!({}, undefined);
+    ipc.handleSidecarExit();
+    await expect(stopPromise).rejects.toThrow('sidecar process exited');
+    const errorPushes = send.mock.calls.filter((c) => c[0] === 'session/error');
+    expect(errorPushes).toEqual([]);  // handler rejection was the only error surface
+  });
+
+  // Same C2 invariant on the start side: sidecar crash mid-session/start.
+  it('sidecar crash mid-session/start → only handler rejects, no duplicate session/error push', async () => {
+    let resolveStartAwait: (() => void) | undefined;
+    let rejectStartAwait: ((err: Error) => void) | undefined;
+    const hangingLoad = new Promise<void>((res, rej) => {
+      resolveStartAwait = res;
+      rejectStartAwait = rej;
+    });
+    const sttModule = await import('../engines/whisper-cpp-stt');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (sttModule.WhisperCppSTT as any).mockImplementationOnce(function (this: any) {
+      this.loadModel = vi.fn(() => hangingLoad);
+      this.unloadModel = vi.fn(async () => {});
+      this.transcribe = vi.fn();
+    });
+
+    const { win, send } = makeFakeWindow();
+    const supervisor = makeFakeSupervisor({});
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, sttModelPath: '/s', llmModelPath: '/l' });
+    const startPromise = ipcHandlers['session/start']!({}, { language: 'ja' });
+    send.mockClear();
+    // Supervisor.onExit fires while orch.start is awaiting stt.loadModel.
+    ipc.handleSidecarExit();
+    // Now make the loadModel reject (simulating client.rejectAllPending).
+    rejectStartAwait!(new Error('sidecar process exited'));
+    await expect(startPromise).rejects.toThrow('sidecar process exited');
+    const errorPushes = send.mock.calls.filter((c) => c[0] === 'session/error');
+    expect(errorPushes).toEqual([]);
+    // Cleanup: resolve in case the test framework reuses.
+    resolveStartAwait!();
   });
 
   it('adapter freshness across sequential session/start (respawn pattern)', async () => {
