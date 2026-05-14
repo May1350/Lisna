@@ -84,33 +84,53 @@ describe('SidecarSupervisor', () => {
     expect(callOrder).toEqual(['onExit', 'onExit', 'onCrash']);
   });
 
-  it('listener registration order — client registers exit handler before supervisor', () => {
-    // Critical invariant: in supervisor.start(), `new SidecarClient(proc)` runs
-    // BEFORE `proc.on('exit', handleExit)`. SidecarClient's constructor
-    // registers `proc.on('exit', rejectAllPending)`. Node fires listeners in
-    // registration order, so client's pending-rejection runs first when proc
-    // crashes — that lets in-flight orch.stop() / orch.onChunk() complete
-    // their `finally` (clearing ipc.ts state) BEFORE supervisor's handleExit
-    // calls onExit → handleSidecarExit.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const onExitCalls: ((...args: any[]) => void)[] = [];
-    spawnMock.mockImplementationOnce(() => {
-      const c = new FakeChild();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      c.on = vi.fn((event: string, listener: any) => {
-        if (event === 'exit') onExitCalls.push(listener);
-        return c;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      }) as any;
-      return c;
+  // Critical invariant: in supervisor.start(), `new SidecarClient(proc)` runs
+  // BEFORE `proc.on('exit', handleExit)`. SidecarClient's constructor
+  // registers `proc.on('exit', rejectAllPending)`. Node fires listeners in
+  // registration order, so client's pending-rejection runs first when proc
+  // crashes — that lets in-flight orch.stop() / orch.onChunk() complete their
+  // `finally` (clearing ipc.ts state) BEFORE supervisor's handleExit calls
+  // onExit → handleSidecarExit.
+  //
+  // Verification strategy: behavior-based, not closure-string introspection.
+  // We seed the client with one pending request, then emit 'exit'. At the
+  // moment supervisor's onExit fires (synchronously inside handleExit), check
+  // whether client's pending map is already empty. If client's listener ran
+  // first (correct order), pending is empty (0). If supervisor's ran first,
+  // pending still has 1 entry — test fails. This survives minification, ES5
+  // downlevel, and any future refactor that renames closures, because it
+  // checks actual runtime behavior rather than source text.
+  it('listener registration order — client clears pending before supervisor onExit fires', async () => {
+    let pendingSizeWhenOnExitFired = -1;
+    // Holder ref so the onExit closure can read clientRef.current after assignment.
+    const clientRef: { current: { pending: Map<string, unknown> } | null } = { current: null };
+    const sup = new SidecarSupervisor({
+      onCrash: vi.fn(),
+      onExit: () => {
+        if (clientRef.current) pendingSizeWhenOnExitFired = clientRef.current.pending.size;
+      },
+      restartDelayMs: 10000,
     });
-    const sup = new SidecarSupervisor({ onCrash: vi.fn(), onExit: vi.fn() });
-    sup.start();
-    // At least 2 exit listeners registered: client's rejectAllPending + supervisor's handleExit.
-    expect(onExitCalls.length).toBeGreaterThanOrEqual(2);
-    // First listener is from SidecarClient (rejectAllPending closes over `this.pending`,
-    // does NOT reference `failuresInARow`).
-    expect(onExitCalls[0]!.toString()).not.toContain('failuresInARow');
-    expect(onExitCalls[0]!.toString()).toMatch(/rejectAllPending|sidecar process exited/);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    clientRef.current = sup.start() as any;
+    const proc = spawnMock.mock.results[0]!.value as FakeChild;
+
+    // Seed client with one pending request (returns a Promise; we catch the rejection
+    // so the test process doesn't see an unhandled rejection).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const pendingPromise = (clientRef.current as any).send({ type: 'ping' }, { timeoutMs: Infinity })
+      .catch(() => { /* expected — sidecar process exited */ });
+    expect(clientRef.current!.pending.size).toBe(1);  // pre-condition
+
+    // Trigger exit. Listeners fire synchronously in registration order:
+    //   1. client.rejectAllPending → pending map cleared synchronously
+    //   2. supervisor.handleExit → onExit callback fires
+    // Our onExit captures pending.size at that moment.
+    proc.emit('exit', 1, null);
+
+    // If client registered FIRST (correct), pending was cleared before onExit ran.
+    expect(pendingSizeWhenOnExitFired).toBe(0);
+
+    await pendingPromise;  // drain the rejection
   });
 });
