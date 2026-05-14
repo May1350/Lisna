@@ -133,6 +133,31 @@ describe('main/ipc FSM', () => {
     await expect(ipcHandlers['session/stop']!({}, undefined)).rejects.toThrow('NO_ACTIVE_SESSION');
   });
 
+  it('session/stop while recording === false (start in flight) → SESSION_NOT_READY', async () => {
+    // Slow STT loadModel — never resolves during this test — so session/start
+    // remains awaiting (current=orch, recording=false).
+    let resolveStartAwait: (() => void) | undefined;
+    const slowLoad = new Promise<void>((r) => { resolveStartAwait = r; });
+    const sttModule = await import('../engines/whisper-cpp-stt');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (sttModule.WhisperCppSTT as any).mockImplementationOnce(function (this: any) {
+      this.loadModel = vi.fn(() => slowLoad);
+      this.unloadModel = vi.fn(async () => {});
+      this.transcribe = vi.fn();
+    });
+
+    const { win } = makeFakeWindow();
+    const supervisor = makeFakeSupervisor({});
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, sttModelPath: '/s', llmModelPath: '/l' });
+    // Fire session/start but don't await — it's hanging on slowLoad.
+    const startPromise = ipcHandlers['session/start']!({}, { language: 'ja' });
+    // At this point: current=orch (set sync before await), recording=false (await orch.start not yet resolved).
+    await expect(ipcHandlers['session/stop']!({}, undefined)).rejects.toThrow('SESSION_NOT_READY');
+    // Cleanup: resolve the hanging load so startPromise can complete.
+    resolveStartAwait!();
+    await startPromise;
+  });
+
   it('session/stop emits stt-unloading, llm-loading, generating phases in order', async () => {
     const { win, send } = makeFakeWindow();
     const supervisor = makeFakeSupervisor({});
