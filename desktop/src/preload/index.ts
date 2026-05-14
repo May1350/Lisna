@@ -56,6 +56,14 @@ contextBridge.exposeInMainWorld('lisna', {
     ipcRenderer.on(CHANNELS.sessionError, listener);
     return () => ipcRenderer.removeListener(CHANNELS.sessionError, listener);
   },
+
+  /**
+   * Step 5 §3.6 — fire-and-forget restart. Calls main's lifecycle/restart IPC
+   * which runs `app.relaunch() + app.quit()`. The current window's webContents
+   * will be torn down by the resulting before-quit cycle, so the returned
+   * promise typically never settles client-side — the caller should not await.
+   */
+  restartApp: (): Promise<void> => ipcRenderer.invoke(CHANNELS.lifecycleRestart),
 });
 
 declare global {
@@ -70,6 +78,7 @@ declare global {
       stopSession(): Promise<Note>;
       onPhase(cb: (msg: SessionPhasePayload) => void): () => void;
       onSessionError(cb: (msg: SessionErrorPayload) => void): () => void;
+      restartApp(): Promise<void>;
     };
   }
 }

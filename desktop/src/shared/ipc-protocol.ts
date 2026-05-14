@@ -89,4 +89,12 @@ export interface SessionPhasePayload {
 
 export interface SessionErrorPayload {
   message: string;
+  /**
+   * True only when supervisor's give-up signal fires (2 consecutive sidecar
+   * crashes; no more respawn). Tells the renderer to show a Restart Lisna
+   * button (lifecycle/restart IPC) instead of Try Again. Default false /
+   * unset for the common transient-crash case where the supervisor will
+   * spawn a fresh sidecar shortly.
+   */
+  permanent?: boolean;
 }

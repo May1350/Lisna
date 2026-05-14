@@ -12,7 +12,7 @@ type View =
   | { kind: 'recording'; segments: TranscriptSegment[] }
   | { kind: 'finalizing'; phase: FinalizingPhase; segments: TranscriptSegment[] }
   | { kind: 'note'; note: Note }
-  | { kind: 'error'; message: string; segments: TranscriptSegment[] };
+  | { kind: 'error'; message: string; segments: TranscriptSegment[]; permanent?: boolean };
 
 export function App() {
   const [view, setView] = useState<View>({ kind: 'recording', segments: [] });
@@ -47,16 +47,25 @@ export function App() {
     });
   }, []);
 
-  // Session error (sidecar crash). Idempotent — if already in 'error', preserve.
-  // Without this, a second transition (from Recording.stop's catch firing after
-  // the listener already fired) would overwrite with empty segments.
+  // Session error (sidecar crash). Idempotent merge:
+  //   - First push: transition to 'error' view, preserving transcript segments.
+  //   - Second push with permanent=true (give-up upgrade arriving after the
+  //     transient handleSidecarExit push): keep the existing message/segments
+  //     but flip the permanent flag so ErrorView swaps to the Restart button.
+  //   - Repeat transient pushes: ignored (keep first message).
+  // This handles the supervisor's onExit-then-onCrash sequence: ipc.ts pushes
+  // the transient message first, then handleSidecarGiveUp pushes the
+  // permanent upgrade — both via the same channel.
   useEffect(() => {
-    return window.lisna.onSessionError(({ message }) => {
+    return window.lisna.onSessionError(({ message, permanent }) => {
       setView((prev) => {
-        if (prev.kind === 'error') return prev;
+        if (prev.kind === 'error') {
+          // Already in error — only upgrade flag, don't overwrite message/segments.
+          return permanent && !prev.permanent ? { ...prev, permanent: true } : prev;
+        }
         const segments =
           prev.kind === 'recording' || prev.kind === 'finalizing' ? prev.segments : [];
-        return { kind: 'error', message, segments };
+        return { kind: 'error', message, segments, permanent };
       });
     });
   }, []);
@@ -88,7 +97,12 @@ function renderView(view: View, setView: (next: View | ((p: View) => View)) => v
               if (prev.kind === 'error') return prev;
               const segments =
                 prev.kind === 'recording' || prev.kind === 'finalizing' ? prev.segments : [];
-              return { kind: 'error', message, segments };
+              // Synchronous SIDECAR_GAVE_UP rejection (e.g. user clicked Start
+              // after give-up, before any onSessionError push reached the
+              // renderer): infer permanent here so the restart UX kicks in
+              // without waiting for the IPC channel.
+              const permanent = message.includes('SIDECAR_GAVE_UP') || undefined;
+              return { kind: 'error', message, segments, permanent };
             })
           }
         />
@@ -107,6 +121,7 @@ function renderView(view: View, setView: (next: View | ((p: View) => View)) => v
         <ErrorView
           message={view.message}
           segments={view.segments}
+          permanent={view.permanent}
           onRetry={() => setView({ kind: 'recording', segments: [] })}
         />
       );

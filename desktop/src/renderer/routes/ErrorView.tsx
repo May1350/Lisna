@@ -4,6 +4,12 @@ interface Props {
   message: string;
   segments: TranscriptSegment[];
   onRetry: () => void;
+  /**
+   * Step 5 §3.6 — true when supervisor has given up (2 consecutive sidecar
+   * crashes). Replaces the Try Again button with a Restart Lisna button.
+   * Try Again would just hit SIDECAR_GAVE_UP again until process exit.
+   */
+  permanent?: boolean;
 }
 
 /**
@@ -36,6 +42,9 @@ const FRIENDLY: Record<string, string> = {
   LLM_LOAD_TIMEOUT: 'The note-writing model took too long to load. Please try again.',
   LLM_UNLOAD_TIMEOUT: 'The note-writing model is taking too long to release. Please try again.',
   GENERATE_TIMEOUT: 'Note generation stalled. Please try again.',
+  // Step 5 §3.6 give-up code. When this fires, the ErrorView receives
+  // permanent=true and renders a Restart button instead of Try Again.
+  SIDECAR_GAVE_UP: 'The recording engine could not recover. Please restart the app.',
 };
 
 function toFriendly(rawMessage: string): string {
@@ -49,8 +58,13 @@ function toFriendly(rawMessage: string): string {
   return 'Something went wrong. Please try again.';
 }
 
-export function ErrorView({ message, segments, onRetry }: Props) {
-  const friendly = toFriendly(message);
+export function ErrorView({ message, segments, onRetry, permanent }: Props) {
+  // Resolve copy. The permanent flag forces the SIDECAR_GAVE_UP message even
+  // if `message` came in as a transient "engine restarted" string from an
+  // earlier handleSidecarExit push that arrived before the give-up upgrade.
+  // Without this, App.tsx's idempotent error-state merge would keep the
+  // earlier copy on screen — defeating the purpose of the flag.
+  const friendly = permanent ? FRIENDLY.SIDECAR_GAVE_UP! : toFriendly(message);
   return (
     <section>
       <h2>Something went wrong</h2>
@@ -65,7 +79,11 @@ export function ErrorView({ message, segments, onRetry }: Props) {
           </ul>
         </details>
       )}
-      <button onClick={onRetry}>Try again</button>
+      {permanent ? (
+        <button onClick={() => void window.lisna.restartApp()}>Restart Lisna</button>
+      ) : (
+        <button onClick={onRetry}>Try again</button>
+      )}
     </section>
   );
 }

@@ -1,7 +1,7 @@
 import { app, BrowserWindow } from 'electron';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { registerIpc, handleSidecarExit, setAppQuitting } from './ipc';
+import { registerIpc, handleSidecarExit, handleSidecarGiveUp, setAppQuitting } from './ipc';
 import { installSystemAudioHandler } from './audio/system-audio-handler';
 import { SidecarSupervisor } from './sidecar/supervisor';
 
@@ -39,10 +39,21 @@ function createWindow() {
 app.whenReady().then(async () => {
   installSystemAudioHandler();
   supervisor = new SidecarSupervisor({
-    // Log-only breadcrumb. The renderer-visible session/error push comes from
-    // onExit → handleSidecarExit. Demoting onCrash prevents double-pushes on
-    // the give-up case (where both onExit and onCrash fire — onExit first).
-    onCrash: (msg) => console.error('[sidecar give-up]', msg),
+    // Step 5 §3.6 — give-up signals the renderer to switch from "Try again"
+    // to "Restart Lisna". handleSidecarGiveUp does the state-flag flip AND
+    // pushes session/error with permanent:true. Both fire here: log to
+    // console for ops diagnostics, then route to the IPC module so the UI
+    // can react.
+    //
+    // Order invariant: supervisor's handleExit fires onExit FIRST then
+    // onCrash. handleSidecarExit runs first (transient push or in-flight
+    // suppression), then handleSidecarGiveUp upgrades the state to permanent.
+    // App.tsx's idempotent error-state merge keeps the transcript and
+    // updates the permanent flag — see App.tsx onSessionError handler.
+    onCrash: (msg) => {
+      console.error('[sidecar give-up]', msg);
+      handleSidecarGiveUp();
+    },
     // Single source of truth for renderer notification: clears session state
     // and pushes session/error from ipc.ts module scope.
     onExit: handleSidecarExit,

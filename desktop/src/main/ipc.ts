@@ -1,5 +1,5 @@
 import os from 'node:os';
-import { ipcMain, type BrowserWindow } from 'electron';
+import { app, ipcMain, type BrowserWindow } from 'electron';
 import type {
   Capabilities,
   ChunkPayload,
@@ -31,6 +31,8 @@ export const CHANNELS = {
   sessionPhase: 'session/phase',
   /** main → renderer: sidecar crashed mid-session */
   sessionError: 'session/error',
+  /** renderer → main: app.relaunch() + app.quit() for §3.6 give-up recovery */
+  lifecycleRestart: 'lifecycle/restart',
 } as const;
 
 export interface IpcDeps {
@@ -56,9 +58,16 @@ export interface IpcDeps {
 //     → idle
 //   Crash edge: handleSidecarExit() clears state + pushes session/error from any
 //   non-idle state.
+//   Permanent give-up edge: handleSidecarGiveUp() additionally sets _sidecarGaveUp,
+//   which short-circuits future session/start calls until lifecycle/restart fires.
 let current: SessionOrchestrator | null = null;
 let recording = false;
 let _appQuitting = false;
+// True after supervisor.onCrash fires (2 consecutive sidecar crashes; respawn
+// abandoned). Stays true until lifecycle/restart relaunches the app. Gates
+// session/start ahead of the sidecar-getClient check so the user sees a
+// "restart required" error instead of repeated SIDECAR_DOWN bounces.
+let _sidecarGaveUp = false;
 // True while session/start or session/stop handler body is awaiting (not for
 // recording/chunk). Read by handleSidecarExit to suppress the duplicate
 // session/error push when the in-flight handler's IPC rejection will surface
@@ -109,6 +118,7 @@ export function registerIpc(deps: IpcDeps) {
   _safeSend = safeSend;
 
   ipcMain.handle(CHANNELS.sessionStart, async (_e, { language }: SessionStartPayload) => {
+    if (_sidecarGaveUp) throw new Error('SIDECAR_GAVE_UP');
     if (current !== null) throw new Error('SESSION_ACTIVE');
     if (language !== 'ja') throw new Error('UNSUPPORTED_LANGUAGE');  // v2.0 JA-only
     if (!deps.sttModelPath || !deps.llmModelPath) throw new Error('MODELS_NOT_CONFIGURED');
@@ -151,6 +161,18 @@ export function registerIpc(deps: IpcDeps) {
     platform: process.platform,
     osRelease: os.release(),
   }));
+
+  ipcMain.handle(CHANNELS.lifecycleRestart, async () => {
+    // Step 5 §3.6 — give-up recovery. Restart the Electron app so the OS
+    // re-spawns a fresh sidecar process from scratch and `_sidecarGaveUp` /
+    // ipc.ts module state are wiped (process exit clears them implicitly).
+    //
+    // CRITICAL ORDER: relaunch BEFORE quit. `app.quit()` dispatches the
+    // before-quit hook synchronously; if quit ran first, the scheduled
+    // relaunch would not be registered yet and the OS would just close us.
+    app.relaunch();
+    app.quit();
+  });
 
   ipcMain.handle(CHANNELS.sessionStop, async (): Promise<Note> => {
     if (current === null) throw new Error('NO_ACTIVE_SESSION');
@@ -206,5 +228,36 @@ export function handleSidecarExit() {
   if (wasHandlerInFlight) return;  // IPC rejection handles renderer transition
   _safeSend?.(CHANNELS.sessionError, {
     message: 'Recording engine restarted. Please try again.',
+  });
+}
+
+/**
+ * Called by main/index.ts via supervisor.onCrash when the supervisor has given
+ * up respawning (`maxConsecutiveFailures` reached). Different from
+ * handleSidecarExit in three ways:
+ *
+ *   1. Sets `_sidecarGaveUp = true` so subsequent `session/start` IPC calls
+ *      reject with `SIDECAR_GAVE_UP` (not the misleading `SIDECAR_DOWN`).
+ *   2. Pushes `session/error` with `permanent: true` so the renderer shows
+ *      a Restart Lisna button instead of Try Again.
+ *   3. Pushes EVEN WHEN IDLE — unlike handleSidecarExit which silently no-ops
+ *      from idle. Rationale: a user clicking Start while idle after a give-up
+ *      would see the rejection mid-action; pre-emptively surface the state
+ *      so the UI displays the restart prompt immediately.
+ *
+ * Ordering note: SidecarSupervisor.handleExit fires `onExit` FIRST then
+ * `onCrash` on the give-up case. So handleSidecarExit will have already
+ * cleared state and (in non-handler-in-flight cases) pushed the transient
+ * "engine restarted" error. handleSidecarGiveUp's push happens after; the
+ * renderer's App.tsx idempotency keeps the earlier error view but updates
+ * via the new payload's `permanent: true` flag — see ErrorView §3.6 logic.
+ */
+export function handleSidecarGiveUp() {
+  _sidecarGaveUp = true;
+  current = null;
+  recording = false;
+  _safeSend?.(CHANNELS.sessionError, {
+    message: 'The recording engine could not recover. Please restart the app.',
+    permanent: true,
   });
 }

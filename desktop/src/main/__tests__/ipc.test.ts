@@ -2,14 +2,22 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ChunkPayload } from '@shared/ipc-protocol';
 
 // Mock electron's ipcMain — capture the handlers registered so tests can invoke them.
+// Also mock app.relaunch/quit so the restart IPC handler doesn't actually kill
+// the test process; tests assert the calls landed.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const ipcHandlers: Record<string, (e: any, payload: any) => Promise<any>> = {};
+const appRelaunch = vi.fn();
+const appQuit = vi.fn();
 vi.mock('electron', () => ({
   ipcMain: {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     handle: vi.fn((channel: string, handler: any) => {
       ipcHandlers[channel] = handler;
     }),
+  },
+  app: {
+    relaunch: (...args: unknown[]) => appRelaunch(...args),
+    quit: (...args: unknown[]) => appQuit(...args),
   },
 }));
 
@@ -70,6 +78,8 @@ describe('main/ipc FSM', () => {
     vi.clearAllMocks();
     fakeSttInstances.length = 0;
     fakeLlmInstances.length = 0;
+    appRelaunch.mockClear();
+    appQuit.mockClear();
     Object.keys(ipcHandlers).forEach((k) => delete ipcHandlers[k]);
     vi.resetModules();
     ipc = await import('../ipc');
@@ -266,6 +276,79 @@ describe('main/ipc FSM', () => {
     expect(errorPushes).toEqual([]);
     // Cleanup: resolve in case the test framework reuses.
     resolveStartAwait!();
+  });
+
+  // --- Step 5 §3.6 permanent give-up recovery ---
+
+  it('handleSidecarGiveUp pushes session/error with permanent=true and clears state', async () => {
+    const { win, send } = makeFakeWindow();
+    const supervisor = makeFakeSupervisor({});
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, sttModelPath: '/s', llmModelPath: '/l' });
+    await ipcHandlers['session/start']!({}, { language: 'ja' });
+    send.mockClear();
+    ipc.handleSidecarGiveUp();
+    expect(send).toHaveBeenCalledWith(
+      'session/error',
+      expect.objectContaining({ permanent: true, message: expect.any(String) }),
+    );
+    // State must be cleared so any in-flight state is consistent.
+    await expect(ipcHandlers['session/stop']!({}, undefined)).rejects.toThrow('NO_ACTIVE_SESSION');
+  });
+
+  it('session/start after handleSidecarGiveUp rejects with SIDECAR_GAVE_UP (not SIDECAR_DOWN)', async () => {
+    const { win } = makeFakeWindow();
+    const supervisor = makeFakeSupervisor({});
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, sttModelPath: '/s', llmModelPath: '/l' });
+    ipc.handleSidecarGiveUp();
+    // Even though supervisor.getClient() returns truthy here (the mock), the
+    // give-up flag must short-circuit BEFORE the SIDECAR_DOWN check so the
+    // renderer can distinguish transient vs terminal state.
+    await expect(ipcHandlers['session/start']!({}, { language: 'ja' })).rejects.toThrow('SIDECAR_GAVE_UP');
+  });
+
+  it('handleSidecarGiveUp from idle state still pushes the permanent error', async () => {
+    // Different from handleSidecarExit (which silently no-ops when idle). The
+    // give-up signal MUST surface to the renderer even if no session was active,
+    // because the user's next click would otherwise hit SIDECAR_GAVE_UP without
+    // context. Tells them to restart up-front.
+    const { win, send } = makeFakeWindow();
+    const supervisor = makeFakeSupervisor({});
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, sttModelPath: '/s', llmModelPath: '/l' });
+    ipc.handleSidecarGiveUp();
+    expect(send).toHaveBeenCalledWith(
+      'session/error',
+      expect.objectContaining({ permanent: true }),
+    );
+  });
+
+  it('lifecycle/restart IPC handler calls app.relaunch then app.quit', async () => {
+    const { win } = makeFakeWindow();
+    const supervisor = makeFakeSupervisor({});
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, sttModelPath: '/s', llmModelPath: '/l' });
+    expect(ipcHandlers['lifecycle/restart']).toBeDefined();
+    await ipcHandlers['lifecycle/restart']!({}, undefined);
+    expect(appRelaunch).toHaveBeenCalledTimes(1);
+    expect(appQuit).toHaveBeenCalledTimes(1);
+    // relaunch must be called BEFORE quit — quit will dispatch before-quit,
+    // which would un-schedule a later relaunch.
+    expect(appRelaunch.mock.invocationCallOrder[0]).toBeLessThan(
+      appQuit.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it('handleSidecarExit (transient) sends permanent=undefined (NOT permanent=true)', async () => {
+    // Regression guard: handleSidecarExit is the transient crash path; the
+    // payload MUST NOT carry permanent=true, or the renderer would
+    // mis-render the restart button. Only handleSidecarGiveUp tags it.
+    const { win, send } = makeFakeWindow();
+    const supervisor = makeFakeSupervisor({});
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, sttModelPath: '/s', llmModelPath: '/l' });
+    await ipcHandlers['session/start']!({}, { language: 'ja' });
+    send.mockClear();
+    ipc.handleSidecarExit();
+    const errCall = send.mock.calls.find((c) => c[0] === 'session/error');
+    expect(errCall).toBeDefined();
+    expect(errCall![1]).not.toHaveProperty('permanent', true);
   });
 
   it('adapter freshness across sequential session/start (respawn pattern)', async () => {
