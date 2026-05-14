@@ -38,18 +38,16 @@ class FakeChild extends EventEmitter {
 }
 
 describe('SidecarSupervisor', () => {
-  let proc: FakeChild;
-
   beforeEach(() => {
     vi.clearAllMocks();
-    proc = new FakeChild();
-    spawnMock.mockReturnValue(proc);
+    spawnMock.mockImplementation(() => new FakeChild());
   });
 
   it('fires onExit once per unexpected exit', () => {
     const onExit = vi.fn();
     const sup = new SidecarSupervisor({ onCrash: vi.fn(), onExit, restartDelayMs: 10000 });
     sup.start();
+    const proc = spawnMock.mock.results[0]!.value as FakeChild;
     proc.emit('exit', 1, null);
     expect(onExit).toHaveBeenCalledTimes(1);
   });
@@ -58,8 +56,8 @@ describe('SidecarSupervisor', () => {
     const onExit = vi.fn();
     const sup = new SidecarSupervisor({ onCrash: vi.fn(), onExit });
     sup.start();
+    const proc = spawnMock.mock.results[0]!.value as FakeChild;
     const shutdownPromise = sup.shutdown();
-    // shutdown() awaits proc.once('exit'); emit to resolve it.
     proc.emit('exit', 0, null);
     await shutdownPromise;
     expect(onExit).not.toHaveBeenCalled();
@@ -75,17 +73,14 @@ describe('SidecarSupervisor', () => {
       restartDelayMs: 5,
     });
     sup.start();
-    // First crash → onExit fires, respawn scheduled in 5ms.
-    proc.emit('exit', 1, null);
-    // Wait for respawn timer to fire and start() to be called again.
+    const proc1 = spawnMock.mock.results[0]!.value as FakeChild;
+    proc1.emit('exit', 1, null);
+    // Wait for respawn (5ms timer) — 30ms margin for CI.
     await new Promise((r) => setTimeout(r, 30));
-    // Second proc was created by the respawn. Replace our local handle.
-    proc = spawnMock.mock.results[spawnMock.mock.results.length - 1]!.value as FakeChild;
-    // Second crash → onExit + onCrash (give-up).
-    proc.emit('exit', 1, null);
+    const proc2 = spawnMock.mock.results[1]!.value as FakeChild;
+    proc2.emit('exit', 1, null);
     expect(onExit).toHaveBeenCalledTimes(2);
     expect(onCrash).toHaveBeenCalledTimes(1);
-    // 2nd onExit fires immediately before onCrash within the same handleExit.
     expect(callOrder).toEqual(['onExit', 'onExit', 'onCrash']);
   });
 
@@ -99,12 +94,16 @@ describe('SidecarSupervisor', () => {
     // calls onExit → handleSidecarExit.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const onExitCalls: ((...args: any[]) => void)[] = [];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    proc.on = vi.fn((event: string, listener: any) => {
-      if (event === 'exit') onExitCalls.push(listener);
-      return proc;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    }) as any;
+    spawnMock.mockImplementationOnce(() => {
+      const c = new FakeChild();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      c.on = vi.fn((event: string, listener: any) => {
+        if (event === 'exit') onExitCalls.push(listener);
+        return c;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any;
+      return c;
+    });
     const sup = new SidecarSupervisor({ onCrash: vi.fn(), onExit: vi.fn() });
     sup.start();
     // At least 2 exit listeners registered: client's rejectAllPending + supervisor's handleExit.

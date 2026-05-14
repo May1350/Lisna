@@ -48,9 +48,6 @@ export class SidecarSupervisor {
   private failuresInARow = 0;
   private healthyResetTimer?: NodeJS.Timeout;
   private shuttingDown = false;
-  /** Monotonically incremented on each `start()` call. Closures capture the
-   * generation at the time of spawn; stale exit-listeners are silently ignored. */
-  private generation = 0;
   private readonly onCrash: (msg: string) => void;
   private readonly onExit?: () => void;
   private readonly maxFailures: number;
@@ -93,8 +90,7 @@ export class SidecarSupervisor {
     // state mid-finally and push session/error while the renderer already saw
     // a handler rejection. Do not reorder.
     this.client = new SidecarClient(this.proc);
-    const gen = ++this.generation;
-    this.proc.on('exit', (code, sig) => this.handleExit(code, sig, gen));
+    this.proc.on('exit', (code, sig) => this.handleExit(code, sig));
     this.proc.on('error', (err) => console.error('[sidecar spawn error]', err));
     // After a healthy uptime window, reset the failure counter so isolated
     // crashes much later don't immediately push us to the give-up threshold.
@@ -109,17 +105,7 @@ export class SidecarSupervisor {
     return this.client;
   }
 
-  private handleExit(
-    code: number | null,
-    sig: NodeJS.Signals | null,
-    spawnGeneration: number,
-  ): void {
-    // Guard: stale exit-listeners from a previous spawn cycle (possible when
-    // the test mock returns the same ChildProcess object for every spawn() call)
-    // must not double-fire onExit/onCrash. The generation counter monotonically
-    // increments with each start(); the current generation only matches the
-    // latest spawn.
-    if (spawnGeneration !== this.generation) return;
+  private handleExit(code: number | null, sig: NodeJS.Signals | null): void {
     if (this.healthyResetTimer) {
       clearTimeout(this.healthyResetTimer);
       this.healthyResetTimer = undefined;
