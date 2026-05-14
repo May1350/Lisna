@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { app } from 'electron';
 import { join } from 'node:path';
 import { SidecarClient } from './client';
+import { log, sessionLog } from '../log';
 
 interface SupervisorOptions {
   /** Called when the sidecar has crashed `maxConsecutiveFailures` times in a row and the supervisor is giving up. */
@@ -91,7 +92,7 @@ export class SidecarSupervisor {
     // a handler rejection. Do not reorder.
     this.client = new SidecarClient(this.proc);
     this.proc.on('exit', (code, sig) => this.handleExit(code, sig));
-    this.proc.on('error', (err) => console.error('[sidecar spawn error]', err));
+    this.proc.on('error', (err) => log.error('[sidecar spawn error]', err));
     // After a healthy uptime window, reset the failure counter so isolated
     // crashes much later don't immediately push us to the give-up threshold.
     this.healthyResetTimer = setTimeout(() => {
@@ -124,6 +125,14 @@ export class SidecarSupervisor {
       );
       return;
     }
+    // Step 5 §4.2 — respawn breadcrumb. attempt = current consecutive-failure
+    // count (1-based — the count is post-increment, so this respawn is
+    // attempt N where N matches "we've had N failures, trying recovery N+1
+    // = next sidecar instance"). reason is shape-only (exit code + signal).
+    sessionLog.respawn({
+      attempt: this.failuresInARow,
+      reason: `unexpected exit code=${code} sig=${sig}`,
+    });
     setTimeout(() => {
       if (!this.shuttingDown) this.start();
     }, this.restartDelayMs);

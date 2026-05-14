@@ -4,6 +4,11 @@ import { dirname, join } from 'node:path';
 import { registerIpc, handleSidecarExit, handleSidecarGiveUp, setAppQuitting } from './ipc';
 import { installSystemAudioHandler } from './audio/system-audio-handler';
 import { SidecarSupervisor } from './sidecar/supervisor';
+import { initFileLogger, log, redactPath } from './log';
+
+// Step 5 §4.1 — initialize file logger BEFORE any other module that may log
+// during boot. macOS log path: ~/Library/Logs/Lisna/main.log (rotating).
+initFileLogger();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -51,7 +56,7 @@ app.whenReady().then(async () => {
     // App.tsx's idempotent error-state merge keeps the transcript and
     // updates the permanent flag — see App.tsx onSessionError handler.
     onCrash: (msg) => {
-      console.error('[sidecar give-up]', msg);
+      log.error('[sidecar give-up]', msg);
       handleSidecarGiveUp();
     },
     // Single source of truth for renderer notification: clears session state
@@ -59,13 +64,15 @@ app.whenReady().then(async () => {
     onExit: handleSidecarExit,
   });
   const client = supervisor.start();
-  client.onEvent((e) => console.log('[sidecar event]', e.type));
+  // Per-event log noise is keyed on type, not payload (sidecar event payloads
+  // contain ready/log/memory data — `type` alone is the breadcrumb).
+  client.onEvent((e) => log.info('[sidecar event]', e.type));
 
   try {
     const ready = await client.waitForReady(5000);
-    console.log('[sidecar] ready', ready);
+    log.info('[sidecar] ready', ready);
   } catch (err) {
-    console.error('[sidecar] failed to reach ready state — recording will fail until restart:', err);
+    log.error('[sidecar] failed to reach ready state — recording will fail until restart:', err);
   }
 
   // Dev hook until Phase 4 packaging completes. Both required for v2.0 —
@@ -76,6 +83,11 @@ app.whenReady().then(async () => {
   // See desktop/docs/manual-verification.md for working model paths.
   const sttModelPath = process.env.LISNA_DEV_STT_MODEL;
   const llmModelPath = process.env.LISNA_DEV_LLM_MODEL;
+  // Log the resolved model path STATUS (configured / unset) so a packaged
+  // alpha build can be diagnosed remotely. Path itself is redacted to strip
+  // the user's home-dir name.
+  log.info(`[boot] STT model: ${redactPath(sttModelPath)}`);
+  log.info(`[boot] LLM model: ${redactPath(llmModelPath)}`);
 
   createWindow();
   registerIpc({

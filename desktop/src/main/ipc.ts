@@ -13,6 +13,7 @@ import { SessionOrchestrator } from './sidecar/orchestrator';
 import { WhisperCppSTT } from './engines/whisper-cpp-stt';
 import { LlamaCppLLM } from './engines/llama-cpp-llm';
 import { isMacAudioLoopbackSupported } from './platform/hardware-check';
+import { log, sessionLog } from './log';
 
 export const CHANNELS = {
   startRecording: 'recording/start',
@@ -104,7 +105,9 @@ export async function handleChunk(
     });
   } catch (err) {
     // One failed chunk must not break the session — log, allow next chunk.
-    console.error('[stt] chunk transcribe error', payload.index, err);
+    // Index is shape-safe (a small integer); error message may include
+    // sidecar diagnostic text but not user transcript content.
+    log.error('[stt] chunk transcribe error', payload.index, err);
   }
   return { ok: true };
 }
@@ -137,12 +140,21 @@ export function registerIpc(deps: IpcDeps) {
     });
     current = orch;  // claim BEFORE await — concurrent start re-entry blocked synchronously
     _sessionHandlerInFlight = true;
+    // Step 5 §4.2 — session-boundary breadcrumb. Emit at the FIRST committed
+    // point of start (after all rejection gates pass) so log readers can match
+    // start↔stop pairs cleanly without spurious "start lang=ja" entries from
+    // rejected attempts.
+    sessionLog.start(language);
+    const sttLoadStartMs = Date.now();
     try {
       safeSend(CHANNELS.sessionPhase, { phase: 'stt-loading' });
       await orch.start();
+      sessionLog.phase('stt-load', Date.now() - sttLoadStartMs);
       recording = true;
     } catch (err) {
-      console.error('[session] start failed', err);
+      const code = err instanceof Error ? err.message : String(err);
+      sessionLog.error(code);
+      log.error('[session] start failed', err);
       current = null;
       throw err;
     } finally {
@@ -180,10 +192,37 @@ export function registerIpc(deps: IpcDeps) {
     const orch = current;
     recording = false;  // sync: post-stop chunks immediately no-op
     _sessionHandlerInFlight = true;
+    // Step 5 §4.2 — phase timings. The orchestrator fires onPhase synchronously
+    // BEFORE each of its three internal awaits (stt-unloading → llm-loading →
+    // generating). We wrap that callback to (1) forward the safeSend (unchanged
+    // renderer behavior) and (2) record the elapsed ms since the previous
+    // phase entry, emitting a breadcrumb when the next one starts.
+    let lastPhaseAt = Date.now();
+    let lastPhase: SessionPhase | null = null;
+    const onPhase = (phase: SessionPhase): void => {
+      const now = Date.now();
+      if (lastPhase !== null) sessionLog.phase(lastPhase, now - lastPhaseAt);
+      lastPhase = phase;
+      lastPhaseAt = now;
+      safeSend(CHANNELS.sessionPhase, { phase });
+    };
     try {
-      return await orch.stop((phase: SessionPhase) => safeSend(CHANNELS.sessionPhase, { phase }));
+      const note = await orch.stop(onPhase);
+      // Emit the timing for the final phase (`generating`) — orch.stop's
+      // finally-block llm.unloadModel() doesn't get its own breadcrumb (the
+      // 'stt-unloading' / 'llm-loading' / 'generating' set covers all observed
+      // phases per Step 5 spec).
+      if (lastPhase !== null) sessionLog.phase(lastPhase, Date.now() - lastPhaseAt);
+      sessionLog.stop({ noteChars: note.markdown.length, segments: note.transcriptSegments.length });
+      return note;
     } catch (err) {
-      if (_appQuitting) throw new Error('APP_QUIT');
+      if (lastPhase !== null) sessionLog.phase(lastPhase, Date.now() - lastPhaseAt);
+      if (_appQuitting) {
+        sessionLog.error('APP_QUIT');
+        throw new Error('APP_QUIT');
+      }
+      const code = err instanceof Error ? err.message : String(err);
+      sessionLog.error(code);
       throw err;
     } finally {
       current = null;

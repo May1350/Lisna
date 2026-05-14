@@ -1,6 +1,7 @@
 import type { ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import type { SidecarRequest, SidecarResponse, SidecarEvent } from '@shared/ipc-protocol';
+import { log } from '../log';
 
 type Pending = {
   resolve: (r: SidecarResponse) => void;
@@ -69,11 +70,11 @@ export class SidecarClient {
     }
     proc.stdout.setEncoding('utf8');
     proc.stdout.on('data', (chunk: string) => this.onData(chunk));
-    proc.stderr?.on('data', (d) => console.error('[sidecar stderr]', d.toString()));
+    proc.stderr?.on('data', (d) => log.error('[sidecar stderr]', d.toString()));
     // Without this listener, an EPIPE on `stdin.write` after the sidecar has
     // closed its end becomes an unhandled `'error'` event and crashes the main
     // process. Phase 3's high request volume will eventually race a shutdown.
-    proc.stdin.on('error', (err) => console.error('[sidecar stdin error]', err));
+    proc.stdin.on('error', (err) => log.error('[sidecar stdin error]', err));
     proc.on('exit', () => this.rejectAllPending(new Error('sidecar process exited')));
   }
 
