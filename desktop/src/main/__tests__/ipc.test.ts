@@ -1,137 +1,188 @@
-/**
- * Unit tests for the chunk handler in ipc.ts.
- *
- * Uses `handleChunk` exported for testability — no real ipcMain or Electron
- * needed. Tests use a stub event (with a `sender.send` spy) and a fake STTEngine.
- */
-import { describe, it, expect, vi } from 'vitest';
-import { handleChunk, CHANNELS } from '../ipc';
-import type { ChunkPayload } from '../../shared/ipc-protocol';
-import type { STTEngine } from '../../shared/engine-interfaces';
-import type { TranscriptSegment } from '../../shared/types';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { ChunkPayload } from '@shared/ipc-protocol';
 
-// handleChunk imports isMacAudioLoopbackSupported via ipc.ts → the real module
-// is fine here because handleChunk does not call it. But ipc.ts does import
-// ipcMain from electron at module load time, so we mock electron.
+// Mock electron's ipcMain — capture the handlers registered so tests can invoke them.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const ipcHandlers: Record<string, (e: any, payload: any) => Promise<any>> = {};
 vi.mock('electron', () => ({
-  ipcMain: { handle: vi.fn() },
-  default: {},
+  ipcMain: {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    handle: vi.fn((channel: string, handler: any) => {
+      ipcHandlers[channel] = handler;
+    }),
+  },
 }));
 
-// node:os is imported by ipc.ts for the capabilities handler — mock it so the
-// import doesn't fail in vitest's Node environment.
-vi.mock('node:os', () => ({
-  default: { release: () => '24.0.0' },
+// Mock the adapter constructors — they're constructed per-session inside the
+// handler. Tests assert on construction calls + capture the instances passed
+// into SessionOrchestrator.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const fakeSttInstances: any[] = [];
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const fakeLlmInstances: any[] = [];
+vi.mock('../engines/whisper-cpp-stt', () => ({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  WhisperCppSTT: vi.fn().mockImplementation(function (this: any, client: any) {
+    this.client = client;
+    this.loadModel = vi.fn(async () => {});
+    this.unloadModel = vi.fn(async () => {});
+    this.transcribe = vi.fn(async () => [{ startSec: 0, endSec: 1, text: 'こんにちは' }]);
+    fakeSttInstances.push(this);
+  }),
+}));
+vi.mock('../engines/llama-cpp-llm', () => ({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  LlamaCppLLM: vi.fn().mockImplementation(function (this: any, client: any) {
+    this.client = client;
+    this.loadModel = vi.fn(async () => {});
+    this.unloadModel = vi.fn(async () => {});
+    this.generate = vi.fn(async function* () { yield 'Note '; yield 'body'; });
+    fakeLlmInstances.push(this);
+  }),
 }));
 
-// hardware-check uses process.platform; mock it to avoid import side-effects.
-vi.mock('../platform/hardware-check', () => ({
-  isMacAudioLoopbackSupported: vi.fn().mockReturnValue(false),
-}));
-
-// Minimal stub for IpcMainInvokeEvent.sender
-function makeEvent() {
+// Helpers to build a fake supervisor + window.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function makeFakeSupervisor(client: any = {}) {
   return {
-    sender: {
-      send: vi.fn<(channel: string, payload: unknown) => void>(),
-    },
+    getClient: vi.fn(() => client),
+    start: vi.fn(),
+    shutdown: vi.fn(async () => {}),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any;
+}
+
+function makeFakeWindow() {
+  const send = vi.fn();
+  return {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    win: { isDestroyed: () => false, webContents: { send } } as any,
+    send,
   };
 }
 
-// Minimal ChunkPayload
-function makeChunk(overrides: Partial<ChunkPayload> = {}): ChunkPayload {
-  return {
-    index: 0,
-    source: 'mic',
-    startMs: 0,
-    endMs: 2000,
-    samples: new Float32Array([0.1, 0.2, 0.3]),
-    ...overrides,
-  };
-}
+// IMPORTANT: import the module AFTER mocks are set up. Use dynamic import inside
+// beforeEach so each test gets a fresh module state (current=null, recording=false).
+let ipc: typeof import('../ipc');
 
-// Fake STTEngine that resolves with provided segments
-function makeFakeSTT(segments: TranscriptSegment[]): STTEngine {
-  return {
-    loadModel: vi.fn().mockResolvedValue(undefined),
-    unloadModel: vi.fn().mockResolvedValue(undefined),
-    transcribe: vi.fn().mockResolvedValue(segments),
-  };
-}
-
-describe('handleChunk — with STT loaded', () => {
-  it('calls stt.transcribe with the chunk samples', async () => {
-    const event = makeEvent();
-    const samples = new Float32Array([0.5, -0.5, 0.0]);
-    const chunk = makeChunk({ index: 3, startMs: 6000, samples });
-    const segments: TranscriptSegment[] = [{ startSec: 0, endSec: 1.2, text: 'こんにちは' }];
-    const stt = makeFakeSTT(segments);
-
-    await handleChunk(event, chunk, { stt });
-
-    expect(stt.transcribe).toHaveBeenCalledWith(samples);
+describe('main/ipc FSM', () => {
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    fakeSttInstances.length = 0;
+    fakeLlmInstances.length = 0;
+    Object.keys(ipcHandlers).forEach((k) => delete ipcHandlers[k]);
+    vi.resetModules();
+    ipc = await import('../ipc');
   });
 
-  it('pushes ChunkResultPayload to event.sender.send on the onChunk channel', async () => {
-    const event = makeEvent();
-    const chunk = makeChunk({ index: 7, startMs: 14000 });
-    const segments: TranscriptSegment[] = [
-      { startSec: 0, endSec: 1.5, text: 'テスト' },
-      { startSec: 1.5, endSec: 3.0, text: '音声' },
-    ];
-    const stt = makeFakeSTT(segments);
-
-    await handleChunk(event, chunk, { stt });
-
-    expect(event.sender.send).toHaveBeenCalledTimes(1);
-    expect(event.sender.send).toHaveBeenCalledWith(CHANNELS.onChunk, {
-      index: 7,
-      segments,
-      startMs: 14000,
-    });
+  it('double session/start → second rejects SESSION_ACTIVE', async () => {
+    const { win } = makeFakeWindow();
+    const supervisor = makeFakeSupervisor({});
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, sttModelPath: '/s', llmModelPath: '/l' });
+    await ipcHandlers['session/start']!({}, { language: 'ja' });
+    await expect(ipcHandlers['session/start']!({}, { language: 'ja' })).rejects.toThrow('SESSION_ACTIVE');
   });
 
-  it('returns { ok: true } even when stt is provided', async () => {
-    const event = makeEvent();
-    const stt = makeFakeSTT([]);
-    const result = await handleChunk(event, makeChunk(), { stt });
-    expect(result).toEqual({ ok: true });
-  });
-
-  it('logs error and skips send when transcribe throws — does not rethrow', async () => {
-    const event = makeEvent();
-    const stt: STTEngine = {
-      loadModel: vi.fn(),
-      unloadModel: vi.fn(),
-      transcribe: vi.fn().mockRejectedValue(new Error('sidecar crashed')),
+  it('recording/chunk before session/start → silent no-op', async () => {
+    const { win } = makeFakeWindow();
+    const supervisor = makeFakeSupervisor({});
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, sttModelPath: '/s', llmModelPath: '/l' });
+    const payload: ChunkPayload = {
+      index: 0, source: 'mic', startMs: 0, endMs: 2000, samples: new Float32Array(32000),
     };
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-
-    const result = await handleChunk(event, makeChunk({ index: 2 }), { stt });
-
-    expect(result).toEqual({ ok: true });
-    expect(event.sender.send).not.toHaveBeenCalled();
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('[stt]'),
-      expect.anything(),
-      expect.any(Error),
-    );
-    consoleSpy.mockRestore();
-  });
-});
-
-describe('handleChunk — without STT (graceful degrade)', () => {
-  it('returns { ok: true } without calling send', async () => {
-    const event = makeEvent();
-    const result = await handleChunk(event, makeChunk(), {});
+    const event = { sender: { send: vi.fn() } };
+    const result = await ipcHandlers['recording/chunk']!(event, payload);
     expect(result).toEqual({ ok: true });
     expect(event.sender.send).not.toHaveBeenCalled();
   });
 
-  it('returns { ok: true } when deps is explicitly { stt: undefined }', async () => {
-    const event = makeEvent();
-    const result = await handleChunk(event, makeChunk(), { stt: undefined });
-    expect(result).toEqual({ ok: true });
-    expect(event.sender.send).not.toHaveBeenCalled();
+  it('session/start with missing env paths → MODELS_NOT_CONFIGURED', async () => {
+    const { win } = makeFakeWindow();
+    const supervisor = makeFakeSupervisor({});
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, sttModelPath: undefined, llmModelPath: '/l' });
+    await expect(ipcHandlers['session/start']!({}, { language: 'ja' })).rejects.toThrow('MODELS_NOT_CONFIGURED');
+  });
+
+  it('session/start with language !== ja → UNSUPPORTED_LANGUAGE', async () => {
+    const { win } = makeFakeWindow();
+    const supervisor = makeFakeSupervisor({});
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, sttModelPath: '/s', llmModelPath: '/l' });
+    await expect(ipcHandlers['session/start']!({}, { language: 'en' })).rejects.toThrow('UNSUPPORTED_LANGUAGE');
+  });
+
+  it('session/start when supervisor.getClient() returns null → SIDECAR_DOWN', async () => {
+    const { win } = makeFakeWindow();
+    const supervisor = makeFakeSupervisor(null);
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, sttModelPath: '/s', llmModelPath: '/l' });
+    await expect(ipcHandlers['session/start']!({}, { language: 'ja' })).rejects.toThrow('SIDECAR_DOWN');
+  });
+
+  it('session/start pushes stt-loading phase BEFORE orch.start awaits', async () => {
+    const { win, send } = makeFakeWindow();
+    const supervisor = makeFakeSupervisor({});
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, sttModelPath: '/s', llmModelPath: '/l' });
+    await ipcHandlers['session/start']!({}, { language: 'ja' });
+    const firstSend = send.mock.calls[0];
+    expect(firstSend).toEqual(['session/phase', { phase: 'stt-loading' }]);
+  });
+
+  it('session/stop with current === null → NO_ACTIVE_SESSION', async () => {
+    const { win } = makeFakeWindow();
+    const supervisor = makeFakeSupervisor({});
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, sttModelPath: '/s', llmModelPath: '/l' });
+    await expect(ipcHandlers['session/stop']!({}, undefined)).rejects.toThrow('NO_ACTIVE_SESSION');
+  });
+
+  it('session/stop emits stt-unloading, llm-loading, generating phases in order', async () => {
+    const { win, send } = makeFakeWindow();
+    const supervisor = makeFakeSupervisor({});
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, sttModelPath: '/s', llmModelPath: '/l' });
+    await ipcHandlers['session/start']!({}, { language: 'ja' });
+    await ipcHandlers['session/stop']!({}, undefined);
+    const phases = send.mock.calls
+      .filter((c) => c[0] === 'session/phase')
+      .map((c) => c[1].phase);
+    expect(phases).toEqual(['stt-loading', 'stt-unloading', 'llm-loading', 'generating']);
+  });
+
+  it('handleSidecarExit clears flags + pushes session/error when session active', async () => {
+    const { win, send } = makeFakeWindow();
+    const supervisor = makeFakeSupervisor({});
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, sttModelPath: '/s', llmModelPath: '/l' });
+    await ipcHandlers['session/start']!({}, { language: 'ja' });
+    send.mockClear();
+    ipc.handleSidecarExit();
+    expect(send).toHaveBeenCalledWith('session/error', expect.objectContaining({ message: expect.any(String) }));
+    // Subsequent session/stop should reject (state cleared)
+    await expect(ipcHandlers['session/stop']!({}, undefined)).rejects.toThrow('NO_ACTIVE_SESSION');
+  });
+
+  it('handleSidecarExit when idle → no session/error push', async () => {
+    const { win, send } = makeFakeWindow();
+    const supervisor = makeFakeSupervisor({});
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, sttModelPath: '/s', llmModelPath: '/l' });
+    ipc.handleSidecarExit();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('adapter freshness across sequential session/start (respawn pattern)', async () => {
+    const { win } = makeFakeWindow();
+    const clientA = { id: 'A' };
+    const clientB = { id: 'B' };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const supervisor: any = {
+      getClient: vi.fn().mockReturnValueOnce(clientA).mockReturnValueOnce(clientB),
+      start: vi.fn(),
+      shutdown: vi.fn(),
+    };
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, sttModelPath: '/s', llmModelPath: '/l' });
+    // First session
+    await ipcHandlers['session/start']!({}, { language: 'ja' });
+    await ipcHandlers['session/stop']!({}, undefined);
+    // Second session — supervisor.getClient now returns clientB (simulating respawn)
+    await ipcHandlers['session/start']!({}, { language: 'ja' });
+    expect(fakeSttInstances).toHaveLength(2);
+    expect(fakeSttInstances[0].client).toBe(clientA);
+    expect(fakeSttInstances[1].client).toBe(clientB);
   });
 });
