@@ -14,10 +14,10 @@
 //     in practice; for now same-family is pragmatic.
 //   - JSON-schema structured response. We need machine-readable scores to
 //     drive automation; free-form prose would force regex parsing.
-//   - 5 axes (coverage / accuracy / hierarchy / conciseness / importance)
-//     plus a derived overall score. Each axis is 0-10 with 5 calibrated as
-//     "average for this kind of system" — we want headroom to detect both
-//     improvements and regressions.
+//   - 6 axes: 5 contribute to overall (coverage / accuracy / hierarchy / conciseness / importance)
+//     plus 1 standalone (provenance — for AI inference quality, separate from overall).
+//     Each axis is 0-10 with 5 calibrated as "average for this kind of system" — we
+//     want headroom to detect both improvements and regressions.
 //   - Issues + wins arrays so the judge surfaces SPECIFIC problems, not
 //     just numbers. These are the seeds for the next prompt iteration.
 
@@ -30,7 +30,7 @@ export interface JudgeAxisScores {
   hierarchy: number         // 0-10. Are sections / sub-items grouped sensibly, no orphans, no duplicates?
   conciseness: number       // 0-10. Are bullets tight, or padded / repetitive?
   importance: number        // 0-10. Is `important: true` used appropriately (definitions, conclusions, emphasised points)?
-  provenance: number        // 0-10. Are AI-supplemented items correctly flagged as from:'inferred' (vs from:'transcript' for paraphrase)? NOT included in overall weight.
+  provenance: number        // 0-10. Are inferred items correctly flagged as from:'inferred' (vs from:'transcript' for direct paraphrase)? NOT included in overall weight.
 }
 
 export interface JudgeResult extends JudgeAxisScores {
@@ -99,6 +99,23 @@ function client(): OpenAI {
   return _client
 }
 
+/** @internal test-only — vitest が 6/5-axis response 互換性を試験に使用 */
+export function __testOnly_parseJudgeResponse(text: string): JudgeResult {
+  const parsed = JSON.parse(text) as Partial<JudgeResult>
+  return {
+    coverage: clamp(parsed.coverage ?? 0),
+    accuracy: clamp(parsed.accuracy ?? 0),
+    hierarchy: clamp(parsed.hierarchy ?? 0),
+    conciseness: clamp(parsed.conciseness ?? 0),
+    importance: clamp(parsed.importance ?? 0),
+    // provenance defaults to 0 when absent (pre-Task-10 baselines or judge omission).
+    provenance: clamp(parsed.provenance ?? 0),
+    overall: clamp(parsed.overall ?? 0),
+    issues: Array.isArray(parsed.issues) ? parsed.issues.filter(s => typeof s === 'string') : [],
+    wins: Array.isArray(parsed.wins) ? parsed.wins.filter(s => typeof s === 'string') : [],
+  }
+}
+
 async function judgeOnce(modelName: string, userPrompt: string): Promise<JudgeResult> {
   // Same GPT-5-family constraint as curator.ts: GPT-5 nano / mini /
   // standard reject anything other than the default temperature. Older
@@ -115,20 +132,7 @@ async function judgeOnce(modelName: string, userPrompt: string): Promise<JudgeRe
     ...(isGpt5Family ? {} : { temperature: 0 }),
   })
   const text = res.choices[0]?.message?.content ?? '{}'
-  const parsed = JSON.parse(text) as Partial<JudgeResult>
-  return {
-    coverage: clamp(parsed.coverage ?? 0),
-    accuracy: clamp(parsed.accuracy ?? 0),
-    hierarchy: clamp(parsed.hierarchy ?? 0),
-    conciseness: clamp(parsed.conciseness ?? 0),
-    importance: clamp(parsed.importance ?? 0),
-    // provenance defaults to 0 until Task 10 adds the axis to SYSTEM_PROMPT.
-    // Task 11 will also handle default-on-missing for loaded baseline JSON.
-    provenance: clamp(parsed.provenance ?? 0),
-    overall: clamp(parsed.overall ?? 0),
-    issues: Array.isArray(parsed.issues) ? parsed.issues.filter(s => typeof s === 'string') : [],
-    wins: Array.isArray(parsed.wins) ? parsed.wins.filter(s => typeof s === 'string') : [],
-  }
+  return __testOnly_parseJudgeResponse(text)
 }
 
 function clamp(n: number): number {
