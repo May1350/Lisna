@@ -16,6 +16,40 @@ import OpenAI from 'openai'
  *  - 마커는 사이드패널/마크다운 렌더러가 처리. 큐레이터는 플래그만 출력. */
 export type Provenance = 'transcript' | 'inferred'
 
+/** 절차형 강의 (簿記·수학·코딩) — 순차 step. */
+export interface OutlineStep {
+  text: string
+  order?: number          // 명시적 순서. 생략 시 array index 순.
+  ts: number
+  important?: boolean
+  from: Provenance
+}
+
+/** 개념·논증형 강의 (철학·전략) — 전제→추론→결론 의 한 link.
+ *  *전환 reasoning link* 만 (예: "전제 P1: ..." / "따라서 C: ...").
+ *  단발 사실 주장은 points 에 들어가야 함. */
+export interface OutlineChainLink {
+  text: string
+  ts: number
+  from: Provenance
+}
+
+/** 명시적 수식·등식. 자연어 정의는 key_terms 로. */
+export interface OutlineFormula {
+  label?: string          // "기본등식" / "Pythagoras"
+  expression: string      // "資産 = 負債 + 純資産" / "a² + b² = c²"
+  ts: number
+  from: Provenance
+}
+
+/** 시간순 사건 (역사·내러티브). */
+export interface OutlineTimelineEvent {
+  when: string            // "1868年" / "Q3" / "Day 4" (유연한 시점 표현)
+  event: string
+  ts: number              // 강의 내 timestamp (별개)
+  from: Provenance
+}
+
 export interface OutlineKeyTerm {
   term: string
   definition: string
@@ -47,6 +81,11 @@ export interface OutlineSection {
   related_terms?: string[]    // wikilink candidates — other concepts this section relates to
   takeaway?: string           // 1-line section essence (used in TL;DR roll-up + per-section header)
   check_question?: string     // self-assessment question for the study checklist export
+  // NEW — type-variable slots, optional, hide-when-empty
+  procedure_steps?: OutlineStep[]
+  argument_chain?: OutlineChainLink[]
+  formula?: OutlineFormula[]
+  timeline?: OutlineTimelineEvent[]
 }
 
 export interface Outline {
