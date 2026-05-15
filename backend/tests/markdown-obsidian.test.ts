@@ -26,15 +26,15 @@ describe('outlineToObsidianMarkdown', () => {
           check_question: '持続可能性の 5 階層を列挙せよ',
           related_terms: ['ESG', 'CSR'],
           key_terms: [
-            { term: 'サステナビリティ', definition: '持続可能性の英訳。多層的に存在', ts: 5 },
+            { term: 'サステナビリティ', definition: '持続可能性の英訳。多層的に存在', ts: 5, from: 'transcript' as const },
           ],
           examples: [
-            { text: '地球の環境', ts: 18 },
-            { text: '個人の寿命', ts: 32 },
+            { text: '地球の環境', ts: 18, from: 'transcript' as const },
+            { text: '個人の寿命', ts: 32, from: 'transcript' as const },
           ],
           points: [
-            { text: '持続可能性は地球→国→企業→地域→個人と階層化される', ts: 65, important: true },
-            { text: 'サステナビリティ＝環境問題は狭い', ts: 88, important: false },
+            { text: '持続可能性は地球→国→企業→地域→個人と階層化される', ts: 65, important: true, from: 'transcript' as const },
+            { text: 'サステナビリティ＝環境問題は狭い', ts: 88, important: false, from: 'transcript' as const },
           ],
         },
       ],
@@ -141,7 +141,7 @@ describe('outlineToObsidianMarkdown', () => {
       lecturer: 'unknown',
       sections: [{
         heading: 'h', ts: 0, summary: '',
-        key_terms: [{ term: 'X', definition: 'd', ts: 0 }],
+        key_terms: [{ term: 'X', definition: 'd', ts: 0, from: 'transcript' as const }],
         examples: [], points: [],
       }],
     }
@@ -159,7 +159,7 @@ describe('outlineToObsidianMarkdown', () => {
       title: 't',
       sections: [{
         heading: 'h', ts: 0, summary: '',
-        key_terms: [], examples: [{ text: 'ex', ts: 90 }], points: [],
+        key_terms: [], examples: [{ text: 'ex', ts: 90, from: 'transcript' as const }], points: [],
       }],
     }
     const noQuery = outlineToObsidianMarkdown(o, { ...ctx, sourceUrl: 'https://example.com/lec' })
@@ -237,7 +237,7 @@ describe('outlineToObsidianMarkdown', () => {
       course: 'My [Course] | Spring',  // intentionally dangerous
       sections: [{
         heading: 'h', ts: 0, summary: '',
-        key_terms: [{ term: 'A^B#C', definition: 'd', ts: 0 }],
+        key_terms: [{ term: 'A^B#C', definition: 'd', ts: 0, from: 'transcript' as const }],
         examples: [], points: [],
       }],
     }
