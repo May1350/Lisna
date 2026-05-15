@@ -91,4 +91,42 @@ describe('curator outline normalisation — from field defaults', () => {
     expect(out.sections[0].formula).toHaveLength(2)
     expect(out.sections[0].formula![1].label).toBe('L')
   })
+
+  it('argument_chain preserves from per-item and filters empty text', () => {
+    const raw = {
+      title: 'X',
+      sections: [{
+        heading: 'A', ts: 0, summary: '',
+        key_terms: [], examples: [], points: [],
+        argument_chain: [
+          { text: 'premise A', ts: 0 },
+          { text: 'therefore B', ts: 1, from: 'inferred' },
+          { text: '', ts: 2 },                            // dropped — empty text
+        ],
+      }],
+    }
+    const out = __testOnly_normaliseOutline(raw)
+    expect(out.sections[0].argument_chain).toHaveLength(2)
+    expect(out.sections[0].argument_chain![0].from).toBe('transcript')
+    expect(out.sections[0].argument_chain![1].from).toBe('inferred')
+  })
+
+  it('timeline filters items missing when or event, preserves from', () => {
+    const raw = {
+      title: 'X',
+      sections: [{
+        heading: 'A', ts: 0, summary: '',
+        key_terms: [], examples: [], points: [],
+        timeline: [
+          { when: '1868年', event: '明治維新', ts: 0 },
+          { when: '', event: 'missing-when', ts: 1 },     // dropped — no when
+          { when: '1945', event: '', ts: 2 },             // dropped — no event
+          { when: 'Day 4', event: 'shipping', ts: 3, from: 'inferred' },
+        ],
+      }],
+    }
+    const out = __testOnly_normaliseOutline(raw)
+    expect(out.sections[0].timeline).toHaveLength(2)
+    expect(out.sections[0].timeline![1].from).toBe('inferred')
+  })
 })
