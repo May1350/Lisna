@@ -134,8 +134,8 @@ The Step 5 plan mandates 2–3 LLM-as-judge eval-set anchors. Each anchor is a `
 | Axis | Score | Notes |
 |------|-------|-------|
 | Format compliance | PASS | All three section headers in `【…】`; bullets use `・`; no Markdown tokens. |
-| Polite-desu/masu register | PASS | です・ます endings throughout (`〜のテスト`, `〜行う`, `〜使用する`). Minor: `・30秒ほど話し続ける` ends in plain form — small register slip, not a hard fail. |
-| Section omission | INVERTED | All three sections populated (the source transcript is a TTS self-description that names what it tests, decides what it tests, and implies next steps). For this fixture, no section is empty; the omission rule was untestable here. |
+| Polite-desu/masu register | MIXED (Step 6 follow-up) | Of the 4 verb-final bullets in `【要点】`, only `〜果たします。` uses です・ます; the other 3 are plain dictionary form (`〜続ける` / `〜行う` / `〜使用する`). Compliance rate ≈ 25% on verb-final items. Noun-phrase bullets (`テスト結果の確認`, `音声認識の精度評価`) are register-neutral and don't count. The ja-note-v1 prompt explicitly locks register ("文体は丁寧体 (です・ます調) に統一してください") but the 3B model only partially obeys on bullet-form items — this is a real prompt-quality finding to address in Step 6 (prompt-tune the instruction wording or escalate to a JA-tuned model variant). The Step 5 §6 smoke gate accepts MIXED because Format + structural compliance are the load-bearing properties for the §3.2 strict-no-Markdown invariant; register tuning is downstream prompt-engineering work. |
+| Section omission | UNTESTABLE | All three sections populated (the source transcript is a TTS self-description that names what it tests, decides what it tests, and implies next steps). For this fixture, no section is empty; the omission rule was untestable here. Anchor 2 (real meeting) will provide the contrasting case. |
 
 ### Anchor 2 — Real meeting audio (founder-provided, DEFERRED)
 
