@@ -222,7 +222,56 @@ TEST_F(JsonProtocolDispatchSTT, TranscribeWrongTypeAudioBase64ReturnsInvalidType
 // ---- LLM dispatch (generate without load) ----
 
 TEST(JsonProtocol, GenerateWithoutLoadReturnsNotLoaded) {
+  // Legacy `prompt` shape still recognized (back-compat) — but the engine is
+  // not loaded so we bail at the load check, not the field-shape check. The
+  // important part is we're past the missing-field guard.
   auto r = json::parse(lisna::ipc::dispatch(R"({"id":"g1","type":"generate","prompt":"hi"})"));
   EXPECT_EQ(r["type"], "error");
   EXPECT_EQ(r["code"], "not_loaded");
+}
+
+TEST(JsonProtocol, GenerateMessagesShapeWithoutLoadReturnsNotLoaded) {
+  // Preferred shape: { messages: [{role, content}] }. Same not_loaded outcome
+  // because the LLM isn't loaded; pins the new shape parses without error.
+  auto r = json::parse(lisna::ipc::dispatch(
+      R"({"id":"g2","type":"generate","messages":[{"role":"user","content":"hi"}]})"));
+  EXPECT_EQ(r["type"], "error");
+  EXPECT_EQ(r["code"], "not_loaded");
+}
+
+TEST(JsonProtocol, GenerateNeitherPromptNorMessagesReturnsMissingField) {
+  auto r = json::parse(lisna::ipc::dispatch(R"({"id":"g3","type":"generate"})"));
+  EXPECT_EQ(r["type"], "error");
+  EXPECT_EQ(r["code"], "missing_field");
+}
+
+TEST(JsonProtocol, GenerateMessagesNotArrayReturnsInvalidType) {
+  auto r = json::parse(lisna::ipc::dispatch(
+      R"({"id":"g4","type":"generate","messages":"not-an-array"})"));
+  EXPECT_EQ(r["type"], "error");
+  EXPECT_EQ(r["code"], "invalid_type");
+}
+
+TEST(JsonProtocol, GenerateMessagesEmptyArrayReturnsInvalidPayload) {
+  auto r = json::parse(lisna::ipc::dispatch(
+      R"({"id":"g5","type":"generate","messages":[]})"));
+  EXPECT_EQ(r["type"], "error");
+  EXPECT_EQ(r["code"], "invalid_payload");
+}
+
+TEST(JsonProtocol, GenerateMessagesMissingRoleReturnsMissingField) {
+  auto r = json::parse(lisna::ipc::dispatch(
+      R"({"id":"g6","type":"generate","messages":[{"content":"hi"}]})"));
+  EXPECT_EQ(r["type"], "error");
+  EXPECT_EQ(r["code"], "missing_field");
+}
+
+TEST(JsonProtocol, GenerateMessagesNonStringContentReturnsMissingField) {
+  // `content` must be present AND must be a string. We surface the same code
+  // (missing_field) for "absent" and "wrong type" to keep the contract small;
+  // the message text disambiguates.
+  auto r = json::parse(lisna::ipc::dispatch(
+      R"({"id":"g7","type":"generate","messages":[{"role":"user","content":42}]})"));
+  EXPECT_EQ(r["type"], "error");
+  EXPECT_EQ(r["code"], "missing_field");
 }

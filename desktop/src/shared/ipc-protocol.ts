@@ -43,13 +43,44 @@ export interface Capabilities {
   osRelease: string;
 }
 
+/**
+ * Chat-style message envelope for `generate` requests. Mirrors the C++
+ * `llama_chat_message` struct (`role`, `content`). Roles are restricted to
+ * the three the bundled Llama-3.2 chat template recognises; we deliberately
+ * do NOT include free-form `tool` / `function` roles because the template
+ * routes them through paths that haven't been smoke-tested for v2.0.
+ *
+ * Why `messages` instead of a single `prompt` string: chat-tuned models
+ * (Llama 3.2 Instruct family, Gemma-IT, etc.) ship a Jinja template embedded
+ * in the GGUF that wraps each role in special tokens (`<|start_header_id|>`,
+ * `<|eot_id|>`, ...). Without the template the model sees raw text and
+ * degrades into continuation mode (echoes the transcript, then runs forever
+ * until maxTokens). See `desktop/sidecar/src/llm/llama_engine.cpp` —
+ * `llama_chat_apply_template` is the canonical bridge.
+ */
+export interface ChatMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+}
+
 export type SidecarRequest =
   | { id: string; type: 'ping' }
   | { id: string; type: 'load'; kind: 'stt'; path: string; language: Language }
   | { id: string; type: 'load'; kind: 'llm'; path: string }
   | { id: string; type: 'unload'; kind: 'stt' | 'llm' }
   | { id: string; type: 'transcribe'; audioBase64: string; sampleRate: number }
-  | { id: string; type: 'generate'; prompt: string; maxTokens?: number; temperature?: number; stop?: string[] };
+  | {
+      id: string;
+      type: 'generate';
+      /**
+       * Preferred shape: structured chat messages. The sidecar applies the
+       * GGUF-embedded chat template before tokenization.
+       */
+      messages: ChatMessage[];
+      maxTokens?: number;
+      temperature?: number;
+      stop?: string[];
+    };
 
 export type SidecarResponse =
   | { id: string; type: 'ok' }                                       // load/unload 성공

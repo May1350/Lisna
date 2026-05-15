@@ -1,4 +1,4 @@
-import type { Language, TranscriptSegment } from '@shared/engine-interfaces';
+import type { Language, TranscriptSegment, ChatMessage } from '@shared/engine-interfaces';
 
 /**
  * Version tag for cross-referencing this prompt in eval logs and ADRs. Bump
@@ -8,14 +8,20 @@ import type { Language, TranscriptSegment } from '@shared/engine-interfaces';
 export const JA_NOTE_V1_VERSION = 'ja-note-v1' as const;
 
 /**
- * Build the system prompt for a JA-language meeting-note generation pass.
+ * Build the chat-style prompt for a JA-language meeting-note generation pass.
  *
  * **Design rationale**: See `docs/superpowers/decisions/2026-05-15-step-5-section-9-decisions.md`
  * §2 for the format decision. Output is intentionally plain-text — no Markdown
  * tokens — because the renderer (`NoteView.tsx`) uses a `<pre>` element that
  * displays whitespace literally and any `#`/`**`/`-` syntax would render raw.
  *
- * Format conventions the LLM is instructed to follow:
+ * Returns a `ChatMessage[]` (system + user) instead of a flat string so the
+ * sidecar can apply the GGUF-embedded chat template (`llama_chat_apply_template`).
+ * Without this split, the LLM sees raw text and degrades into continuation
+ * mode — the 2026-05-15 1B catastrophe (6588-char repetition loop) was caused
+ * by exactly that failure. See `desktop/sidecar/src/llm/llama_engine.cpp`.
+ *
+ * Format conventions the LLM is instructed to follow (in the system message):
  * - Section headers: `【要点】`, `【次のアクション】`, `【決定事項】`
  * - Bullets: `・` (U+30FB middle-dot) followed by a space, one item per line
  * - Sections separated by a single blank line
@@ -35,7 +41,7 @@ export const JA_NOTE_V1_VERSION = 'ja-note-v1' as const;
 export function buildJaNoteV1Prompt(
   language: Language,
   segments: TranscriptSegment[],
-): string {
+): ChatMessage[] {
   // Render transcript. Matches legacy `[Xs] text` format.
   const transcript = segments.length === 0
     ? '(発話なし)'
@@ -55,7 +61,7 @@ export function buildJaNoteV1Prompt(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- reserved for v2.1 multilingual
   const _lang = language;
 
-  return [
+  const systemContent = [
     'あなたは会議のノートライターです。下記の文字起こし(タイムスタンプ付き)を読み、',
     '日本語のプレーンテキストで構造化されたノートを作成してください。',
     '',
@@ -66,11 +72,15 @@ export function buildJaNoteV1Prompt(
     '・文体は丁寧体 (です・ます調) に統一してください。',
     '・該当する内容が無いセクションは見出しごと省略してください。',
     '・Markdown 記号 (#, *, -, >, バッククォート) は絶対に使用しないでください。',
-    '',
-    '【入力 (文字起こし)】',
-    transcript,
-    '',
-    '【ノート】',
-    '',
   ].join('\n');
+
+  // Transcript goes in a user-role turn so the chat template tags it
+  // accordingly (Llama 3.2 wraps it in user-header tokens; the assistant
+  // header that follows tells the model "now respond with the note").
+  const userContent = ['【入力 (文字起こし)】', transcript].join('\n');
+
+  return [
+    { role: 'system', content: systemContent },
+    { role: 'user', content: userContent },
+  ];
 }

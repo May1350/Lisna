@@ -115,13 +115,48 @@ std::string dispatch(const std::string& jsonLine) {
   }
 
   if (type == "generate") {
+    // Validate input shape BEFORE engine state — symmetric with the transcribe
+    // branch above. A wrong-shape `generate` against an unloaded engine should
+    // surface the *shape* error, not a misleading `not_loaded`.
+    //
+    // Two accepted shapes:
+    //   1. Preferred: { messages: [{role, content}, ...] } — sidecar applies
+    //      the GGUF chat template before tokenization.
+    //   2. Legacy (back-compat): { prompt: "..." } — wrapped into a single
+    //      user message + deprecation warning. Will be removed in v2.1.
+    std::vector<lisna::llm::ChatMessage> msgs;
+    if (req.contains("messages")) {
+      if (!req["messages"].is_array()) return err("invalid_type", "messages must be array");
+      if (req["messages"].empty()) return err("invalid_payload", "messages array must not be empty");
+      for (const auto& m : req["messages"]) {
+        if (!m.is_object()) return err("invalid_type", "messages[] entries must be objects");
+        if (!m.contains("role") || !m["role"].is_string())
+          return err("missing_field", "messages[].role required and must be string");
+        if (!m.contains("content") || !m["content"].is_string())
+          return err("missing_field", "messages[].content required and must be string");
+        msgs.push_back({m["role"].get<std::string>(), m["content"].get<std::string>()});
+      }
+    } else if (req.contains("prompt")) {
+      if (!req["prompt"].is_string()) return err("invalid_type", "prompt must be string");
+      // Emit a one-shot deprecation log so callers notice they're on the
+      // legacy path. The wrapped message is given the `user` role — that's
+      // the closest semantic match for a flat prompt; using `system` would
+      // bypass the assistant-header trailer the template emits.
+      emit_event(nlohmann::json{
+          {"type", "log"}, {"level", "warn"}, {"source", "system"},
+          {"message", "generate: legacy `prompt` field used; switch to `messages` array"}
+      }.dump());
+      msgs.push_back({"user", req["prompt"].get<std::string>()});
+    } else {
+      return err("missing_field", "messages or prompt required");
+    }
+    // Engine-state check runs AFTER shape validation so callers get accurate
+    // diagnostics regardless of order.
     if (!g_llm || !g_llm->loaded()) return err("not_loaded", "llm not loaded");
-    if (!req.contains("prompt")) return err("missing_field", "prompt required");
-    if (!req["prompt"].is_string()) return err("invalid_type", "prompt must be string");
     lisna::llm::GenOpts opts;
     opts.maxTokens = req.value("maxTokens", 1024);
     opts.temperature = req.value("temperature", 0.4f);
-    g_llm->generate(req["prompt"].get<std::string>(), opts,
+    g_llm->generate(msgs, opts,
                     [&](const std::string& tok) {
       emit_event(nlohmann::json{
           {"id", id}, {"type", "token"}, {"token", tok}

@@ -1,6 +1,7 @@
 import type { Language, TranscriptSegment } from './types';
+import type { ChatMessage } from './ipc-protocol';
 
-export type { Language, TranscriptSegment };
+export type { Language, TranscriptSegment, ChatMessage };
 
 export interface STTEngine {
   /** GGUF 모델 파일 로드. 호출 후 transcribe 가능 상태로 만든다. */
@@ -23,5 +24,11 @@ export interface GenOpts {
 export interface LLMEngine {
   loadModel(path: string): Promise<void>;
   unloadModel(): Promise<void>;
-  generate(prompt: string, opts: GenOpts): AsyncIterable<string>;
+  /**
+   * Stream tokens for a chat-style generation request. `messages` is the
+   * structured chat history (system / user / assistant turns). The adapter
+   * forwards it to the sidecar, which applies the GGUF chat template before
+   * tokenization. See `ChatMessage` in `ipc-protocol.ts` for the rationale.
+   */
+  generate(messages: ChatMessage[], opts: GenOpts): AsyncIterable<string>;
 }

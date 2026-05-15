@@ -144,7 +144,7 @@ describe('LlamaCppLLM with fake ChildProcess', () => {
   });
 
   it('generate aggregates tokens in order via the async iterable', async () => {
-    const stream = llm.generate('hi', { maxTokens: 16 });
+    const stream = llm.generate([{ role: 'user', content: 'hi' }], { maxTokens: 16 });
     const id = await lastRequestId('generate');
     fake.writeLine(JSON.stringify({ id, type: 'token', token: 'Hel' }));
     fake.writeLine(JSON.stringify({ id, type: 'token', token: 'lo' }));
@@ -156,7 +156,7 @@ describe('LlamaCppLLM with fake ChildProcess', () => {
   });
 
   it('generate throws on error during stream', async () => {
-    const stream = llm.generate('hi', {});
+    const stream = llm.generate([{ role: 'user', content: 'hi' }], {});
     const id = await lastRequestId('generate');
     fake.writeLine(JSON.stringify({ id, type: 'token', token: 'partial' }));
     fake.writeLine(JSON.stringify({ id, type: 'error', code: 'EOOM', message: 'out of memory' }));
@@ -180,7 +180,7 @@ describe('LlamaCppLLM with fake ChildProcess', () => {
     const { vi } = await import('vitest');
     vi.useFakeTimers();
     try {
-      const stream = llm.generate('hi', {});
+      const stream = llm.generate([{ role: 'user', content: 'hi' }], {});
       // Don't await — just begin consumption. The sendStream registered its
       // no-progress timer on entry. Advancing past the timeout window fires
       // the rejection.
@@ -205,7 +205,7 @@ describe('LlamaCppLLM with fake ChildProcess', () => {
     // Sanity-check the remap is keyed on the "no progress" substring, not a
     // catch-all. A sidecar `error` response still produces the original
     // "[code]: message" string so logs stay diagnostic.
-    const stream = llm.generate('hi', {});
+    const stream = llm.generate([{ role: 'user', content: 'hi' }], {});
     const id = await lastRequestId('generate');
     fake.writeLine(
       JSON.stringify({ id, type: 'error', code: 'EOOM', message: 'out of memory' }),
@@ -218,12 +218,18 @@ describe('LlamaCppLLM with fake ChildProcess', () => {
     await expect(consume()).rejects.toThrow(/EOOM.*out of memory/);
   });
 
-  it('generate forwards prompt and opts (maxTokens/temperature/stop) into the request line', async () => {
-    const stream = llm.generate('prompt-text', {
-      maxTokens: 32,
-      temperature: 0.7,
-      stop: ['\n\n'],
-    });
+  it('generate forwards messages and opts (maxTokens/temperature/stop) into the request line', async () => {
+    const stream = llm.generate(
+      [
+        { role: 'system', content: 'sys-text' },
+        { role: 'user', content: 'user-text' },
+      ],
+      {
+        maxTokens: 32,
+        temperature: 0.7,
+        stop: ['\n\n'],
+      },
+    );
     const id = await lastRequestId('generate');
     fake.writeLine(JSON.stringify({ id, type: 'done' }));
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -231,7 +237,10 @@ describe('LlamaCppLLM with fake ChildProcess', () => {
     expect(fake.requests).toContainEqual(
       expect.objectContaining({
         type: 'generate',
-        prompt: 'prompt-text',
+        messages: [
+          { role: 'system', content: 'sys-text' },
+          { role: 'user', content: 'user-text' },
+        ],
         maxTokens: 32,
         temperature: 0.7,
         stop: ['\n\n'],
@@ -258,7 +267,10 @@ describeIf('LlamaCppLLM (real model)', () => {
         const llm = new LlamaCppLLM(client);
         await llm.loadModel(llmModel);
         let out = '';
-        for await (const tok of llm.generate('1+1=', { maxTokens: 16, temperature: 0 })) {
+        for await (const tok of llm.generate(
+          [{ role: 'user', content: '1+1=' }],
+          { maxTokens: 16, temperature: 0 },
+        )) {
           out += tok;
         }
         expect(out.length).toBeGreaterThan(0);

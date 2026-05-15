@@ -1,4 +1,4 @@
-import type { STTEngine, LLMEngine, Language, TranscriptSegment } from '@shared/engine-interfaces';
+import type { STTEngine, LLMEngine, Language, TranscriptSegment, ChatMessage } from '@shared/engine-interfaces';
 import type { Note } from '@shared/types';
 import type { SessionPhase } from '@shared/ipc-protocol';
 import { withTimeout } from '@shared/with-timeout';
@@ -11,7 +11,12 @@ interface Opts {
   sttModelPath: string;
   llmModelPath: string;
   language: Language;
-  buildPrompt?(language: Language, segments: TranscriptSegment[]): string;
+  /**
+   * Optional override for the chat-message builder. Returns `ChatMessage[]`
+   * so the sidecar can apply the GGUF chat template. Tests typically inject
+   * a fixed array so they don't need to parse the prompt content.
+   */
+  buildPrompt?(language: Language, segments: TranscriptSegment[]): ChatMessage[];
 }
 
 /**
@@ -116,12 +121,12 @@ export class SessionOrchestrator {
         TIMEOUT_CODES.LLM_LOAD_TIMEOUT,
       );
       onPhase?.('generating');
-      const prompt = (this.opts.buildPrompt ?? defaultPrompt)(this.opts.language, this.segments);
+      const messages = (this.opts.buildPrompt ?? defaultPrompt)(this.opts.language, this.segments);
       // generate() is per-token streaming; the GENERATE_TIMEOUT (no-progress
       // 60s) is enforced inside LlamaCppLLM → SidecarClient.sendStream, so
       // no extra wrapping here.
       let md = '';
-      for await (const tok of this.opts.llm.generate(prompt, { maxTokens: 4096, temperature: 0.4 })) md += tok;
+      for await (const tok of this.opts.llm.generate(messages, { maxTokens: 4096, temperature: 0.4 })) md += tok;
       return {
         language: this.opts.language,
         generatedAt: new Date().toISOString(),

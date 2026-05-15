@@ -16,14 +16,14 @@ describe('shared types', () => {
     expect(typeof e.transcribe).toBe('function');
   });
 
-  it('LLMEngine.generate 는 AsyncIterable<string> 을 돌려준다', async () => {
+  it('LLMEngine.generate 는 ChatMessage[] 를 받고 AsyncIterable<string> 을 돌려준다', async () => {
     const e: LLMEngine = {
       loadModel: async () => {},
       unloadModel: async () => {},
       generate: async function* () { yield 'a'; yield 'b'; },
     };
     const out: string[] = [];
-    for await (const tok of e.generate('hi', {})) out.push(tok);
+    for await (const tok of e.generate([{ role: 'user', content: 'hi' }], {})) out.push(tok);
     expect(out).toEqual(['a', 'b']);
   });
 });

@@ -112,7 +112,7 @@ describe('SidecarClient.sendStream with /bin/cat', () => {
     const client = new SidecarClient(proc);
     const pump = preparePump(proc, client);
     const stream = client.sendStream(
-      { type: 'generate', prompt: 'hi', maxTokens: 4 },
+      { type: 'generate', messages: [{ role: 'user', content: 'hi' }], maxTokens: 4 },
       { timeoutMs: 2000 },
     );
     await pump.feed((id) => [
@@ -130,7 +130,7 @@ describe('SidecarClient.sendStream with /bin/cat', () => {
     const client = new SidecarClient(proc);
     const pump = preparePump(proc, client);
     const stream = client.sendStream(
-      { type: 'generate', prompt: 'x' },
+      { type: 'generate', messages: [{ role: 'user', content: 'x' }] },
       { timeoutMs: 2000 },
     );
     await pump.feed((id) => [
@@ -147,7 +147,7 @@ describe('SidecarClient.sendStream with /bin/cat', () => {
   it('throws when the child process exits mid-stream', async () => {
     const client = new SidecarClient(proc);
     const stream = client.sendStream(
-      { type: 'generate', prompt: 'x' },
+      { type: 'generate', messages: [{ role: 'user', content: 'x' }] },
       { timeoutMs: 5000 },
     );
     // Kill cat AFTER it has echoed the request — give a tick so the request
@@ -163,7 +163,7 @@ describe('SidecarClient.sendStream with /bin/cat', () => {
   it('rejects when no progress within the timeout window', async () => {
     const client = new SidecarClient(proc);
     const stream = client.sendStream(
-      { type: 'generate', prompt: 'x' },
+      { type: 'generate', messages: [{ role: 'user', content: 'x' }] },
       { timeoutMs: 50 },
     );
     const consume = async () => {
@@ -177,7 +177,7 @@ describe('SidecarClient.sendStream with /bin/cat', () => {
     const client = new SidecarClient(proc);
     const pump = preparePump(proc, client);
     const stream = client.sendStream(
-      { type: 'generate', prompt: 'x' },
+      { type: 'generate', messages: [{ role: 'user', content: 'x' }] },
       { timeoutMs: 80 },
     );
     // Drip-feed tokens every 40ms (under 80ms budget). Total ~160ms — longer
@@ -201,7 +201,7 @@ describe('SidecarClient.sendStream with /bin/cat', () => {
     const client = new SidecarClient(proc);
     const pump = preparePump(proc, client);
     const stream = client.sendStream(
-      { type: 'generate', prompt: 'x' },
+      { type: 'generate', messages: [{ role: 'user', content: 'x' }] },
       { timeoutMs: Infinity },
     );
     setTimeout(() => {
@@ -219,7 +219,7 @@ describe('SidecarClient.sendStream with /bin/cat', () => {
     const client = new SidecarClient(proc);
     const pump = preparePump(proc, client);
     const stream = client.sendStream(
-      { type: 'generate', prompt: 'x' },
+      { type: 'generate', messages: [{ role: 'user', content: 'x' }] },
       { timeoutMs: 2000 },
     );
     // Push two tokens + done synchronously, then sleep long enough for cat
@@ -242,7 +242,7 @@ describe('SidecarClient.sendStream with /bin/cat', () => {
     client.onEvent((e) => events.push(e));
     const pump = preparePump(proc, client);
     const stream = client.sendStream(
-      { type: 'generate', prompt: 'x' },
+      { type: 'generate', messages: [{ role: 'user', content: 'x' }] },
       { timeoutMs: 2000 },
     );
     await pump.feed((id) => [
@@ -263,7 +263,7 @@ describe('SidecarClient.sendStream with /bin/cat', () => {
     const before = countRawLineListeners(client);
     const pump = preparePump(proc, client);
     const stream = client.sendStream(
-      { type: 'generate', prompt: 'x' },
+      { type: 'generate', messages: [{ role: 'user', content: 'x' }] },
       { timeoutMs: 2000 },
     );
     await pump.feed((id) => [
@@ -281,7 +281,7 @@ describe('SidecarClient.sendStream with /bin/cat', () => {
     const before = countRawLineListeners(client);
     const pump = preparePump(proc, client);
     const stream = client.sendStream(
-      { type: 'generate', prompt: 'x' },
+      { type: 'generate', messages: [{ role: 'user', content: 'x' }] },
       { timeoutMs: 2000 },
     );
     await pump.feed((id) => [

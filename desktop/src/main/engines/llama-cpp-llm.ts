@@ -1,4 +1,4 @@
-import type { LLMEngine, GenOpts } from '@shared/engine-interfaces';
+import type { LLMEngine, GenOpts, ChatMessage } from '@shared/engine-interfaces';
 import type { SidecarClient } from '../sidecar/client';
 import { TIMEOUTS, TIMEOUT_CODES } from '../sidecar/timeouts';
 
@@ -40,12 +40,12 @@ export class LlamaCppLLM implements LLMEngine {
    * lazily on first `.next()`. We call `sendStream` synchronously and only
    * wrap the consumption inside the inner async generator's try/catch.
    */
-  generate(prompt: string, opts: GenOpts): AsyncIterable<string> {
+  generate(messages: ChatMessage[], opts: GenOpts): AsyncIterable<string> {
     // Side-effects: subscribe, write request, arm timer — run NOW (sync).
     const stream = this.client.sendStream(
       {
         type: 'generate',
-        prompt,
+        messages,
         maxTokens: opts.maxTokens,
         temperature: opts.temperature,
         stop: opts.stop,
