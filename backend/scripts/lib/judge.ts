@@ -108,7 +108,7 @@ export function __testOnly_parseJudgeResponse(text: string): JudgeResult {
     hierarchy: clamp(parsed.hierarchy ?? 0),
     conciseness: clamp(parsed.conciseness ?? 0),
     importance: clamp(parsed.importance ?? 0),
-    // provenance defaults to 0 when absent (pre-Task-10 baselines or judge omission).
+    // provenance defaults to 0 when absent (legacy baselines or judge omission).
     provenance: clamp(parsed.provenance ?? 0),
     overall: clamp(parsed.overall ?? 0),
     issues: Array.isArray(parsed.issues) ? parsed.issues.filter(s => typeof s === 'string') : [],
