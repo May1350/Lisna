@@ -543,6 +543,21 @@ function normaliseSection(s: Partial<OutlineSection>): OutlineSection {
   }
 }
 
+/** @internal test-only — vitest が normaliseSection の後方互換性を検証するために使用 */
+export function __testOnly_normaliseOutline(raw: unknown): Outline {
+  const r = raw as Partial<Outline> & { sections?: Partial<OutlineSection>[] }
+  return {
+    title: typeof r.title === 'string' ? r.title : '',
+    sections: Array.isArray(r.sections) ? r.sections.map(normaliseSection) : [],
+    course: typeof r.course === 'string' && r.course.trim() ? r.course.trim() : undefined,
+    lecturer: typeof r.lecturer === 'string' && r.lecturer.trim() ? r.lecturer.trim() : undefined,
+    tldr: typeof r.tldr === 'string' && r.tldr.trim() ? r.tldr.trim() : undefined,
+    related_lectures: Array.isArray(r.related_lectures)
+      ? r.related_lectures.filter((x): x is string => typeof x === 'string' && !!x.trim()).map(x => x.trim())
+      : undefined,
+  }
+}
+
 export async function curateOutline(req: CuratorRequest): Promise<Outline> {
   // Build the prompt body. Time-bucket the transcript so the LLM can
   // pinpoint when concepts were introduced.
