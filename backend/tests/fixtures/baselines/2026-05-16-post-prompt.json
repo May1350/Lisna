@@ -1,0 +1,256 @@
+{
+  "savedAt": "2026-05-15T15:50:29.168Z",
+  "results": [
+    {
+      "slug": "yt-JGXIB",
+      "source": "https://www.youtube.com/watch?v=JGXIB-dJCMM",
+      "chunks": 266,
+      "curatorRuns": 1,
+      "totalCuratorMs": 78385,
+      "judgeMs": 1397,
+      "outline": {
+        "title": "簿記入門",
+        "sections": [
+          {
+            "heading": "資産と負債の基本概念",
+            "ts": 600,
+            "summary": "資産と負債の定義とそれに関連する用語について説明する。",
+            "key_terms": [
+              {
+                "term": "資産",
+                "definition": "企業が所有する価値のあるもの。",
+                "ts": 600,
+                "from": "transcript"
+              },
+              {
+                "term": "負債",
+                "definition": "企業が支払うべき義務や借金。",
+                "ts": 630,
+                "from": "transcript"
+              },
+              {
+                "term": "純資産",
+                "definition": "資産と負債の差額で、企業の自己資本を示す。",
+                "ts": 720,
+                "from": "transcript"
+              }
+            ],
+            "examples": [],
+            "points": [
+              {
+                "text": "資産は現金、建物、商品などを含む。",
+                "ts": 610,
+                "important": false,
+                "from": "transcript"
+              },
+              {
+                "text": "負債は借金や未払金を含む。",
+                "ts": 640,
+                "important": false,
+                "from": "transcript"
+              }
+            ],
+            "related_terms": [
+              "資産",
+              "負債",
+              "純資産"
+            ],
+            "takeaway": "資産は所有する価値のあるもの、負債は支払うべき義務である。",
+            "check_question": "資産と負債の違いを説明せよ。"
+          },
+          {
+            "heading": "費用と収益の理解",
+            "ts": 780,
+            "summary": "費用と収益の概念を理解し、具体例を通じて学ぶ。",
+            "key_terms": [
+              {
+                "term": "費用",
+                "definition": "企業が運営するために必要な支出。",
+                "ts": 780,
+                "from": "transcript"
+              },
+              {
+                "term": "収益",
+                "definition": "企業が得る売上や利益。",
+                "ts": 800,
+                "from": "transcript"
+              }
+            ],
+            "examples": [
+              {
+                "text": "家賃、電気料金、従業員の給料などが費用に該当する。",
+                "ts": 790,
+                "from": "transcript"
+              },
+              {
+                "text": "売上高や配当金が収益に該当する。",
+                "ts": 820,
+                "from": "transcript"
+              }
+            ],
+            "points": [
+              {
+                "text": "費用は企業の利益を減少させる。",
+                "ts": 810,
+                "important": false,
+                "from": "transcript"
+              },
+              {
+                "text": "収益は企業の利益を増加させる。",
+                "ts": 830,
+                "important": false,
+                "from": "transcript"
+              }
+            ],
+            "related_terms": [
+              "費用",
+              "収益"
+            ],
+            "takeaway": "費用は企業の運営にかかる支出、収益は企業の売上や利益である。",
+            "check_question": "費用と収益の違いを説明せよ。"
+          },
+          {
+            "heading": "取引の仕訳方法",
+            "ts": 840,
+            "summary": "取引を簿記的に仕訳する方法を学ぶ。",
+            "key_terms": [
+              {
+                "term": "仕訳",
+                "definition": "取引を借方と貸方に分けて記録すること。",
+                "ts": 840,
+                "from": "transcript"
+              },
+              {
+                "term": "借方",
+                "definition": "資産の増加や費用の発生を記録する側。",
+                "ts": 860,
+                "from": "transcript"
+              },
+              {
+                "term": "貸方",
+                "definition": "負債の増加や収益の発生を記録する側。",
+                "ts": 870,
+                "from": "transcript"
+              }
+            ],
+            "examples": [
+              {
+                "text": "現金を100万円受け取った場合、現金の増加を借方に記録する。",
+                "ts": 850,
+                "from": "transcript"
+              },
+              {
+                "text": "土地を現金で購入した場合、土地の増加を借方に、現金の減少を貸方に記録する。",
+                "ts": 880,
+                "from": "transcript"
+              }
+            ],
+            "points": [
+              {
+                "text": "仕訳は必ず借方と貸方の金額が一致する。",
+                "ts": 890,
+                "important": true,
+                "from": "transcript"
+              },
+              {
+                "text": "取引の内容に応じて適切な勘定科目を選ぶ必要がある。",
+                "ts": 900,
+                "important": false,
+                "from": "transcript"
+              }
+            ],
+            "related_terms": [
+              "仕訳",
+              "借方",
+              "貸方"
+            ],
+            "takeaway": "取引は借方と貸方に分けて記録する必要がある。",
+            "check_question": "現金を受け取った場合の仕訳を示せ。"
+          },
+          {
+            "heading": "決算と財務諸表",
+            "ts": 2160,
+            "summary": "決算の意義と財務諸表の作成について学ぶ。",
+            "key_terms": [
+              {
+                "term": "財務諸表",
+                "definition": "企業の財政状態や経営成績を示す報告書。",
+                "ts": 2160,
+                "from": "transcript"
+              },
+              {
+                "term": "貸借対照表",
+                "definition": "特定時点における資産、負債、純資産の状況を示す表。",
+                "ts": 2180,
+                "from": "transcript"
+              },
+              {
+                "term": "損益計算書",
+                "definition": "特定期間における収益と費用を示し、利益を計算する表。",
+                "ts": 2200,
+                "from": "transcript"
+              }
+            ],
+            "examples": [
+              {
+                "text": "貸借対照表は資産、負債、純資産を集計する。",
+                "ts": 2190,
+                "from": "transcript"
+              },
+              {
+                "text": "損益計算書は収益と費用を集計して利益を示す。",
+                "ts": 2210,
+                "from": "transcript"
+              }
+            ],
+            "points": [
+              {
+                "text": "決算は通常1年ごとに行われる。",
+                "ts": 2220,
+                "important": false,
+                "from": "transcript"
+              },
+              {
+                "text": "決算整理仕訳を行い、正確な財務諸表を作成する。",
+                "ts": 2230,
+                "important": true,
+                "from": "transcript"
+              }
+            ],
+            "related_terms": [
+              "財務諸表",
+              "貸借対照表",
+              "損益計算書"
+            ],
+            "takeaway": "決算は企業の経営成績を把握するために必要であり、財務諸表を作成する。",
+            "check_question": "決算で作成する主な財務諸表は何か。"
+          }
+        ],
+        "course": "簿記",
+        "lecturer": "不明",
+        "tldr": "簿記の基本概念と取引の仕訳方法について学ぶ。",
+        "related_lectures": [
+          "簿記の基礎",
+          "財務諸表の作成"
+        ]
+      },
+      "judge": {
+        "coverage": 8,
+        "accuracy": 9,
+        "hierarchy": 8,
+        "conciseness": 7,
+        "importance": 8,
+        "overall": 8.2,
+        "issues": [
+          "一部のセクションで要約が冗長",
+          "重要度マーキングが一部不足"
+        ],
+        "wins": [
+          "主要概念の網羅性が高い",
+          "構造が論理的でわかりやすい",
+          "重要な用語や概念の定義が明確"
+        ]
+      }
+    }
+  ]
+}
