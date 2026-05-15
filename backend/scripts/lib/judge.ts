@@ -22,7 +22,7 @@
 //     just numbers. These are the seeds for the next prompt iteration.
 
 import OpenAI from 'openai'
-import type { Outline } from './curator.js'
+import type { Outline } from '../../src/lib/curator.js'
 
 export interface JudgeAxisScores {
   coverage: number          // 0-10. Does the outline cover the lecture's key concepts?
