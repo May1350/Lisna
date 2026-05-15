@@ -30,6 +30,7 @@ export interface JudgeAxisScores {
   hierarchy: number         // 0-10. Are sections / sub-items grouped sensibly, no orphans, no duplicates?
   conciseness: number       // 0-10. Are bullets tight, or padded / repetitive?
   importance: number        // 0-10. Is `important: true` used appropriately (definitions, conclusions, emphasised points)?
+  provenance: number        // 0-10. Are AI-generated items marked with from:"ai"? Human-sourced items with from:"transcript"? NOT included in overall weight.
 }
 
 export interface JudgeResult extends JudgeAxisScores {
@@ -112,6 +113,9 @@ async function judgeOnce(modelName: string, userPrompt: string): Promise<JudgeRe
     hierarchy: clamp(parsed.hierarchy ?? 0),
     conciseness: clamp(parsed.conciseness ?? 0),
     importance: clamp(parsed.importance ?? 0),
+    // provenance defaults to 0 until Task 10 adds the axis to SYSTEM_PROMPT.
+    // Task 11 will also handle default-on-missing for loaded baseline JSON.
+    provenance: clamp(parsed.provenance ?? 0),
     overall: clamp(parsed.overall ?? 0),
     issues: Array.isArray(parsed.issues) ? parsed.issues.filter(s => typeof s === 'string') : [],
     wins: Array.isArray(parsed.wins) ? parsed.wins.filter(s => typeof s === 'string') : [],
