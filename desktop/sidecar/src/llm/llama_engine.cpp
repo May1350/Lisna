@@ -1,4 +1,5 @@
 #include "llama_engine.h"
+#include "chat_prompt.h"
 #include "ipc/json_protocol.h"  // emit_event for structured log lines
 #include "memory/os_reclaim.h"
 #include "json.hpp"
@@ -6,9 +7,77 @@
 #include <algorithm>
 #include <cstring>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace lisna::llm {
+
+namespace {
+
+// Shared fallback for both the tmpl==nullptr and `needed < 0` paths.
+// Role-tagged concatenation, no BOS. Caller MUST drive add_special=true at
+// tokenize time because this shape lacks any embedded BOS token.
+std::string fallback_concat(const std::vector<ChatMessage>& messages) {
+  std::string out;
+  for (const auto& m : messages) {
+    out += "[" + m.role + "]\n" + m.content + "\n";
+  }
+  out += "[assistant]\n";
+  return out;
+}
+
+} // namespace
+
+std::pair<std::string, bool> format_chat_prompt(
+    const char* tmpl,
+    const std::vector<ChatMessage>& messages) {
+  if (tmpl == nullptr) {
+    // Model carries no embedded chat template. Surface a warning and return
+    // the raw-concat shape with applied=false so the caller knows BOS must
+    // come from the tokenizer (add_special=true).
+    lisna::ipc::emit_event(nlohmann::json{
+        {"type", "log"}, {"level", "warn"}, {"source", "system"},
+        {"message", "no_chat_template_in_gguf — falling back to raw concatenation; output quality will degrade"}
+    }.dump());
+    return {fallback_concat(messages), false};
+  }
+
+  // Borrow c_str() into llama_chat_message[]; `messages` outlives the call.
+  std::vector<llama_chat_message> cmsgs;
+  cmsgs.reserve(messages.size());
+  for (const auto& m : messages) {
+    cmsgs.push_back(llama_chat_message{m.role.c_str(), m.content.c_str()});
+  }
+
+  // Two-pass alloc. Header recommends 2 * total_chars; we grow on underflow.
+  size_t total_chars = 0;
+  for (const auto& m : messages) total_chars += m.role.size() + m.content.size();
+  std::vector<char> buf(std::max<size_t>(256, total_chars * 2));
+  int32_t needed = llama_chat_apply_template(tmpl, cmsgs.data(), cmsgs.size(),
+                                             /*add_ass=*/true,
+                                             buf.data(),
+                                             static_cast<int32_t>(buf.size()));
+  if (needed > static_cast<int32_t>(buf.size())) {
+    buf.resize(needed);
+    needed = llama_chat_apply_template(tmpl, cmsgs.data(), cmsgs.size(),
+                                       /*add_ass=*/true,
+                                       buf.data(),
+                                       static_cast<int32_t>(buf.size()));
+  }
+  if (needed < 0) {
+    // Template is present but not in llama.cpp's pre-defined supported list
+    // (llama.h:1159). Same fallback shape as the nullptr case — and critically
+    // applied=false, so the caller adds BOS via the tokenizer. Pre-fix the
+    // caller decided add_special from (tmpl != nullptr) alone, missing this
+    // branch and silently dropping BOS.
+    lisna::ipc::emit_event(nlohmann::json{
+        {"type", "log"}, {"level", "warn"}, {"source", "system"},
+        {"message", "llama_chat_apply_template returned negative; falling back to raw concatenation"}
+    }.dump());
+    return {fallback_concat(messages), false};
+  }
+  return {std::string(buf.data(), needed), true};
+}
 
 struct LlamaEngine::Impl {
   llama_model* model = nullptr;
@@ -76,88 +145,24 @@ void LlamaEngine::unload() {
   lisna::memory::advise_release_and_wait(nullptr, 0, target, 2000);
 }
 
-// Format `messages` into a single prompt string using the GGUF chat template
-// (`llama_chat_apply_template`). Two-pass: probe size, then alloc + fill. On
-// fallback (no template embedded), concatenate role-tagged contents — that's
-// less than ideal but keeps the engine functional for exotic GGUFs and at
-// least scopes the failure to the warning rather than silent corruption.
-//
-// `add_ass=true` so the template emits the assistant-header trailer; the
-// model decodes from there and naturally stops at `<|eot_id|>`.
-static std::string format_chat_prompt(llama_model* model,
-                                      const std::vector<ChatMessage>& messages) {
-  const char* tmpl = llama_model_chat_template(model, nullptr);
-  if (tmpl == nullptr) {
-    // Fallback: emit warning, return raw concatenation. The downstream
-    // tokenize call will use add_special=true so BOS still gets prepended.
-    lisna::ipc::emit_event(nlohmann::json{
-        {"type", "log"}, {"level", "warn"}, {"source", "system"},
-        {"message", "no_chat_template_in_gguf — falling back to raw concatenation; output quality will degrade"}
-    }.dump());
-    std::string out;
-    for (const auto& m : messages) {
-      out += "[" + m.role + "]\n" + m.content + "\n";
-    }
-    out += "[assistant]\n";
-    return out;
-  }
-
-  // Build llama_chat_message[] from messages. Pointers must stay valid for
-  // the duration of the call; that's why we keep `messages` alive (caller
-  // owns it) and only borrow `c_str()`.
-  std::vector<llama_chat_message> cmsgs;
-  cmsgs.reserve(messages.size());
-  for (const auto& m : messages) {
-    cmsgs.push_back(llama_chat_message{m.role.c_str(), m.content.c_str()});
-  }
-
-  // Two-pass alloc. The header recommends 2 * total_chars; we start with
-  // that and grow if it underflows.
-  size_t total_chars = 0;
-  for (const auto& m : messages) total_chars += m.role.size() + m.content.size();
-  std::vector<char> buf(std::max<size_t>(256, total_chars * 2));
-  int32_t needed = llama_chat_apply_template(tmpl, cmsgs.data(), cmsgs.size(),
-                                             /*add_ass=*/true,
-                                             buf.data(),
-                                             static_cast<int32_t>(buf.size()));
-  if (needed > static_cast<int32_t>(buf.size())) {
-    buf.resize(needed);
-    needed = llama_chat_apply_template(tmpl, cmsgs.data(), cmsgs.size(),
-                                       /*add_ass=*/true,
-                                       buf.data(),
-                                       static_cast<int32_t>(buf.size()));
-  }
-  if (needed < 0) {
-    // Template apply failed (unsupported template combo, etc.). Same
-    // fallback as the nullptr case — log and concatenate.
-    lisna::ipc::emit_event(nlohmann::json{
-        {"type", "log"}, {"level", "warn"}, {"source", "system"},
-        {"message", "llama_chat_apply_template returned negative; falling back to raw concatenation"}
-    }.dump());
-    std::string out;
-    for (const auto& m : messages) out += "[" + m.role + "]\n" + m.content + "\n";
-    out += "[assistant]\n";
-    return out;
-  }
-  return std::string(buf.data(), needed);
-}
-
 void LlamaEngine::generate(const std::vector<ChatMessage>& messages, const GenOpts& opts,
                            const std::function<void(const std::string&)>& onToken) {
   if (!impl_->ctx || !impl_->vocab || messages.empty()) return;
 
-  // Apply chat template (or fallback). See `format_chat_prompt` for details.
-  const bool have_template = llama_model_chat_template(impl_->model, nullptr) != nullptr;
-  const std::string prompt = format_chat_prompt(impl_->model, messages);
+  // Apply chat template (or fallback). Single source of truth for whether the
+  // template was actually applied — pre-fix this came from a second
+  // `llama_model_chat_template` call that knew tmpl-existence but not
+  // apply-success, so the `needed < 0` fallback path silently dropped BOS.
+  const char* tmpl = llama_model_chat_template(impl_->model, nullptr);
+  auto [prompt, applied] = format_chat_prompt(tmpl, messages);
 
   // Tokenize formatted prompt. Two-pass: probe size, then fill.
   // - parse_special=true so chat-template markers (`<|begin_of_text|>`,
   //   `<|start_header_id|>`, `<|eot_id|>` for Llama 3.2; `<start_of_turn>`
   //   for Gemma) tokenize as their special IDs, not literal text.
-  // - add_special: false when we have a real template (BOS is already in the
-  //   formatted string), true on fallback (no template means no BOS in the
-  //   formatted concatenation).
-  const bool add_special = !have_template;
+  // - add_special: true iff the formatted string came from the raw-concat
+  //   fallback. The applied path has BOS already; the fallback path doesn't.
+  const bool add_special = !applied;
   const int n_prompt_probe = -llama_tokenize(
       impl_->vocab, prompt.c_str(), static_cast<int32_t>(prompt.size()),
       nullptr, 0, add_special, true);

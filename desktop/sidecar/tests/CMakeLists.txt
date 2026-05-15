@@ -15,6 +15,7 @@ FetchContent_MakeAvailable(googletest)
 add_executable(sidecar_tests
   test_json_protocol.cpp
   test_os_reclaim.cpp
+  test_chat_prompt.cpp
   ../src/ipc/json_protocol.cpp
   ../src/ipc/base64.cpp
   ../src/stt/whisper_engine.cpp
