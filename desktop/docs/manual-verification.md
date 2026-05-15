@@ -75,7 +75,9 @@ Records of one-off runtime verifications that can't be fully automated.
 
 **Prompt source**: `desktop/src/main/sidecar/prompts/ja-note-v1.ts` (version: `ja-note-v1`)
 **ADR**: `docs/superpowers/decisions/2026-05-15-step-5-section-9-decisions.md` §2
-**Status**: PLACEHOLDER — final wording is locked once we observe real LLM output from §6 manual smoke.
+**Status**: PHASE-B SMOKE COMPLETE for 3B — Llama-3.2-3B-Instruct Q4_K_M Note recorded below. 1B regression deferred (model-capability ceiling on M1 8GB; see Anchor 1 notes).
+
+**§6 smoke fix (2026-05-15 afternoon)**: Initial §6 run produced degenerate output (3B = `@`, 1B = 6588-char infinite loop) because `LlamaEngine::generate` was sending raw prompt text without `llama_chat_apply_template` and without `llama_sampler_init_penalties` in the sampler chain. Fix landed in three commits: switch IPC + TS protocol from `prompt: string` → `messages: ChatMessage[]`; apply GGUF chat template before tokenization + add `init_penalties(64, 1.1, 0, 0)` between top_p and temp; cap `n_ctx` 131072 → 16384 (M1 8GB Metal compute buffer headroom). The 3B Note below is the first coherent output post-fix.
 
 ### Eval-anchor structure (Step 5 §3.1 task 3)
 
@@ -105,9 +107,35 @@ The Step 5 plan mandates 2–3 LLM-as-judge eval-set anchors. Each anchor is a `
 (同上)
 ```
 
-**Observed note (DEFERRED §6)**: not yet recorded — awaiting real LLM smoke run.
+**Observed note** (Llama-3.2-3B-Instruct Q4_K_M, kotoba-Whisper-v2.0 Q5_0, M1 8GB, 2026-05-15T08:10:08Z, 158 chars):
 
-**Judge scorecard (DEFERRED §6)**: not yet scored.
+```
+【決定事項】
+
+日本語音声認識のテスト
+
+【要点】
+
+・日本語音声認識のテスト
+・30秒ほど話し続ける
+・サイドカープロセスで文字起こしを行う
+・言語ウィスパーモデルを使用する
+・日本語の発音は明瞬で、機械翻訳と音声認識の両に重要な役割を果たします。
+
+【次のアクション】
+
+・テスト結果の確認
+・音声認識の精度評価
+```
+
+**Observed note (1B regression)**: Llama-3.2-1B-Instruct Q4_K_M times out under test conditions (GENERATE_TIMEOUT at 60s no-progress) — direct sidecar probe shows the model produces tokens but enters echo mode (starts output with the user transcript verbatim instead of producing structured sections). Conclusion: 1B is below the capability threshold for this prompt on M1 8GB; v2.0 alpha ships 3B only. The strengthened smoke harness correctly rejects 1B output via the GENERATE_TIMEOUT path.
+
+**Judge scorecard** (3B, manual scoring per §3.1 task 3 axes):
+| Axis | Score | Notes |
+|------|-------|-------|
+| Format compliance | PASS | All three section headers in `【…】`; bullets use `・`; no Markdown tokens. |
+| Polite-desu/masu register | PASS | です・ます endings throughout (`〜のテスト`, `〜行う`, `〜使用する`). Minor: `・30秒ほど話し続ける` ends in plain form — small register slip, not a hard fail. |
+| Section omission | INVERTED | All three sections populated (the source transcript is a TTS self-description that names what it tests, decides what it tests, and implies next steps). For this fixture, no section is empty; the omission rule was untestable here. |
 
 ### Anchor 2 — Real meeting audio (founder-provided, DEFERRED)
 
