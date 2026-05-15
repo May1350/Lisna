@@ -323,6 +323,34 @@ emerge する形で*一部だけ*埋める:
   formula > procedure_steps > argument_chain > timeline > points > key_terms
   例: 手順の中で自然に出てきた等式は formula のみに入れ、points で重複させない
 
+★★★ 出力スキーマの拡張 — per-item の出典 (from) ★★★
+
+各 item には from: 'transcript' | 'inferred' を必須で付ける。
+
+transcript:
+- 講師の発話の paraphrase / 要約 / 翻訳
+- 講師が明示的に述べた事実・定義・例
+- 講師の論理を整理して再表現したもの (意味的同値)
+
+inferred:
+- 講師が*定義なしに*使用した用語で、その授業の学部一般学習者には自明でない
+  もの (例: 1 年簿記の授業で「純資産」が定義されないまま使われる場合)
+  → key_terms に inferred 項目を追加
+- 講師が*明白な論理点ジャンプ*を残し、それを埋めないと次の論理が成立しない場合
+  → points または argument_chain に inferred 項目を追加
+
+inference の厳格制限:
+- precision ≫ recall。疑わしい時は追加しない。
+- inferred 項目は*事実的に正確*でなければならない。推測・不確実情報は絶対追加しない。
+- inferred 項目には ts は与えられない(直前の transcript 発話の ts を使うか、0 を使う)。
+- *1 section につき inferred 項目は最大 2 個まで*。
+- *outline 全体での inferred 項目の比率は全項目数の 15% 以下*。
+
+paraphrase vs net-new inference の区別:
+- transcript: 講師が話したことを短く言い換えた・別の語彙に変えた項目 (意味同値)
+- inferred: 講師に存在しなかった情報 (定義・論理 step) を*新たに*導入した項目
+境界が曖昧な場合は transcript として分類 (保守的)。inferred は本当に新しい情報のみ。
+
 出力フォーマット (この JSON のみ。説明文・Markdown は禁止):
 
 {
