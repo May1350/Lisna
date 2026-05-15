@@ -102,8 +102,80 @@ describeIf('Full pipeline smoke (STT → Orchestrator → LLM → Note)', () => 
         expect(phases).toEqual(['stt-unloading', 'llm-loading', 'generating']);
         // Note shape: non-empty markdown + correct language + segments preserved.
         expect(note.language).toBe('ja');
-        expect(note.markdown.length).toBeGreaterThan(0);
         expect(note.transcriptSegments.length).toBeGreaterThan(0);
+
+        // ---- Quality assertions (post-2026-05-15 hardening) ----
+        //
+        // History:
+        // 1. The pre-2026-05-15 `length > 0` assertion passed a degenerate `@`
+        //    Note when sidecar llama_decode failed mid-generation.
+        // 2. The interim 2026-05-15 morning assertions (length≥30 + diversity≥10
+        //    + JA chars) passed a 6588-char infinite-loop catastrophe where the
+        //    1B model repeated `【次のアクション】 / 【決定事項】` 226 times.
+        //
+        // The hardened set below combines structural checks: positive (template
+        // produced a real section), upper-bound (runaway detector), token-
+        // frequency (loop detector), plus the original instincts (lower bound,
+        // diversity, JA chars). Each check has a load-bearing comment so a
+        // future regression triages quickly.
+
+        // Positive structural check: at least one canonical section header
+        // appeared. If the chat template silently failed, the model would
+        // continue the transcript instead of producing structured sections,
+        // and none of these would show up.
+        expect(
+          /【(要点|決定事項|次のアクション)】/.test(note.markdown),
+          `no JA section header — chat template may have silently failed: ${JSON.stringify(note.markdown.slice(0, 200))}`,
+        ).toBe(true);
+
+        // Upper bound — a 30s fixture should not produce runaway output. The
+        // 2026-05-15 1B catastrophe was 6588 chars; a coherent JA summary of
+        // ~30s of speech is typically 200-1500 chars. 4000 is generous and
+        // unambiguously detects an infinite-loop generation.
+        expect(
+          note.markdown.length,
+          `runaway output (${note.markdown.length} chars) — likely infinite loop`,
+        ).toBeLessThan(4000);
+
+        // Loop detector via token frequency: no single ≥8-char substring may
+        // appear more than 10 times anywhere in the Note. Why this matters:
+        // the founder's proposed `/(.{8,}?)\1{4,}/` regex did NOT catch the
+        // 1B catastrophe because the repeats were paragraph-separated
+        // permutations (`【決定事項】 / 【次のアクション】 / 【決定事項】` vs
+        // `【次のアクション】 / 【決定事項】 / 【決定事項】`), not byte-
+        // identical. A token-frequency check is paragraph-invariant.
+        //
+        // We tokenize on whitespace + slash (the catastrophe's separator
+        // pattern) and look at unique tokens of len≥8. A healthy Note may
+        // legitimately re-state a section header 2-3 times across rewrites;
+        // 226 occurrences (the catastrophe count) clears any sane threshold.
+        const tokens = note.markdown.split(/[\s/]+/).filter((t) => t.length >= 8);
+        const tokenCounts = new Map<string, number>();
+        for (const t of tokens) tokenCounts.set(t, (tokenCounts.get(t) ?? 0) + 1);
+        let maxToken = '';
+        let maxCount = 0;
+        for (const [k, v] of tokenCounts) if (v > maxCount) { maxCount = v; maxToken = k; }
+        expect(
+          maxCount,
+          `token "${maxToken}" repeats ${maxCount}× — likely loop`,
+        ).toBeLessThanOrEqual(10);
+
+        // Lower bound + diversity + JA chars (preserves founder's instincts).
+        expect(
+          note.markdown.length,
+          `degenerate Note (${note.markdown.length} chars): ${JSON.stringify(note.markdown)}`,
+        ).toBeGreaterThanOrEqual(30);
+        expect(
+          new Set(note.markdown).size,
+          `low character diversity in Note: ${JSON.stringify(note.markdown.slice(0, 200))}`,
+        ).toBeGreaterThanOrEqual(10);
+        // Must contain at least one Japanese character (Hiragana/Katakana/CJK).
+        // Catches "@", "...", English-only fallback, or empty/whitespace outputs.
+        expect(
+          /[぀-ヿ一-鿿]/.test(note.markdown),
+          `no Japanese characters in Note: ${JSON.stringify(note.markdown.slice(0, 200))}`,
+        ).toBe(true);
+
         // ja-note-v1 prompt instructs the LLM to avoid Markdown syntax tokens.
         // Soft check: no triple-backtick fences, no `# ` headers at line start.
         const lines = note.markdown.split('\n');
