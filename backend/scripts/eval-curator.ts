@@ -169,6 +169,7 @@ function formatScorecard(results: FixtureResult[], comparison?: Record<string, J
     lines.push(`    hierarchy    ${j.hierarchy.toFixed(1)}${delta(j.hierarchy, cmp?.hierarchy)}`)
     lines.push(`    conciseness  ${j.conciseness.toFixed(1)}${delta(j.conciseness, cmp?.conciseness)}`)
     lines.push(`    importance   ${j.importance.toFixed(1)}${delta(j.importance, cmp?.importance)}`)
+    lines.push(`    provenance   ${j.provenance.toFixed(1)}${delta(j.provenance, cmp?.provenance)}`)
     if (j.issues.length) {
       lines.push(`    issues:`)
       for (const x of j.issues) lines.push(`      - ${x}`)
@@ -182,7 +183,7 @@ function formatScorecard(results: FixtureResult[], comparison?: Record<string, J
   // Mean across fixtures.
   const n = results.length
   if (n > 1) {
-    const mean = (k: keyof Pick<JudgeResult, 'overall' | 'coverage' | 'accuracy' | 'hierarchy' | 'conciseness' | 'importance'>): number =>
+    const mean = (k: keyof Pick<JudgeResult, 'overall' | 'coverage' | 'accuracy' | 'hierarchy' | 'conciseness' | 'importance' | 'provenance'>): number =>
       results.reduce((s, r) => s + r.judge[k], 0) / n
     lines.push('')
     lines.push('───────────────────────────────────────────────────────────────────')
@@ -193,6 +194,7 @@ function formatScorecard(results: FixtureResult[], comparison?: Record<string, J
     lines.push(`    hierarchy    ${mean('hierarchy').toFixed(2)}`)
     lines.push(`    conciseness  ${mean('conciseness').toFixed(2)}`)
     lines.push(`    importance   ${mean('importance').toFixed(2)}`)
+    lines.push(`    provenance   ${mean('provenance').toFixed(2)}`)
     lines.push('───────────────────────────────────────────────────────────────────')
   }
   return lines.join('\n')
