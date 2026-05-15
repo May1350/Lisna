@@ -8,21 +8,32 @@
 
 import OpenAI from 'openai'
 
+/** 항목의 출처. transcript = 강의자 발화에서 직접/패러프레이즈로 derived,
+ *  inferred = 강의자가 직접 안 말했지만 학습 이해 위해 AI 가 보충.
+ *  - inferred 의 두 케이스만 허용 (spec §2):
+ *    (a) 강의자가 정의 없이 사용한 어휘 → key_terms 에 inferred 항목
+ *    (b) 강의자가 남긴 명백한 논리 점프 → points 또는 argument_chain 에 inferred 항목
+ *  - 마커는 사이드패널/마크다운 렌더러가 처리. 큐레이터는 플래그만 출력. */
+export type Provenance = 'transcript' | 'inferred'
+
 export interface OutlineKeyTerm {
   term: string
   definition: string
   ts: number       // absolute video time in seconds
+  from: Provenance              // NEW
 }
 
 export interface OutlineExample {
   text: string
   ts: number
+  from: Provenance              // NEW
 }
 
 export interface OutlinePoint {
   text: string
   ts: number
   important: boolean   // ★ definitions / formulas / conclusions / lecturer-emphasised points
+  from: Provenance              // NEW
 }
 
 export interface OutlineSection {
