@@ -343,8 +343,8 @@ inference の厳格制限:
 - precision ≫ recall。疑わしい時は追加しない。
 - inferred 項目は*事実的に正確*でなければならない。推測・不確実情報は絶対追加しない。
 - inferred 項目には ts は与えられない(直前の transcript 発話の ts を使うか、0 を使う)。
-- *1 section につき inferred 項目は最大 2 個まで*。
-- *outline 全体での inferred 項目の比率は全項目数の 15% 以下*。
+- *1 section につき inferred 項目は最大 2 個まで* (強制)。
+- *outline 全体での inferred 項目の比率は全項目数の 15% 以下* (強制)。
 
 paraphrase vs net-new inference の区別:
 - transcript: 講師が話したことを短く言い換えた・別の語彙に変えた項目 (意味同値)
@@ -367,9 +367,9 @@ paraphrase vs net-new inference の区別:
       "takeaway": "<1 文の本質. 学生が覚えるべきこと>",
       "check_question": "<自己確認質問>",
       "related_terms": ["<関連用語1>", "<関連用語2>"],
-      "key_terms": [{ "term": "...", "definition": "atomic note として独立完結", "ts": <秒> }],
-      "examples": [{ "text": "transcript の具体例を引用", "ts": <秒> }],
-      "points": [{ "text": "講師の具体的主張・手順・条件", "ts": <秒>, "important": <bool> }]
+      "key_terms": [{ "term": "...", "definition": "atomic note として独立完結", "ts": <秒>, "from": "transcript" }],
+      "examples": [{ "text": "transcript の具体例を引用", "ts": <秒>, "from": "transcript" }],
+      "points": [{ "text": "講師の具体的主張・手順・条件", "ts": <秒>, "important": <bool>, "from": "transcript" }]
     }
   ]
 }
