@@ -498,21 +498,48 @@ function normaliseSection(s: Partial<OutlineSection>): OutlineSection {
       term: typeof t.term === 'string' ? t.term : '',
       definition: typeof t.definition === 'string' ? t.definition : '',
       ts: typeof t.ts === 'number' ? Math.max(0, Math.round(t.ts)) : 0,
+      from: (t as { from?: unknown }).from === 'inferred' ? 'inferred' as const : 'transcript' as const,
     })).filter(t => t.term && t.definition) : [],
     examples: Array.isArray(s.examples) ? s.examples.map(e => ({
       text: typeof e.text === 'string' ? e.text : '',
       ts: typeof e.ts === 'number' ? Math.max(0, Math.round(e.ts)) : 0,
+      from: (e as { from?: unknown }).from === 'inferred' ? 'inferred' as const : 'transcript' as const,
     })).filter(e => e.text) : [],
     points: Array.isArray(s.points) ? s.points.map(p => ({
       text: typeof p.text === 'string' ? p.text : '',
       ts: typeof p.ts === 'number' ? Math.max(0, Math.round(p.ts)) : 0,
       important: !!p.important,
+      from: (p as { from?: unknown }).from === 'inferred' ? 'inferred' as const : 'transcript' as const,
     })).filter(p => p.text) : [],
     related_terms: Array.isArray(s.related_terms)
       ? s.related_terms.filter((x): x is string => typeof x === 'string' && !!x.trim()).map(x => x.trim())
       : undefined,
     takeaway: typeof s.takeaway === 'string' && s.takeaway.trim() ? s.takeaway.trim() : undefined,
     check_question: typeof s.check_question === 'string' && s.check_question.trim() ? s.check_question.trim() : undefined,
+    procedure_steps: Array.isArray(s.procedure_steps) ? s.procedure_steps.map(st => ({
+      text: typeof st.text === 'string' ? st.text : '',
+      order: typeof st.order === 'number' ? st.order : undefined,
+      ts: typeof st.ts === 'number' ? Math.max(0, Math.round(st.ts)) : 0,
+      important: typeof st.important === 'boolean' ? st.important : undefined,
+      from: (st as { from?: unknown }).from === 'inferred' ? 'inferred' as const : 'transcript' as const,
+    })).filter(st => st.text) : undefined,
+    argument_chain: Array.isArray(s.argument_chain) ? s.argument_chain.map(l => ({
+      text: typeof l.text === 'string' ? l.text : '',
+      ts: typeof l.ts === 'number' ? Math.max(0, Math.round(l.ts)) : 0,
+      from: (l as { from?: unknown }).from === 'inferred' ? 'inferred' as const : 'transcript' as const,
+    })).filter(l => l.text) : undefined,
+    formula: Array.isArray(s.formula) ? s.formula.map(f => ({
+      label: typeof f.label === 'string' && f.label.trim() ? f.label.trim() : undefined,
+      expression: typeof f.expression === 'string' ? f.expression : '',
+      ts: typeof f.ts === 'number' ? Math.max(0, Math.round(f.ts)) : 0,
+      from: (f as { from?: unknown }).from === 'inferred' ? 'inferred' as const : 'transcript' as const,
+    })).filter(f => f.expression) : undefined,
+    timeline: Array.isArray(s.timeline) ? s.timeline.map(ev => ({
+      when: typeof ev.when === 'string' ? ev.when : '',
+      event: typeof ev.event === 'string' ? ev.event : '',
+      ts: typeof ev.ts === 'number' ? Math.max(0, Math.round(ev.ts)) : 0,
+      from: (ev as { from?: unknown }).from === 'inferred' ? 'inferred' as const : 'transcript' as const,
+    })).filter(ev => ev.when && ev.event) : undefined,
   }
 }
 
