@@ -30,7 +30,7 @@ export interface JudgeAxisScores {
   hierarchy: number         // 0-10. Are sections / sub-items grouped sensibly, no orphans, no duplicates?
   conciseness: number       // 0-10. Are bullets tight, or padded / repetitive?
   importance: number        // 0-10. Is `important: true` used appropriately (definitions, conclusions, emphasised points)?
-  provenance: number        // 0-10. Are AI-generated items marked with from:"ai"? Human-sourced items with from:"transcript"? NOT included in overall weight.
+  provenance: number        // 0-10. Are AI-supplemented items correctly flagged as from:'inferred' (vs from:'transcript' for paraphrase)? NOT included in overall weight.
 }
 
 export interface JudgeResult extends JudgeAxisScores {
