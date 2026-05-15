@@ -579,6 +579,12 @@ spec §4.4 의 임계치:
 
 `docs/superpowers/plans/2026-05-15-curator-provenance-and-typed-slots.md` 의 이 Task 안에 결과 한 줄 기록 (필요시 spec 의 §4.4 도 업데이트). 실제 코드 변경은 없으므로 git commit 불요.
 
+**실측 결과 (2026-05-16, feat/curator-provenance-typed-slots, post-Task-6):**
+- Curator latency: **75.4s** (yt-JGXIB, gpt-4o-mini, single-shot, 6 sections, title="簿記入門")
+- 임계치 ≤80s 만족 → 그대로 Task 8 (Phase C) 진입. prompt 압축 불요, 모델 변경 불요.
+- Eval 5축 scorecard: overall 8.2 / coverage 8.0 / accuracy 9.0 / hierarchy 8.0 / conciseness 7.0 / importance 8.0 (이전 plateau 8.1-8.2 와 회귀 없음 — 새 prompt 가 quality drop 안 일으킴)
+- 새 슬롯 emergence + inferred 항목 검사는 Task 8 의 baseline JSON dump 결과로 retrospective 확인 (eval-curator 가 outline JSON 을 stdout 에 출력 안 함).
+
 ---
 
 ## Phase C — 베이스라인 재캡처 + Judge 변경 (Task 8-11)
