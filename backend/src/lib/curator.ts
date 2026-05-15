@@ -431,21 +431,25 @@ function isRetryable(e: unknown): boolean {
     || msg.includes('overloaded') || msg.includes('high demand') || msg.includes('service unavailable')
 }
 
+function buildOutline(r: Partial<Outline>): Outline {
+  return {
+    title: typeof r.title === 'string' ? r.title : '',
+    sections: Array.isArray(r.sections) ? r.sections.map(normaliseSection) : [],
+    course: typeof r.course === 'string' && r.course.trim() ? r.course.trim() : undefined,
+    lecturer: typeof r.lecturer === 'string' && r.lecturer.trim() ? r.lecturer.trim() : undefined,
+    tldr: typeof r.tldr === 'string' && r.tldr.trim() ? r.tldr.trim() : undefined,
+    related_lectures: Array.isArray(r.related_lectures)
+      ? r.related_lectures.filter((s): s is string => typeof s === 'string' && !!s.trim()).map(s => s.trim())
+      : undefined,
+  }
+}
+
 function parseOutlineJson(text: string): Outline {
   // Anthropic occasionally wraps JSON in markdown fences despite our
   // explicit "JSON のみ" instruction; strip them defensively.
   const cleaned = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
   const parsed = JSON.parse(cleaned) as Partial<Outline>
-  return {
-    title: typeof parsed.title === 'string' ? parsed.title : '',
-    sections: Array.isArray(parsed.sections) ? parsed.sections.map(normaliseSection) : [],
-    course: typeof parsed.course === 'string' && parsed.course.trim() ? parsed.course.trim() : undefined,
-    lecturer: typeof parsed.lecturer === 'string' && parsed.lecturer.trim() ? parsed.lecturer.trim() : undefined,
-    tldr: typeof parsed.tldr === 'string' && parsed.tldr.trim() ? parsed.tldr.trim() : undefined,
-    related_lectures: Array.isArray(parsed.related_lectures)
-      ? parsed.related_lectures.filter((s): s is string => typeof s === 'string' && !!s.trim()).map(s => s.trim())
-      : undefined,
-  }
+  return buildOutline(parsed)
 }
 
 async function generateOpenAI(modelName: string, userPrompt: string, systemPrompt: string): Promise<Outline> {
@@ -543,19 +547,10 @@ function normaliseSection(s: Partial<OutlineSection>): OutlineSection {
   }
 }
 
-/** @internal test-only — vitest が normaliseSection の後方互換性を検証するために使用 */
+/** @internal test-only — vitest 가 normaliseSection 의 호환성 시험에 사용 */
 export function __testOnly_normaliseOutline(raw: unknown): Outline {
-  const r = raw as Partial<Outline> & { sections?: Partial<OutlineSection>[] }
-  return {
-    title: typeof r.title === 'string' ? r.title : '',
-    sections: Array.isArray(r.sections) ? r.sections.map(normaliseSection) : [],
-    course: typeof r.course === 'string' && r.course.trim() ? r.course.trim() : undefined,
-    lecturer: typeof r.lecturer === 'string' && r.lecturer.trim() ? r.lecturer.trim() : undefined,
-    tldr: typeof r.tldr === 'string' && r.tldr.trim() ? r.tldr.trim() : undefined,
-    related_lectures: Array.isArray(r.related_lectures)
-      ? r.related_lectures.filter((x): x is string => typeof x === 'string' && !!x.trim()).map(x => x.trim())
-      : undefined,
-  }
+  const r = raw as Partial<Outline>
+  return buildOutline(r)
 }
 
 export async function curateOutline(req: CuratorRequest): Promise<Outline> {
