@@ -78,6 +78,9 @@ contextBridge.exposeInMainWorld('lisna', {
     const payload: ModelPickPayload = { slot };
     return ipcRenderer.invoke(CHANNELS.modelPick, payload);
   },
+
+  openExternal: (url: string): Promise<void> =>
+    ipcRenderer.invoke(CHANNELS.shellOpenExternal, { url }),
 });
 
 declare global {
@@ -95,6 +98,7 @@ declare global {
       restartApp(): Promise<void>;
       getModelStatus(): Promise<ModelStatus>;
       pickModel(slot: ModelSlot): Promise<PickResult>;
+      openExternal(url: string): Promise<void>;
     };
   }
 }
