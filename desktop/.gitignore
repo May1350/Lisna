@@ -8,3 +8,4 @@ sidecar/deps/whisper.cpp/build
 sidecar/deps/llama.cpp/build
 *.log
 .DS_Store
+docs/last-smoke-note.txt
