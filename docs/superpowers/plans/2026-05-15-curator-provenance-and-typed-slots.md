@@ -864,6 +864,20 @@ git commit -m "test(eval): add procedural + narrative fixtures for slot emergenc
 
 ### Task 13: 3 fixture 위에서 overall ≥ 8.5 + provenance ≥ 7.5 달성까지 반복
 
+> **CLOSED 2026-05-16 — iter-2 가 final baseline. founder qualitative gate 로 종결.**
+>
+> 결정 이유:
+> - **Judge degeneracy**: iter-0/1/2 baselines 가 3 개의 서로 다른 fixture (narrative-ukraine-russia / procedural-physics-em / yt-JGXIB) 에서 모두 동일한 overall 8.1, provenance 6.0, accuracy 9.0 을 산출. iter-1 의 narrative 만 7.2/5.0/7.0 으로 한 번 변별. Groq llama-3.3-70b judge 가 mode-collapse 하여 실제 변별 신호가 빈약 → quantitative target (overall ≥ 8.5 / provenance ≥ 7.5) 의 측정 도구 신뢰도 자체가 낮음.
+> - **Qualitative 관찰은 충분**: iter-4 prompt (`b657a71`) curator-only 관찰: 簿記 procedure_steps 0~3 stochastic, physics argument_chain 2 항목, narrative 모든 신규 슬롯 0 (argument-type 강의로서 자연). 신규 typed slot 이 의도된 강의 type 에 발현 확인됨. 잔존 stochasticity (簿記 procedure_steps 0 케이스) 는 prompt fine-tune 만으로 해결되지 않는 깊은 변수 — judge 점수 0.2 차이로 분리 불가.
+> - **Cost vs value**: 24h 대기 후 strict comparison 가능하지만 비교 대상 (iter-0) 이 degenerate. OpenAI/Anthropic judge swap 은 mode-collapse 가 LLM judge 일반 현상이라 같은 결과 확률 ≥ 50%. paid tier 업그레이드는 final eval 하나 위해 과함.
+> - **Effective quality gate**: ext 0.1.50 출시 후 founder 가 실강의 노트를 받아 보는 사용 시그널 > quantitative eval 점수.
+>
+> **Final baseline of record**: iter-2 (`backend/tests/fixtures/baselines/2026-05-16-iter-2.json`, savedAt 02:41 UTC) — overall 8.1 / provenance 6.0 (3 fixture uniform, target 미달이지만 judge degeneracy 로 측정 한계).
+>
+> **Follow-up (별건)**: 다음 prompt iteration 사이클에선 judge 자체를 교체하거나 (cross-vendor: OpenAI/Anthropic), pairwise comparison (Bradley-Terry) 기반 평가로 전환 검토. 현 eval 인프라는 mode-collapse 에 무력.
+>
+> ※ Step 1-5 의 원안은 reference 로 남김 (Groq judge 가 정상 변별할 때 적용 가능).
+
 **Files:** (반복 작업, prompt 미세조정)
 
 - [ ] **Step 1: 모든 fixture eval 한 번 (3-baseline 캡처)**
