@@ -3,19 +3,22 @@ import { Recording } from './routes/Recording';
 import { NoteView } from './routes/NoteView';
 import { ErrorView } from './routes/ErrorView';
 import { FinalizingView } from './routes/FinalizingView';
+import { SetupView } from './routes/SetupView';
 import type { Note, TranscriptSegment } from '@shared/types';
 import type { SessionPhase } from '@shared/ipc-protocol';
 
 type FinalizingPhase = Exclude<SessionPhase, 'stt-loading'>;
 
 type View =
+  | { kind: 'booting' }
+  | { kind: 'setup'; initialStep: 'stt' | 'llm'; initialError?: string }
   | { kind: 'recording'; segments: TranscriptSegment[] }
   | { kind: 'finalizing'; phase: FinalizingPhase; segments: TranscriptSegment[] }
   | { kind: 'note'; note: Note }
   | { kind: 'error'; message: string; segments: TranscriptSegment[]; permanent?: boolean };
 
 export function App() {
-  const [view, setView] = useState<View>({ kind: 'recording', segments: [] });
+  const [view, setView] = useState<View>({ kind: 'booting' });
 
   // Chunk-result: accept in 'recording' AND 'finalizing'. The renderer-side
   // RecordingOrchestrator.stop()'s synchronous acc.flush() ships the final
@@ -70,6 +73,37 @@ export function App() {
     });
   }, []);
 
+  // §5.1 — on mount, query main for the boot-resolved ModelStatus.
+  // Safe to call here without race: main/index.ts registers models/status
+  // BEFORE createWindow (Task 7), so the handler is always present by the
+  // time this mounts. While in 'booting', the existing onChunk/onPhase/
+  // onSessionError listeners are naturally inert (their prev.kind guards
+  // no-op).
+  useEffect(() => {
+    void window.lisna.getModelStatus().then((status) => {
+      if (status.kind === 'ready') {
+        setView({ kind: 'recording', segments: [] });
+        return;
+      }
+      // status.missing is sorted: 'stt' before 'llm'. First missing slot
+      // is where the picker starts. If we're re-prompting because a
+      // previously-set path is now missing, surface that as initialError.
+      const initialStep = status.missing[0];
+      if (!initialStep) {
+        // Unreachable: needs-setup always has ≥1 missing slot. Guard for
+        // noUncheckedIndexedAccess strictness; if somehow reached, fall
+        // through to Recording (kind === 'ready' would have hit earlier).
+        setView({ kind: 'recording', segments: [] });
+        return;
+      }
+      const initialError =
+        initialStep === 'stt' ? 'MODEL_FILE_MISSING_STT' : 'MODEL_FILE_MISSING_LLM';
+      // First-run case: missing.length === 2; treat as no error (clean state).
+      const error = status.missing.length === 2 ? undefined : initialError;
+      setView({ kind: 'setup', initialStep, initialError: error });
+    });
+  }, []);
+
   return (
     <main style={{ fontFamily: 'system-ui', padding: 24 }}>
       <h1>Lisna v2 — on-device</h1>
@@ -80,6 +114,16 @@ export function App() {
 
 function renderView(view: View, setView: (next: View | ((p: View) => View)) => void) {
   switch (view.kind) {
+    case 'booting':
+      return <div data-testid="booting" />;  // null UI; resolved in ~ms
+    case 'setup':
+      return (
+        <SetupView
+          initialStep={view.initialStep}
+          initialError={view.initialError}
+          onReady={() => setView({ kind: 'recording', segments: [] })}
+        />
+      );
     case 'recording':
       return (
         <Recording
