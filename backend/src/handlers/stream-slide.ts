@@ -43,28 +43,34 @@ export const handler = withAuth('stream-slide', async (event, payload) => {
 
   // Dedup check, two-layer:
   //   1. SHA256 image hash — authoritative for identical re-captures
-  //      (same JPEG bytes from the user replaying a lecture).
-  //   2. Video-time fallback (±TS_DEDUP_TOLERANCE_SEC). Catches two
-  //      cases hash-dedup misses:
-  //        (a) legacy slides written before this handler started
-  //            persisting `hash` — their row has no `hash` field, so
-  //            a new replay's hash never matches them and the row
-  //            keeps growing one entry per playback.
-  //        (b) `canvas.toBlob` byte-different output for the same
-  //            displayed frame (rare but observed across Chrome
-  //            versions — JPEG encoder is not always deterministic
-  //            for identical input pixels, especially on the
-  //            baseline-emit path where the decode buffer may
-  //            differ across capture sessions).
-  // Both layers are SAFE in the strict sense — a 1 s tolerance is far
-  // tighter than the typical slide dwell time (10 s+), so a true
-  // distinct slide within 1 s of a prior one (very rare in lecture
-  // material) is the only false-positive risk.
+  //      (same JPEG bytes from the user replaying a lecture). This is
+  //      the path EVERY new row takes.
+  //   2. Video-time fallback (±TS_DEDUP_TOLERANCE_SEC), gated by `!s.hash`
+  //      so it ONLY applies to LEGACY rows written before this handler
+  //      started persisting `hash`. Those rows can never hash-match a
+  //      new capture, so without this fallback a re-watch would grow
+  //      one extra row per legacy slide every time. Newly-written
+  //      rows always carry `hash`, so they fall through to layer 1
+  //      and are unaffected.
+  //
+  // PRIOR BUG (fixed 2026-05-13): layer 2 was unconditional, which
+  // false-positive deduped genuinely new slides whose ts happened to
+  // land within 1 s of a prior session's capture. Re-watch flow lost
+  // ~30-70% of newly-captured slides to that.
+  //
+  // The case 2 was originally designed to also cover (was: layer 2b)
+  // `canvas.toBlob` byte-different output for the same displayed frame
+  // (rare; JPEG encoder is not strictly deterministic across Chrome
+  // versions / decode-buffer states). Those slip through now and
+  // become duplicate rows, but downstream rendering tolerates that
+  // (visually-identical slides at near-identical ts cluster together
+  // and don't hurt the outline). The re-watch correctness win is the
+  // far bigger lever, so accepting that tradeoff.
   const existing = upserted[0].slides ?? []
   const TS_DEDUP_TOLERANCE_SEC = 1
   const dup
     = existing.find(s => s.hash === imgHash)
-    ?? existing.find(s => Math.abs(s.ts - body.ts) < TS_DEDUP_TOLERANCE_SEC)
+    ?? existing.find(s => !s.hash && Math.abs(s.ts - body.ts) < TS_DEDUP_TOLERANCE_SEC)
   if (dup) {
     const presignedUrl = await presignGet(dup.key)
     return {

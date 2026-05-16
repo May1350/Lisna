@@ -205,6 +205,10 @@ export const zh: Translations = {
     collapseSectionAria: '折叠章节',
     expandSectionTitle: '点击展开',
     collapseSectionTitle: '点击折叠',
+    procedure_steps_label: '步骤',
+    formula_label: '公式',
+    argument_chain_label: '论证',
+    timeline_label: '时间线',
   },
   speed: {
     auto: '播放器最高速度 (推荐)',

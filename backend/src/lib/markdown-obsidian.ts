@@ -52,6 +52,11 @@ interface HeadingSet {
   duration: string
   openVideo: string
   videoTimeArrow: string
+  inferred_callout: string
+  steps_label: string
+  formula_label: string
+  argument_label: string
+  timeline_label: string
 }
 const HEADINGS: Record<MarkdownLocale, HeadingSet> = {
   ja: {
@@ -62,6 +67,8 @@ const HEADINGS: Record<MarkdownLocale, HeadingSet> = {
     examples_inline_prefix: '例', related_inline: '関連',
     professor: '教授', course: '科目', watchedDate: '視聴日', duration: '長さ',
     openVideo: '▶ 動画を開く', videoTimeArrow: '▶',
+    inferred_callout: '補足', steps_label: '手順', formula_label: '公式',
+    argument_label: '論証', timeline_label: '時系列',
   },
   en: {
     info_callout: 'Lecture info', tldr_h2: 'TL;DR', important_h2: 'Key points ⭐',
@@ -71,6 +78,8 @@ const HEADINGS: Record<MarkdownLocale, HeadingSet> = {
     examples_inline_prefix: 'e.g.', related_inline: 'Related',
     professor: 'Professor', course: 'Course', watchedDate: 'Watched', duration: 'Length',
     openVideo: '▶ Open video', videoTimeArrow: '▶',
+    inferred_callout: 'Note', steps_label: 'Steps', formula_label: 'Formula',
+    argument_label: 'Argument', timeline_label: 'Timeline',
   },
   ko: {
     info_callout: '강의 정보', tldr_h2: 'TL;DR', important_h2: '중요사항 ⭐',
@@ -80,6 +89,8 @@ const HEADINGS: Record<MarkdownLocale, HeadingSet> = {
     examples_inline_prefix: '예', related_inline: '관련',
     professor: '교수', course: '과목', watchedDate: '시청일', duration: '길이',
     openVideo: '▶ 영상 열기', videoTimeArrow: '▶',
+    inferred_callout: '보충', steps_label: '절차', formula_label: '공식',
+    argument_label: '논증', timeline_label: '시간 순',
   },
   zh: {
     info_callout: '讲座信息', tldr_h2: 'TL;DR', important_h2: '重点 ⭐',
@@ -89,6 +100,8 @@ const HEADINGS: Record<MarkdownLocale, HeadingSet> = {
     examples_inline_prefix: '例', related_inline: '相关',
     professor: '教授', course: '课程', watchedDate: '观看日期', duration: '时长',
     openVideo: '▶ 打开视频', videoTimeArrow: '▶',
+    inferred_callout: '补充', steps_label: '步骤', formula_label: '公式',
+    argument_label: '论证', timeline_label: '时间线',
   },
 }
 
@@ -216,7 +229,13 @@ function sectionBlock(
   if (s.key_terms.length > 0) {
     out.push(`**${h.terms_label}**`)
     for (const kt of s.key_terms) {
-      out.push(`- **${kt.term}**: ${kt.definition}`)
+      if (kt.from === 'inferred') {
+        out.push(`> [!note] ${h.inferred_callout} — ※ ${kt.term}`)
+        out.push(`> ${kt.definition}`)
+        out.push('')
+      } else {
+        out.push(`- **${kt.term}**: ${kt.definition}`)
+      }
     }
     out.push('')
   }
@@ -226,14 +245,32 @@ function sectionBlock(
   if (importantPoints.length > 0 || otherPoints.length > 0 || s.examples.length > 0) {
     out.push(`**${h.points_label}**`)
     importantPoints.forEach((p, j) => {
-      const localId = `${blockId}-p${j}`
-      out.push(`- ⭐ **${autoLinkTerms(p.text, terms)}** ${deepLink(ctx.sourceUrl, p.ts)} ^${localId}`)
+      if (p.from === 'inferred') {
+        out.push(`> [!note] ${h.inferred_callout}`)
+        out.push(`> ※ ${p.text}`)
+        out.push('')
+      } else {
+        const localId = `${blockId}-p${j}`
+        out.push(`- ⭐ **${autoLinkTerms(p.text, terms)}** ${deepLink(ctx.sourceUrl, p.ts)} ^${localId}`)
+      }
     })
     for (const p of otherPoints) {
-      out.push(`- ${autoLinkTerms(p.text, terms)} ${deepLink(ctx.sourceUrl, p.ts)}`)
+      if (p.from === 'inferred') {
+        out.push(`> [!note] ${h.inferred_callout}`)
+        out.push(`> ※ ${p.text}`)
+        out.push('')
+      } else {
+        out.push(`- ${autoLinkTerms(p.text, terms)} ${deepLink(ctx.sourceUrl, p.ts)}`)
+      }
     }
     for (const e of s.examples) {
-      out.push(`- ${h.examples_inline_prefix}: ${escapeText(e.text)} ${deepLink(ctx.sourceUrl, e.ts)}`)
+      if (e.from === 'inferred') {
+        out.push(`> [!note] ${h.inferred_callout}`)
+        out.push(`> ※ ${e.text}`)
+        out.push('')
+      } else {
+        out.push(`- ${h.examples_inline_prefix}: ${escapeText(e.text)} ${deepLink(ctx.sourceUrl, e.ts)}`)
+      }
     }
     out.push('')
   }
@@ -241,6 +278,75 @@ function sectionBlock(
   if (s.related_terms && s.related_terms.length > 0) {
     const links = s.related_terms.map(t => `[[${sanitiseWikilink(t)}]]`).join(' · ')
     out.push(`**${h.related_inline}**: ${links}`)
+    out.push('')
+  }
+
+  // procedure_steps
+  if (s.procedure_steps && s.procedure_steps.length > 0) {
+    out.push(`#### ${h.steps_label}`)
+    out.push('')
+    s.procedure_steps.forEach((st, i) => {
+      const order = st.order ?? i + 1
+      if (st.from === 'inferred') {
+        out.push(`> [!note] ${h.inferred_callout}`)
+        out.push(`> ${order}. ※ ${st.text}`)
+        out.push('')
+      } else {
+        out.push(`${order}. ${st.text} [▶ ${formatMMSS(st.ts)}](${ctx.sourceUrl}${ctx.sourceUrl.includes('?') ? '&' : '?'}t=${Math.floor(st.ts)}s&__sh_seek=${Math.floor(st.ts)})`)
+      }
+    })
+    out.push('')
+  }
+
+  // formula
+  if (s.formula && s.formula.length > 0) {
+    out.push(`#### ${h.formula_label}`)
+    out.push('')
+    for (const f of s.formula) {
+      if (f.from === 'inferred') {
+        out.push(`> [!note] ${h.inferred_callout} — ※ ${f.label ?? ''}`)
+        out.push('> ```math')
+        out.push(`> ${f.expression}`)
+        out.push('> ```')
+        out.push('')
+      } else {
+        if (f.label) out.push(`**${f.label}**`)
+        out.push('```math')
+        out.push(f.expression)
+        out.push('```')
+        out.push('')
+      }
+    }
+  }
+
+  // argument_chain
+  if (s.argument_chain && s.argument_chain.length > 0) {
+    out.push(`#### ${h.argument_label}`)
+    out.push('')
+    for (const l of s.argument_chain) {
+      if (l.from === 'inferred') {
+        out.push(`> [!note] ${h.inferred_callout}`)
+        out.push(`> → ※ ${l.text}`)
+        out.push('')
+      } else {
+        out.push(`- → ${l.text} [▶ ${formatMMSS(l.ts)}](${ctx.sourceUrl}${ctx.sourceUrl.includes('?') ? '&' : '?'}t=${Math.floor(l.ts)}s&__sh_seek=${Math.floor(l.ts)})`)
+      }
+    }
+    out.push('')
+  }
+
+  // timeline — 2nd column header: no `event_label` in HeadingSet, so
+  // hardcode per-locale: ja=イベント, en=Event, ko=이벤트, zh=事件
+  if (s.timeline && s.timeline.length > 0) {
+    const eventLabel = { ja: 'イベント', en: 'Event', ko: '이벤트', zh: '事件' }[ctx.lang ?? 'ja']
+    out.push(`#### ${h.timeline_label}`)
+    out.push('')
+    out.push(`| ${h.timeline_label} | ${eventLabel} |`)
+    out.push('|---|---|')
+    for (const ev of s.timeline) {
+      const marker = ev.from === 'inferred' ? '※ ' : ''
+      out.push(`| ${marker}${ev.when} | ${ev.event} |`)
+    }
     out.push('')
   }
 
@@ -329,8 +435,14 @@ function collectImportantPoints(o: Outline, sourceUrl: string): string[] {
 }
 
 function collectTerms(o: Outline): string[] {
+  // Skip from:'inferred' terms — they are AI-supplemented (spec §1.4 "AI 보충
+  // 을 학생이 한눈에 식별"). Surfacing them in YAML frontmatter `key_terms:`
+  // and inline wikilinks would make them indistinguishable from transcript-
+  // derived terms in Obsidian's Properties / Graph / Dataview views.
   const set = new Set<string>()
-  for (const s of o.sections) for (const kt of s.key_terms) if (kt.term) set.add(kt.term)
+  for (const s of o.sections)
+    for (const kt of s.key_terms)
+      if (kt.term && kt.from !== 'inferred') set.add(kt.term)
   return Array.from(set)
 }
 

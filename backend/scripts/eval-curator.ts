@@ -169,6 +169,7 @@ function formatScorecard(results: FixtureResult[], comparison?: Record<string, J
     lines.push(`    hierarchy    ${j.hierarchy.toFixed(1)}${delta(j.hierarchy, cmp?.hierarchy)}`)
     lines.push(`    conciseness  ${j.conciseness.toFixed(1)}${delta(j.conciseness, cmp?.conciseness)}`)
     lines.push(`    importance   ${j.importance.toFixed(1)}${delta(j.importance, cmp?.importance)}`)
+    lines.push(`    provenance   ${j.provenance.toFixed(1)}${delta(j.provenance, cmp?.provenance)}`)
     if (j.issues.length) {
       lines.push(`    issues:`)
       for (const x of j.issues) lines.push(`      - ${x}`)
@@ -182,7 +183,7 @@ function formatScorecard(results: FixtureResult[], comparison?: Record<string, J
   // Mean across fixtures.
   const n = results.length
   if (n > 1) {
-    const mean = (k: keyof Pick<JudgeResult, 'overall' | 'coverage' | 'accuracy' | 'hierarchy' | 'conciseness' | 'importance'>): number =>
+    const mean = (k: keyof Pick<JudgeResult, 'overall' | 'coverage' | 'accuracy' | 'hierarchy' | 'conciseness' | 'importance' | 'provenance'>): number =>
       results.reduce((s, r) => s + r.judge[k], 0) / n
     lines.push('')
     lines.push('───────────────────────────────────────────────────────────────────')
@@ -193,6 +194,7 @@ function formatScorecard(results: FixtureResult[], comparison?: Record<string, J
     lines.push(`    hierarchy    ${mean('hierarchy').toFixed(2)}`)
     lines.push(`    conciseness  ${mean('conciseness').toFixed(2)}`)
     lines.push(`    importance   ${mean('importance').toFixed(2)}`)
+    lines.push(`    provenance   ${mean('provenance').toFixed(2)}`)
     lines.push('───────────────────────────────────────────────────────────────────')
   }
   return lines.join('\n')
@@ -209,8 +211,17 @@ async function main(): Promise<void> {
   console.log(`Fixtures: ${fixtures.map(f => f.slug).join(', ')}`)
 
   const results: FixtureResult[] = []
-  for (const f of fixtures) {
+  // Groq's free-tier sliding TPM window on llama-3.3-70b is tight enough
+  // that back-to-back fixture judges can fail with 429 even with curator
+  // time in between. Cool down between fixtures so the window refills.
+  const COOLDOWN_MS = 75_000
+  for (let idx = 0; idx < fixtures.length; idx++) {
+    const f = fixtures[idx]
     results.push(await evalFixture(f.slug, f.path, opts.rolling))
+    if (idx < fixtures.length - 1) {
+      console.log(`    [cooldown] waiting ${COOLDOWN_MS / 1000}s for Groq TPM refill...`)
+      await new Promise(r => setTimeout(r, COOLDOWN_MS))
+    }
   }
 
   let comparison: Record<string, JudgeResult> | undefined

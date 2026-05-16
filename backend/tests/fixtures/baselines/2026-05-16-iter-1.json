@@ -1,0 +1,675 @@
+{
+  "savedAt": "2026-05-16T02:37:20.369Z",
+  "results": [
+    {
+      "slug": "narrative-ukraine-russia",
+      "source": "https://www.youtube.com/watch?v=mDtZclTAqDc",
+      "chunks": 319,
+      "curatorRuns": 1,
+      "totalCuratorMs": 120611,
+      "judgeMs": 1475,
+      "outline": {
+        "title": "ロシアとウクライナの歴史的関係",
+        "sections": [
+          {
+            "heading": "コサックの登場とウクライナのアイデンティティ",
+            "ts": 240,
+            "summary": "コサックはウクライナのアイデンティティの象徴であり、ポーランドとの戦争を通じて独立を求める動きが始まった。",
+            "key_terms": [
+              {
+                "term": "コサック",
+                "definition": "ウクライナの武装集団で、民族的アイデンティティの象徴として重要な役割を果たした。",
+                "ts": 240,
+                "from": "transcript"
+              }
+            ],
+            "examples": [
+              {
+                "text": "フメリニツキーがコサックのリーダーとしてポーランドに勝利した事例",
+                "ts": 250,
+                "from": "transcript"
+              }
+            ],
+            "points": [
+              {
+                "text": "コサックはポーランドに対抗して独立国家を形成しようとした。",
+                "ts": 260,
+                "important": true,
+                "from": "transcript"
+              }
+            ],
+            "related_terms": [
+              "コサック",
+              "ウクライナ"
+            ],
+            "takeaway": "コサックはウクライナの民族的アイデンティティを形成する重要な存在である。",
+            "check_question": "コサックの役割とウクライナの独立運動について説明せよ。"
+          },
+          {
+            "heading": "モスクワとの協定とその影響",
+            "ts": 620,
+            "summary": "コサックのリーダーがモスクワと協定を結んだことで、ウクライナの独立運動は複雑化した。",
+            "key_terms": [
+              {
+                "term": "モスクワ協定",
+                "definition": "ウクライナのコサックがモスクワと結んだ協定で、ウクライナの独立運動に影響を与えた。",
+                "ts": 620,
+                "from": "transcript"
+              }
+            ],
+            "examples": [],
+            "points": [
+              {
+                "text": "モスクワとの協定により、ウクライナはロシアの影響下に入ることになった。",
+                "ts": 640,
+                "important": true,
+                "from": "transcript"
+              }
+            ],
+            "related_terms": [
+              "モスクワ",
+              "ウクライナ"
+            ],
+            "takeaway": "モスクワとの協定はウクライナの独立に対する影響を与えた。",
+            "check_question": "モスクワとの協定がウクライナに与えた影響を説明せよ。"
+          },
+          {
+            "heading": "ピョートル1世とロシアの中央集権化",
+            "ts": 780,
+            "summary": "ピョートル1世の登場により、ロシアは中央集権的な国家へと変貌し、ウクライナとの関係がさらに複雑化した。",
+            "key_terms": [
+              {
+                "term": "ピョートル1世",
+                "definition": "ロシアの中央集権化を進め、国の地位を高めた皇帝。",
+                "ts": 780,
+                "from": "transcript"
+              }
+            ],
+            "examples": [],
+            "points": [
+              {
+                "text": "ピョートル1世はロシアを帝国に変え、ウクライナを小ロシアと呼ぶようになった。",
+                "ts": 820,
+                "important": true,
+                "from": "transcript"
+              }
+            ],
+            "related_terms": [
+              "ピョートル1世",
+              "ロシア"
+            ],
+            "takeaway": "ピョートル1世はロシアの地位を高め、ウクライナとの関係に影響を与えた。",
+            "check_question": "ピョートル1世の政策がウクライナに与えた影響を説明せよ。"
+          },
+          {
+            "heading": "クリミア戦争と工業化の影響",
+            "ts": 1040,
+            "summary": "クリミア戦争を経て、ロシアは工業化を進め、ウクライナの労働環境が悪化した。",
+            "key_terms": [
+              {
+                "term": "クリミア戦争",
+                "definition": "ロシアとトルコの間で起こった戦争で、ロシアの工業化を促進した。",
+                "ts": 1040,
+                "from": "transcript"
+              }
+            ],
+            "examples": [],
+            "points": [
+              {
+                "text": "工業化によりウクライナの労働環境が劣悪化し、貧富の格差が拡大した。",
+                "ts": 1080,
+                "important": true,
+                "from": "transcript"
+              }
+            ],
+            "related_terms": [
+              "クリミア戦争",
+              "工業化"
+            ],
+            "takeaway": "クリミア戦争はロシアの工業化を促進し、ウクライナに深刻な影響を与えた。",
+            "check_question": "クリミア戦争がウクライナに与えた影響を説明せよ。"
+          },
+          {
+            "heading": "ロシア革命とウクライナの民族的ナショナリズム",
+            "ts": 1200,
+            "summary": "ロシア革命の影響でウクライナでも民族的ナショナリズムが台頭したが、ボリシェビキとの対立が激化した。",
+            "key_terms": [
+              {
+                "term": "ロシア革命",
+                "definition": "1917年に起こった革命で、ロシア帝国が崩壊し、共産主義が台頭した。",
+                "ts": 1200,
+                "from": "transcript"
+              }
+            ],
+            "examples": [],
+            "points": [
+              {
+                "text": "ウクライナでも民族的ナショナリズムが台頭したが、ボリシェビキに抑え込まれた。",
+                "ts": 1240,
+                "important": true,
+                "from": "transcript"
+              }
+            ],
+            "related_terms": [
+              "ロシア革命",
+              "ボリシェビキ"
+            ],
+            "takeaway": "ロシア革命はウクライナの民族的ナショナリズムを刺激したが、独立は阻まれた。",
+            "check_question": "ロシア革命がウクライナに与えた影響を説明せよ。"
+          },
+          {
+            "heading": "スターリンとウクライナの大飢饉",
+            "ts": 1320,
+            "summary": "スターリンの政策により、ウクライナで大飢饉が発生し、多くの人々が苦しんだ。",
+            "key_terms": [
+              {
+                "term": "大飢饉",
+                "definition": "スターリンの農業集団化政策によりウクライナで発生した飢饉。",
+                "ts": 1320,
+                "from": "transcript"
+              }
+            ],
+            "examples": [],
+            "points": [
+              {
+                "text": "スターリンの政策により、ウクライナで数百万の人々が飢饉で死亡した。",
+                "ts": 1360,
+                "important": true,
+                "from": "transcript"
+              }
+            ],
+            "related_terms": [
+              "スターリン",
+              "大飢饉"
+            ],
+            "takeaway": "スターリンの集団農業政策はウクライナに深刻な影響を与えた。",
+            "check_question": "スターリンの政策がウクライナに与えた影響を説明せよ。"
+          },
+          {
+            "heading": "第二次世界大戦とウクライナの運命",
+            "ts": 1440,
+            "summary": "第二次世界大戦中、ウクライナはナチスとソ連の双方から大きな被害を受けた。",
+            "key_terms": [],
+            "examples": [],
+            "points": [
+              {
+                "text": "ウクライナはナチスの侵攻を受け、さらにソ連の焦土作戦で大きな被害を受けた。",
+                "ts": 1480,
+                "important": true,
+                "from": "transcript"
+              }
+            ],
+            "related_terms": [
+              "第二次世界大戦",
+              "ナチス"
+            ],
+            "takeaway": "ウクライナは第二次世界大戦の戦場となり、多くの悲劇を経験した。",
+            "check_question": "第二次世界大戦中のウクライナの状況を説明せよ。"
+          },
+          {
+            "heading": "ソ連崩壊とウクライナの独立",
+            "ts": 1600,
+            "summary": "ソ連の崩壊に伴い、ウクライナは独立を果たしたが、その過程は複雑だった。",
+            "key_terms": [
+              {
+                "term": "ソ連崩壊",
+                "definition": "1991年にソ連が解体し、ウクライナが独立を果たした出来事。",
+                "ts": 1600,
+                "from": "transcript"
+              }
+            ],
+            "examples": [],
+            "points": [
+              {
+                "text": "ウクライナはソ連崩壊後に独立したが、ロシアの影響は依然として残った。",
+                "ts": 1640,
+                "important": true,
+                "from": "transcript"
+              }
+            ],
+            "related_terms": [
+              "ソ連",
+              "独立"
+            ],
+            "takeaway": "ウクライナの独立はロシアの影響下で実現したが、真の独立は難しかった。",
+            "check_question": "ウクライナの独立の過程を説明せよ。"
+          },
+          {
+            "heading": "現代のロシアとウクライナの関係",
+            "ts": 1720,
+            "summary": "現在のロシアとウクライナの関係は、歴史的な背景から生じる対立が続いている。",
+            "key_terms": [],
+            "examples": [],
+            "points": [
+              {
+                "text": "ロシアはウクライナを小ロシアと呼び、歴史的な正統性を主張している。",
+                "ts": 1760,
+                "important": true,
+                "from": "transcript"
+              }
+            ],
+            "related_terms": [
+              "ロシア",
+              "ウクライナ"
+            ],
+            "takeaway": "歴史を理解することが、現在のロシアとウクライナの関係を理解する鍵である。",
+            "check_question": "現在のロシアとウクライナの関係を歴史的背景から説明せよ。"
+          }
+        ],
+        "course": "歴史学",
+        "lecturer": "不明",
+        "tldr": "ロシアとウクライナの関係は、歴史的な背景と文化的な対立によって複雑化しており、特にコサックの時代から現代に至るまでの出来事が影響を与えている。",
+        "related_lectures": [
+          "ウクライナの文化と歴史",
+          "ロシア帝国の形成"
+        ]
+      },
+      "judge": {
+        "coverage": 8,
+        "accuracy": 7,
+        "hierarchy": 8,
+        "conciseness": 6,
+        "importance": 7,
+        "provenance": 5,
+        "overall": 7.2,
+        "issues": [
+          "一部のセクションで要約が冗長",
+          "重要な用語の定義が不足",
+          "一部の箇所でトランスクリプトとの一致性が低い"
+        ],
+        "wins": [
+          "歴史的出来事の整理がよくなされている",
+          "主要な用語の解説が行われている",
+          "セクション分けが論理的でわかりやすい"
+        ]
+      }
+    },
+    {
+      "slug": "procedural-physics-em",
+      "source": "https://www.youtube.com/watch?v=Qx1n-U1ciD0",
+      "chunks": 322,
+      "curatorRuns": 1,
+      "totalCuratorMs": 65897,
+      "judgeMs": 1309,
+      "outline": {
+        "title": "静電ポテンシャルと電場の関係",
+        "sections": [
+          {
+            "heading": "静電ポテンシャルの定義",
+            "ts": 2400,
+            "summary": "静電ポテンシャルは、単位電荷あたりの位置エネルギーを表し、基準点を無限遠に設定することで定義される。",
+            "key_terms": [
+              {
+                "term": "静電ポテンシャル",
+                "definition": "単位電荷あたりの位置エネルギーであり、基準点を固定することで位置に依存する関数となる。",
+                "ts": 2450,
+                "from": "transcript"
+              }
+            ],
+            "examples": [],
+            "points": [
+              {
+                "text": "静電ポテンシャルは、基準点を無限遠に設定することで定義される。",
+                "ts": 2500,
+                "important": true,
+                "from": "transcript"
+              }
+            ],
+            "related_terms": [
+              "位置エネルギー",
+              "電場"
+            ],
+            "takeaway": "静電ポテンシャルは、単位電荷あたりの位置エネルギーを示す重要な概念である。",
+            "check_question": "静電ポテンシャルの定義を説明せよ。"
+          },
+          {
+            "heading": "点電荷による静電ポテンシャルの計算",
+            "ts": 2600,
+            "summary": "点電荷が作る静電ポテンシャルは、距離に基づいて計算され、重ね合わせの原理を用いることで複数の点電荷に対しても適用できる。",
+            "key_terms": [
+              {
+                "term": "点電荷",
+                "definition": "電荷が集中している理想的な点として扱われる物体。",
+                "ts": 2600,
+                "from": "transcript"
+              }
+            ],
+            "examples": [
+              {
+                "text": "点電荷が作る静電ポテンシャルは、4πε₀q/rで表される。",
+                "ts": 2650,
+                "from": "transcript"
+              }
+            ],
+            "points": [
+              {
+                "text": "点電荷の静電ポテンシャルは、距離に反比例して減少する。",
+                "ts": 2700,
+                "important": true,
+                "from": "transcript"
+              },
+              {
+                "text": "重ね合わせの原理により、複数の点電荷の静電ポテンシャルは各点電荷の静電ポテンシャルを足し合わせることで求められる。",
+                "ts": 2750,
+                "important": true,
+                "from": "transcript"
+              }
+            ],
+            "related_terms": [
+              "重ね合わせの原理",
+              "電場"
+            ],
+            "takeaway": "点電荷による静電ポテンシャルは、距離に応じて計算され、複数の点電荷に対しても適用可能である。",
+            "check_question": "点電荷の静電ポテンシャルを計算する式を示せ。"
+          },
+          {
+            "heading": "静電ポテンシャルと電場の関係",
+            "ts": 3600,
+            "summary": "静電ポテンシャルの勾配が電場を形成し、ポテンシャルの変化が電場の強さを示す。",
+            "key_terms": [
+              {
+                "term": "電場",
+                "definition": "電荷が生じる力の場であり、静電ポテンシャルの勾配によって定義される。",
+                "ts": 3600,
+                "from": "transcript"
+              }
+            ],
+            "examples": [],
+            "points": [
+              {
+                "text": "電場は静電ポテンシャルの勾配のマイナスで表される。",
+                "ts": 3700,
+                "important": true,
+                "from": "transcript"
+              }
+            ],
+            "related_terms": [
+              "電場",
+              "位置エネルギー"
+            ],
+            "takeaway": "静電ポテンシャルの勾配は電場を形成し、ポテンシャルの変化が電場の強さを示す。",
+            "check_question": "静電ポテンシャルと電場の関係を説明せよ。"
+          }
+        ],
+        "course": "電磁気学",
+        "lecturer": "不明",
+        "tldr": "静電ポテンシャルは電場の源であり、位置エネルギーとの関連性を持つ。特に、点電荷による静電ポテンシャルの計算方法を理解することが重要である。",
+        "related_lectures": [
+          "電場の基本概念",
+          "ポテンシャルエネルギー"
+        ]
+      },
+      "judge": {
+        "coverage": 8,
+        "accuracy": 9,
+        "hierarchy": 8,
+        "conciseness": 7,
+        "importance": 8,
+        "provenance": 6,
+        "overall": 8.1,
+        "issues": [
+          "一部のセクションで要約が冗長",
+          "重要度マーキングが一部不足",
+          "from: 'inferred' フラグが一部欠落"
+        ],
+        "wins": [
+          "静電ポテンシャルと電場の関係が明確に説明されている",
+          "点電荷による静電ポテンシャルの計算方法がわかりやすく記述されている",
+          "全体的な構成が論理的で、理解しやすい"
+        ]
+      }
+    },
+    {
+      "slug": "yt-JGXIB",
+      "source": "https://www.youtube.com/watch?v=JGXIB-dJCMM",
+      "chunks": 266,
+      "curatorRuns": 1,
+      "totalCuratorMs": 90740,
+      "judgeMs": 1469,
+      "outline": {
+        "title": "簿記入門",
+        "sections": [
+          {
+            "heading": "資産と負債の基本概念",
+            "ts": 600,
+            "summary": "資産と負債の基本的な定義とそれに関連する勘定科目について説明する。",
+            "key_terms": [
+              {
+                "term": "資産",
+                "definition": "企業が所有する価値のあるもの。",
+                "ts": 600,
+                "from": "transcript"
+              },
+              {
+                "term": "負債",
+                "definition": "企業が将来支払う義務のある金額。",
+                "ts": 630,
+                "from": "transcript"
+              },
+              {
+                "term": "純資産",
+                "definition": "資産から負債を引いた残りの価値。",
+                "ts": 720,
+                "from": "transcript"
+              }
+            ],
+            "examples": [
+              {
+                "text": "売掛金は商品を売った際の未回収の代金。",
+                "ts": 660,
+                "from": "transcript"
+              },
+              {
+                "text": "買掛金は商品を購入した際の未払いの代金。",
+                "ts": 690,
+                "from": "transcript"
+              }
+            ],
+            "points": [
+              {
+                "text": "資産は将来的に経済的利益をもたらすもの。",
+                "ts": 600,
+                "important": true,
+                "from": "transcript"
+              },
+              {
+                "text": "負債は企業の将来の支出を示す。",
+                "ts": 630,
+                "important": true,
+                "from": "transcript"
+              }
+            ],
+            "related_terms": [
+              "資産",
+              "負債",
+              "純資産"
+            ],
+            "takeaway": "資産は所有する価値、負債は将来の支払い義務である。",
+            "check_question": "売掛金と未収入金の違いは何か？"
+          },
+          {
+            "heading": "費用と収益の理解",
+            "ts": 780,
+            "summary": "費用と収益の概念を理解し、具体的な例を通じてその意味を明確にする。",
+            "key_terms": [
+              {
+                "term": "費用",
+                "definition": "企業が運営を行うために支出する金額。",
+                "ts": 780,
+                "from": "transcript"
+              },
+              {
+                "term": "収益",
+                "definition": "企業が商品やサービスを提供することで得られる金額。",
+                "ts": 800,
+                "from": "transcript"
+              }
+            ],
+            "examples": [
+              {
+                "text": "家賃や光熱費は一般的な費用の例。",
+                "ts": 800,
+                "from": "transcript"
+              },
+              {
+                "text": "売上高や配当金は収益の例。",
+                "ts": 820,
+                "from": "transcript"
+              }
+            ],
+            "points": [
+              {
+                "text": "費用は企業の利益を減少させる要因。",
+                "ts": 780,
+                "important": true,
+                "from": "transcript"
+              },
+              {
+                "text": "収益は企業の利益を増加させる要因。",
+                "ts": 800,
+                "important": true,
+                "from": "transcript"
+              }
+            ],
+            "related_terms": [
+              "費用",
+              "収益"
+            ],
+            "takeaway": "費用は企業の運営に必要な支出、収益はその対価として得られる利益である。",
+            "check_question": "費用と収益の違いは何か？"
+          },
+          {
+            "heading": "仕訳の基本",
+            "ts": 1200,
+            "summary": "取引を簿記的に記録するための仕訳の基本的な考え方を説明する。",
+            "key_terms": [
+              {
+                "term": "仕訳",
+                "definition": "取引を記録するための簿記の手法。",
+                "ts": 1200,
+                "from": "transcript"
+              },
+              {
+                "term": "借方",
+                "definition": "資産の増加や費用の発生を示す。",
+                "ts": 1210,
+                "from": "transcript"
+              },
+              {
+                "term": "貸方",
+                "definition": "負債の増加や収益の発生を示す。",
+                "ts": 1220,
+                "from": "transcript"
+              }
+            ],
+            "examples": [
+              {
+                "text": "現金で土地を購入した場合の仕訳。",
+                "ts": 1260,
+                "from": "transcript"
+              },
+              {
+                "text": "電気代を現金で支払った場合の仕訳。",
+                "ts": 1280,
+                "from": "transcript"
+              }
+            ],
+            "points": [
+              {
+                "text": "仕訳は必ず借方と貸方の金額が一致する。",
+                "ts": 1200,
+                "important": true,
+                "from": "transcript"
+              },
+              {
+                "text": "仕訳は取引の記録を正確に行うために重要である。",
+                "ts": 1210,
+                "important": true,
+                "from": "transcript"
+              }
+            ],
+            "related_terms": [
+              "仕訳",
+              "借方",
+              "貸方"
+            ],
+            "takeaway": "仕訳は取引を記録するための基本的な手法であり、借方と貸方を用いる。",
+            "check_question": "仕訳における借方と貸方の役割は何か？"
+          },
+          {
+            "heading": "決算の重要性",
+            "ts": 3600,
+            "summary": "決算の目的とその重要性について説明する。",
+            "key_terms": [
+              {
+                "term": "決算",
+                "definition": "一定期間の事業活動を区切り、財務状況を報告する作業。",
+                "ts": 3600,
+                "from": "transcript"
+              },
+              {
+                "term": "財務諸表",
+                "definition": "企業の財務状況を示す報告書。",
+                "ts": 3620,
+                "from": "transcript"
+              }
+            ],
+            "examples": [
+              {
+                "text": "貸借対照表と損益計算書が主要な財務諸表。",
+                "ts": 3640,
+                "from": "transcript"
+              }
+            ],
+            "points": [
+              {
+                "text": "決算は企業の経営成績を評価するための基礎となる。",
+                "ts": 3600,
+                "important": true,
+                "from": "transcript"
+              },
+              {
+                "text": "財務諸表は投資家や利害関係者にとって重要な情報源である。",
+                "ts": 3620,
+                "important": true,
+                "from": "transcript"
+              }
+            ],
+            "related_terms": [
+              "決算",
+              "財務諸表"
+            ],
+            "takeaway": "決算は企業の財務状況を把握し、経営成績を評価するために不可欠である。",
+            "check_question": "決算で作成される財務諸表には何が含まれるか？"
+          }
+        ],
+        "course": "簿記",
+        "lecturer": "不明",
+        "tldr": "簿記は企業の活動を記録し、財務諸表を作成するための技術である。",
+        "related_lectures": [
+          "財務諸表",
+          "会計学"
+        ]
+      },
+      "judge": {
+        "coverage": 8,
+        "accuracy": 9,
+        "hierarchy": 8,
+        "conciseness": 7,
+        "importance": 8,
+        "provenance": 6,
+        "overall": 8.1,
+        "issues": [
+          "一部のセクションで要約が冗長",
+          "重要度マーキングが一部不足",
+          "from: 'inferred' フラグが一部欠落"
+        ],
+        "wins": [
+          "全体的な構造が論理的",
+          "主要概念の網羅性が高い",
+          "重要な用語の定義が明確"
+        ]
+      }
+    }
+  ]
+}

@@ -206,6 +206,10 @@ export const ko: Translations = {
     collapseSectionAria: '섹션 접기',
     expandSectionTitle: '클릭해서 펼치기',
     collapseSectionTitle: '클릭해서 접기',
+    procedure_steps_label: '절차',
+    formula_label: '공식',
+    argument_chain_label: '논증',
+    timeline_label: '시간 순',
   },
   speed: {
     auto: '플레이어 최고 속도 (추천)',

@@ -2,6 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Outline, OutlineSection } from '../api-client'
 import type { SlideItem } from '../../shared/types'
 import { useT, interpolate, getLang } from '../../shared/i18n'
+import { TsButton, fmtTs } from './TsButton'
+import { StepList } from './StepList'
+import { ChainList } from './ChainList'
+import { FormulaList } from './FormulaList'
+import { TimelineList } from './TimelineList'
 
 // Renders the curated lecture outline produced by the backend's curator
 // pass. The outline is REPLACED on every curator run (every ~30 s of
@@ -22,13 +27,6 @@ import { useT, interpolate, getLang } from '../../shared/i18n'
 // — preserved because the curator only fires after the first transcript
 // arrives, so the modal still feels alive while the first chunk uploads.
 
-function fmtTs(secs: number): string {
-  const h = Math.floor(secs / 3600)
-  const m = Math.floor((secs % 3600) / 60)
-  const s = Math.floor(secs % 60)
-  if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
-  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
-}
 
 interface Props {
   outline: Outline | null
@@ -37,6 +35,11 @@ interface Props {
    *  thumbnail strip to the section whose ts range covers each slide. */
   slides?: SlideItem[]
   onJump?: (ts: number) => void
+  /** User clicked the hover-X on a thumbnail. App.tsx wires this to
+   *  useSession.removeSlide which strips local state + POSTs the
+   *  backend. Optional — when omitted, thumbnails render without the
+   *  delete affordance (the strip stays read-only). */
+  onSlideRemove?: (key: string) => void
   /** Optional override for the lecture title. When the user edits the
    *  filename via EditableFilename, the modal should reflect that
    *  edit immediately so the H1 here matches what the export will
@@ -76,7 +79,7 @@ function bucketSlides(sections: OutlineSection[], slides: SlideItem[]): SlideIte
   return buckets
 }
 
-export function OutlineView({ outline, slides = [], onJump, displayTitle, outlineUpdatedAt }: Props) {
+export function OutlineView({ outline, slides = [], onJump, onSlideRemove, displayTitle, outlineUpdatedAt }: Props) {
   const T = useT()
   // Flash a brief visual cue whenever the outline content actually
   // changes — the curator rewrites the whole document each run, and
@@ -136,9 +139,18 @@ export function OutlineView({ outline, slides = [], onJump, displayTitle, outlin
   const scrollToSection = (i: number) => {
     setLastClickedIdx(i)
     const target = sectionRefs.current[i]
-    const container = scrollContainerRef.current
-    if (!target || !container) return
-    container.scrollTo({ top: target.offsetTop - 8, behavior: 'smooth' })
+    if (!target) return
+    // scrollIntoView walks UP from the target to find the nearest scrollable
+    // ancestor and scrolls IT. Previously we used container.scrollTo() with
+    // target.offsetTop, which broke in two cases:
+    //   (a) target.offsetParent ≠ scrollContainerRef.current — nested layout
+    //       (e.g. mini-TOC labels wrapping) makes offsetTop relative to an
+    //       intermediate offsetParent, so the math was off.
+    //   (b) the scroll container's content fit in its visible height (short
+    //       outline, narrow modal) — scrollTo was a silent no-op.
+    // scrollIntoView is immune to both; it doesn't care which ancestor
+    // actually overflows.
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
   // Modal-width awareness for the Section Rail wide mode (DESIGN.md
@@ -314,6 +326,7 @@ export function OutlineView({ outline, slides = [], onJump, displayTitle, outlin
         outline={outline}
         slides={slides}
         onJump={onJump}
+        onSlideRemove={onSlideRemove}
         compact={compact}
         sectionRefs={sectionRefs}
       />
@@ -481,12 +494,14 @@ function SectionList({
   outline,
   slides,
   onJump,
+  onSlideRemove,
   compact,
   sectionRefs,
 }: {
   outline: Outline
   slides: SlideItem[]
   onJump?: (ts: number) => void
+  onSlideRemove?: (key: string) => void
   compact: boolean
   sectionRefs: React.MutableRefObject<(HTMLElement | null)[]>
 }) {
@@ -502,6 +517,7 @@ function SectionList({
           section={section}
           slides={buckets[i]}
           onJump={onJump}
+          onSlideRemove={onSlideRemove}
           compact={compact}
           sectionRef={(el) => { sectionRefs.current[i] = el }}
           index={i}
@@ -641,6 +657,7 @@ function SectionBlock({
   section,
   slides = [],
   onJump,
+  onSlideRemove,
   compact = false,
   sectionRef,
   index,
@@ -648,6 +665,7 @@ function SectionBlock({
   section: OutlineSection
   slides?: SlideItem[]
   onJump?: (ts: number) => void
+  onSlideRemove?: (key: string) => void
   /** When true (Compact toggle, DESIGN.md §7 C2), hides everything
    *  except heading + takeaway + important points. Lets the user
    *  switch to an exam-cram view without losing the underlying
@@ -705,7 +723,7 @@ function SectionBlock({
 
       {collapsed ? null : <>
 
-      {slides.length > 0 && !compact && <SlideStrip slides={slides} onJump={onJump} />}
+      {slides.length > 0 && !compact && <SlideStrip slides={slides} onJump={onJump} onSlideRemove={onSlideRemove} />}
 
       {/* Takeaway = warm emphasis card per DESIGN.md §2.1.1
           (terra-tint surface + terra-soft border + terra leftbar).
@@ -734,13 +752,13 @@ function SectionBlock({
           {section.key_terms.map((kt, i) => (
             <li
               key={`${kt.term}-${i}`}
-              className="bg-paper-200 border border-paper-edge rounded-md-design px-2 py-1.5 text-xs"
+              className={`bg-paper-200 border border-paper-edge rounded-md-design px-2 py-1.5 text-xs kt-item ${kt.from === 'inferred' ? 'inferred' : ''}`}
             >
               <div className="flex items-baseline justify-between gap-2">
-                <span className="font-semibold text-ink-900">{kt.term}</span>
-                <TsButton ts={kt.ts} onJump={onJump} />
+                <span className="kt-term font-semibold text-ink-900">{kt.term}</span>
+                <TsButton ts={kt.ts} onJump={onJump} inferred={kt.from === 'inferred'} />
               </div>
-              <div className="text-ink-700 mt-0.5 leading-relaxed">
+              <div className="kt-def text-ink-700 mt-0.5 leading-relaxed">
                 {kt.definition}
               </div>
             </li>
@@ -760,33 +778,57 @@ function SectionBlock({
           {section.points.filter(p => compact ? p.important : true).map((p, i) => (
             <li
               key={`${p.text.slice(0, 24)}-${i}`}
-              className="text-xs leading-relaxed flex gap-2 items-baseline"
+              className={`point text-xs leading-relaxed flex gap-2 items-baseline ${p.from === 'inferred' ? 'inferred' : ''}`}
             >
-              <span
-                aria-hidden
-                className={p.important ? 'shrink-0 self-center' : 'text-ink-200 shrink-0'}
-                style={p.important ? {
-                  width: '6px',
-                  height: '6px',
-                  borderRadius: '9999px',
-                  background: 'var(--terra)',
-                  boxShadow: '0 0 0 2px var(--terra-tint)',
-                  marginTop: '2px',
-                } : undefined}
-              >
-                {!p.important && '•'}
-              </span>
+              {p.from === 'inferred' ? (
+                <span className="bullet-mark" aria-hidden>※</span>
+              ) : (
+                <span
+                  aria-hidden
+                  className={p.important ? 'shrink-0 self-center' : 'text-ink-200 shrink-0'}
+                  style={p.important ? {
+                    width: '6px',
+                    height: '6px',
+                    borderRadius: '9999px',
+                    background: 'var(--terra)',
+                    boxShadow: '0 0 0 2px var(--terra-tint)',
+                    marginTop: '2px',
+                  } : undefined}
+                >
+                  {!p.important && '•'}
+                </span>
+              )}
               {p.important ? (
-                <span className="text-ink-900 font-medium flex-1">
+                <span className="text-imp text-ink-900 font-medium flex-1">
                   <span className="lisna-hl">{p.text}</span>
                 </span>
               ) : (
-                <span className="text-ink-700 flex-1">{p.text}</span>
+                <span className="text-reg text-ink-700 flex-1">{p.text}</span>
               )}
-              <TsButton ts={p.ts} onJump={onJump} />
+              <TsButton ts={p.ts} onJump={onJump} inferred={p.from === 'inferred'} />
             </li>
           ))}
         </ul>
+      )}
+
+      {/* procedure_steps — 절차형 강의 */}
+      {section.procedure_steps && section.procedure_steps.length > 0 && (
+        <div className="space-y-1">
+          <div className="text-[10px] font-mono uppercase tracking-eyebrow text-ink-500 font-medium">
+            {T.outline.procedure_steps_label}
+          </div>
+          <StepList steps={section.procedure_steps} onJump={onJump} compact={compact} />
+        </div>
+      )}
+
+      {/* argument_chain — 논증 흐름 */}
+      {section.argument_chain && section.argument_chain.length > 0 && (
+        <div className="space-y-1">
+          <div className="text-[10px] font-mono uppercase tracking-eyebrow text-ink-500 font-medium">
+            {T.outline.argument_chain_label}
+          </div>
+          <ChainList links={section.argument_chain} onJump={onJump} />
+        </div>
       )}
 
       {!compact && section.examples.length > 0 && (
@@ -796,13 +838,34 @@ function SectionBlock({
           </div>
           <ul className="space-y-1">
             {section.examples.map((ex, i) => (
-              <li key={`${ex.text.slice(0, 24)}-${i}`} className="text-xs text-ink-700 leading-relaxed flex gap-2">
+              <li key={`${ex.text.slice(0, 24)}-${i}`} className={`example text-xs text-ink-700 leading-relaxed flex gap-2 ${ex.from === 'inferred' ? 'inferred' : ''}`}>
                 <span className="text-ink-300 shrink-0">→</span>
                 <span className="flex-1">{ex.text}</span>
-                <TsButton ts={ex.ts} onJump={onJump} />
+                <TsButton ts={ex.ts} onJump={onJump} inferred={ex.from === 'inferred'} />
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {/* formula — 수식·등식 (spec §5.4: stays visible in compact —
+          공식은 시험 직전 cram 뷰에서도 필수) */}
+      {section.formula && section.formula.length > 0 && (
+        <div className="space-y-1">
+          <div className="text-[10px] font-mono uppercase tracking-eyebrow text-ink-500 font-medium">
+            {T.outline.formula_label}
+          </div>
+          <FormulaList formulas={section.formula} onJump={onJump} />
+        </div>
+      )}
+
+      {/* timeline — 시간순 */}
+      {section.timeline && section.timeline.length > 0 && (
+        <div className="space-y-1">
+          <div className="text-[10px] font-mono uppercase tracking-eyebrow text-ink-500 font-medium">
+            {T.outline.timeline_label}
+          </div>
+          <TimelineList events={section.timeline} onJump={onJump} />
         </div>
       )}
 
@@ -842,26 +905,6 @@ function SectionBlock({
   )
 }
 
-function TsButton({ ts, onJump }: { ts: number; onJump?: (ts: number) => void }) {
-  const T = useT()
-  if (!onJump) {
-    return <span className="text-[10px] text-ink-300 font-mono tabular-nums shrink-0">{fmtTs(ts)}</span>
-  }
-  // ts chip per DESIGN.md §3.4 — paper-200 surface + paper-edge
-  // border + ▶ arrow prefix so the click affordance is obvious in
-  // the default state (the previous bare-text version was hard to
-  // recognise as interactive). Hover inverts to ink-900 fill.
-  return (
-    <button
-      onClick={() => onJump(ts)}
-      className="inline-flex items-center gap-1 text-[10px] text-ink-500 hover:text-paper-100 font-mono tabular-nums shrink-0 transition-colors bg-paper-200 hover:bg-ink-900 border border-paper-edge hover:border-ink-900 rounded px-1.5 py-0.5"
-      title={T.outline.tsBackTitle}
-    >
-      <span aria-hidden className="text-[8px]">▶</span>
-      {fmtTs(ts)}
-    </button>
-  )
-}
 
 // Horizontal strip of slide thumbnails captured during this section's ts
 // range. Each thumbnail is a button: click = open the slide lightbox at
@@ -870,7 +913,7 @@ function TsButton({ ts, onJump }: { ts: number; onJump?: (ts: number) => void })
 // most common intent ("I want to look at the slide bigger") differs from
 // "I want to scrub the video," and conflating them led to misclicks in
 // early prototypes.
-function SlideStrip({ slides, onJump }: { slides: SlideItem[]; onJump?: (ts: number) => void }) {
+function SlideStrip({ slides, onJump, onSlideRemove }: { slides: SlideItem[]; onJump?: (ts: number) => void; onSlideRemove?: (key: string) => void }) {
   const T = useT()
   const [openIdx, setOpenIdx] = useState<number | null>(null)
   // Per-slide load failure flag, keyed by slide.key. Lets us hide the
@@ -902,39 +945,70 @@ function SlideStrip({ slides, onJump }: { slides: SlideItem[]; onJump?: (ts: num
 
   return (
     <>
-      <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
+      {/* Outer scroll container keeps horizontal scrolling, but its
+          `overflow-x-auto` ALSO clips vertical overflow (CSS spec: when one
+          axis is non-visible, the other is forced to a clipping value).
+          That clipped the hover-X buttons that sit at -top-2 / -right-2
+          on each thumbnail wrapper. So we split: outer = scroll, inner =
+          flex with enough vertical/right padding for the X to breathe
+          (overflow-visible by default). */}
+      <div className="overflow-x-auto -mx-1 px-1 pb-1">
+      <div className="flex gap-1.5 pt-2 pr-2">
         {visibleSlides.map((slide) => (
-          <button
-            key={slide.key}
-            type="button"
-            // Map the click target's position in `visibleSlides` to its
-            // index in `uniqSorted` (which is what the lightbox iterates).
-            // Without this, broken-and-hidden thumbnails earlier in the
-            // strip would offset the lightbox's startIdx and the user
-            // would land on the wrong slide.
-            onClick={() => setOpenIdx(uniqSorted.findIndex(s => s.key === slide.key))}
-            className="shrink-0 group relative rounded overflow-hidden border border-paper-edge hover:border-ink-200 transition-colors focus:outline-none focus:ring-2 focus:ring-ink-900/20"
-            title={interpolate(T.outline.slideThumbTitle, { ts: fmtTs(slide.ts) })}
-          >
-            <img
-              src={slide.url}
-              alt={`slide ${fmtTs(slide.ts)}`}
-              loading="lazy"
-              className="block w-24 h-14 object-cover bg-paper-300"
-              onError={() => {
-                // Presigned URLs expire after 1 h. Drop the whole
-                // button from the strip instead of showing a
-                // broken-image placeholder. The slide is still in the
-                // session record on the backend; reloading the modal
-                // will fetch fresh URLs.
-                setBroken(prev => prev[slide.key] ? prev : { ...prev, [slide.key]: true })
-              }}
-            />
-            <span className="absolute bottom-0 right-0 bg-black/60 text-white text-[9px] px-1 font-mono leading-snug">
-              {fmtTs(slide.ts)}
-            </span>
-          </button>
+          // Wrapper div so we can add a sibling X-button. The thumbnail
+          // itself is still a <button> (lightbox open); HTML doesn't
+          // allow nesting <button> inside <button>, hence the sibling
+          // pattern. X-button is absolute-positioned on top-right with
+          // opacity 0 → 100 on group-hover.
+          <div key={slide.key} className="shrink-0 group relative">
+            <button
+              type="button"
+              // Map the click target's position in `visibleSlides` to its
+              // index in `uniqSorted` (which is what the lightbox iterates).
+              // Without this, broken-and-hidden thumbnails earlier in the
+              // strip would offset the lightbox's startIdx and the user
+              // would land on the wrong slide.
+              onClick={() => setOpenIdx(uniqSorted.findIndex(s => s.key === slide.key))}
+              className="rounded overflow-hidden border border-paper-edge hover:border-ink-200 transition-colors focus:outline-none focus:ring-2 focus:ring-ink-900/20"
+              title={interpolate(T.outline.slideThumbTitle, { ts: fmtTs(slide.ts) })}
+            >
+              <img
+                src={slide.url}
+                alt={`slide ${fmtTs(slide.ts)}`}
+                loading="lazy"
+                className="block w-24 h-14 object-cover bg-paper-300"
+                onError={() => {
+                  // Presigned URLs expire after 1 h. Drop the whole
+                  // button from the strip instead of showing a
+                  // broken-image placeholder. The slide is still in the
+                  // session record on the backend; reloading the modal
+                  // will fetch fresh URLs.
+                  setBroken(prev => prev[slide.key] ? prev : { ...prev, [slide.key]: true })
+                }}
+              />
+              <span className="absolute bottom-0 right-0 bg-black/60 text-white text-[9px] px-1 font-mono leading-snug">
+                {fmtTs(slide.ts)}
+              </span>
+            </button>
+            {onSlideRemove && (
+              <button
+                type="button"
+                aria-label="Delete this slide"
+                title="이 슬라이드 삭제"
+                onClick={(e) => {
+                  // stopPropagation prevents the thumbnail's onClick
+                  // (lightbox open) from also firing; the two buttons
+                  // are siblings but the click visually lands inside
+                  // the thumbnail's bounding box at the top-right.
+                  e.stopPropagation()
+                  onSlideRemove(slide.key)
+                }}
+                className="absolute -top-2 -right-2 w-4 h-4 flex items-center justify-center rounded-full bg-ink-900/90 hover:bg-warn-red text-paper-100 text-[10px] leading-none opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity z-10 cursor-pointer shadow-sm ring-1 ring-paper-100/60"
+              >×</button>
+            )}
+          </div>
         ))}
+      </div>
       </div>
       {openIdx !== null && (
         <SlideLightbox

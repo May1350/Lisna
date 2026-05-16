@@ -320,7 +320,7 @@ export default function App() {
   const {
     sessionId, slides, outline, outlineUpdatedAt, transcripts,
     curating, curateError, isCapturing, videoPlaying,
-    hydrateFromLogin, onTriggerCurate, reset: resetSession,
+    hydrateFromLogin, onTriggerCurate, removeSlide, reset: resetSession,
   } = useSession({
     isEmbed, user, parentUrl,
     exportCtxRef,
@@ -546,7 +546,7 @@ export default function App() {
     const hasContent = !!outline?.sections.length
     const hasTranscripts = transcripts.length > 0
     return (
-      <div className="min-h-screen flex flex-col bg-paper-200">
+      <div className="h-screen flex flex-col bg-paper-200">
         <PanelHeader
           user={user}
           isEmbed
@@ -631,6 +631,7 @@ export default function App() {
             outlineUpdatedAt={outlineUpdatedAt}
             slides={slides}
             onJump={onJump}
+            onSlideRemove={removeSlide}
             displayTitle={title}
           />
         )}
@@ -777,7 +778,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-paper-200">
+    <div className="h-screen flex flex-col bg-paper-200">
       <PanelHeader
         user={user}
         isEmbed={false}

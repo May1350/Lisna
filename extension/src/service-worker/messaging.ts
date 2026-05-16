@@ -163,6 +163,33 @@ export async function handle(req: SwRequest, sender?: chrome.runtime.MessageSend
         }
         return { ok: true, data: null }
       }
+      case 'CAPTURE_VISIBLE_TAB': {
+        // Drive viewer cannot read its YouTube embed's video frame via canvas
+        // drawImage (frame buffer is empty on that surface). We fall back to
+        // a tab-level screenshot here; the caller crops out the YouTube
+        // iframe's bounding rect on the content-script side.
+        //
+        // Active-tab gate: chrome.tabs.captureVisibleTab can only capture
+        // whichever tab is currently visible in the target window. If the
+        // user is on a different tab, the call would either fail or return
+        // the wrong tab's contents — so we explicitly check that the sender
+        // is the active tab in its own window before capturing.
+        const senderTabId = sender?.tab?.id
+        const senderWindowId = sender?.tab?.windowId
+        if (senderTabId === undefined || senderWindowId === undefined) {
+          return { ok: false, error: 'no sender tab/window' }
+        }
+        const [activeTab] = await chrome.tabs.query({ active: true, windowId: senderWindowId })
+        if (activeTab?.id !== senderTabId) {
+          return { ok: false, error: 'sender tab not active' }
+        }
+        try {
+          const dataUrl = await chrome.tabs.captureVisibleTab(senderWindowId, { format: 'jpeg', quality: 75 })
+          return { ok: true, data: { dataUrl } }
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : 'capture failed' }
+        }
+      }
       case 'JUMP_TO_REQUEST': {
         // Side-panel users don't have a parent window to postMessage to.
         // Forward to whichever tab is active so its top-frame content

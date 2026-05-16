@@ -206,6 +206,10 @@ export const en: Translations = {
     collapseSectionAria: 'Collapse section',
     expandSectionTitle: 'Click to expand',
     collapseSectionTitle: 'Click to collapse',
+    procedure_steps_label: 'Steps',
+    formula_label: 'Formula',
+    argument_chain_label: 'Argument',
+    timeline_label: 'Timeline',
   },
   speed: {
     auto: "Player's max speed (recommended)",

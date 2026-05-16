@@ -105,3 +105,103 @@ html, body {
     @apply sticky top-0 z-10 flex items-center gap-2 px-3 py-2 backdrop-blur border-b border-paper-edge bg-paper-100/95;
   }
 }
+
+/* === Inferred (AI-supplemented) markers — spec §5.1 + mockup === */
+/* 점선 테두리 + ink-500 텍스트 + ※ 글리프, 세 신호 redundancy. */
+
+.kt-item.inferred {
+  background: var(--paper-200);
+  border-style: dashed;
+  border-color: var(--terra-soft, #FED7AA);
+}
+.kt-item.inferred .kt-term::before {
+  content: '※ ';
+  color: var(--terra-700, #9A330A);
+  font-weight: 500;
+  font-size: 12.5px;
+  margin-right: 1px;
+}
+.kt-item.inferred .kt-term {
+  color: var(--ink-700, #3D3733);
+}
+.kt-item.inferred .kt-def {
+  color: var(--ink-500, #6E6660);
+}
+
+.point.inferred .bullet-mark {
+  color: var(--terra-700, #9A330A);
+  font-size: 12px;
+  flex-shrink: 0;
+  align-self: center;
+  line-height: 1;
+  font-weight: 500;
+  width: 10px;
+  text-align: center;
+}
+.point.inferred .text-imp {
+  color: var(--ink-500, #6E6660);
+  font-weight: 400;
+}
+.point.inferred .text-reg {
+  color: var(--ink-500, #6E6660);
+}
+.point.inferred .lisna-hl {
+  background: linear-gradient(180deg, transparent 60%, var(--paper-300, #F4F2EC) 60%) !important;
+  border-bottom: 1px dashed var(--terra-soft, #FED7AA);
+}
+
+/* example.inferred — locked mockup is silent on examples (only
+   key_term + point are spec'd). Derive a minimal marker consistent
+   with the redundancy pattern (점선 + ink-500 + ※). Border-left
+   instead of full border so the → arrow prefix stays readable. */
+.example.inferred {
+  border-left: 1px dashed var(--terra-soft, #FED7AA);
+  padding-left: 6px;
+  color: var(--ink-500, #6E6660);
+}
+.example.inferred::before {
+  content: '※ ';
+  color: var(--terra-700, #9A330A);
+  font-weight: 500;
+  margin-right: 1px;
+}
+
+/* step.inferred — procedure_steps follow the same redundancy pattern as
+   point.inferred: ※ glyph (via bullet-mark span) + ink-500 muted text.
+   Border-left mirrors example.inferred (list items can't use full border
+   cleanly with list-decimal). */
+.step.inferred {
+  border-left: 1px dashed var(--terra-soft, #FED7AA);
+  padding-left: 6px;
+  color: var(--ink-500, #6E6660);
+}
+.step.inferred .bullet-mark {
+  color: var(--terra-700, #9A330A);
+  font-size: 12px;
+  flex-shrink: 0;
+  font-weight: 500;
+}
+
+/* chain-link.inferred — argument_chain inferred items: muted ink-500 text
+   + terra-700 ※ glyph (mirrors step.inferred / point.inferred pattern).
+   No border-left (ul items; arrow → stays default ink-300). */
+.chain-link.inferred {
+  color: var(--ink-500, #6E6660);
+}
+.chain-link.inferred .chain-link-glyph {
+  color: var(--terra-700, #9A330A);
+  font-weight: 500;
+}
+
+/* formula-item.inferred — formula slot inferred items: dashed terra-soft border
+   (mirrors .kt-item.inferred border pattern; both are bordered cards). */
+.formula-item.inferred {
+  border-style: dashed;
+  border-color: var(--terra-soft, #FED7AA);
+}
+
+/* timeline-item.inferred — timeline slot inferred items: muted ink-500 text.
+   No border (plain grid rows); ※ prefix on the when field is the visual signal. */
+.timeline-item.inferred {
+  color: var(--ink-500, #6E6660);
+}

@@ -105,19 +105,47 @@ export interface LiveTranscriptItem {
 // fields landed in backend without making it here, forcing
 // `as` casts in OutlineView.tsx).
 // =============================================================
+export type Provenance = 'transcript' | 'inferred'
 export interface OutlineKeyTerm {
   term: string
   definition: string
   ts: number
+  from: Provenance
 }
 export interface OutlineExample {
   text: string
   ts: number
+  from: Provenance
 }
 export interface OutlinePoint {
   text: string
   ts: number
   important: boolean
+  from: Provenance
+}
+export interface OutlineStep {
+  text: string
+  order?: number          // explicit order; array index used if omitted
+  ts: number
+  important?: boolean
+  from: Provenance
+}
+export interface OutlineChainLink {
+  text: string
+  ts: number
+  from: Provenance
+}
+export interface OutlineFormula {
+  label?: string          // "基本等式" / "Pythagoras"
+  expression: string      // "資産 = 負債 + 純資産" / "a² + b² = c²"
+  ts: number
+  from: Provenance
+}
+export interface OutlineTimelineEvent {
+  when: string            // "1453", "Q2 2024", "5世紀末" etc.
+  event: string
+  ts: number
+  from: Provenance
 }
 export interface OutlineSection {
   heading: string
@@ -131,6 +159,11 @@ export interface OutlineSection {
   related_terms?: string[]
   takeaway?: string
   check_question?: string
+  // Typed slots (curator provenance plan) — all optional.
+  procedure_steps?: OutlineStep[]
+  argument_chain?: OutlineChainLink[]
+  formula?: OutlineFormula[]
+  timeline?: OutlineTimelineEvent[]
 }
 export interface Outline {
   title: string

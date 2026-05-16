@@ -14,15 +14,15 @@
 //     in practice; for now same-family is pragmatic.
 //   - JSON-schema structured response. We need machine-readable scores to
 //     drive automation; free-form prose would force regex parsing.
-//   - 5 axes (coverage / accuracy / hierarchy / conciseness / importance)
-//     plus a derived overall score. Each axis is 0-10 with 5 calibrated as
-//     "average for this kind of system" — we want headroom to detect both
-//     improvements and regressions.
+//   - 6 axes: 5 contribute to overall (coverage / accuracy / hierarchy / conciseness / importance)
+//     plus 1 standalone (provenance — for AI inference quality, separate from overall).
+//     Each axis is 0-10 with 5 calibrated as "average for this kind of system" — we
+//     want headroom to detect both improvements and regressions.
 //   - Issues + wins arrays so the judge surfaces SPECIFIC problems, not
 //     just numbers. These are the seeds for the next prompt iteration.
 
 import OpenAI from 'openai'
-import type { Outline } from './curator.js'
+import type { Outline } from '../../src/lib/curator.js'
 
 export interface JudgeAxisScores {
   coverage: number          // 0-10. Does the outline cover the lecture's key concepts?
@@ -30,6 +30,7 @@ export interface JudgeAxisScores {
   hierarchy: number         // 0-10. Are sections / sub-items grouped sensibly, no orphans, no duplicates?
   conciseness: number       // 0-10. Are bullets tight, or padded / repetitive?
   importance: number        // 0-10. Is `important: true` used appropriately (definitions, conclusions, emphasised points)?
+  provenance: number        // 0-10. Are inferred items correctly flagged as from:'inferred' (vs from:'transcript' for direct paraphrase)? NOT included in overall weight.
 }
 
 export interface JudgeResult extends JudgeAxisScores {
@@ -51,7 +52,7 @@ const JUDGE_MODEL = 'llama-3.3-70b-versatile'
 const FALLBACK_MODEL = 'llama-3.1-8b-instant'
 
 const SYSTEM_PROMPT = `あなたは大学講義のリアルタイム要約システムを評価する厳しい採点者です。
-出力された outline (講義ノート) と元の transcript を照らし合わせ、5 軸で 0-10 点を付ける。
+出力された outline (講義ノート) と元の transcript を照らし合わせ、6 軸で 0-10 点を付ける。
 
 採点基準:
 - coverage (網羅性): transcript の主要概念のうち何 % が outline に反映されているか。漏れているテーマがあれば issues に列挙。
@@ -59,12 +60,20 @@ const SYSTEM_PROMPT = `あなたは大学講義のリアルタイム要約シス
 - hierarchy (構造): セクション分けが論理的か。重複、孤立した bullet、誤ったグルーピングは減点。
 - conciseness (簡潔性): bullet が要約されているか。冗長・繰り返しは減点。逆に短すぎて意味不明も減点。
 - importance (重要度マーキング): important:true が定義・公式・結論・明示的に強調された箇所に使われているか。乱発・欠落どちらも減点。
+- provenance (出典管理): from: 'inferred' 項目が以下を満たすか。0-10。
+  - 必要なケースのみ追加: 講師が定義なしに使った用語 / 明白な論理ジャンプ — それ以外の追加は減点
+  - 事実的に正確: 推測・不確実情報は大幅減点
+  - 1 section につき inferred が 2 個を超えれば軽い減点
+  - 全項目に対する inferred 比率が 15% を超えれば軽い減点
+  - 全ての inferred 項目に from: 'inferred' flag が付いている (欠落で減点)
+  - slot fit: 授業 type と埋まった slot が整合 — procedural 授業で procedure_steps が空で argument_chain だけ埋まれば減点
 
 評価指針:
 - 5 点を「平均的なシステムが出すであろう品質」と calibrate する。本当に優秀なら 8-9 点を、欠陥が複数あれば 3-4 点をつけて構わない。
 - issues は **具体的に**: 「coverage が低い」ではなく「『ガバナンス』の定義が transcript で 03:20 に出るが outline に欠落」と書く。
 - wins も具体的に: 「全 5 主題のうち 4 主題でセクション化が論理的」のように。
 - overall は 5 軸を以下の重み付けで合算: coverage 0.25, accuracy 0.30, hierarchy 0.20, conciseness 0.15, importance 0.10。
+- provenance は overall に含まれない (別軸として保存)。
 
 出力は以下の JSON のみ:
 
@@ -74,6 +83,7 @@ const SYSTEM_PROMPT = `あなたは大学講義のリアルタイム要約シス
   "hierarchy": <0-10>,
   "conciseness": <0-10>,
   "importance": <0-10>,
+  "provenance": <0-10>,
   "overall": <0-10>,
   "issues": ["...", "..."],
   "wins": ["...", "..."]
@@ -87,6 +97,23 @@ function client(): OpenAI {
     _client = new OpenAI({ apiKey, baseURL: 'https://api.groq.com/openai/v1' })
   }
   return _client
+}
+
+/** @internal test-only — vitest が 6/5-axis response 互換性を試験に使用 */
+export function __testOnly_parseJudgeResponse(text: string): JudgeResult {
+  const parsed = JSON.parse(text) as Partial<JudgeResult>
+  return {
+    coverage: clamp(parsed.coverage ?? 0),
+    accuracy: clamp(parsed.accuracy ?? 0),
+    hierarchy: clamp(parsed.hierarchy ?? 0),
+    conciseness: clamp(parsed.conciseness ?? 0),
+    importance: clamp(parsed.importance ?? 0),
+    // provenance defaults to 0 when absent (legacy baselines or judge omission).
+    provenance: clamp(parsed.provenance ?? 0),
+    overall: clamp(parsed.overall ?? 0),
+    issues: Array.isArray(parsed.issues) ? parsed.issues.filter(s => typeof s === 'string') : [],
+    wins: Array.isArray(parsed.wins) ? parsed.wins.filter(s => typeof s === 'string') : [],
+  }
 }
 
 async function judgeOnce(modelName: string, userPrompt: string): Promise<JudgeResult> {
@@ -105,17 +132,7 @@ async function judgeOnce(modelName: string, userPrompt: string): Promise<JudgeRe
     ...(isGpt5Family ? {} : { temperature: 0 }),
   })
   const text = res.choices[0]?.message?.content ?? '{}'
-  const parsed = JSON.parse(text) as Partial<JudgeResult>
-  return {
-    coverage: clamp(parsed.coverage ?? 0),
-    accuracy: clamp(parsed.accuracy ?? 0),
-    hierarchy: clamp(parsed.hierarchy ?? 0),
-    conciseness: clamp(parsed.conciseness ?? 0),
-    importance: clamp(parsed.importance ?? 0),
-    overall: clamp(parsed.overall ?? 0),
-    issues: Array.isArray(parsed.issues) ? parsed.issues.filter(s => typeof s === 'string') : [],
-    wins: Array.isArray(parsed.wins) ? parsed.wins.filter(s => typeof s === 'string') : [],
-  }
+  return __testOnly_parseJudgeResponse(text)
 }
 
 function clamp(n: number): number {

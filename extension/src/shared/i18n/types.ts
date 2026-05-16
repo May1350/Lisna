@@ -239,6 +239,11 @@ export interface Translations {
     collapseSectionAria: string          // "section-collapse aria-label collapse"
     expandSectionTitle: string           // "click to expand"
     collapseSectionTitle: string         // "click to collapse"
+    // ── Typed slot section labels (Task 20) ──────────────────────
+    procedure_steps_label: string        // "手順" / "Steps"
+    formula_label: string                // "公式" / "Formula"
+    argument_chain_label: string         // "論証" / "Argument"
+    timeline_label: string               // "時系列" / "Timeline"
   }
 
   // ── Speed selector ─────────────────────────────────────────────

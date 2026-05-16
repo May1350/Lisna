@@ -205,6 +205,10 @@ export const ja: Translations = {
     collapseSectionAria: 'セクションを閉じる',
     expandSectionTitle: 'クリックで開く',
     collapseSectionTitle: 'クリックで閉じる',
+    procedure_steps_label: '手順',
+    formula_label: '公式',
+    argument_chain_label: '論証',
+    timeline_label: '時系列',
   },
   speed: {
     auto: 'プレイヤー最高速 (推奨)',
