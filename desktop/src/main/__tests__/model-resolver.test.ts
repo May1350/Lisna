@@ -93,7 +93,7 @@ describe('serializeWrite', () => {
   });
 });
 
-import { loadModelsJson, saveModelsJson, type ModelsJson } from '../model-resolver';
+import { loadModelsJson, saveModelsJson, type ModelsJson, resolveModels } from '../model-resolver';
 
 describe('loadModelsJson', () => {
   it('returns null when models.json does not exist', async () => {
@@ -172,4 +172,69 @@ describe('saveModelsJson', () => {
   // vi.mock('node:fs') hoisting, which can't share a file with the
   // real-fs tests above (Node 25 ESM namespaces are non-configurable, so
   // vi.spyOn fails; vi.mock must be hoisted before any module evaluation).
+});
+
+describe('resolveModels', () => {
+  it('returns needs-setup ["stt", "llm"] when no models.json exists', async () => {
+    expect(await resolveModels({ userDataDir: tmpDir, envOverride: {} }))
+      .toEqual({ kind: 'needs-setup', missing: ['stt', 'llm'] });
+  });
+
+  it('returns ready when models.json points to two real valid files', async () => {
+    const stt = await writeFixture('w.bin', [0x6c, 0x6d, 0x67, 0x67]);
+    const llm = await writeFixture('l.gguf', [0x47, 0x47, 0x55, 0x46]);
+    await saveModelsJson(tmpDir, { version: 1, sttPath: stt, llmPath: llm });
+    expect(await resolveModels({ userDataDir: tmpDir, envOverride: {} }))
+      .toEqual({ kind: 'ready', sttPath: stt, llmPath: llm });
+  });
+
+  it('returns needs-setup ["stt"] when STT file is deleted between sessions', async () => {
+    const llm = await writeFixture('l.gguf', [0x47, 0x47, 0x55, 0x46]);
+    await saveModelsJson(tmpDir, {
+      version: 1,
+      sttPath: path.join(tmpDir, 'deleted-stt.bin'),
+      llmPath: llm,
+    });
+    expect(await resolveModels({ userDataDir: tmpDir, envOverride: {} }))
+      .toEqual({ kind: 'needs-setup', missing: ['stt'] });
+  });
+
+  it('returns needs-setup [both] when models.json is malformed', async () => {
+    await fs.writeFile(path.join(tmpDir, 'models.json'), '{ broken json');
+    expect(await resolveModels({ userDataDir: tmpDir, envOverride: {} }))
+      .toEqual({ kind: 'needs-setup', missing: ['stt', 'llm'] });
+  });
+
+  it('env-var override wins when both vars set and files exist', async () => {
+    const stt = await writeFixture('env-w.bin', [0x6c, 0x6d, 0x67, 0x67]);
+    const llm = await writeFixture('env-l.gguf', [0x47, 0x47, 0x55, 0x46]);
+    expect(await resolveModels({
+      userDataDir: tmpDir,
+      envOverride: { stt, llm },
+    })).toEqual({ kind: 'ready', sttPath: stt, llmPath: llm });
+  });
+
+  it('env-var override is authoritative — does NOT fall back to models.json when env file missing', async () => {
+    const realLlm = await writeFixture('l.gguf', [0x47, 0x47, 0x55, 0x46]);
+    await saveModelsJson(tmpDir, {
+      version: 1,
+      sttPath: realLlm,  // bogus content but file exists
+      llmPath: realLlm,
+    });
+    const result = await resolveModels({
+      userDataDir: tmpDir,
+      envOverride: { stt: path.join(tmpDir, 'does-not-exist.bin'), llm: realLlm },
+    });
+    expect(result).toEqual({ kind: 'needs-setup', missing: ['stt'] });
+  });
+
+  it('asymmetric override — only stt env set, llm reads from models.json', async () => {
+    const stt = await writeFixture('env-w.bin', [0x6c, 0x6d, 0x67, 0x67]);
+    const llm = await writeFixture('disk-l.gguf', [0x47, 0x47, 0x55, 0x46]);
+    await saveModelsJson(tmpDir, { version: 1, sttPath: 'ignored', llmPath: llm });
+    expect(await resolveModels({
+      userDataDir: tmpDir,
+      envOverride: { stt },
+    })).toEqual({ kind: 'ready', sttPath: stt, llmPath: llm });
+  });
 });

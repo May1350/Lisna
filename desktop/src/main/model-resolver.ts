@@ -11,7 +11,7 @@
 import { promises as fs } from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
 import path from 'node:path';
-import type { ModelSlot } from '@shared/ipc-protocol';
+import type { ModelSlot, ResolveResult } from '@shared/ipc-protocol';
 import { log, redactPath } from './log';
 
 // --- Magic bytes ---
@@ -138,4 +138,71 @@ export function saveModelsJson(dir: string, content: ModelsJson): Promise<void> 
     const dirFd = await fs.open(dir, 'r');
     try { await dirFd.sync(); } finally { await dirFd.close(); }
   });
+}
+
+// --- Resolution ---
+
+export interface ResolveOptions {
+  userDataDir: string;
+  envOverride: {
+    stt?: string;
+    llm?: string;
+  };
+}
+
+/**
+ * Determine model paths for boot. Env-var override is authoritative when
+ * set (dev workflow); does NOT fall back to models.json for a missing
+ * env-var file (the dev intent — "use this exact path" — must be honored
+ * even if it's broken; surface needs-setup so the picker can be used to
+ * pick a real file, which then writes to models.json).
+ *
+ * For each slot:
+ *   - env-var set: existence-check the env path. Pass → use. Fail → missing.
+ *   - env-var unset: read sttPath/llmPath from models.json. Pass + file
+ *     exists → use. Otherwise missing.
+ */
+export async function resolveModels(opts: ResolveOptions): Promise<ResolveResult> {
+  const stored = await loadModelsJson(opts.userDataDir);
+
+  const resolved = await Promise.all([
+    resolveSlot('stt', opts.envOverride.stt, stored?.sttPath),
+    resolveSlot('llm', opts.envOverride.llm, stored?.llmPath),
+  ]);
+  const [sttResult, llmResult] = resolved;
+
+  const missing: ModelSlot[] = [];
+  if (!sttResult.ok) missing.push('stt');
+  if (!llmResult.ok) missing.push('llm');
+
+  if (missing.length === 0 && sttResult.ok && llmResult.ok) {
+    return { kind: 'ready', sttPath: sttResult.path, llmPath: llmResult.path };
+  }
+  return { kind: 'needs-setup', missing };
+}
+
+async function resolveSlot(
+  slot: ModelSlot,
+  envPath: string | undefined,
+  storedPath: string | undefined,
+): Promise<{ ok: true; path: string } | { ok: false }> {
+  // 1. Env-var override authoritative.
+  if (envPath) {
+    try {
+      await fs.access(envPath);
+      return { ok: true, path: envPath };
+    } catch {
+      return { ok: false };
+    }
+  }
+  // 2. Fall through to stored path.
+  if (storedPath) {
+    try {
+      await fs.access(storedPath);
+      return { ok: true, path: storedPath };
+    } catch {
+      return { ok: false };
+    }
+  }
+  return { ok: false };
 }
