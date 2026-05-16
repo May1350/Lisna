@@ -167,51 +167,9 @@ describe('saveModelsJson', () => {
     ).resolves.toBeUndefined();
   });
 
-  // Spec §10.1 row 18 — fsync rejection: file fsync throws → tmp persists,
-  // no rename, error propagates to caller.
-  //
-  // SKIP REASON: vi.spyOn cannot intercept `node:fs/promises.open` in this
-  // ESM context — the module namespace object has `configurable: false` on
-  // Node 25 + vitest 2.1.9, so Object.defineProperty (used internally by
-  // spyOn) throws "Cannot redefine property: open".
-  //
-  // Fix options (choose one):
-  //   A) Move this test to a separate file that uses module-level
-  //      `vi.mock('node:fs/promises', async (importOriginal) => { ... })`
-  //      so vitest can hoist+intercept before ESM freezes the namespace.
-  //   B) Have saveModelsJson accept an optional `_openFn` injection param
-  //      (test-only) — but the plan explicitly forbids parameter injection.
-  //   C) Accept this behavior as integration-tested via the 3 passing save
-  //      tests and remove this unit test from the plan.
-  //
-  // Leaving as .skip so the test counts are clear: 20 pass, 1 skipped.
-  it.skip('propagates fsync rejection and leaves no models.json (tmp may persist)', async () => {
-    const vitest = await import('vitest');
-    const fsModule = await import('node:fs/promises');
-    const realOpen = fsModule.open;
-    const spy = vitest.vi.spyOn(fsModule, 'open').mockImplementation(async (...args: Parameters<typeof realOpen>) => {
-      const handle = await realOpen(...args);
-      // Rig fileFd.sync to reject the first time it's called. Subsequent
-      // opens (e.g. directory open later) operate normally.
-      const originalSync = handle.sync.bind(handle);
-      let called = false;
-      handle.sync = async () => {
-        if (!called) {
-          called = true;
-          throw new Error('mock fsync failure');
-        }
-        return originalSync();
-      };
-      return handle;
-    });
-    try {
-      await expect(
-        saveModelsJson(tmpDir, { version: 1, sttPath: '/a', llmPath: '/b' }),
-      ).rejects.toThrow('mock fsync failure');
-      // models.json should NOT exist (rename never ran)
-      await expect(fs.stat(path.join(tmpDir, 'models.json'))).rejects.toThrow();
-    } finally {
-      spy.mockRestore();
-    }
-  });
+  // NOTE: spec §10.1 row 18 (fsync rejection → no rename → models.json absent)
+  // lives in model-resolver-fsync-failure.test.ts — that case requires
+  // vi.mock('node:fs/promises') hoisting, which can't share a file with the
+  // real-fs tests above (Node 25 ESM namespaces are non-configurable, so
+  // vi.spyOn fails; vi.mock must be hoisted before any module evaluation).
 });
