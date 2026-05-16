@@ -34,6 +34,12 @@ export const CHANNELS = {
   sessionError: 'session/error',
   /** renderer → main: app.relaunch() + app.quit() for §3.6 give-up recovery */
   lifecycleRestart: 'lifecycle/restart',
+  /** renderer → main: query current ModelStatus on App mount */
+  modelStatus: 'models/status',
+  /** renderer → main: native file dialog + magic-byte validate + atomic
+   *  save for one slot. Handler awaits the disk write before returning,
+   *  so PickResult.status reflects committed state (spec §5.1 step 7). */
+  modelPick: 'models/pick',
 } as const;
 
 export interface IpcDeps {

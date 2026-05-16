@@ -11,7 +11,9 @@
 import { promises as fs } from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
 import path from 'node:path';
-import type { ModelSlot, ResolveResult } from '@shared/ipc-protocol';
+import { ipcMain, dialog, type BrowserWindow } from 'electron';
+import type { ModelSlot, ResolveResult, ModelStatus, PickResult, ModelPickPayload } from '@shared/ipc-protocol';
+import { CHANNELS } from './ipc';
 import { log, redactPath } from './log';
 
 // --- Magic bytes ---
@@ -205,4 +207,114 @@ async function resolveSlot(
     }
   }
   return { ok: false };
+}
+
+// --- IPC binding ---
+
+export interface ModelIpcDeps {
+  getMainWindow: () => BrowserWindow | undefined;
+  initialStatus: ResolveResult;
+  userDataDir: string;
+}
+
+/**
+ * Register the two model-resolver IPC channels. Must be called BEFORE
+ * createWindow() so the renderer's first useEffect can safely invoke
+ * models/status without hitting "No handler registered" (spec §4.2).
+ *
+ * `models/pick` awaits saveModelsJson inside serializeWrite, then
+ * constructs the PickResult — caller-side `await window.lisna.pickModel()`
+ * resolves only after the write is durable on disk (spec Decision #13).
+ */
+export function registerModelIpc(deps: ModelIpcDeps): void {
+  let current: ModelStatus = deps.initialStatus;
+
+  ipcMain.handle(CHANNELS.modelStatus, async (): Promise<ModelStatus> => current);
+
+  ipcMain.handle(CHANNELS.modelPick, async (_e, payload: ModelPickPayload): Promise<PickResult> => {
+    const { slot } = payload;
+    const win = deps.getMainWindow();
+    if (!win) {
+      log.error('[model-resolver] modelPick: no main window');
+      return { ok: false, code: 'MODEL_READ_FAILED' };
+    }
+
+    // 1. Native file dialog (filter by extension per slot).
+    const filterName = slot === 'stt' ? 'Whisper STT (.bin)' : 'Llama LLM (.gguf)';
+    const ext = slot === 'stt' ? 'bin' : 'gguf';
+    const dlg = await dialog.showOpenDialog(win, {
+      properties: ['openFile'],
+      filters: [{ name: filterName, extensions: [ext] }],
+    });
+    if (dlg.canceled || dlg.filePaths.length === 0) {
+      return { ok: false, code: 'PICKER_CANCELLED' };
+    }
+    const pickedPath = dlg.filePaths[0]!;  // narrowed: length === 0 guard above
+
+    // 2. Magic-byte validation.
+    const validation = await validateModelFile(pickedPath, slot);
+    if (!validation.ok) {
+      const code: 'MODEL_READ_FAILED' | 'INVALID_MAGIC_BYTES_STT' | 'INVALID_MAGIC_BYTES_LLM' =
+        validation.reason === 'unreadable'
+          ? 'MODEL_READ_FAILED'
+          : (slot === 'stt' ? 'INVALID_MAGIC_BYTES_STT' : 'INVALID_MAGIC_BYTES_LLM');
+      return { ok: false, code };
+    }
+
+    // 3. Compute new paths BEFORE write. For the slot NOT being picked,
+    //    recover the existing path from in-memory state (if ready) or from
+    //    models.json on disk (if needs-setup). This preserves a previously-set
+    //    valid path when the user is fixing only one missing slot (spec §5.2
+    //    step 3: "retains the still-valid STT path internally for the eventual
+    //    rewrite"). Without reading models.json, a partial pick in the
+    //    needs-setup state would overwrite the surviving path with ''.
+    const nextSttPath = slot === 'stt' ? pickedPath : await findStored(current, 'stt', deps.userDataDir);
+    const nextLlmPath = slot === 'llm' ? pickedPath : await findStored(current, 'llm', deps.userDataDir);
+
+    // 4. Await the atomic disk write (serialized in-module).
+    //    Empty-string for the not-yet-picked slot is a deliberate sentinel:
+    //    loadModelsJson + resolveModels treat '' as a non-existent file path
+    //    (fs.access rejects), so the next boot correctly reports needs-setup
+    //    for that slot. Schema typed as string keeps JSON parsing simple.
+    await saveModelsJson(deps.userDataDir, {
+      version: 1,
+      sttPath: nextSttPath ?? '',
+      llmPath: nextLlmPath ?? '',
+    });
+
+    // 5. Recompute status from on-disk state. If both paths now point to
+    //    real files, ready; otherwise needs-setup with the still-missing slot(s).
+    current = await resolveModels({
+      userDataDir: deps.userDataDir,
+      envOverride: {},  // post-pick reflects disk truth, not env overrides
+    });
+    return { ok: true, status: current };
+  });
+}
+
+/**
+ * Recover a model path for the slot NOT being actively picked.
+ *
+ * When the current status is `ready`, the path is in memory — return it
+ * directly. When the status is `needs-setup`, the non-missing slot's path
+ * must be read from models.json on disk (spec §5.2 step 3: "retains the
+ * still-valid STT path internally for the eventual rewrite"). The plan's
+ * original code returned `undefined` here, which would overwrite a valid
+ * preserved path with '' — a data-loss bug.  This async implementation
+ * matches the JSDoc intent: read models.json, pull the relevant path.
+ *
+ * Returns `undefined` when no path is stored (genuinely missing slot or
+ * absent/malformed models.json); caller writes '' sentinel.
+ */
+async function findStored(status: ModelStatus, slot: ModelSlot, userDataDir: string): Promise<string | undefined> {
+  if (status.kind === 'ready') {
+    return slot === 'stt' ? status.sttPath : status.llmPath;
+  }
+  // needs-setup: the slot that is NOT in `missing` may still have a valid
+  // path persisted in models.json. Load and return it so the pick handler
+  // can preserve it in the rewrite.
+  const stored = await loadModelsJson(userDataDir);
+  if (!stored) return undefined;
+  const candidate = slot === 'stt' ? stored.sttPath : stored.llmPath;
+  return candidate || undefined;  // '' is sentinel for missing — treat as absent
 }
