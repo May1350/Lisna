@@ -848,8 +848,9 @@ function SectionBlock({
         </div>
       )}
 
-      {/* formula — 수식·등식 (hidden in compact: detail-heavy) */}
-      {!compact && section.formula && section.formula.length > 0 && (
+      {/* formula — 수식·등식 (spec §5.4: stays visible in compact —
+          공식은 시험 직전 cram 뷰에서도 필수) */}
+      {section.formula && section.formula.length > 0 && (
         <div className="space-y-1">
           <div className="text-[10px] font-mono uppercase tracking-eyebrow text-ink-500 font-medium">
             {T.outline.formula_label}

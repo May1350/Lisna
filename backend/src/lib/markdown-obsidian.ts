@@ -435,8 +435,14 @@ function collectImportantPoints(o: Outline, sourceUrl: string): string[] {
 }
 
 function collectTerms(o: Outline): string[] {
+  // Skip from:'inferred' terms — they are AI-supplemented (spec §1.4 "AI 보충
+  // 을 학생이 한눈에 식별"). Surfacing them in YAML frontmatter `key_terms:`
+  // and inline wikilinks would make them indistinguishable from transcript-
+  // derived terms in Obsidian's Properties / Graph / Dataview views.
   const set = new Set<string>()
-  for (const s of o.sections) for (const kt of s.key_terms) if (kt.term) set.add(kt.term)
+  for (const s of o.sections)
+    for (const kt of s.key_terms)
+      if (kt.term && kt.from !== 'inferred') set.add(kt.term)
   return Array.from(set)
 }
 
