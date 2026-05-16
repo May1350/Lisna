@@ -215,6 +215,14 @@ export interface ModelIpcDeps {
   getMainWindow: () => BrowserWindow | undefined;
   initialStatus: ResolveResult;
   userDataDir: string;
+  /**
+   * Optional callback invoked AFTER each successful `models/pick` save
+   * completes — passes the freshly-recomputed `ModelStatus`. Use this in
+   * main/index.ts to keep a mutable copy that `IpcDeps.getModelPaths()`
+   * reads through, so `session/start` sees post-pick paths instead of
+   * boot-time `undefined`s (fixes the needs-setup → ready transition gap).
+   */
+  onStatusChange?: (status: ModelStatus) => void;
 }
 
 /**
@@ -318,6 +326,10 @@ export function registerModelIpc(deps: ModelIpcDeps): void {
       userDataDir: deps.userDataDir,
       envOverride: {},  // post-pick reflects disk truth, not env overrides
     });
+    // 6. Notify the controller so IpcDeps.getModelPaths() returns fresh values.
+    //    Without this, session/start would forever see boot-time deps and
+    //    reject with MODELS_NOT_CONFIGURED even after a successful pick.
+    deps.onStatusChange?.(current);
     return { ok: true, status: current };
   });
 }

@@ -49,8 +49,16 @@ export interface IpcDeps {
   /** Lazily-resolved BrowserWindow ref. Survives darwin window re-create. */
   getMainWindow: () => BrowserWindow | undefined;
   supervisor: SidecarSupervisor;
-  sttModelPath?: string;
-  llmModelPath?: string;
+  /**
+   * Lazy getter for the currently-resolved model paths. Returns `null` while
+   * `resolveResult.kind === 'needs-setup'`. Must be a getter (not static
+   * captured paths) so the post-pick `models/pick` save propagates here:
+   * registerIpc is called ONCE at boot, but the user can transition
+   * needs-setup → ready via the picker after this point. A static capture
+   * would freeze the boot-time `undefined` values and `session/start` would
+   * forever reject with MODELS_NOT_CONFIGURED even after a successful pick.
+   */
+  getModelPaths: () => { sttPath: string; llmPath: string } | null;
 }
 
 // --- Module-level session FSM state ---
@@ -133,7 +141,8 @@ export function registerIpc(deps: IpcDeps) {
     if (_sidecarGaveUp) throw new Error('SIDECAR_GAVE_UP');
     if (current !== null) throw new Error('SESSION_ACTIVE');
     if (language !== 'ja') throw new Error('UNSUPPORTED_LANGUAGE');  // v2.0 JA-only
-    if (!deps.sttModelPath || !deps.llmModelPath) throw new Error('MODELS_NOT_CONFIGURED');
+    const paths = deps.getModelPaths();
+    if (!paths) throw new Error('MODELS_NOT_CONFIGURED');
     const client = deps.supervisor.getClient();
     if (!client) throw new Error('SIDECAR_DOWN');
     // Fresh adapters per session — survives sidecar respawn without holding
@@ -143,8 +152,8 @@ export function registerIpc(deps: IpcDeps) {
     const llm = new LlamaCppLLM(client);
     const orch = new SessionOrchestrator({
       stt, llm,
-      sttModelPath: deps.sttModelPath,
-      llmModelPath: deps.llmModelPath,
+      sttModelPath: paths.sttPath,
+      llmModelPath: paths.llmPath,
       language,
     });
     current = orch;  // claim BEFORE await — concurrent start re-entry blocked synchronously

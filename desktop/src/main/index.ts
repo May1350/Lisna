@@ -50,7 +50,11 @@ app.whenReady().then(async () => {
   // LISNA_DEV_LLM_MODEL) authoritative when set. Result drives whether
   // renderer mounts Recording (ready) or SetupView (needs-setup).
   const userDataDir = app.getPath('userData');
-  const resolveResult = await resolveModels({
+  // `let` so the post-pick `onStatusChange` callback (passed to registerModelIpc
+  // below) can update this in place. registerIpc's `getModelPaths` getter reads
+  // through this variable, so a needs-setup → ready transition triggered by
+  // the picker correctly propagates to session/start without re-registering.
+  let resolveResult = await resolveModels({
     userDataDir,
     envOverride: {
       // Trim + empty→undefined: a set-but-empty env var (`LISNA_DEV_STT_MODEL=""`)
@@ -103,13 +107,20 @@ app.whenReady().then(async () => {
   registerIpc({
     getMainWindow: () => mainWindow,  // getter — survives darwin re-create
     supervisor,
-    sttModelPath: resolveResult.kind === 'ready' ? resolveResult.sttPath : undefined,
-    llmModelPath: resolveResult.kind === 'ready' ? resolveResult.llmPath : undefined,
+    // Lazy getter — re-read every session/start so post-pick paths propagate.
+    // See IpcDeps.getModelPaths JSDoc for the freeze-bug this prevents.
+    getModelPaths: () => resolveResult.kind === 'ready'
+      ? { sttPath: resolveResult.sttPath, llmPath: resolveResult.llmPath }
+      : null,
   });
   registerModelIpc({
     getMainWindow: () => mainWindow,
     initialStatus: resolveResult,
     userDataDir,
+    // Mutate the outer `resolveResult` so getModelPaths above sees the new
+    // ready state. Without this, session/start keeps rejecting MODELS_NOT_
+    // CONFIGURED forever after a successful needs-setup → ready transition.
+    onStatusChange: (s) => { resolveResult = s; },
   });
 
   createWindow();
