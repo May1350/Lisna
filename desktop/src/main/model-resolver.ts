@@ -74,6 +74,11 @@ export interface ModelsJson {
  * Side effect: on every call, deletes <userData>/models.json.tmp if present
  * (crash-recovery — the atomic-write contract guarantees models.json itself
  * is never partial; the .tmp is discardable).
+ *
+ * Concurrency contract: caller-side. Must be invoked only at resolver entry
+ * (boot, before any saveModelsJson can run). The unconditional .tmp unlink
+ * would race with an in-flight write otherwise. If a re-resolve path is added
+ * later (settings "reload from disk", etc.), wrap that call in serializeWrite.
  */
 export async function loadModelsJson(dir: string): Promise<ModelsJson | null> {
   const final = path.join(dir, 'models.json');
@@ -91,7 +96,13 @@ export async function loadModelsJson(dir: string): Promise<ModelsJson | null> {
     if (p.version !== 1) return null;
     if (typeof p.sttPath !== 'string' || typeof p.llmPath !== 'string') return null;
     return { version: 1, sttPath: p.sttPath, llmPath: p.llmPath };
-  } catch {
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code === 'ENOENT') {
+      // Missing file is the expected first-run path — no log noise.
+      return null;
+    }
+    log.warn('[model-resolver] loadModelsJson: discarding unreadable/malformed file', redactPath(final), err);
     return null;
   }
 }

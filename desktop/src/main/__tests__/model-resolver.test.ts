@@ -169,7 +169,7 @@ describe('saveModelsJson', () => {
 
   // NOTE: spec §10.1 row 18 (fsync rejection → no rename → models.json absent)
   // lives in model-resolver-fsync-failure.test.ts — that case requires
-  // vi.mock('node:fs/promises') hoisting, which can't share a file with the
+  // vi.mock('node:fs') hoisting, which can't share a file with the
   // real-fs tests above (Node 25 ESM namespaces are non-configurable, so
   // vi.spyOn fails; vi.mock must be hoisted before any module evaluation).
 });
