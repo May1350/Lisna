@@ -159,3 +159,113 @@ The Step 5 plan mandates 2–3 LLM-as-judge eval-set anchors. Each anchor is a `
 - After Stop → NoteView renders, copy the raw `note.markdown` into the "Observed note" block of the matching anchor.
 - Score each axis (format / register / omission) manually. If any axis fails on a real recording, iterate the prompt template in `ja-note-v1.ts` (do NOT bump version unless the change is intentionally non-backward-compatible).
 - A future LLM-as-judge harness (Step 6+) automates the scoring; the manual rows are the data source for that harness.
+
+---
+
+## §5.1 — First-run model resolver (Step 5 Task 1)
+
+**Prereqs:** Two real model files at `~/.lisna-test-models/`:
+- `ggml-kotoba-whisper-v2.0-q5_0.bin` (Whisper STT)
+- `Llama-3.2-3B-Instruct-Q4_K_M.gguf` (Llama LLM)
+
+If either is missing, see the Discord channel for the alpha distribution links.
+
+**Manual-gate-only scenarios** (not covered by automated `setup-flow.smoke.test.ts`):
+- SetupView state-machine transitions (Step 1 → Step 2 → done → Recording)
+- `getModelStatus` + `pickModel` IPC channels end-to-end
+- Cancel/error UI strips with JA copy via `toFriendlyJa`
+- `main/index.ts` empty-string env-var normalization (`?.trim() || undefined`)
+- `DISCORD_CHANNEL_URL` placeholder runtime guard
+- Env-override read-through invariant (env-set sessions don't write models.json)
+
+### Happy path (first-run)
+
+1. Quit Electron if running. Remove any prior models.json:
+   ```bash
+   rm -f ~/Library/Application\ Support/Electron/models.json
+   ```
+2. `pnpm dev` — expect brief "booting" (empty UI), then SetupView Step 1 visible.
+3. Click "ファイルを選択" → pick `~/.lisna-test-models/ggml-kotoba-whisper-v2.0-q5_0.bin`.
+   Expect transition to Step 2 (no inline error).
+4. Click "ファイルを選択" → pick `~/.lisna-test-models/Llama-3.2-3B-Instruct-Q4_K_M.gguf`.
+   Expect "準備が完了しました" briefly, then Recording view (header "Lisna v2 — on-device").
+5. Quit Electron (Cmd+Q). Restart. Expect Recording view directly — no SetupView flash.
+
+### Re-launch with missing file
+
+6. Quit Electron. Move the LLM file aside:
+   ```bash
+   mv ~/.lisna-test-models/Llama-3.2-3B-Instruct-Q4_K_M.gguf{,.bak}
+   ```
+7. `pnpm dev` — expect SetupView pre-skipped to Step 2 with red inline strip
+   "ノート生成モデルのファイルが見つかりません。もう一度選択してください。"
+8. Click "ファイルを選択", dismiss the native dialog. Expect strip changes to
+   "選択がキャンセルされました。続行するにはファイルを選択してください。"
+9. Restore the LLM file:
+   ```bash
+   mv ~/.lisna-test-models/Llama-3.2-3B-Instruct-Q4_K_M.gguf{.bak,}
+   ```
+10. Click "ファイルを選択", pick it. Expect ready → Recording view.
+
+### Wrong format
+
+11. Quit Electron. Remove models.json again. `pnpm dev`. On Step 1, click
+    "ファイルを選択" and pick the **LLM** `.gguf` file (not `.bin`). Expect
+    red strip "このファイルは文字起こしモデルとして読み込めませんでした。Discord で
+    配布されたファイルを再度選択してください。"
+12. Click "ファイルを選択" again, pick the real `.bin`. Expect Step 2.
+
+### Discord URL placeholder guard
+
+13. Confirm `desktop/src/renderer/i18n/setup-strings.ts` still has:
+    ```typescript
+    export const DISCORD_CHANNEL_URL = 'https://discord.com/channels/<server>/<channel>';
+    ```
+14. On any SetupView render (Step 1 or Step 2), verify the "Discord で受け取る"
+    button is **HIDDEN** (only "ファイルを選択" should be visible).
+15. (Founder pre-alpha): replace `<server>/<channel>` in `setup-strings.ts` with
+    the real Discord deep-link before merging. The button will then appear.
+    Click it; verify it opens the channel in the default browser via
+    `shell.openExternal`. Then revert if you want to keep testing the placeholder
+    path, or commit the URL change as a separate `chore(desktop)` patch.
+
+### Env-var dev override
+
+16. Quit. Set in shell:
+    ```bash
+    export LISNA_DEV_STT_MODEL=/tmp/does-not-exist.bin
+    export LISNA_DEV_LLM_MODEL=~/.lisna-test-models/Llama-3.2-3B-Instruct-Q4_K_M.gguf
+    ```
+17. `pnpm dev` — expect SetupView Step 1 with `MODEL_FILE_MISSING_STT` strip
+    (env-var authoritative; no fallback to models.json).
+18. Unset env vars, restart. Expect resolution via models.json (should be ready
+    from the happy-path setup earlier).
+
+### Env-var empty-string normalization
+
+19. Quit. Set in shell:
+    ```bash
+    export LISNA_DEV_STT_MODEL=""
+    export LISNA_DEV_LLM_MODEL=""
+    ```
+20. `pnpm dev` — confirm the boot log shows `[boot] models: ready ...` (not
+    `needs-setup`). The `?.trim() || undefined` normalization in `main/index.ts`
+    coerces the empty strings to `undefined`, so resolveModels falls through
+    to `models.json` instead of treating `""` as a set-but-empty path.
+21. Unset env vars.
+
+### Env-override read-through invariant
+
+22. Quit. Set env vars to real files:
+    ```bash
+    export LISNA_DEV_STT_MODEL=~/.lisna-test-models/ggml-kotoba-whisper-v2.0-q5_0.bin
+    export LISNA_DEV_LLM_MODEL=~/.lisna-test-models/Llama-3.2-3B-Instruct-Q4_K_M.gguf
+    ```
+23. Remove models.json: `rm -f ~/Library/Application\ Support/Electron/models.json`
+24. `pnpm dev` — expect Recording view directly (env vars resolved to ready,
+    no SetupView shown).
+25. Quit. **Unset env vars**: `unset LISNA_DEV_STT_MODEL LISNA_DEV_LLM_MODEL`
+26. Without restoring models.json, restart `pnpm dev`. Expect **SetupView** —
+    confirming env-override is read-through, did NOT write env paths into
+    models.json during step 24's session. (If models.json had been written,
+    this would boot to Recording.)
