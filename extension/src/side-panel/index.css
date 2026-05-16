@@ -165,3 +165,19 @@ html, body {
   font-weight: 500;
   margin-right: 1px;
 }
+
+/* step.inferred — procedure_steps follow the same redundancy pattern as
+   point.inferred: ※ glyph (via bullet-mark span) + ink-500 muted text.
+   Border-left mirrors example.inferred (list items can't use full border
+   cleanly with list-decimal). */
+.step.inferred {
+  border-left: 1px dashed var(--terra-soft, #FED7AA);
+  padding-left: 6px;
+  color: var(--ink-500, #6E6660);
+}
+.step.inferred .bullet-mark {
+  color: var(--terra-700, #9A330A);
+  font-size: 12px;
+  flex-shrink: 0;
+  font-weight: 500;
+}

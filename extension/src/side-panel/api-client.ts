@@ -123,6 +123,13 @@ export interface OutlinePoint {
   important: boolean
   from: Provenance
 }
+export interface OutlineStep {
+  text: string
+  order?: number          // explicit order; array index used if omitted
+  ts: number
+  important?: boolean
+  from: Provenance
+}
 export interface OutlineSection {
   heading: string
   ts: number
@@ -135,6 +142,8 @@ export interface OutlineSection {
   related_terms?: string[]
   takeaway?: string
   check_question?: string
+  // Typed slots (curator provenance plan) — all optional.
+  procedure_steps?: OutlineStep[]
 }
 export interface Outline {
   title: string
