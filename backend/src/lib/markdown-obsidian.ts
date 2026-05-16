@@ -52,6 +52,11 @@ interface HeadingSet {
   duration: string
   openVideo: string
   videoTimeArrow: string
+  inferred_callout: string
+  steps_label: string
+  formula_label: string
+  argument_label: string
+  timeline_label: string
 }
 const HEADINGS: Record<MarkdownLocale, HeadingSet> = {
   ja: {
@@ -62,6 +67,8 @@ const HEADINGS: Record<MarkdownLocale, HeadingSet> = {
     examples_inline_prefix: '例', related_inline: '関連',
     professor: '教授', course: '科目', watchedDate: '視聴日', duration: '長さ',
     openVideo: '▶ 動画を開く', videoTimeArrow: '▶',
+    inferred_callout: '補足', steps_label: '手順', formula_label: '公式',
+    argument_label: '論証', timeline_label: '時系列',
   },
   en: {
     info_callout: 'Lecture info', tldr_h2: 'TL;DR', important_h2: 'Key points ⭐',
@@ -71,6 +78,8 @@ const HEADINGS: Record<MarkdownLocale, HeadingSet> = {
     examples_inline_prefix: 'e.g.', related_inline: 'Related',
     professor: 'Professor', course: 'Course', watchedDate: 'Watched', duration: 'Length',
     openVideo: '▶ Open video', videoTimeArrow: '▶',
+    inferred_callout: 'Note', steps_label: 'Steps', formula_label: 'Formula',
+    argument_label: 'Argument', timeline_label: 'Timeline',
   },
   ko: {
     info_callout: '강의 정보', tldr_h2: 'TL;DR', important_h2: '중요사항 ⭐',
@@ -80,6 +89,8 @@ const HEADINGS: Record<MarkdownLocale, HeadingSet> = {
     examples_inline_prefix: '예', related_inline: '관련',
     professor: '교수', course: '과목', watchedDate: '시청일', duration: '길이',
     openVideo: '▶ 영상 열기', videoTimeArrow: '▶',
+    inferred_callout: '보충', steps_label: '절차', formula_label: '공식',
+    argument_label: '논증', timeline_label: '시간 순',
   },
   zh: {
     info_callout: '讲座信息', tldr_h2: 'TL;DR', important_h2: '重点 ⭐',
@@ -89,6 +100,8 @@ const HEADINGS: Record<MarkdownLocale, HeadingSet> = {
     examples_inline_prefix: '例', related_inline: '相关',
     professor: '教授', course: '课程', watchedDate: '观看日期', duration: '时长',
     openVideo: '▶ 打开视频', videoTimeArrow: '▶',
+    inferred_callout: '补充', steps_label: '步骤', formula_label: '公式',
+    argument_label: '论证', timeline_label: '时间线',
   },
 }
 
