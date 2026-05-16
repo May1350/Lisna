@@ -149,7 +149,8 @@ export type PickResult =
         | 'INVALID_MAGIC_BYTES_STT'
         | 'INVALID_MAGIC_BYTES_LLM'
         | 'MODEL_READ_FAILED'
-        | 'PICKER_CANCELLED';
+        | 'PICKER_CANCELLED'
+        | 'MODEL_SAVE_FAILED';
     };
 
 /** Sent over CHANNELS.modelPick. */

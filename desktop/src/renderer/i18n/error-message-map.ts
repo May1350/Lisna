@@ -42,6 +42,7 @@ export const ALL_ERROR_CODES = [
   'INVALID_MAGIC_BYTES_LLM',
   'MODEL_READ_FAILED',
   'PICKER_CANCELLED',
+  'MODEL_SAVE_FAILED',
 ] as const;
 
 export type ErrorCode = (typeof ALL_ERROR_CODES)[number];
@@ -96,6 +97,8 @@ export const ERROR_MESSAGE_MAP_JA: Record<ErrorCode, string> = {
     'モデルファイルを読み込めませんでした。ファイルのアクセス権限をご確認ください。',
   PICKER_CANCELLED:
     '選択がキャンセルされました。続行するにはファイルを選択してください。',
+  MODEL_SAVE_FAILED:
+    'モデル情報の保存に失敗しました。ディスクの空き容量とアクセス権限をご確認ください。',
 };
 
 /**

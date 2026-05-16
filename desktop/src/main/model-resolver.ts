@@ -242,10 +242,20 @@ export function registerModelIpc(deps: ModelIpcDeps): void {
     // 1. Native file dialog (filter by extension per slot).
     const filterName = slot === 'stt' ? 'Whisper STT (.bin)' : 'Llama LLM (.gguf)';
     const ext = slot === 'stt' ? 'bin' : 'gguf';
-    const dlg = await dialog.showOpenDialog(win, {
-      properties: ['openFile'],
-      filters: [{ name: filterName, extensions: [ext] }],
-    });
+    let dlg;
+    try {
+      dlg = await dialog.showOpenDialog(win, {
+        properties: ['openFile'],
+        filters: [{ name: filterName, extensions: [ext] }],
+      });
+    } catch (err) {
+      log.error('[model-resolver] dialog.showOpenDialog rejected', err);
+      // Electron internal error (rare). Map to MODEL_READ_FAILED — user-facing
+      // copy ("file couldn't be read") is close-enough for this edge case;
+      // adding a distinct DIALOG_FAILED code isn't worth the i18n surface
+      // expansion for a path that should never fire in practice.
+      return { ok: false, code: 'MODEL_READ_FAILED' };
+    }
     if (dlg.canceled || dlg.filePaths.length === 0) {
       return { ok: false, code: 'PICKER_CANCELLED' };
     }
@@ -254,10 +264,21 @@ export function registerModelIpc(deps: ModelIpcDeps): void {
     // 2. Magic-byte validation.
     const validation = await validateModelFile(pickedPath, slot);
     if (!validation.ok) {
-      const code: 'MODEL_READ_FAILED' | 'INVALID_MAGIC_BYTES_STT' | 'INVALID_MAGIC_BYTES_LLM' =
-        validation.reason === 'unreadable'
-          ? 'MODEL_READ_FAILED'
-          : (slot === 'stt' ? 'INVALID_MAGIC_BYTES_STT' : 'INVALID_MAGIC_BYTES_LLM');
+      // Exhaustive switch + `never` guard: if a future 3rd `ValidationResult.reason`
+      // variant is added, this compile-errors here instead of silently misclassifying.
+      let code: 'MODEL_READ_FAILED' | 'INVALID_MAGIC_BYTES_STT' | 'INVALID_MAGIC_BYTES_LLM';
+      switch (validation.reason) {
+        case 'unreadable':
+          code = 'MODEL_READ_FAILED';
+          break;
+        case 'wrong-format':
+          code = slot === 'stt' ? 'INVALID_MAGIC_BYTES_STT' : 'INVALID_MAGIC_BYTES_LLM';
+          break;
+        default: {
+          const _exhaustive: never = validation.reason;
+          throw new Error(`unhandled validation reason: ${_exhaustive}`);
+        }
+      }
       return { ok: false, code };
     }
 
@@ -276,11 +297,20 @@ export function registerModelIpc(deps: ModelIpcDeps): void {
     //    loadModelsJson + resolveModels treat '' as a non-existent file path
     //    (fs.access rejects), so the next boot correctly reports needs-setup
     //    for that slot. Schema typed as string keeps JSON parsing simple.
-    await saveModelsJson(deps.userDataDir, {
-      version: 1,
-      sttPath: nextSttPath ?? '',
-      llmPath: nextLlmPath ?? '',
-    });
+    try {
+      await saveModelsJson(deps.userDataDir, {
+        version: 1,
+        sttPath: nextSttPath ?? '',
+        llmPath: nextLlmPath ?? '',
+      });
+    } catch (err) {
+      log.error('[model-resolver] saveModelsJson failed', err);
+      // Disk full / EROFS / permissions / quota — must surface as a typed
+      // PickResult code, not propagate raw Error to the renderer (would
+      // violate the {ok: true|false} discriminated-union contract and leave
+      // SetupView stuck since handlePick has no .catch).
+      return { ok: false, code: 'MODEL_SAVE_FAILED' };
+    }
 
     // 5. Recompute status from on-disk state. If both paths now point to
     //    real files, ready; otherwise needs-setup with the still-missing slot(s).
@@ -313,7 +343,14 @@ async function findStored(status: ModelStatus, slot: ModelSlot, userDataDir: str
   // needs-setup: the slot that is NOT in `missing` may still have a valid
   // path persisted in models.json. Load and return it so the pick handler
   // can preserve it in the rewrite.
-  const stored = await loadModelsJson(userDataDir);
+  //
+  // CONCURRENCY: loadModelsJson unconditionally unlinks .tmp; if it ran
+  // concurrent with an in-flight saveModelsJson, the unlink could race with
+  // the rename(.tmp → final) and ENOENT. Wrap in serializeWrite so this
+  // queues behind any pending write. Today the renderer's busy gate
+  // serializes picks, but defense-in-depth matters now that I-1 surfaces
+  // save failures to the renderer — masking corruption would be worse.
+  const stored = await serializeWrite(() => loadModelsJson(userDataDir));
   if (!stored) return undefined;
   const candidate = slot === 'stt' ? stored.sttPath : stored.llmPath;
   return candidate || undefined;  // '' is sentinel for missing — treat as absent
