@@ -35,6 +35,13 @@ export const ALL_ERROR_CODES = [
   'LLM_LOAD_TIMEOUT',
   'LLM_UNLOAD_TIMEOUT',
   'GENERATE_TIMEOUT',
+  // Step 5 §5.1 — first-run model resolver
+  'MODEL_FILE_MISSING_STT',
+  'MODEL_FILE_MISSING_LLM',
+  'INVALID_MAGIC_BYTES_STT',
+  'INVALID_MAGIC_BYTES_LLM',
+  'MODEL_READ_FAILED',
+  'PICKER_CANCELLED',
 ] as const;
 
 export type ErrorCode = (typeof ALL_ERROR_CODES)[number];
@@ -77,6 +84,18 @@ export const ERROR_MESSAGE_MAP_JA: Record<ErrorCode, string> = {
     'ノート生成モデルの解放に時間がかかりすぎています。もう一度お試しください。',
   GENERATE_TIMEOUT:
     'ノート生成が停滞しました。もう一度お試しください。',
+  MODEL_FILE_MISSING_STT:
+    '文字起こしモデルのファイルが見つかりません。もう一度選択してください。',
+  MODEL_FILE_MISSING_LLM:
+    'ノート生成モデルのファイルが見つかりません。もう一度選択してください。',
+  INVALID_MAGIC_BYTES_STT:
+    'このファイルは文字起こしモデルとして読み込めませんでした。Discord で配布されたファイルを再度選択してください。',
+  INVALID_MAGIC_BYTES_LLM:
+    'このファイルはノート生成モデルとして読み込めませんでした。Discord で配布されたファイルを再度選択してください。',
+  MODEL_READ_FAILED:
+    'モデルファイルを読み込めませんでした。ファイルのアクセス権限をご確認ください。',
+  PICKER_CANCELLED:
+    '選択がキャンセルされました。続行するにはファイルを選択してください。',
 };
 
 /**

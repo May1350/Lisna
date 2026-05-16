@@ -129,3 +129,30 @@ export interface SessionErrorPayload {
    */
   permanent?: boolean;
 }
+
+// --- Step 5 §5.1 — first-run model resolver ---
+
+export type ModelSlot = 'stt' | 'llm';
+
+export type ModelStatus =
+  | { kind: 'ready'; sttPath: string; llmPath: string }
+  | { kind: 'needs-setup'; missing: ModelSlot[] };  // sorted: 'stt' before 'llm'
+
+/** Internal alias for main/model-resolver.ts. Same shape as ModelStatus — named
+ *  separately so resolver-internal types can evolve without a renderer break. */
+export type ResolveResult = ModelStatus;
+
+export type PickResult =
+  | { ok: true; status: ModelStatus }
+  | { ok: false;
+      code:
+        | 'INVALID_MAGIC_BYTES_STT'
+        | 'INVALID_MAGIC_BYTES_LLM'
+        | 'MODEL_READ_FAILED'
+        | 'PICKER_CANCELLED';
+    };
+
+/** Sent over CHANNELS.modelPick. */
+export interface ModelPickPayload {
+  slot: ModelSlot;
+}
