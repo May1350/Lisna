@@ -80,28 +80,47 @@ export function App() {
   // onSessionError listeners are naturally inert (their prev.kind guards
   // no-op).
   useEffect(() => {
-    void window.lisna.getModelStatus().then((status) => {
-      if (status.kind === 'ready') {
-        setView({ kind: 'recording', segments: [] });
-        return;
-      }
-      // status.missing is sorted: 'stt' before 'llm'. First missing slot
-      // is where the picker starts. If we're re-prompting because a
-      // previously-set path is now missing, surface that as initialError.
-      const initialStep = status.missing[0];
-      if (!initialStep) {
-        // Unreachable: needs-setup always has ≥1 missing slot. Guard for
-        // noUncheckedIndexedAccess strictness; if somehow reached, fall
-        // through to Recording (kind === 'ready' would have hit earlier).
-        setView({ kind: 'recording', segments: [] });
-        return;
-      }
-      const initialError =
-        initialStep === 'stt' ? 'MODEL_FILE_MISSING_STT' : 'MODEL_FILE_MISSING_LLM';
-      // First-run case: missing.length === 2; treat as no error (clean state).
-      const error = status.missing.length === 2 ? undefined : initialError;
-      setView({ kind: 'setup', initialStep, initialError: error });
-    });
+    window.lisna
+      .getModelStatus()
+      .then((status) => {
+        if (status.kind === 'ready') {
+          setView({ kind: 'recording', segments: [] });
+          return;
+        }
+        // status.missing is sorted: 'stt' before 'llm'. First missing slot
+        // is where the picker starts. If we're re-prompting because a
+        // previously-set path is now missing, surface that as initialError.
+        const initialStep = status.missing[0];
+        if (!initialStep) {
+          // Unreachable: needs-setup always has ≥1 missing slot. Guard for
+          // noUncheckedIndexedAccess strictness. Log a breadcrumb so a
+          // handler bug surfaces in CloudWatch / DevTools instead of
+          // silently manifesting as a Recording-side failure.
+          console.error('[App] needs-setup with missing.length=0 — model-resolver bug?');
+          setView({ kind: 'recording', segments: [] });
+          return;
+        }
+        const initialError =
+          initialStep === 'stt' ? 'MODEL_FILE_MISSING_STT' : 'MODEL_FILE_MISSING_LLM';
+        // First-run case: missing.length === 2; treat as no error (clean state).
+        const error = status.missing.length === 2 ? undefined : initialError;
+        setView({ kind: 'setup', initialStep, initialError: error });
+      })
+      .catch((err) => {
+        // The main-side getModelStatus handler returns cached state — no
+        // failure path of its own. But IPC infrastructure CAN reject (main
+        // crash mid-boot, contextBridge serialization failure, etc.). Silent
+        // hang on the blank 'booting' screen is the worst-UX failure mode
+        // for first-launch; surface to a permanent error view so the user
+        // sees "Lisna を再起動してください" instead of a white window.
+        console.error('[App] getModelStatus rejected during boot', err);
+        setView({
+          kind: 'error',
+          message: 'MODELS_NOT_CONFIGURED',
+          segments: [],
+          permanent: true,
+        });
+      });
   }, []);
 
   return (
