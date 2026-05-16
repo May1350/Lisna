@@ -105,19 +105,23 @@ export interface LiveTranscriptItem {
 // fields landed in backend without making it here, forcing
 // `as` casts in OutlineView.tsx).
 // =============================================================
+export type Provenance = 'transcript' | 'inferred'
 export interface OutlineKeyTerm {
   term: string
   definition: string
   ts: number
+  from: Provenance
 }
 export interface OutlineExample {
   text: string
   ts: number
+  from: Provenance
 }
 export interface OutlinePoint {
   text: string
   ts: number
   important: boolean
+  from: Provenance
 }
 export interface OutlineSection {
   heading: string

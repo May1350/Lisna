@@ -754,13 +754,13 @@ function SectionBlock({
           {section.key_terms.map((kt, i) => (
             <li
               key={`${kt.term}-${i}`}
-              className="bg-paper-200 border border-paper-edge rounded-md-design px-2 py-1.5 text-xs"
+              className={`bg-paper-200 border border-paper-edge rounded-md-design px-2 py-1.5 text-xs kt-item ${kt.from === 'inferred' ? 'inferred' : ''}`}
             >
               <div className="flex items-baseline justify-between gap-2">
-                <span className="font-semibold text-ink-900">{kt.term}</span>
-                <TsButton ts={kt.ts} onJump={onJump} />
+                <span className="kt-term font-semibold text-ink-900">{kt.term}</span>
+                <TsButton ts={kt.ts} onJump={onJump} inferred={kt.from === 'inferred'} />
               </div>
-              <div className="text-ink-700 mt-0.5 leading-relaxed">
+              <div className="kt-def text-ink-700 mt-0.5 leading-relaxed">
                 {kt.definition}
               </div>
             </li>
@@ -780,30 +780,34 @@ function SectionBlock({
           {section.points.filter(p => compact ? p.important : true).map((p, i) => (
             <li
               key={`${p.text.slice(0, 24)}-${i}`}
-              className="text-xs leading-relaxed flex gap-2 items-baseline"
+              className={`point text-xs leading-relaxed flex gap-2 items-baseline ${p.from === 'inferred' ? 'inferred' : ''}`}
             >
-              <span
-                aria-hidden
-                className={p.important ? 'shrink-0 self-center' : 'text-ink-200 shrink-0'}
-                style={p.important ? {
-                  width: '6px',
-                  height: '6px',
-                  borderRadius: '9999px',
-                  background: 'var(--terra)',
-                  boxShadow: '0 0 0 2px var(--terra-tint)',
-                  marginTop: '2px',
-                } : undefined}
-              >
-                {!p.important && '•'}
-              </span>
+              {p.from === 'inferred' ? (
+                <span className="bullet-mark" aria-hidden>※</span>
+              ) : (
+                <span
+                  aria-hidden
+                  className={p.important ? 'shrink-0 self-center' : 'text-ink-200 shrink-0'}
+                  style={p.important ? {
+                    width: '6px',
+                    height: '6px',
+                    borderRadius: '9999px',
+                    background: 'var(--terra)',
+                    boxShadow: '0 0 0 2px var(--terra-tint)',
+                    marginTop: '2px',
+                  } : undefined}
+                >
+                  {!p.important && '•'}
+                </span>
+              )}
               {p.important ? (
-                <span className="text-ink-900 font-medium flex-1">
+                <span className="text-imp text-ink-900 font-medium flex-1">
                   <span className="lisna-hl">{p.text}</span>
                 </span>
               ) : (
-                <span className="text-ink-700 flex-1">{p.text}</span>
+                <span className="text-reg text-ink-700 flex-1">{p.text}</span>
               )}
-              <TsButton ts={p.ts} onJump={onJump} />
+              <TsButton ts={p.ts} onJump={onJump} inferred={p.from === 'inferred'} />
             </li>
           ))}
         </ul>
@@ -816,10 +820,10 @@ function SectionBlock({
           </div>
           <ul className="space-y-1">
             {section.examples.map((ex, i) => (
-              <li key={`${ex.text.slice(0, 24)}-${i}`} className="text-xs text-ink-700 leading-relaxed flex gap-2">
+              <li key={`${ex.text.slice(0, 24)}-${i}`} className={`example text-xs text-ink-700 leading-relaxed flex gap-2 ${ex.from === 'inferred' ? 'inferred' : ''}`}>
                 <span className="text-ink-300 shrink-0">→</span>
                 <span className="flex-1">{ex.text}</span>
-                <TsButton ts={ex.ts} onJump={onJump} />
+                <TsButton ts={ex.ts} onJump={onJump} inferred={ex.from === 'inferred'} />
               </li>
             ))}
           </ul>
@@ -862,8 +866,16 @@ function SectionBlock({
   )
 }
 
-function TsButton({ ts, onJump }: { ts: number; onJump?: (ts: number) => void }) {
+function TsButton({ ts, onJump, inferred }: { ts: number; onJump?: (ts: number) => void; inferred?: boolean }) {
   const T = useT()
+  // inferred 항목: 회색 dash (타임스탬프 없음).
+  // Scope by provenance, NOT by ts===0 — a section legitimately
+  // starting at video time 0 (first section of a lecture) is a
+  // valid clickable jump target. Using ts===0 as a proxy would
+  // suppress that affordance.
+  if (inferred) {
+    return <span className="text-[10px] text-ink-300 font-mono tabular-nums shrink-0">—</span>
+  }
   if (!onJump) {
     return <span className="text-[10px] text-ink-300 font-mono tabular-nums shrink-0">{fmtTs(ts)}</span>
   }
