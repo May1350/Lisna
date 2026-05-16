@@ -211,8 +211,17 @@ async function main(): Promise<void> {
   console.log(`Fixtures: ${fixtures.map(f => f.slug).join(', ')}`)
 
   const results: FixtureResult[] = []
-  for (const f of fixtures) {
+  // Groq's free-tier sliding TPM window on llama-3.3-70b is tight enough
+  // that back-to-back fixture judges can fail with 429 even with curator
+  // time in between. Cool down between fixtures so the window refills.
+  const COOLDOWN_MS = 75_000
+  for (let idx = 0; idx < fixtures.length; idx++) {
+    const f = fixtures[idx]
     results.push(await evalFixture(f.slug, f.path, opts.rolling))
+    if (idx < fixtures.length - 1) {
+      console.log(`    [cooldown] waiting ${COOLDOWN_MS / 1000}s for Groq TPM refill...`)
+      await new Promise(r => setTimeout(r, COOLDOWN_MS))
+    }
   }
 
   let comparison: Record<string, JudgeResult> | undefined
