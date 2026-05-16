@@ -281,6 +281,75 @@ function sectionBlock(
     out.push('')
   }
 
+  // procedure_steps
+  if (s.procedure_steps && s.procedure_steps.length > 0) {
+    out.push(`#### ${h.steps_label}`)
+    out.push('')
+    s.procedure_steps.forEach((st, i) => {
+      const order = st.order ?? i + 1
+      if (st.from === 'inferred') {
+        out.push(`> [!note] ${h.inferred_callout}`)
+        out.push(`> ${order}. ※ ${st.text}`)
+        out.push('')
+      } else {
+        out.push(`${order}. ${st.text} [▶ ${formatMMSS(st.ts)}](${ctx.sourceUrl}${ctx.sourceUrl.includes('?') ? '&' : '?'}t=${Math.floor(st.ts)}s&__sh_seek=${Math.floor(st.ts)})`)
+      }
+    })
+    out.push('')
+  }
+
+  // formula
+  if (s.formula && s.formula.length > 0) {
+    out.push(`#### ${h.formula_label}`)
+    out.push('')
+    for (const f of s.formula) {
+      if (f.from === 'inferred') {
+        out.push(`> [!note] ${h.inferred_callout} — ※ ${f.label ?? ''}`)
+        out.push('> ```math')
+        out.push(`> ${f.expression}`)
+        out.push('> ```')
+        out.push('')
+      } else {
+        if (f.label) out.push(`**${f.label}**`)
+        out.push('```math')
+        out.push(f.expression)
+        out.push('```')
+        out.push('')
+      }
+    }
+  }
+
+  // argument_chain
+  if (s.argument_chain && s.argument_chain.length > 0) {
+    out.push(`#### ${h.argument_label}`)
+    out.push('')
+    for (const l of s.argument_chain) {
+      if (l.from === 'inferred') {
+        out.push(`> [!note] ${h.inferred_callout}`)
+        out.push(`> → ※ ${l.text}`)
+        out.push('')
+      } else {
+        out.push(`- → ${l.text} [▶ ${formatMMSS(l.ts)}](${ctx.sourceUrl}${ctx.sourceUrl.includes('?') ? '&' : '?'}t=${Math.floor(l.ts)}s&__sh_seek=${Math.floor(l.ts)})`)
+      }
+    }
+    out.push('')
+  }
+
+  // timeline — 2nd column header: no `event_label` in HeadingSet, so
+  // hardcode per-locale: ja=イベント, en=Event, ko=이벤트, zh=事件
+  if (s.timeline && s.timeline.length > 0) {
+    const eventLabel = { ja: 'イベント', en: 'Event', ko: '이벤트', zh: '事件' }[ctx.lang ?? 'ja']
+    out.push(`#### ${h.timeline_label}`)
+    out.push('')
+    out.push(`| ${h.timeline_label} | ${eventLabel} |`)
+    out.push('|---|---|')
+    for (const ev of s.timeline) {
+      const marker = ev.from === 'inferred' ? '※ ' : ''
+      out.push(`| ${marker}${ev.when} | ${ev.event} |`)
+    }
+    out.push('')
+  }
+
   // No `---` between sections — the H2 with its CSS underline is
   // already a strong visual divider, and the explicit horizontal
   // rules added another ~1em of whitespace per section that wasn't

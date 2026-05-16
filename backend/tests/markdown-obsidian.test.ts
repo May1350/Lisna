@@ -297,4 +297,175 @@ describe('outlineToObsidianMarkdown', () => {
     // No raw broken-link characters in the wikilink
     expect(md).not.toContain('[[A^B#C]]')
   })
+
+  // ──────────────────────────────────────────────────────────────────
+  // New slot serialization (Task 23): procedure_steps / formula /
+  // argument_chain / timeline — transcript + inferred variants each
+  // ──────────────────────────────────────────────────────────────────
+
+  it('procedure_steps (transcript) renders as ordered list with deep link', () => {
+    const o: Outline = {
+      title: 'T',
+      sections: [{
+        heading: 'H', ts: 0, summary: '',
+        key_terms: [], examples: [], points: [],
+        procedure_steps: [
+          { text: '借方科目を確認する', order: 1, ts: 120, from: 'transcript' as const },
+          { text: '貸方科目を確認する', order: 2, ts: 180, from: 'transcript' as const },
+        ],
+      }],
+    }
+    const md = outlineToObsidianMarkdown(o, { ...ctx, lang: 'ja' })
+    expect(md).toContain('#### 手順')
+    expect(md).toContain('1. 借方科目を確認する')
+    expect(md).toContain('2. 貸方科目を確認する')
+    // deep link present for transcript items
+    expect(md).toContain('[▶ 02:00]')
+    expect(md).toContain('[▶ 03:00]')
+    // inferred callout must NOT appear
+    expect(md).not.toContain('> [!note] 補足')
+  })
+
+  it('procedure_steps (inferred) renders as > [!note] callout with ※', () => {
+    const o: Outline = {
+      title: 'T',
+      sections: [{
+        heading: 'H', ts: 0, summary: '',
+        key_terms: [], examples: [], points: [],
+        procedure_steps: [
+          { text: '検算を行う', order: 3, ts: 0, from: 'inferred' as const },
+        ],
+      }],
+    }
+    const md = outlineToObsidianMarkdown(o, { ...ctx, lang: 'ja' })
+    expect(md).toContain('#### 手順')
+    expect(md).toContain('> [!note] 補足')
+    expect(md).toContain('> 3. ※ 検算を行う')
+    // transcript path must NOT appear (no deep-link arrow)
+    expect(md).not.toContain('3. 検算を行う [▶')
+  })
+
+  it('formula (transcript) renders as labeled ```math block', () => {
+    const o: Outline = {
+      title: 'T',
+      sections: [{
+        heading: 'H', ts: 0, summary: '',
+        key_terms: [], examples: [], points: [],
+        formula: [
+          { label: '基本等式', expression: '資産 = 負債 + 純資産', ts: 60, from: 'transcript' as const },
+        ],
+      }],
+    }
+    const md = outlineToObsidianMarkdown(o, { ...ctx, lang: 'ja' })
+    expect(md).toContain('#### 公式')
+    expect(md).toContain('**基本等式**')
+    expect(md).toContain('```math')
+    expect(md).toContain('資産 = 負債 + 純資産')
+    // inferred callout must NOT appear
+    expect(md).not.toContain('> [!note] 補足')
+  })
+
+  it('formula (inferred) renders as > [!note] callout with math block', () => {
+    const o: Outline = {
+      title: 'T',
+      sections: [{
+        heading: 'H', ts: 0, summary: '',
+        key_terms: [], examples: [], points: [],
+        formula: [
+          { label: 'Pythagoras', expression: 'a² + b² = c²', ts: 0, from: 'inferred' as const },
+        ],
+      }],
+    }
+    const md = outlineToObsidianMarkdown(o, { ...ctx, lang: 'en' })
+    expect(md).toContain('#### Formula')
+    expect(md).toContain('> [!note] Note — ※ Pythagoras')
+    expect(md).toContain('> ```math')
+    expect(md).toContain('> a² + b² = c²')
+    // transcript path (unlabeled **label** + plain ```math) must NOT appear
+    expect(md).not.toContain('**Pythagoras**')
+  })
+
+  it('argument_chain (transcript) renders as bulleted → list with deep link', () => {
+    const o: Outline = {
+      title: 'T',
+      sections: [{
+        heading: 'H', ts: 0, summary: '',
+        key_terms: [], examples: [], points: [],
+        argument_chain: [
+          { text: '前提: 気候変動は人類の脅威である', ts: 300, from: 'transcript' as const },
+          { text: '結論: 早急な政策転換が必要だ', ts: 360, from: 'transcript' as const },
+        ],
+      }],
+    }
+    const md = outlineToObsidianMarkdown(o, { ...ctx, lang: 'ja' })
+    expect(md).toContain('#### 論証')
+    expect(md).toContain('- → 前提: 気候変動は人類の脅威である')
+    expect(md).toContain('- → 結論: 早急な政策転換が必要だ')
+    // deep links for transcript items
+    expect(md).toContain('[▶ 05:00]')
+    expect(md).toContain('[▶ 06:00]')
+    // inferred callout must NOT appear
+    expect(md).not.toContain('> [!note] 補足')
+  })
+
+  it('argument_chain (inferred) renders as > [!note] callout with → ※', () => {
+    const o: Outline = {
+      title: 'T',
+      sections: [{
+        heading: 'H', ts: 0, summary: '',
+        key_terms: [], examples: [], points: [],
+        argument_chain: [
+          { text: '中間推論: コスト削減が競争力を高める', ts: 0, from: 'inferred' as const },
+        ],
+      }],
+    }
+    const md = outlineToObsidianMarkdown(o, { ...ctx, lang: 'ja' })
+    expect(md).toContain('#### 論証')
+    expect(md).toContain('> [!note] 補足')
+    expect(md).toContain('> → ※ 中間推論: コスト削減が競争力を高める')
+    // transcript path must NOT appear
+    expect(md).not.toContain('- → 中間推論')
+  })
+
+  it('timeline (transcript) renders as markdown table with locale-specific event header', () => {
+    const o: Outline = {
+      title: 'T',
+      sections: [{
+        heading: 'H', ts: 0, summary: '',
+        key_terms: [], examples: [], points: [],
+        timeline: [
+          { when: '1868年', event: '明治維新', ts: 10, from: 'transcript' as const },
+          { when: '1945年', event: '第二次世界大戦終結', ts: 20, from: 'transcript' as const },
+        ],
+      }],
+    }
+    const md = outlineToObsidianMarkdown(o, { ...ctx, lang: 'ja' })
+    expect(md).toContain('#### 時系列')
+    // table header includes locale event label (ja = イベント)
+    expect(md).toContain('| 時系列 | イベント |')
+    expect(md).toContain('|---|---|')
+    expect(md).toContain('| 1868年 | 明治維新 |')
+    expect(md).toContain('| 1945年 | 第二次世界大戦終結 |')
+    // no ※ marker for transcript items
+    expect(md).not.toContain('| ※')
+  })
+
+  it('timeline (inferred) renders row with ※ prefix in when column', () => {
+    const o: Outline = {
+      title: 'T',
+      sections: [{
+        heading: 'H', ts: 0, summary: '',
+        key_terms: [], examples: [], points: [],
+        timeline: [
+          { when: 'Q3 2024', event: 'Revenue peak inferred from trend', ts: 0, from: 'inferred' as const },
+        ],
+      }],
+    }
+    const md = outlineToObsidianMarkdown(o, { ...ctx, lang: 'en' })
+    expect(md).toContain('#### Timeline')
+    // table header locale = en → Event
+    expect(md).toContain('| Timeline | Event |')
+    // inferred row has ※ prefix in when column
+    expect(md).toContain('| ※ Q3 2024 | Revenue peak inferred from trend |')
+  })
 })
