@@ -192,3 +192,10 @@ html, body {
   color: var(--terra-700, #9A330A);
   font-weight: 500;
 }
+
+/* formula-item.inferred — formula slot inferred items: dashed terra-soft border
+   (mirrors .kt-item.inferred border pattern; both are bordered cards). */
+.formula-item.inferred {
+  border-style: dashed;
+  border-color: var(--terra-soft, #FED7AA);
+}

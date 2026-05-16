@@ -135,6 +135,12 @@ export interface OutlineChainLink {
   ts: number
   from: Provenance
 }
+export interface OutlineFormula {
+  label?: string          // "基本等式" / "Pythagoras"
+  expression: string      // "資産 = 負債 + 純資産" / "a² + b² = c²"
+  ts: number
+  from: Provenance
+}
 export interface OutlineSection {
   heading: string
   ts: number
@@ -150,6 +156,7 @@ export interface OutlineSection {
   // Typed slots (curator provenance plan) — all optional.
   procedure_steps?: OutlineStep[]
   argument_chain?: OutlineChainLink[]
+  formula?: OutlineFormula[]
 }
 export interface Outline {
   title: string
