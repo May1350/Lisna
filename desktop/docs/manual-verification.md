@@ -182,7 +182,7 @@ If either is missing, see the Discord channel for the alpha distribution links.
 
 1. Quit Electron if running. Remove any prior models.json:
    ```bash
-   rm -f ~/Library/Application\ Support/Electron/models.json
+   rm -f ~/Library/Application\ Support/@lisna/desktop/models.json
    ```
 2. `pnpm dev` — expect brief "booting" (empty UI), then SetupView Step 1 visible.
 3. Click "ファイルを選択" → pick `~/.lisna-test-models/ggml-kotoba-whisper-v2.0-q5_0.bin`.
@@ -261,7 +261,7 @@ If either is missing, see the Discord channel for the alpha distribution links.
     export LISNA_DEV_STT_MODEL=~/.lisna-test-models/ggml-kotoba-whisper-v2.0-q5_0.bin
     export LISNA_DEV_LLM_MODEL=~/.lisna-test-models/Llama-3.2-3B-Instruct-Q4_K_M.gguf
     ```
-23. Remove models.json: `rm -f ~/Library/Application\ Support/Electron/models.json`
+23. Remove models.json: `rm -f ~/Library/Application\ Support/@lisna/desktop/models.json`
 24. `pnpm dev` — expect Recording view directly (env vars resolved to ready,
     no SetupView shown).
 25. Quit. **Unset env vars**: `unset LISNA_DEV_STT_MODEL LISNA_DEV_LLM_MODEL`
