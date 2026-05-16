@@ -22,8 +22,8 @@
 | `desktop/src/renderer/i18n/setup-strings.ts` | Create | 1 |
 | `desktop/src/main/model-resolver.ts` | Create + append across tasks | 2, 3, 4, 5 |
 | `desktop/src/main/__tests__/model-resolver.test.ts` | Create + append `describe` blocks | 2, 3, 4 |
-| `desktop/src/main/ipc.ts` | Modify (extend CHANNELS only) | 5 |
-| `desktop/src/preload/index.ts` | Modify (add bridge methods + declare global) | 6 |
+| `desktop/src/main/ipc.ts` | Modify (extend CHANNELS, add shell/open-external handler) | 5, 8 |
+| `desktop/src/preload/index.ts` | Modify (add bridge methods + declare global; add openExternal) | 6, 8 |
 | `desktop/src/main/index.ts` | Modify (boot order — resolveModels → register-before-createWindow) | 7 |
 | `desktop/src/renderer/components/ModelPickerStep.tsx` | Create | 8 |
 | `desktop/src/renderer/routes/SetupView.tsx` | Create | 9 |
@@ -280,6 +280,19 @@ describe('validateModelFile', () => {
     const p = await writeFixture('whisper.bin', [0x6c, 0x6d, 0x67, 0x67, 0x00, 0x00]);
     expect(await validateModelFile(p, 'llm')).toEqual({ ok: false, reason: 'wrong-format' });
   });
+
+  // Spec §10.1 row 6 — EACCES (permission denied). Skip on root since chmod
+  // 0o000 has no effect for root and the test would falsely pass.
+  it('STT slot rejects permission-denied file with unreadable (EACCES)', async () => {
+    if (process.getuid?.() === 0) return;  // root — skip
+    const p = await writeFixture('locked.bin', [0x6c, 0x6d, 0x67, 0x67]);
+    await fs.chmod(p, 0o000);
+    try {
+      expect(await validateModelFile(p, 'stt')).toEqual({ ok: false, reason: 'unreadable' });
+    } finally {
+      await fs.chmod(p, 0o600);  // restore so afterEach rm can clean up
+    }
+  });
 });
 
 describe('serializeWrite', () => {
@@ -311,7 +324,7 @@ describe('serializeWrite', () => {
 ```bash
 pnpm vitest run src/main/__tests__/model-resolver.test.ts
 ```
-Expected: All tests fail with "Cannot find module '../model-resolver'" or similar.
+Expected: All tests fail with "Cannot find module '../model-resolver'" or similar. (10 tests fail: 7 validate + 1 EACCES + 2 serializeWrite.)
 
 - [ ] **Step 3: Create `desktop/src/main/model-resolver.ts` (validation + serializeWrite only)**
 
@@ -380,7 +393,7 @@ export function serializeWrite<T>(fn: () => Promise<T>): Promise<T> {
 ```bash
 pnpm vitest run src/main/__tests__/model-resolver.test.ts
 ```
-Expected: 9 tests pass (7 validate + 2 serializeWrite).
+Expected: 10 tests pass (7 validate + 1 EACCES + 2 serializeWrite). EACCES test self-skips if running as root.
 
 - [ ] **Step 5: Run typecheck**
 
@@ -500,6 +513,38 @@ describe('saveModelsJson', () => {
       saveModelsJson(tmpDir, { version: 1, sttPath: '/a', llmPath: '/b' }),
     ).resolves.toBeUndefined();
   });
+
+  // Spec §10.1 row 18 — fsync rejection: file fsync throws → tmp persists,
+  // no rename, error propagates to caller.
+  it('propagates fsync rejection and leaves no models.json (tmp may persist)', async () => {
+    const vitest = await import('vitest');
+    const fsModule = await import('node:fs/promises');
+    const realOpen = fsModule.open;
+    const spy = vitest.vi.spyOn(fsModule, 'open').mockImplementation(async (...args: Parameters<typeof realOpen>) => {
+      const handle = await realOpen(...args);
+      // Rig fileFd.sync to reject the first time it's called. Subsequent
+      // opens (e.g. directory open later) operate normally.
+      const originalSync = handle.sync.bind(handle);
+      let called = false;
+      handle.sync = async () => {
+        if (!called) {
+          called = true;
+          throw new Error('mock fsync failure');
+        }
+        return originalSync();
+      };
+      return handle;
+    });
+    try {
+      await expect(
+        saveModelsJson(tmpDir, { version: 1, sttPath: '/a', llmPath: '/b' }),
+      ).rejects.toThrow('mock fsync failure');
+      // models.json should NOT exist (rename never ran)
+      await expect(fs.stat(path.join(tmpDir, 'models.json'))).rejects.toThrow();
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });
 ```
 
@@ -508,7 +553,7 @@ describe('saveModelsJson', () => {
 ```bash
 pnpm vitest run src/main/__tests__/model-resolver.test.ts
 ```
-Expected: 10 new tests fail; original 9 still pass.
+Expected: 11 new tests fail; original 10 still pass.
 
 - [ ] **Step 3: Append persistence functions to `desktop/src/main/model-resolver.ts`**
 
@@ -597,7 +642,7 @@ export function saveModelsJson(dir: string, content: ModelsJson): Promise<void> 
 ```bash
 pnpm vitest run src/main/__tests__/model-resolver.test.ts
 ```
-Expected: 19 tests pass total (9 from Task 2 + 10 new).
+Expected: 21 tests pass total (10 from Task 2 + 11 new).
 
 - [ ] **Step 5: Run typecheck**
 
@@ -913,7 +958,7 @@ export function registerModelIpc(deps: ModelIpcDeps): void {
     // 2. Magic-byte validation.
     const validation = await validateModelFile(pickedPath, slot);
     if (!validation.ok) {
-      const code: PickResult extends { ok: false; code: infer C } ? C : never =
+      const code: 'MODEL_READ_FAILED' | 'INVALID_MAGIC_BYTES_STT' | 'INVALID_MAGIC_BYTES_LLM' =
         validation.reason === 'unreadable'
           ? 'MODEL_READ_FAILED'
           : (slot === 'stt' ? 'INVALID_MAGIC_BYTES_STT' : 'INVALID_MAGIC_BYTES_LLM');
@@ -925,6 +970,10 @@ export function registerModelIpc(deps: ModelIpcDeps): void {
     const nextLlmPath = slot === 'llm' ? pickedPath : (current.kind === 'ready' ? current.llmPath : findStored(current, 'llm'));
 
     // 4. Await the atomic disk write (serialized in-module).
+    //    Empty-string for the not-yet-picked slot is a deliberate sentinel:
+    //    loadModelsJson + resolveModels treat '' as a non-existent file path
+    //    (fs.access rejects), so the next boot correctly reports needs-setup
+    //    for that slot. Schema typed as string keeps JSON parsing simple.
     await saveModelsJson(deps.userDataDir, {
       version: 1,
       sttPath: nextSttPath ?? '',
@@ -963,11 +1012,7 @@ function findStored(status: ModelStatus, slot: ModelSlot): string | undefined {
 ```bash
 pnpm typecheck
 ```
-Expected: 0 errors. If TS complains about the `code` type inference in step 2, simplify to:
-```typescript
-const code: PickResult['ok'] extends false ? string : never = ...
-```
-or use a plain union type literal.
+Expected: 0 errors. The `code` annotation in Step 2 is already a plain string-union literal — no conditional-type gymnastics needed.
 
 - [ ] **Step 4: Run all existing tests (model-resolver tests should still pass; ipc.ts is unchanged in behavior)**
 
@@ -1207,19 +1252,72 @@ EOF
 
 ---
 
-## Task 8: `ModelPickerStep` component
+## Task 8: ModelPickerStep + openExternal bridge
 
-**Spec refs:** §6.1 (state machine), §6.2 (strings), §6.3 (visual sketch)
+**Spec refs:** §6.1 (state machine), §6.2 (strings), §6.3 (visual sketch); plan-reviewer M2 (bridge defined BEFORE component to keep every intermediate state compiling)
 
 **Files:**
+- Modify: `desktop/src/main/ipc.ts` (CHANNELS.shellOpenExternal + handler + `shell` import)
+- Modify: `desktop/src/preload/index.ts` (openExternal method + declare global)
 - Create: `desktop/src/renderer/components/ModelPickerStep.tsx`
 
-- [ ] **Step 1: Create the component**
+**Why bridge-before-component:** `shell.openExternal` is Electron-main API. In a renderer with `contextIsolation: true` + `sandbox: false` (see `main/index.ts:30`), the renderer cannot `import { shell } from 'electron'` directly — it throws at runtime. So we add the safe bridge through preload first, then have the component call `window.lisna.openExternal`. Each step ends with a compilable workspace.
+
+- [ ] **Step 1: Extend `ipc.ts` — `shell` import + CHANNELS.shellOpenExternal + handler**
+
+Update the `import` at top of `desktop/src/main/ipc.ts`:
+```typescript
+import { app, ipcMain, shell, type BrowserWindow } from 'electron';
+```
+
+Inside the existing `CHANNELS` object, add:
+```typescript
+  /** renderer → main: launch external URL via shell.openExternal.
+   *  Guarded https:// allow-list; rejects all other schemes. */
+  shellOpenExternal: 'shell/open-external',
+```
+
+Inside `registerIpc(deps)`, after the existing `ipcMain.handle(CHANNELS.lifecycleRestart, ...)` block, add:
+```typescript
+  ipcMain.handle(CHANNELS.shellOpenExternal, async (_e, payload: { url: string }) => {
+    // Defense-in-depth: caller already gates Discord URL via
+    // isDiscordUrlConfigured(), but the bridge is a public surface — only
+    // https:// links are honored. Anything else is logged and dropped.
+    if (!/^https:\/\//.test(payload.url)) {
+      log.warn('[shell] rejected non-https openExternal', payload.url);
+      return;
+    }
+    await shell.openExternal(payload.url);
+  });
+```
+
+- [ ] **Step 2: Extend preload bridge — `openExternal` method**
+
+In `desktop/src/preload/index.ts`, inside `contextBridge.exposeInMainWorld('lisna', { ... })`, add:
+```typescript
+  openExternal: (url: string): Promise<void> =>
+    ipcRenderer.invoke(CHANNELS.shellOpenExternal, { url }),
+```
+
+Inside the `declare global { interface Window { lisna: { ... } } }` block, add:
+```typescript
+      openExternal(url: string): Promise<void>;
+```
+
+- [ ] **Step 3: Run typecheck — bridge in place, component not yet created**
+
+```bash
+pnpm typecheck
+```
+Expected: 0 errors. The bridge changes are self-contained and compile independently.
+
+- [ ] **Step 4: Create `desktop/src/renderer/components/ModelPickerStep.tsx`**
+
+(Note: no `import { shell } from 'electron'` — uses `window.lisna.openExternal`. No `: JSX.Element` return annotation — matches existing `Recording.tsx` / `ErrorView.tsx` style.)
 
 ```typescript
 import { useState } from 'react';
-import { shell } from 'electron';
-import type { ModelSlot, PickResult } from '@shared/ipc-protocol';
+import type { ModelSlot, ModelStatus } from '@shared/ipc-protocol';
 import { toFriendlyJa } from '../i18n/error-message-map';
 import {
   SETUP_STRINGS_JA,
@@ -1230,8 +1328,11 @@ import {
 interface Props {
   slot: ModelSlot;
   stepIndicator: { current: 1 | 2; total: 2 };
-  initialError?: string;  // re-launch case — preset error code for the missing slot
-  onSuccess: (status: PickResult extends { ok: true; status: infer S } ? S : never) => void;
+  /** Re-launch case: preset error code for the missing slot. */
+  initialError?: string;
+  /** Called after a PASS — status is the authoritative ModelStatus returned
+   *  by the main process (spec Decision #13). */
+  onSuccess: (status: ModelStatus) => void;
 }
 
 /**
@@ -1243,11 +1344,10 @@ interface Props {
  *   - Discord を開く button (only when isDiscordUrlConfigured())
  *   - red inline error strip when error state set
  *
- * On pick PASS, calls onSuccess with the authoritative status returned by
- * the main process (spec Decision #13). On FAIL, stores the error code
- * locally and renders the JA copy via toFriendlyJa.
+ * On pick FAIL, stores the error code locally and renders the JA copy via
+ * toFriendlyJa (re-uses the same i18n map as ErrorView).
  */
-export function ModelPickerStep({ slot, stepIndicator, initialError, onSuccess }: Props): JSX.Element {
+export function ModelPickerStep({ slot, stepIndicator, initialError, onSuccess }: Props) {
   const [error, setError] = useState<string | null>(initialError ?? null);
   const [busy, setBusy] = useState(false);
 
@@ -1269,7 +1369,7 @@ export function ModelPickerStep({ slot, stepIndicator, initialError, onSuccess }
   }
 
   function handleDiscord(): void {
-    void shell.openExternal(DISCORD_CHANNEL_URL);
+    void window.lisna.openExternal(DISCORD_CHANNEL_URL);
   }
 
   return (
@@ -1319,76 +1419,35 @@ export function ModelPickerStep({ slot, stepIndicator, initialError, onSuccess }
 }
 ```
 
-- [ ] **Step 2: Note about `shell` import**
-
-`shell.openExternal` is normally Electron-main API. In the renderer with `contextIsolation: true`, the renderer cannot import `electron` directly — the line `import { shell } from 'electron'` will throw at runtime.
-
-Fix: route through the preload bridge. Add to `desktop/src/preload/index.ts` (inside `contextBridge.exposeInMainWorld('lisna', {...})`):
-```typescript
-  openExternal: (url: string): Promise<void> =>
-    ipcRenderer.invoke('shell/open-external', { url }),
-```
-And to the `declare global` block:
-```typescript
-      openExternal(url: string): Promise<void>;
-```
-
-Then in `desktop/src/main/ipc.ts`, extend `CHANNELS`:
-```typescript
-  shellOpenExternal: 'shell/open-external',
-```
-And inside `registerIpc(deps)`, after the existing handlers, add:
-```typescript
-  ipcMain.handle(CHANNELS.shellOpenExternal, async (_e, { url }: { url: string }) => {
-    // Guard placeholder URLs from being launched (defense-in-depth — caller
-    // already gates via isDiscordUrlConfigured but the bridge is a public
-    // surface). Only allow https:// links.
-    if (!/^https:\/\//.test(url)) {
-      log.warn('[shell] rejected non-https openExternal', url);
-      return;
-    }
-    await shell.openExternal(url);
-  });
-```
-Add `shell` to the electron import at top of `ipc.ts`:
-```typescript
-import { app, ipcMain, shell, type BrowserWindow } from 'electron';
-```
-
-In `ModelPickerStep.tsx`, replace `import { shell } from 'electron'` with no import (use `window.lisna.openExternal`), and replace the `handleDiscord` body:
-```typescript
-function handleDiscord(): void {
-  void window.lisna.openExternal(DISCORD_CHANNEL_URL);
-}
-```
-
-- [ ] **Step 3: Run typecheck**
+- [ ] **Step 5: Run typecheck**
 
 ```bash
 pnpm typecheck
 ```
 Expected: 0 errors.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 6: Commit (all 3 files together — bridge + component land as one logical unit)**
 
 ```bash
-git add desktop/src/renderer/components/ModelPickerStep.tsx \
+git add desktop/src/main/ipc.ts \
         desktop/src/preload/index.ts \
-        desktop/src/main/ipc.ts
+        desktop/src/renderer/components/ModelPickerStep.tsx
 git commit -m "$(cat <<'EOF'
-feat(desktop): §5.1 ModelPickerStep component + shell.openExternal bridge
+feat(desktop): §5.1 ModelPickerStep + shell/open-external bridge
 
-- ModelPickerStep: single-slot picker step (reused for STT, LLM). Renders
+- ipc.ts: CHANNELS.shellOpenExternal + handler with https:// allow-list
+  (defense-in-depth against future bad caller URLs).
+- preload/index.ts: window.lisna.openExternal renderer-safe wrapper.
+- ModelPickerStep: single-slot picker (reused for STT and LLM). Renders
   step indicator, title, Discord hint body, ファイルを選択 + Discord buttons,
   inline JA error strip via toFriendlyJa.
-- Discord button hidden by isDiscordUrlConfigured() runtime guard.
-- shell/open-external IPC: renderer-safe wrapper for shell.openExternal,
-  with https:// allow-list (defense-in-depth against caller-side bugs).
+- Discord button hidden by isDiscordUrlConfigured() runtime guard so a
+  placeholder URL never reaches shell.openExternal.
 
 No new tests in this commit — covered by SetupView component test +
 integration smoke in later tasks.
 
-Spec: §6.1, §6.2, §6.3
+Spec: §6.1, §6.2, §6.3; plan-reviewer M2 (bridge-before-component ordering)
 EOF
 )"
 ```
@@ -1424,7 +1483,7 @@ type SetupState =
   | { kind: 'picker'; step: ModelSlot; error?: string }
   | { kind: 'done' };
 
-export function SetupView({ initialStep, initialError, onReady }: Props): JSX.Element {
+export function SetupView({ initialStep, initialError, onReady }: Props) {
   const [state, setState] = useState<SetupState>({
     kind: 'picker',
     step: initialStep,
@@ -1477,8 +1536,14 @@ export function SetupView({ initialStep, initialError, onReady }: Props): JSX.El
           return;
         }
         // needs-setup — pick the next missing slot. Sort guarantees 'stt'
-        // comes before 'llm' so [0] is the right pick.
+        // comes before 'llm' so [0] is the right pick. The undefined check
+        // satisfies noUncheckedIndexedAccess; logically unreachable since
+        // needs-setup always has ≥1 missing slot (otherwise it'd be ready).
         const nextSlot = status.missing[0];
+        if (!nextSlot) {
+          setState({ kind: 'done' });  // defensive fall-through
+          return;
+        }
         setState({ kind: 'picker', step: nextSlot });
       }}
     />
@@ -1565,6 +1630,13 @@ After the existing three `useEffect` hooks (after the `onSessionError` block, ar
       // is where the picker starts. If we're re-prompting because a
       // previously-set path is now missing, surface that as initialError.
       const initialStep = status.missing[0];
+      if (!initialStep) {
+        // Unreachable: needs-setup always has ≥1 missing slot. Guard for
+        // noUncheckedIndexedAccess strictness; if somehow reached, fall
+        // through to Recording (kind === 'ready' would have hit earlier).
+        setView({ kind: 'recording', segments: [] });
+        return;
+      }
       const initialError =
         initialStep === 'stt' ? 'MODEL_FILE_MISSING_STT' : 'MODEL_FILE_MISSING_LLM';
       // First-run case: missing.length === 2; treat as no error (clean state).
