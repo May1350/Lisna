@@ -231,6 +231,56 @@ describe('outlineToObsidianMarkdown', () => {
     expect(md).not.toMatch(/!\[\]\(/)
   })
 
+  it('inferred key_term is rendered as > [!note] callout', () => {
+    const o: Outline = {
+      title: 'X',
+      sections: [{
+        heading: 'A', ts: 0, summary: '',
+        key_terms: [{ term: '純資産', definition: '資産から負債を差し引いた正味財産', ts: 0, from: 'inferred' as const }],
+        examples: [], points: [],
+      }],
+    }
+    const md = outlineToObsidianMarkdown(o, { ...ctx, lang: 'ja' })
+    expect(md).toContain('> [!note] 補足 — ※ 純資産')
+    expect(md).toContain('> 資産から負債を差し引いた正味財産')
+    // transcript path must NOT appear
+    expect(md).not.toContain('- **純資産**:')
+  })
+
+  it('inferred point is rendered as > [!note] callout', () => {
+    const o: Outline = {
+      title: 'X',
+      sections: [{
+        heading: 'A', ts: 0, summary: '',
+        key_terms: [],
+        examples: [],
+        points: [{ text: '追加の補足ポイント', ts: 0, important: false, from: 'inferred' as const }],
+      }],
+    }
+    const md = outlineToObsidianMarkdown(o, { ...ctx, lang: 'ja' })
+    expect(md).toContain('> [!note] 補足')
+    expect(md).toContain('> ※ 追加の補足ポイント')
+    // transcript path must NOT appear (no deep-link arrow)
+    expect(md).not.toContain('- 追加の補足ポイント')
+  })
+
+  it('inferred example is rendered as > [!note] callout', () => {
+    const o: Outline = {
+      title: 'X',
+      sections: [{
+        heading: 'A', ts: 0, summary: '',
+        key_terms: [],
+        examples: [{ text: 'AI生成の補足用例', ts: 0, from: 'inferred' as const }],
+        points: [],
+      }],
+    }
+    const md = outlineToObsidianMarkdown(o, { ...ctx, lang: 'ja' })
+    expect(md).toContain('> [!note] 補足')
+    expect(md).toContain('> ※ AI生成の補足用例')
+    // transcript path must NOT appear (no "例:" prefix)
+    expect(md).not.toContain('- 例: AI生成の補足用例')
+  })
+
   it('sanitises wikilink targets (no [, ], |, ^, # leaks)', () => {
     const o: Outline = {
       title: 't',

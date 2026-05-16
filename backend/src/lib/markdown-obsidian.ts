@@ -229,7 +229,13 @@ function sectionBlock(
   if (s.key_terms.length > 0) {
     out.push(`**${h.terms_label}**`)
     for (const kt of s.key_terms) {
-      out.push(`- **${kt.term}**: ${kt.definition}`)
+      if (kt.from === 'inferred') {
+        out.push(`> [!note] ${h.inferred_callout} — ※ ${kt.term}`)
+        out.push(`> ${kt.definition}`)
+        out.push('')
+      } else {
+        out.push(`- **${kt.term}**: ${kt.definition}`)
+      }
     }
     out.push('')
   }
@@ -239,14 +245,32 @@ function sectionBlock(
   if (importantPoints.length > 0 || otherPoints.length > 0 || s.examples.length > 0) {
     out.push(`**${h.points_label}**`)
     importantPoints.forEach((p, j) => {
-      const localId = `${blockId}-p${j}`
-      out.push(`- ⭐ **${autoLinkTerms(p.text, terms)}** ${deepLink(ctx.sourceUrl, p.ts)} ^${localId}`)
+      if (p.from === 'inferred') {
+        out.push(`> [!note] ${h.inferred_callout}`)
+        out.push(`> ※ ${p.text}`)
+        out.push('')
+      } else {
+        const localId = `${blockId}-p${j}`
+        out.push(`- ⭐ **${autoLinkTerms(p.text, terms)}** ${deepLink(ctx.sourceUrl, p.ts)} ^${localId}`)
+      }
     })
     for (const p of otherPoints) {
-      out.push(`- ${autoLinkTerms(p.text, terms)} ${deepLink(ctx.sourceUrl, p.ts)}`)
+      if (p.from === 'inferred') {
+        out.push(`> [!note] ${h.inferred_callout}`)
+        out.push(`> ※ ${p.text}`)
+        out.push('')
+      } else {
+        out.push(`- ${autoLinkTerms(p.text, terms)} ${deepLink(ctx.sourceUrl, p.ts)}`)
+      }
     }
     for (const e of s.examples) {
-      out.push(`- ${h.examples_inline_prefix}: ${escapeText(e.text)} ${deepLink(ctx.sourceUrl, e.ts)}`)
+      if (e.from === 'inferred') {
+        out.push(`> [!note] ${h.inferred_callout}`)
+        out.push(`> ※ ${e.text}`)
+        out.push('')
+      } else {
+        out.push(`- ${h.examples_inline_prefix}: ${escapeText(e.text)} ${deepLink(ctx.sourceUrl, e.ts)}`)
+      }
     }
     out.push('')
   }
