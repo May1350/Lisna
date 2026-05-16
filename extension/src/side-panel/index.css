@@ -199,3 +199,9 @@ html, body {
   border-style: dashed;
   border-color: var(--terra-soft, #FED7AA);
 }
+
+/* timeline-item.inferred — timeline slot inferred items: muted ink-500 text.
+   No border (plain grid rows); ※ prefix on the when field is the visual signal. */
+.timeline-item.inferred {
+  color: var(--ink-500, #6E6660);
+}

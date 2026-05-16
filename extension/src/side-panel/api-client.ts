@@ -141,6 +141,12 @@ export interface OutlineFormula {
   ts: number
   from: Provenance
 }
+export interface OutlineTimelineEvent {
+  when: string            // "1453", "Q2 2024", "5世紀末" etc.
+  event: string
+  ts: number
+  from: Provenance
+}
 export interface OutlineSection {
   heading: string
   ts: number
@@ -157,6 +163,7 @@ export interface OutlineSection {
   procedure_steps?: OutlineStep[]
   argument_chain?: OutlineChainLink[]
   formula?: OutlineFormula[]
+  timeline?: OutlineTimelineEvent[]
 }
 export interface Outline {
   title: string
