@@ -17,6 +17,10 @@ type SetupState =
   | { kind: 'picker'; step: ModelSlot; error?: string }
   | { kind: 'done' };
 
+/** §6.1 — 'done' state auto-redirect delay. Single source of truth so the
+ *  timer and any future fade animation can't drift apart. */
+const DONE_REDIRECT_MS = 300;
+
 export function SetupView({ initialStep, initialError, onReady }: Props) {
   const [state, setState] = useState<SetupState>({
     kind: 'picker',
@@ -24,14 +28,23 @@ export function SetupView({ initialStep, initialError, onReady }: Props) {
     error: initialError,
   });
 
-  // §6.1: 'done' state auto-redirects to Recording after 300ms fade.
+  // §6.1: 'done' state auto-redirects to Recording after DONE_REDIRECT_MS.
+  // onReady intentionally excluded from deps — fresh ref each parent render
+  // would reset the timer (silent-stall risk if parent re-renders frequently
+  // while in 'done'). The () => onReady() wrapper captures the current ref
+  // at fire time rather than at scheduling time, which is the desired behavior.
   useEffect(() => {
     if (state.kind !== 'done') return;
-    const t = setTimeout(onReady, 300);
+    const t = setTimeout(() => onReady(), DONE_REDIRECT_MS);
     return () => clearTimeout(t);
-  }, [state.kind, onReady]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.kind]);
 
   if (state.kind === 'done') {
+    // NOTE: spec §6.1 mentions a 300ms opacity fade as polish (optional
+    // Task 13). The fade is not wired up here — would require a separate
+    // useState flipped one tick after mount. Dead `transition` removed
+    // so the CSS doesn't claim behavior it doesn't have.
     return (
       <div
         data-testid="setup-done"
@@ -41,7 +54,6 @@ export function SetupView({ initialStep, initialError, onReady }: Props) {
           padding: 24,
           fontFamily: 'system-ui',
           textAlign: 'center',
-          transition: 'opacity 300ms',
         }}
       >
         <h2>{SETUP_STRINGS_JA.ready}</h2>
@@ -76,7 +88,12 @@ export function SetupView({ initialStep, initialError, onReady }: Props) {
         // needs-setup always has ≥1 missing slot (otherwise it'd be ready).
         const nextSlot = status.missing[0];
         if (!nextSlot) {
-          setState({ kind: 'done' });  // defensive fall-through
+          // Handler bug — surface a breadcrumb so the founder can grep
+          // logs. Falling through to 'done' would otherwise manifest as
+          // an opaque Recording-side failure when models aren't actually
+          // resolved.
+          console.error('[SetupView] needs-setup with missing.length=0 — handler bug?');
+          setState({ kind: 'done' });
           return;
         }
         setState({ kind: 'picker', step: nextSlot });
