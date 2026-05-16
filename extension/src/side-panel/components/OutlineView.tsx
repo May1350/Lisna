@@ -3,6 +3,10 @@ import type { Outline, OutlineSection } from '../api-client'
 import type { SlideItem } from '../../shared/types'
 import { useT, interpolate, getLang } from '../../shared/i18n'
 import { TsButton, fmtTs } from './TsButton'
+import { StepList } from './StepList'
+import { ChainList } from './ChainList'
+import { FormulaList } from './FormulaList'
+import { TimelineList } from './TimelineList'
 
 // Renders the curated lecture outline produced by the backend's curator
 // pass. The outline is REPLACED on every curator run (every ~30 s of
@@ -807,6 +811,26 @@ function SectionBlock({
         </ul>
       )}
 
+      {/* procedure_steps — 절차형 강의 */}
+      {section.procedure_steps && section.procedure_steps.length > 0 && (
+        <div className="space-y-1">
+          <div className="text-[10px] font-mono uppercase tracking-eyebrow text-ink-500 font-medium">
+            {T.outline.procedure_steps_label}
+          </div>
+          <StepList steps={section.procedure_steps} onJump={onJump} compact={compact} />
+        </div>
+      )}
+
+      {/* argument_chain — 논증 흐름 */}
+      {section.argument_chain && section.argument_chain.length > 0 && (
+        <div className="space-y-1">
+          <div className="text-[10px] font-mono uppercase tracking-eyebrow text-ink-500 font-medium">
+            {T.outline.argument_chain_label}
+          </div>
+          <ChainList links={section.argument_chain} onJump={onJump} />
+        </div>
+      )}
+
       {!compact && section.examples.length > 0 && (
         <div className="space-y-1">
           <div className="text-[10px] font-mono uppercase tracking-eyebrow text-ink-300 font-medium">
@@ -821,6 +845,26 @@ function SectionBlock({
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {/* formula — 수식·등식 (hidden in compact: detail-heavy) */}
+      {!compact && section.formula && section.formula.length > 0 && (
+        <div className="space-y-1">
+          <div className="text-[10px] font-mono uppercase tracking-eyebrow text-ink-500 font-medium">
+            {T.outline.formula_label}
+          </div>
+          <FormulaList formulas={section.formula} onJump={onJump} />
+        </div>
+      )}
+
+      {/* timeline — 시간순 */}
+      {section.timeline && section.timeline.length > 0 && (
+        <div className="space-y-1">
+          <div className="text-[10px] font-mono uppercase tracking-eyebrow text-ink-500 font-medium">
+            {T.outline.timeline_label}
+          </div>
+          <TimelineList events={section.timeline} onJump={onJump} />
         </div>
       )}
 
