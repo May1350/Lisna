@@ -7,6 +7,10 @@ import type {
   SessionStartPayload,
   SessionPhasePayload,
   SessionErrorPayload,
+  ModelStatus,
+  ModelSlot,
+  PickResult,
+  ModelPickPayload,
 } from '@shared/ipc-protocol';
 import type { Note } from '@shared/types';
 
@@ -64,6 +68,16 @@ contextBridge.exposeInMainWorld('lisna', {
    * promise typically never settles client-side — the caller should not await.
    */
   restartApp: (): Promise<void> => ipcRenderer.invoke(CHANNELS.lifecycleRestart),
+
+  // --- Step 5 §5.1 — first-run model resolver ---
+
+  getModelStatus: (): Promise<ModelStatus> =>
+    ipcRenderer.invoke(CHANNELS.modelStatus),
+
+  pickModel: (slot: ModelSlot): Promise<PickResult> => {
+    const payload: ModelPickPayload = { slot };
+    return ipcRenderer.invoke(CHANNELS.modelPick, payload);
+  },
 });
 
 declare global {
@@ -79,6 +93,8 @@ declare global {
       onPhase(cb: (msg: SessionPhasePayload) => void): () => void;
       onSessionError(cb: (msg: SessionErrorPayload) => void): () => void;
       restartApp(): Promise<void>;
+      getModelStatus(): Promise<ModelStatus>;
+      pickModel(slot: ModelSlot): Promise<PickResult>;
     };
   }
 }
