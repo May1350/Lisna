@@ -8,6 +8,7 @@
 **Revision history (within this spec write):**
 - Draft 1 → integrated TS/Electron + JA copy expert review
 - Draft 2 → integrated architecture-reviewer findings (5 must-fix/should-fix items): `PickResult.status` authoritative, `.tmp` orphan recovery, in-module write serialization, handler registration before `createWindow`, App.tsx `'booting'` view kind, Discord URL placeholder runtime guard, env-var fall-through pinned, `ResolveResult` typed explicitly, mid-session delete punted
+- Draft 3 → integrated final sign-off reviewer findings (4 items): §10.2 test-array update requirement made explicit (existing test pins length=13, must bump to 19); §4.2 supervisor.start placement guard (register-before-createWindow is for IPC handlers only, NOT sidecar handshake); §6.1 existing-listener no-op interop note; §5.1 + §7 IPC handler await-timing pinned (handler awaits saveModelsJson before returning, so authoritative-status holds across crash mid-rename)
 
 ---
 
@@ -115,6 +116,7 @@ app.whenReady()
       },
     })
   → supervisor.start()
+  → await client.waitForReady(5000)          // existing — retains current placement
   → registerIpc({                           // BEFORE createWindow (closes existing capabilities race too)
       getMainWindow, supervisor,
       sttModelPath: resolveResult.kind === 'ready' ? resolveResult.sttPath : undefined,
@@ -132,6 +134,7 @@ app.whenReady()
 - Env-var dev overrides (`LISNA_DEV_STT_MODEL` / `LISNA_DEV_LLM_MODEL`) keep working: env var supplies the path, resolveModels existence-checks the file, `ModelStatus` reports `ready` (or `needs-setup` for the missing slot — env-var override does NOT fall through to `models.json`).
 - Single source of truth: resolver writes → registerIpc reads → no split between env-var and persisted state.
 - **Mount race fix**: both `registerIpc` and `registerModelIpc` complete before `createWindow()`. The renderer's first `useEffect` will not see "No handler registered for 'models/status'". The same fix retroactively closes a latent race on the existing `capabilities` channel, which was only masked by renderer-side mount delay.
+- **Sidecar boot retains current placement**: `supervisor.start()` + `await client.waitForReady(5000)` (currently `main/index.ts:71-76`) keep their position between `resolveModels()` and `registerIpc()`. The register-before-`createWindow` rule applies to **IPC handler registration only** — NOT to the sidecar handshake. Do not re-order `waitForReady` after `createWindow` to optimize first-paint; that reintroduces a `SIDECAR_DOWN` flake window on sidecar cold start.
 
 ### 4.3 IPC channels (extend `CHANNELS` in `ipc.ts`)
 
@@ -193,7 +196,7 @@ contextBridge.exposeInMainWorld('lisna', {
 5. SetupView renders Step 1 (STT picker) with `SETUP_STRINGS_JA.sttTitle` + body + buttons
 6. User clicks 「ファイルを選択」 → `await window.lisna.pickModel('stt')` → main shows native dialog (filter `*.bin`)
 7. User picks file → `validateModelFile(path, 'stt')`
-   - PASS: queue persist `{ version: 1, sttPath: <picked>, llmPath: '' }` via atomic write (serialized in-module) → return `{ ok: true, status: { kind: 'needs-setup', missing: ['llm'] } }`
+   - PASS: handler **awaits** `saveModelsJson({ version: 1, sttPath: <picked>, llmPath: '' })` (itself wrapped in `serializeWrite`) **before** constructing the response. Only after the write commits to disk does the handler return `{ ok: true, status: { kind: 'needs-setup', missing: ['llm'] } }`. This is what makes `PickResult.status` authoritative (Decision #13) — no observable window where renderer-state and disk-state diverge.
    - FAIL `wrong-format`: return `{ ok: false, code: 'INVALID_MAGIC_BYTES_STT' }` (no write)
    - FAIL `unreadable`: return `{ ok: false, code: 'MODEL_READ_FAILED' }` (no write)
 8. Renderer:
@@ -255,6 +258,8 @@ SetupView state machine:
   { step: 'done' }
     └ effect: 300ms timer            → onReady()        → parent sets view='recording'
 ```
+
+**Existing IPC listener interop**: `onChunk` / `onPhase` / `onSessionError` (currently App.tsx:26-71) all guard internally on `prev.kind`. In `'booting'` and `'setup'`, those guards naturally hit the `return prev` no-op branch, so listeners remain mounted but inert. No new gating is needed at the listener registration level when introducing the new view kinds.
 
 ### 6.2 Strings (`renderer/i18n/setup-strings.ts`)
 
@@ -354,6 +359,8 @@ function serializeWrite<T>(fn: () => Promise<T>): Promise<T> {
   return next;
 }
 ```
+
+**IPC handler await contract (Decision #13 enforcement)**: `registerModelIpc`'s `models/pick` handler `await`s `saveModelsJson` (which itself runs inside `serializeWrite`) **before** constructing the `PickResult` response. Caller-side `await window.lisna.pickModel(slot)` therefore resolves only after the write is durable on disk. `PickResult.status` accurately reflects committed state, eliminating any window where a renderer-observable `status` could diverge from disk-state — including the case where the app crashes mid-rename (the rename is atomic; either old or new state is recoverable, never an intermediate observed by the renderer).
 
 IPC handler in `registerModelIpc` maps `ValidationResult` + dialog outcome to `PickResult.code`:
 - `{ ok: false, reason: 'wrong-format' }` + `slot==='stt'` → `INVALID_MAGIC_BYTES_STT`
@@ -511,7 +518,7 @@ Tests in `i18n/__tests__/error-message-map.test.ts` pin polite-form + 「。」 
 
 ### 10.2 i18n — existing test file
 
-`desktop/src/renderer/i18n/__tests__/error-message-map.test.ts` runs on appended codes. Style invariants pinned by the existing tests must pass.
+`desktop/src/renderer/i18n/__tests__/error-message-map.test.ts` pins five things: (a) the closed set of `ALL_ERROR_CODES` membership, (b) the length count, (c) polite desu/masu form, (d) 「。」 terminator, (e) length bounds per string. **The "types + i18n strings" commit must update both the test's `expectedCodes` array (13 → 19 entries, adding the 6 new codes in the same order as `ALL_ERROR_CODES`) AND the length assertion (13 → 19)** — otherwise the first test fails before reaching the style invariants. The style invariants (c), (d), (e) pass automatically because the new strings in §9.2 comply with them.
 
 ### 10.3 Integration smoke — `desktop/src/__tests__/setup-flow.smoke.test.ts`
 
