@@ -2,6 +2,7 @@ import { app, BrowserWindow } from 'electron';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { registerIpc, handleSidecarExit, handleSidecarGiveUp, setAppQuitting } from './ipc';
+import { resolveModels, registerModelIpc } from './model-resolver';
 import { installSystemAudioHandler } from './audio/system-audio-handler';
 import { SidecarSupervisor } from './sidecar/supervisor';
 import { initFileLogger, log, redactPath } from './log';
@@ -43,6 +44,27 @@ function createWindow() {
 
 app.whenReady().then(async () => {
   installSystemAudioHandler();
+
+  // §5.1 — resolve model paths FIRST. Reads <userData>/models.json,
+  // existence-checks each path, env-var overrides (LISNA_DEV_STT_MODEL /
+  // LISNA_DEV_LLM_MODEL) authoritative when set. Result drives whether
+  // renderer mounts Recording (ready) or SetupView (needs-setup).
+  const userDataDir = app.getPath('userData');
+  const resolveResult = await resolveModels({
+    userDataDir,
+    envOverride: {
+      // Trim + empty→undefined: a set-but-empty env var (`LISNA_DEV_STT_MODEL=""`)
+      // should NOT be treated as "use this exact path" — it's user-intent
+      // ambiguous (could be a shell-quoting accident). Fall through to disk.
+      stt: process.env.LISNA_DEV_STT_MODEL?.trim() || undefined,
+      llm: process.env.LISNA_DEV_LLM_MODEL?.trim() || undefined,
+    },
+  });
+  log.info(`[boot] models: ${resolveResult.kind}` +
+    (resolveResult.kind === 'ready'
+      ? ` STT=${redactPath(resolveResult.sttPath)} LLM=${redactPath(resolveResult.llmPath)}`
+      : ` missing=${resolveResult.missing.join(',')}`));
+
   supervisor = new SidecarSupervisor({
     // Step 5 §3.6 — give-up signals the renderer to switch from "Try again"
     // to "Restart Lisna". handleSidecarGiveUp does the state-flag flip AND
@@ -75,27 +97,22 @@ app.whenReady().then(async () => {
     log.error('[sidecar] failed to reach ready state — recording will fail until restart:', err);
   }
 
-  // Dev hook until Phase 4 packaging completes. Both required for v2.0 —
-  // session/start throws MODELS_NOT_CONFIGURED if either missing. Set in shell
-  // before `pnpm dev` (or .env / launch.json):
-  //   LISNA_DEV_STT_MODEL=/abs/path/to/ggml-large-v3.bin
-  //   LISNA_DEV_LLM_MODEL=/abs/path/to/Llama-3.2-3B-Instruct-Q4_K_M.gguf
-  // See desktop/docs/manual-verification.md for working model paths.
-  const sttModelPath = process.env.LISNA_DEV_STT_MODEL;
-  const llmModelPath = process.env.LISNA_DEV_LLM_MODEL;
-  // Log the resolved model path STATUS (configured / unset) so a packaged
-  // alpha build can be diagnosed remotely. Path itself is redacted to strip
-  // the user's home-dir name.
-  log.info(`[boot] STT model: ${redactPath(sttModelPath)}`);
-  log.info(`[boot] LLM model: ${redactPath(llmModelPath)}`);
-
-  createWindow();
+  // §5.1 — register IPC handlers BEFORE createWindow so the renderer's
+  // first useEffect (getModelStatus on mount) does not race against
+  // handler registration.
   registerIpc({
     getMainWindow: () => mainWindow,  // getter — survives darwin re-create
     supervisor,
-    sttModelPath,
-    llmModelPath,
+    sttModelPath: resolveResult.kind === 'ready' ? resolveResult.sttPath : undefined,
+    llmModelPath: resolveResult.kind === 'ready' ? resolveResult.llmPath : undefined,
   });
+  registerModelIpc({
+    getMainWindow: () => mainWindow,
+    initialStatus: resolveResult,
+    userDataDir,
+  });
+
+  createWindow();
 });
 
 // Electron's `before-quit` does NOT await async listeners — the app proceeds
