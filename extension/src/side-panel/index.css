@@ -181,3 +181,14 @@ html, body {
   flex-shrink: 0;
   font-weight: 500;
 }
+
+/* chain-link.inferred — argument_chain inferred items: muted ink-500 text
+   + terra-700 ※ glyph (mirrors step.inferred / point.inferred pattern).
+   No border-left (ul items; arrow → stays default ink-300). */
+.chain-link.inferred {
+  color: var(--ink-500, #6E6660);
+}
+.chain-link.inferred .chain-link-glyph {
+  color: var(--terra-700, #9A330A);
+  font-weight: 500;
+}

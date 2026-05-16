@@ -130,6 +130,11 @@ export interface OutlineStep {
   important?: boolean
   from: Provenance
 }
+export interface OutlineChainLink {
+  text: string
+  ts: number
+  from: Provenance
+}
 export interface OutlineSection {
   heading: string
   ts: number
@@ -144,6 +149,7 @@ export interface OutlineSection {
   check_question?: string
   // Typed slots (curator provenance plan) — all optional.
   procedure_steps?: OutlineStep[]
+  argument_chain?: OutlineChainLink[]
 }
 export interface Outline {
   title: string
