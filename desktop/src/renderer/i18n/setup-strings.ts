@@ -16,12 +16,19 @@ export const SETUP_STRINGS_JA = {
 } as const;
 
 /**
- * Discord deep-link. Founder fills <server>/<channel> before alpha merge.
- * If still placeholder, isDiscordUrlConfigured() returns false and the
- * picker UI hides the Discord button — prevents shipping a broken
- * shell.openExternal call to a hallucinated URL.
+ * Discord server invite URL. Used by the picker's "Discord で受け取る" button
+ * (shell.openExternal). The invite form (discord.gg/...) is intentional rather
+ * than a deep-link to a specific channel — alpha onboarding flow expects new
+ * users to join the server first, then find the #lisna-alpha channel for the
+ * model files. Once joined, subsequent picker visits still show the same
+ * invite link, but Discord short-circuits to the server view for members —
+ * functionally equivalent to a channel link for repeat users.
+ *
+ * Runtime guard: isDiscordUrlConfigured() returns false if the URL still
+ * contains '<' (placeholder shape) — the picker UI hides the Discord button
+ * in that case to prevent shipping a broken shell.openExternal call.
  */
-export const DISCORD_CHANNEL_URL = 'https://discord.com/channels/<server>/<channel>';
+export const DISCORD_CHANNEL_URL = 'https://discord.gg/69NkqBTbS';
 
 export function isDiscordUrlConfigured(): boolean {
   return !DISCORD_CHANNEL_URL.includes('<');
