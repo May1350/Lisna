@@ -71,4 +71,48 @@ describeIf('WhisperCppSTT (real model)', () => {
     },
     { timeout: 120_000 },
   );
+
+  it(
+    'silence fixture produces zero segments after E+F filter',
+    async () => {
+      // Reload model — the previous test unloads it at its end.
+      await stt.loadModel(modelPath, 'ja');
+
+      const silenceWavPath = resolvePath(
+        __dirname,
+        '../../../../tests/fixtures/audio/ja-silence-30s.wav',
+      );
+      const wavBuf = readFileSync(silenceWavPath);
+      if (wavBuf.subarray(0, 4).toString('ascii') !== 'RIFF') {
+        throw new Error('silence fixture is not a RIFF WAV');
+      }
+      if (wavBuf.subarray(36, 40).toString('ascii') !== 'data') {
+        throw new Error('silence fixture header is not exactly 44 bytes');
+      }
+      const pcmInt16 = new Int16Array(
+        wavBuf.buffer,
+        wavBuf.byteOffset + 44,
+        (wavBuf.byteLength - 44) / 2,
+      );
+      const pcmFloat32 = new Float32Array(pcmInt16.length);
+      for (let i = 0; i < pcmInt16.length; i++) {
+        pcmFloat32[i] = (pcmInt16[i] ?? 0) / 32768;
+      }
+
+      const segments = await stt.transcribe(pcmFloat32);
+
+      // After all 3 layers (sidecar runs whisper on the raw audio, since D is a
+      // renderer-side concern not exercised by this main-side adapter test, then
+      // E + F drop everything), expect ZERO segments.
+      expect(segments).toHaveLength(0);
+
+      // Note: if this assertion fails, log every dropped segment's noSpeechProb
+      // to tune the F.front threshold. Likely raw whisper output for silence
+      // includes some 「はい」/「ご視聴ありがとうございました」 with high
+      // noSpeechProb — verify they're being dropped.
+
+      await stt.unloadModel();
+    },
+    { timeout: 120_000 },
+  );
 });
