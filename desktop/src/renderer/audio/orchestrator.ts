@@ -1,4 +1,5 @@
 import { ChunkAccumulator, SAMPLE_RATE } from './chunker';
+import { isSilent } from './silence-gate';
 import type { ChunkPayload, RecordingSource } from '@shared/ipc-protocol';
 
 export type { ChunkPayload, RecordingSource };
@@ -89,6 +90,15 @@ export class RecordingOrchestrator {
   private emitChunk(chunk: Float32Array): void {
     const source = this.source;
     if (!source) return;
+
+    if (isSilent(chunk)) {
+      // Silent chunk: skip IPC, but advance the wall-clock counter so the next
+      // real chunk's startMs reflects the silence duration. DO NOT advance
+      // chunkIndex — main's payload.index sequence must stay contiguous.
+      this.samplesEmitted += chunk.length;
+      return;
+    }
+
     const startSamples = this.samplesEmitted;
     this.samplesEmitted += chunk.length;
     const startMs = Math.round((startSamples / SAMPLE_RATE) * 1000);

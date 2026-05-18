@@ -4,6 +4,19 @@ import { RecordingOrchestrator, type ChunkPayload, type Capturer } from '../orch
 const SR = 16000;
 
 /**
+ * Make a non-silent Float32Array of the given length (filled with 0.5 so RMS
+ * is well above the -50 dBFS silence gate threshold). Tests that care about
+ * chunking / timestamps / indices should use this, not all-zero arrays —
+ * all-zero arrays are now gated as silent by isSilent() and silently dropped
+ * before reaching IPC.
+ */
+function loudChunk(length: number): Float32Array {
+  const a = new Float32Array(length);
+  a.fill(0.5);
+  return a;
+}
+
+/**
  * Fake capturer that captures the onSamples callback in start() so tests can
  * drive samples directly, without reaching into the orchestrator's private
  * fields. Shape matches the real Capturer interface.
@@ -31,7 +44,7 @@ describe('RecordingOrchestrator', () => {
 
     await orch.start('mic');
     // 25 ticks × 1600 samples = 40000 samples (2.5s) → enough for the 2s first chunk
-    for (let i = 0; i < 25; i++) fake.onSamples!(new Float32Array(1600));
+    for (let i = 0; i < 25; i++) fake.onSamples!(loudChunk(1600));
     await orch.stop();
 
     expect(sender).toHaveBeenCalled();
@@ -49,7 +62,7 @@ describe('RecordingOrchestrator', () => {
     });
 
     await orch.start('mic');
-    for (let i = 0; i < 25; i++) fake.onSamples!(new Float32Array(1600));
+    for (let i = 0; i < 25; i++) fake.onSamples!(loudChunk(1600));
     await orch.stop();
 
     expect(fake.stop).toHaveBeenCalled();
@@ -70,7 +83,7 @@ describe('RecordingOrchestrator', () => {
     // crosses the second boundary mid-push. Any emit-time clock reading
     // post-push sample counts will overshoot. Pinning the chunk's true
     // boundary catches that.
-    for (let i = 0; i < 16; i++) fake.onSamples!(new Float32Array(12100));
+    for (let i = 0; i < 16; i++) fake.onSamples!(loudChunk(12100));
     await orch.stop();
 
     const c0 = sender.mock.calls[0]![0] as ChunkPayload;
@@ -91,7 +104,7 @@ describe('RecordingOrchestrator', () => {
 
     await orch.start('mic');
     // 2s first chunk + 10s second chunk = 12s = 192000 samples → 120 ticks of 1600
-    for (let i = 0; i < 120; i++) fake.onSamples!(new Float32Array(1600));
+    for (let i = 0; i < 120; i++) fake.onSamples!(loudChunk(1600));
     await orch.stop();
 
     expect(sender).toHaveBeenCalledTimes(2);
