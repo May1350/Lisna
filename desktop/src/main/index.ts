@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, dialog } from 'electron';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { registerIpc, handleSidecarExit, handleSidecarGiveUp, setAppQuitting } from './ipc';
@@ -124,6 +124,20 @@ app.whenReady().then(async () => {
   });
 
   createWindow();
+}).catch((err) => {
+  // Boot rejection (resolveModels disk failure, supervisor crash mid-init,
+  // registerIpc throw, etc.) would otherwise become an unhandled promise
+  // rejection: window never opens, sidecar may be half-started, app appears
+  // hung at launch with no diagnostic surface. Surface as a dialog the user
+  // can actually read, log the cause for post-hoc debugging, then quit so
+  // they can relaunch instead of force-killing a zombie process.
+  log.error('[boot] fatal — startup chain rejected', err);
+  dialog.showErrorBox(
+    'Lisna',
+    '起動に失敗しました。Lisna を再起動してください。\n\n' +
+    (err instanceof Error ? err.message : String(err)),
+  );
+  app.quit();
 });
 
 // Electron's `before-quit` does NOT await async listeners — the app proceeds
