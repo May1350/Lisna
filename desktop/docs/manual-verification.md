@@ -209,25 +209,28 @@ If either is missing, see the Discord channel for the alpha distribution links.
 
 ### Wrong format
 
-11. Quit Electron. Remove models.json again. `pnpm dev`. On Step 1, click
-    "ファイルを選択" and pick the **LLM** `.gguf` file (not `.bin`). Expect
-    red strip "このファイルは文字起こしモデルとして読み込めませんでした。Discord で
-    配布されたファイルを再度選択してください。"
-12. Click "ファイルを選択" again, pick the real `.bin`. Expect Step 2.
+11. **Not user-reachable via native dialog.** macOS `NSOpenPanel` enforces the
+    `extensions: ['bin' | 'gguf']` filter strictly — wrong-format files appear
+    grayed-out and unselectable, and even Cmd+Shift+G path-input rejects them
+    (live-verified 2026-05-18). The `INVALID_MAGIC_BYTES_STT/LLM` codes exist
+    as defense-in-depth and are covered by `validateModelFile` unit tests
+    (`desktop/src/main/__tests__/model-resolver.test.ts`, Task 2). No manual
+    GUI gesture triggers them in standard macOS Electron dev/prod builds.
+12. (Skipped — see step 11.)
 
-### Discord URL placeholder guard
+### Discord URL guard (now configured)
 
-13. Confirm `desktop/src/renderer/i18n/setup-strings.ts` still has:
-    ```typescript
-    export const DISCORD_CHANNEL_URL = 'https://discord.com/channels/<server>/<channel>';
-    ```
-14. On any SetupView render (Step 1 or Step 2), verify the "Discord で受け取る"
-    button is **HIDDEN** (only "ファイルを選択" should be visible).
-15. (Founder pre-alpha): replace `<server>/<channel>` in `setup-strings.ts` with
-    the real Discord deep-link before merging. The button will then appear.
-    Click it; verify it opens the channel in the default browser via
-    `shell.openExternal`. Then revert if you want to keep testing the placeholder
-    path, or commit the URL change as a separate `chore(desktop)` patch.
+13. `desktop/src/renderer/i18n/setup-strings.ts:24` currently holds the real
+    invite `https://discord.gg/69NkqBTbS` (filled 2026-05-18, commit `39bdc19`).
+    `isDiscordUrlConfigured()` returns true.
+14. On any SetupView render, verify the "Discord で受け取る" button is **VISIBLE**.
+    Clicking it opens `https://discord.gg/69NkqBTbS` in the default browser
+    via `shell.openExternal` (re-direct → `discord.com/invite/69NkqBTbS`
+    Lisna server-invite landing).
+15. If reverting to the placeholder for verification, set
+    `DISCORD_CHANNEL_URL` to `'https://discord.com/channels/<server>/<channel>'`
+    — `isDiscordUrlConfigured()` returns false and the button hides. Do not
+    commit the revert.
 
 ### Env-var dev override
 
