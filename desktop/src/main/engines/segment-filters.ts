@@ -40,15 +40,30 @@ export function isHallucination(
     if (segment.noSpeechProb > threshold) return true;
   }
 
-  // Layer E: blocklist + hallucination marker (must have BOTH blocklist match AND a marker)
+  // Layer E: blocklist + hallucination marker (must have BOTH blocklist match AND a marker).
+  // Whisper appends trailing punctuation (、。！？…) to stereotyped phrases; strip before lookup
+  // so the exact-match set still catches "ごめん、" / "はい。" etc.
+  const normalized = trimmed.replace(/[、。！？…]+$/, '');
   const blocklist = HALLUCINATION_BLOCKLIST[opts.language] ?? new Set<string>();
-  if (blocklist.has(trimmed)) {
+  if (blocklist.has(normalized)) {
     // Marker 1: elevated no-speech probability (≥ 0.3, below F.front threshold)
     if (segment.noSpeechProb !== undefined && segment.noSpeechProb >= 0.3) return true;
     // Marker 2: zero-zero timestamps (common for whisper silence hallucinations)
     if (segment.startSec === 0 && segment.endSec === 0) return true;
     // Marker 3: no probability data + short text (high suspicion without a counter-signal)
     if (segment.noSpeechProb === undefined && trimmed.length <= 10) return true;
+    // Marker 4: first-chunk silence with high speech confidence. Kotoba-whisper-v2.0 on
+    // all-zero PCM emits a blocklist phrase at [0, ≤3s] with noSpeechProb ≈ 0 — the model
+    // is "confident" it's speech, it isn't. False-positive risk: a real isolated 「はい」
+    // at startSec=0 < 3s also fires; accepted trade-off because dense-speech 「はい」
+    // (startSec > 0) and long openers (endSec > 3) are protected.
+    if (
+      segment.noSpeechProb !== undefined &&
+      segment.noSpeechProb < 0.1 &&
+      segment.startSec === 0 &&
+      segment.endSec > 0 &&
+      segment.endSec <= 3
+    ) return true;
   }
 
   return false;

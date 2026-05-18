@@ -84,6 +84,122 @@ describe('isHallucination — Layer E (blocklist + marker)', () => {
     });
   });
 
+  describe('marker 4: first-chunk silence hallucination (high speech confidence)', () => {
+    // Pattern observed in kotoba-whisper-v2.0 silence fixture: a blocklist
+    // phrase at [0, ~2s] with noSpeechProb ≈ 0 (model "confident" in the
+    // hallucination). Markers 1-3 don't catch this because prob < 0.3,
+    // timestamps aren't 0,0, and noSpeechProb IS defined.
+    it('drops blocklist match at startSec=0 with short endSec and low noSpeechProb', () => {
+      expect(
+        isHallucination(
+          seg({ text: 'はい', noSpeechProb: 0.05, startSec: 0, endSec: 2 }),
+          ja,
+        ),
+      ).toBe(true);
+    });
+    it('drops blocklist match with noSpeechProb ≈ 0 (kotoba-whisper signature)', () => {
+      expect(
+        isHallucination(
+          seg({ text: 'はい', noSpeechProb: 3.82e-9, startSec: 0, endSec: 2 }),
+          ja,
+        ),
+      ).toBe(true);
+    });
+    it('drops blocklist match when endSec is exactly at the 3s boundary', () => {
+      expect(
+        isHallucination(
+          seg({ text: 'はい', noSpeechProb: 0.05, startSec: 0, endSec: 3 }),
+          ja,
+        ),
+      ).toBe(true);
+    });
+    it('does NOT fire when startSec > 0 (mid-conversation 「はい」 protected)', () => {
+      expect(
+        isHallucination(
+          seg({ text: 'はい', noSpeechProb: 0.05, startSec: 5, endSec: 5.5 }),
+          ja,
+        ),
+      ).toBe(false);
+    });
+    it('does NOT fire when noSpeechProb >= 0.1 (insufficient model confidence)', () => {
+      expect(
+        isHallucination(
+          seg({ text: 'はい', noSpeechProb: 0.1, startSec: 0, endSec: 2 }),
+          ja,
+        ),
+      ).toBe(false);
+    });
+    it('does NOT fire when endSec > 3 (long enough to be real speech)', () => {
+      expect(
+        isHallucination(
+          seg({ text: 'はい', noSpeechProb: 0.05, startSec: 0, endSec: 4 }),
+          ja,
+        ),
+      ).toBe(false);
+    });
+    it('does NOT fire for non-blocklist text even with matching timing', () => {
+      expect(
+        isHallucination(
+          seg({ text: '今日は学校に行きました', noSpeechProb: 0.05, startSec: 0, endSec: 2 }),
+          ja,
+        ),
+      ).toBe(false);
+    });
+  });
+
+  describe('normalization: strips trailing JA punctuation before blocklist match', () => {
+    // Kotoba-whisper appends 、/。/！ etc. to stereotyped hallucinations.
+    // Without normalization, exact-match blocklist lookup misses them.
+    // Tests use marker-1 conditions (noSpeechProb=0.4) to isolate normalization.
+    it('「ごめん、」 matches blocklist after stripping trailing 、', () => {
+      expect(
+        isHallucination(seg({ text: 'ごめん、', noSpeechProb: 0.4 }), ja),
+      ).toBe(true);
+    });
+    it('「はい。」 matches blocklist after stripping trailing 。', () => {
+      expect(
+        isHallucination(seg({ text: 'はい。', noSpeechProb: 0.4 }), ja),
+      ).toBe(true);
+    });
+    it('「えー！」 matches blocklist after stripping trailing ！', () => {
+      expect(
+        isHallucination(seg({ text: 'えー！', noSpeechProb: 0.4 }), ja),
+      ).toBe(true);
+    });
+    it('「うん？」 matches blocklist after stripping trailing ？', () => {
+      expect(
+        isHallucination(seg({ text: 'うん？', noSpeechProb: 0.4 }), ja),
+      ).toBe(true);
+    });
+    it('「はい…」 matches blocklist after stripping trailing …', () => {
+      expect(
+        isHallucination(seg({ text: 'はい…', noSpeechProb: 0.4 }), ja),
+      ).toBe(true);
+    });
+    it('strips multiple consecutive trailing punctuation chars', () => {
+      expect(
+        isHallucination(seg({ text: 'ごめん、。', noSpeechProb: 0.4 }), ja),
+      ).toBe(true);
+    });
+    it('does NOT strip interior punctuation (compound utterance preserved)', () => {
+      // 「ちょ、まって」 — interior 、, normalized form not in blocklist
+      expect(
+        isHallucination(seg({ text: 'ちょ、まって', noSpeechProb: 0.4 }), ja),
+      ).toBe(false);
+    });
+    it('integration: kotoba-whisper actual silence output 「ごめん、」 [0, 2] dropped end-to-end', () => {
+      // The exact segment that leaked through Task 11 integration test before fix:
+      // text="ごめん、", startSec=0, endSec=2, noSpeechProb≈0 (3.82e-9).
+      // Requires both normalization AND marker 4 to drop.
+      expect(
+        isHallucination(
+          seg({ text: 'ごめん、', noSpeechProb: 3.82e-9, startSec: 0, endSec: 2 }),
+          ja,
+        ),
+      ).toBe(true);
+    });
+  });
+
   describe('false-positive protection: legitimate uses', () => {
     it('keeps short blocklist phrase 「はい」 in dense speech (low prob, non-zero ts)', () => {
       // This is the critical false-positive case from spec §6.1.
@@ -106,6 +222,16 @@ describe('isHallucination — Layer E (blocklist + marker)', () => {
     it('keeps blocklist phrase with low prob and non-zero timestamps', () => {
       expect(
         isHallucination(seg({ text: 'ごめん', noSpeechProb: 0.1, startSec: 8, endSec: 8.5 }), ja),
+      ).toBe(false);
+    });
+    it('keeps 「はい」 at startSec=0 when endSec > 3 (long real utterance)', () => {
+      // Spec §6.1 protection extended: even at the very start of a buffer,
+      // if the utterance lasts > 3s, treat it as real speech (marker 4 escape).
+      expect(
+        isHallucination(
+          seg({ text: 'はい', noSpeechProb: 0.05, startSec: 0, endSec: 4.5 }),
+          ja,
+        ),
       ).toBe(false);
     });
   });
