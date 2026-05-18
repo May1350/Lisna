@@ -58,6 +58,12 @@ std::vector<Segment> WhisperEngine::transcribe(const float* samples, size_t n, i
     s.startSec = whisper_full_get_segment_t0(impl_->ctx, i) / 100.0;
     s.endSec   = whisper_full_get_segment_t1(impl_->ctx, i) / 100.0;
     s.text     = whisper_full_get_segment_text(impl_->ctx, i);
+    // Per whisper.cpp src/whisper.cpp:7633 — state-level no_speech_prob attached
+    // identically to every segment in result_all. Reading per-i is safe (no UB
+    // when nSeg==0 because loop body doesn't execute) and matches the per-segment
+    // getter pattern used for t0/t1/text above.
+    s.noSpeechProb = static_cast<double>(
+      whisper_full_get_segment_no_speech_prob(impl_->ctx, i));
     out.push_back(std::move(s));
   }
   return out;
