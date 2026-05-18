@@ -100,3 +100,28 @@ jobs:
         # `next build` covers TypeScript checks + static-page generation.
         # No separate typecheck/test scripts exist for this workspace yet.
         run: pnpm --filter lisna-web build
+
+  # ── Desktop ─────────────────────────────────────────────────────────────
+  # Runs on macOS so Electron's native modules (CoreAudio Tap, etc.) resolve
+  # correctly. Kept as a separate job so it doesn't block the Linux steps.
+  desktop-ci:
+    runs-on: macos-14
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Desktop — CI gate + typecheck + lint + test
+        run: pnpm --filter @lisna/desktop verify

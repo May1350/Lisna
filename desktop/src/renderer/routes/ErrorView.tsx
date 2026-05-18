@@ -1,0 +1,61 @@
+import type { TranscriptSegment } from '@shared/types';
+import {
+  toFriendlyJa,
+  ERROR_MESSAGE_MAP_JA,
+} from '../i18n/error-message-map';
+
+interface Props {
+  message: string;
+  segments: TranscriptSegment[];
+  onRetry: () => void;
+  /**
+   * Step 5 §3.6 — true when supervisor has given up (2 consecutive sidecar
+   * crashes). Replaces the Try Again button with a Restart Lisna button.
+   * Try Again would just hit SIDECAR_GAVE_UP again until process exit.
+   */
+  permanent?: boolean;
+}
+
+/**
+ * Rendered when session/stop rejects (LLM load fail, generate throw, STT
+ * unload fail, empty transcript) OR when main pushes session/error (sidecar
+ * crash mid-session).
+ *
+ * Friendly copy is JA-only per ADR §3 (`docs/superpowers/decisions/2026-05-15-
+ * step-5-section-9-decisions.md`). Resolution lives in `i18n/error-message-map.ts`:
+ * exact code → substring code → fallback. The permanent prop forces the
+ * SIDECAR_GAVE_UP copy + swaps the action button to Restart Lisna.
+ *
+ * v2.0 concept-lock is JA-only — no EN fallback. The header text below is
+ * also JA. If a future v2.1 introduces a settings UI for locale, add a
+ * second map (`ERROR_MESSAGE_MAP_EN` etc.) and dispatch at toFriendly* level.
+ */
+export function ErrorView({ message, segments, onRetry, permanent }: Props) {
+  // Resolve copy. The permanent flag forces the SIDECAR_GAVE_UP message even
+  // if `message` came in as a transient "engine restarted" string from an
+  // earlier handleSidecarExit push that arrived before the give-up upgrade.
+  // Without this, App.tsx's idempotent error-state merge would keep the
+  // earlier copy on screen — defeating the purpose of the flag.
+  const friendly = permanent ? ERROR_MESSAGE_MAP_JA.SIDECAR_GAVE_UP : toFriendlyJa(message);
+  return (
+    <section>
+      <h2>エラーが発生しました</h2>
+      <p style={{ color: 'crimson' }}>{friendly}</p>
+      {segments.length > 0 && (
+        <details open>
+          <summary>これまでの文字起こし ({segments.length} 個のセグメント)</summary>
+          <ul style={{ listStyle: 'none', padding: 0, fontFamily: 'monospace' }}>
+            {segments.map((seg, i) => (
+              <li key={i}>[{seg.startSec.toFixed(1)}] {seg.text}</li>
+            ))}
+          </ul>
+        </details>
+      )}
+      {permanent ? (
+        <button onClick={() => void window.lisna.restartApp()}>Lisna を再起動</button>
+      ) : (
+        <button onClick={onRetry}>もう一度試す</button>
+      )}
+    </section>
+  );
+}

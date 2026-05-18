@@ -1,0 +1,40 @@
+{
+  "name": "@lisna/desktop",
+  "version": "0.0.1",
+  "private": true,
+  "main": "out/main/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "build:sidecar": "bash sidecar/scripts/build.sh",
+    "test:sidecar": "bash sidecar/scripts/build.sh test",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run --passWithNoTests",
+    "test:e2e": "playwright test",
+    "package": "pnpm build:sidecar && pnpm build && electron-builder --mac",
+    "verify": "tsx ci/gates.ts && pnpm typecheck && pnpm lint && pnpm test"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "@vitejs/plugin-react": "^4.3.0",
+    "electron": "^39.0.0",
+    "electron-builder": "^25.0.0",
+    "electron-vite": "^3.0.0",
+    "eslint": "^9",
+    "eslint-plugin-react-hooks": "^5",
+    "tsx": "^4.21.0",
+    "typescript": "~5.5.0",
+    "typescript-eslint": "^8",
+    "vite": "^5.4.0",
+    "vitest": "^2"
+  },
+  "dependencies": {
+    "electron-log": "^5.4.4",
+    "react": "^18",
+    "react-dom": "^18"
+  }
+}

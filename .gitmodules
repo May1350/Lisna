@@ -1,0 +1,6 @@
+[submodule "desktop/sidecar/deps/whisper.cpp"]
+	path = desktop/sidecar/deps/whisper.cpp
+	url = https://github.com/ggerganov/whisper.cpp
+[submodule "desktop/sidecar/deps/llama.cpp"]
+	path = desktop/sidecar/deps/llama.cpp
+	url = https://github.com/ggml-org/llama.cpp

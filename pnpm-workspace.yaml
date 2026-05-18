@@ -3,3 +3,4 @@ packages:
   - 'backend'
   - 'web'
   - 'shared'
+  - 'desktop'
