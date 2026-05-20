@@ -27,9 +27,9 @@ export async function NavBar({ locale, pathname, authState }: NavBarProps) {
               {t('signin')}
             </Link>
           ) : (
-            <Link href={`${prefix}/dashboard`} className="flex items-center gap-2">
+            <Link href={`${prefix}/dashboard`} aria-label={t('dashboard')} className="flex items-center gap-2">
               <span className="w-6 h-6 rounded-full bg-accent-tan text-cream-50 text-body-sm grid place-items-center font-serif">
-                {authState.name?.[0]?.toUpperCase() ?? '·'}
+                {authState.name[0]?.toUpperCase() ?? '·'}
               </span>
               <span>{authState.name}</span>
               <span className="text-[10px]" aria-hidden="true">▾</span>
