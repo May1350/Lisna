@@ -17,6 +17,7 @@ extension/dist/
 backend/dist/
 web/.next/
 web/next-env.d.ts
+*.tsbuildinfo
 .vercel/
 lisna-extension.zip
 lisna-extension-*.zip
