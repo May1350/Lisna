@@ -20,12 +20,12 @@ export function FeatureBlock({ eyebrow, headline, body, meta, image, variant = '
       )}>
         <div>
           <p className="text-meta uppercase tracking-[0.18em] text-accent-tan">{eyebrow}</p>
-          <h3 className={cn(
+          <h2 className={cn(
             'mt-3 font-serif leading-[1.15] text-ink-900',
             isPrimary ? 'text-feature-primary' : 'text-feature',
           )}>
             {headline}
-          </h3>
+          </h2>
           <p className="mt-5 font-sans text-body text-ink-700 leading-[1.65] max-w-[52ch]">{body}</p>
           <ul className="mt-6 flex flex-wrap gap-x-6 gap-y-2 text-body-sm text-ink-700/80">
             {meta.map((m, i) => <li key={i}>{m}</li>)}

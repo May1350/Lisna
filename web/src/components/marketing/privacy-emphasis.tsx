@@ -22,7 +22,7 @@ export function PrivacyEmphasis({ eyebrow, headline, statValue, statSub, items }
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
           {items.map((it, i) => (
             <div key={i}>
-              <h4 className="font-serif text-grid-title text-cream-200">{it.title}</h4>
+              <h3 className="font-serif text-grid-title text-cream-200">{it.title}</h3>
               <p className="mt-2 font-sans text-body-sm text-cream-200/70 leading-[1.65]">{it.body}</p>
             </div>
           ))}
