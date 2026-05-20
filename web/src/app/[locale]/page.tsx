@@ -43,7 +43,7 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: L
     },
     alternates: {
       canonical: `https://lisna.jp/${locale === 'en' ? '' : locale}`,
-      languages: { en: '/', ja: '/ja', ko: '/ko' },
+      languages: { 'x-default': '/', en: '/', ja: '/ja', ko: '/ko' },
     },
   };
 }
