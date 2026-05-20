@@ -30,12 +30,12 @@ export function LocaleSwitcher({ currentLocale, pathname }: LocaleSwitcherProps)
         aria-label={`Locale: ${LABELS[currentLocale]}`}
         className="inline-flex items-center gap-1 text-body text-ink-900 hover:text-margin-red transition-colors"
       >
-        {LABELS[currentLocale]} <span className="text-[10px]">▾</span>
+        {LABELS[currentLocale]} <span className="text-[10px]" aria-hidden="true">▾</span>
       </DropdownTrigger>
       <DropdownContent align="end">
         {ALL.map((loc) => (
           <DropdownItem key={loc} asChild>
-            <Link href={loc === 'en' ? basePath : `/${loc}${basePath}`}>
+            <Link href={loc === 'en' ? basePath : `/${loc}${basePath === '/' ? '' : basePath}`}>
               {LABELS[loc]}
             </Link>
           </DropdownItem>
