@@ -1520,8 +1520,15 @@ import { routing } from './src/i18n/routing';
 export default createMiddleware(routing);
 
 export const config = {
-  // Match all paths except API, _next, static files
-  matcher: ['/((?!api|_next|_vercel|.*\\..*).*)'],
+  // Match all paths except API, _next, static files, and existing top-level
+  // pages that haven't yet been migrated under [locale]/ (Phase F moves them).
+  // When a page is moved under [locale]/, remove it from this exclusion list.
+  // Known transition-period gap: locale-prefixed access to non-migrated pages
+  // (e.g. /ja/pricing) returns 404 — middleware runs but Next finds no
+  // [locale]/pricing/page.tsx until Phase F migrates it.
+  matcher: [
+    '/((?!api|_next|_vercel|cancel|design-test|pricing|privacy|refunds|success|terms|tokusho|trial-cancel|trial-success|robots.txt|.*\\..*).*)',
+  ],
 };
 ```
 
@@ -1794,7 +1801,7 @@ export function LocaleSwitcher({ currentLocale, pathname }: LocaleSwitcherProps)
         aria-label={`Locale: ${LABELS[currentLocale]}`}
         className="inline-flex items-center gap-1 text-body text-ink-900 hover:text-margin-red transition-colors"
       >
-        {LABELS[currentLocale]} <span className="text-[10px]">▾</span>
+        {LABELS[currentLocale]} <span className="text-[10px]" aria-hidden="true">▾</span>
       </DropdownTrigger>
       <DropdownContent align="end">
         {ALL.map((loc) => (
@@ -5247,7 +5254,7 @@ export function AvatarMenu({ name, email, image, prefix, onSignOut }: AvatarMenu
           {image ? <img src={image} alt="" className="w-full h-full object-cover" /> : (name[0]?.toUpperCase() ?? '·')}
         </span>
         <span>{name}</span>
-        <span className="text-[10px]">▾</span>
+        <span className="text-[10px]" aria-hidden="true">▾</span>
       </DropdownTrigger>
       <DropdownContent align="end">
         <div className="px-3 py-2">
