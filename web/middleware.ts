@@ -1,7 +1,14 @@
 import createMiddleware from 'next-intl/middleware';
+import { NextResponse, type NextRequest } from 'next/server';
 import { routing } from './src/i18n/routing';
 
-export default createMiddleware(routing);
+const intl = createMiddleware(routing);
+
+export default function middleware(req: NextRequest) {
+  const res = intl(req);
+  res.headers.set('x-pathname', req.nextUrl.pathname);
+  return res;
+}
 
 export const config = {
   // Match all paths except API, _next, static files, and existing top-level
