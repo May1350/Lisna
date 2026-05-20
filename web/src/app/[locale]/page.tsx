@@ -1,4 +1,4 @@
-import { containerStyle } from './_styles'
+import { containerStyle } from '../_styles'
 
 export const metadata = {
   title: 'Lisna — AI lecture notes for university students',
