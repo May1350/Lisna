@@ -47,6 +47,20 @@ const config: Config = {
         meta:              ['0.75rem',   { lineHeight: '1.5',  letterSpacing: '0.1em',    fontWeight: '700' }],
         hint:              ['0.6875rem', { lineHeight: '1.5',                             fontWeight: '400' }],
       },
+      keyframes: {
+        'accordion-down': {
+          from: { height: '0' },
+          to: { height: 'var(--radix-accordion-content-height)' },
+        },
+        'accordion-up': {
+          from: { height: 'var(--radix-accordion-content-height)' },
+          to: { height: '0' },
+        },
+      },
+      animation: {
+        'accordion-down': 'accordion-down 0.2s ease-out',
+        'accordion-up': 'accordion-up 0.2s ease-out',
+      },
     },
   },
 };
