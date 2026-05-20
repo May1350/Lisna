@@ -1,5 +1,6 @@
 import '@/styles/globals.css'
 import type { Metadata } from 'next'
+import { fraunces, inter } from '@/lib/fonts'
 
 // Root-level metadata. The `robots` block is the load-bearing piece
 // here: Vercel's auto-generated *.vercel.app domains ship with an
@@ -20,10 +21,8 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ja">
-      <body style={{ fontFamily: 'system-ui, -apple-system, sans-serif', maxWidth: 800, margin: '40px auto', padding: '0 20px' }}>
-        {children}
-      </body>
+    <html lang="en" className={`${fraunces.variable} ${inter.variable}`}>
+      <body>{children}</body>
     </html>
   )
 }
