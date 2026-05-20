@@ -167,10 +167,12 @@ Goal: install all web dependencies, scaffold Tailwind + design tokens + font loa
 Run from `web/`:
 
 ```bash
-cd web && pnpm add -D tailwindcss @tailwindcss/postcss postcss autoprefixer
+cd web && pnpm add -D tailwindcss @tailwindcss/postcss postcss
 pnpm add clsx tailwind-merge class-variance-authority
 pnpm add @radix-ui/react-dropdown-menu @radix-ui/react-dialog @radix-ui/react-popover @radix-ui/react-accordion @radix-ui/react-tabs @radix-ui/react-toast @radix-ui/react-slot
 ```
+
+> Note: Tailwind v4 uses Lightning CSS internally for vendor prefixing — `autoprefixer` is no longer needed (would cause double-prefixing if added).
 
 Expected: `package.json` gains tailwind v4, all Radix primitives, CVA, tailwind-merge, clsx.
 
@@ -181,7 +183,6 @@ Expected: `package.json` gains tailwind v4, all Radix primitives, CVA, tailwind-
 export default {
   plugins: {
     '@tailwindcss/postcss': {},
-    autoprefixer: {},
   },
 };
 ```
