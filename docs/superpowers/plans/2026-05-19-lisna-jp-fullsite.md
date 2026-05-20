@@ -240,7 +240,9 @@ git commit -m "feat(web): install Tailwind v4 + Radix + CVA + design-system deps
 
 **Files:**
 - Create: `web/tailwind.config.ts`
-- Modify: `web/src/styles/globals.css` (replace @theme block)
+- Modify: `web/src/styles/globals.css` (replace @theme block, add `@config` directive)
+
+> **Phase A invariant (do not remove):** `globals.css` carries `@config "../../tailwind.config.ts";` immediately after the `@import "tailwindcss";` line. Tailwind v4 does NOT auto-discover `tailwind.config.ts` — the directive is required to bridge the JS config into the v4 CSS-first pipeline. Future CSS refactors must preserve this line.
 
 - [ ] **Step 1: Create web/tailwind.config.ts**
 
