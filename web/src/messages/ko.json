@@ -27,6 +27,8 @@
     "docsHeading": "문서",
     "communityHeading": "커뮤니티",
     "legalHeading": "법적 사항",
-    "copyright": "© 2026 Lisna · All rights reserved"
+    "copyright": "© 2026 Lisna · All rights reserved",
+    "opensInNewTab": "(새 탭에서 열림)",
+    "availableLocales": "지원 언어: 영어, 일본어, 한국어"
   }
 }

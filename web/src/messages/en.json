@@ -27,6 +27,8 @@
     "docsHeading": "Docs",
     "communityHeading": "Community",
     "legalHeading": "Legal",
-    "copyright": "© 2026 Lisna · All rights reserved"
+    "copyright": "© 2026 Lisna · All rights reserved",
+    "opensInNewTab": "(opens in new tab)",
+    "availableLocales": "Available in: English, Japanese, Korean"
   }
 }
