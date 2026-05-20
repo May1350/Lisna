@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@config "../../tailwind.config.ts";
 
 @theme {
   /* Tokens defined in Task 3 — placeholder for now */
@@ -10,7 +11,6 @@
     text-rendering: optimizeLegibility;
   }
   body {
-    background-color: #f8f3e9; /* cream-200 placeholder; Task 3 binds to token */
-    color: #1a1410; /* ink-900 placeholder */
+    @apply bg-cream-200 text-ink-900 font-sans;
   }
 }
