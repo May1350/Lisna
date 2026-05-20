@@ -1,59 +1,122 @@
-import { containerStyle } from '../_styles'
+// web/src/app/[locale]/page.tsx
+import { setRequestLocale, getTranslations } from 'next-intl/server';
+import { MarketingShell } from '@/components/layout/marketing-shell';
+import { Hero } from '@/components/marketing/hero';
+import { TrustStrip } from '@/components/marketing/trust-strip';
+import { FeatureBlock } from '@/components/marketing/feature-block';
+import { Marginalia } from '@/components/marketing/marginalia';
+import { PrivacyEmphasis } from '@/components/marketing/privacy-emphasis';
+import { PricingCards } from '@/components/marketing/pricing-cards';
+import { FAQAccordion } from '@/components/marketing/faq-accordion';
+import { CTAStrip } from '@/components/marketing/cta-strip';
+import { ScreenshotFrame } from '@/components/ui/screenshot-frame';
+import type { Locale } from '@/i18n/routing';
 
-export const metadata = {
-  title: 'Lisna — AI lecture notes for university students',
-  description: 'Real-time AI summaries for lecture videos. Auto-generates structured notes, captures slides, exports to PDF / Markdown / Obsidian. Free 30 min/month, Pro ¥980/month for 30 hours.',
-  // Explicit indexing — overrides Vercel's preview-deployment default
-  // and tells crawlers (Stripe verification bot included) that this
-  // page is a legitimate public business surface.
-  robots: { index: true, follow: true },
-}
+export default async function HomePage({ params }: { params: Promise<{ locale: Locale }> }) {
+  const { locale } = await params;
+  setRequestLocale(locale);
+  const tF = await getTranslations('features');
+  const tP = await getTranslations('privacyEmphasis');
+  const tPr = await getTranslations('pricingSection');
+  const tFaq = await getTranslations('faq');
 
-export default function Home() {
+  const stockImage = (label: string) => (
+    <ScreenshotFrame title={label}>
+      <div className="h-64 grid place-items-center text-body-sm text-ink-700/40">[ screenshot placeholder ]</div>
+    </ScreenshotFrame>
+  );
+
   return (
-    <main style={containerStyle}>
-      <h1 style={{ fontSize: 32, marginBottom: 8 }}>Lisna</h1>
-      <p style={{ fontSize: 18, color: '#475569', marginBottom: 32 }}>
-        講義や会議をリアルタイムで聴き取り、構造化されたノートを自動生成するAIアシスタント
-      </p>
+    <MarketingShell locale={locale}>
+      <Hero />
+      <TrustStrip />
 
-      <h2>サービス概要</h2>
-      <p>
-        Lisna は大学生・研究者向けの Chrome 拡張機能です。視聴中の講義動画から
-        音声と画面情報を取得し、AI が要点を抽出してノートとして整理します。
-        YouTube / 各大学の LMS / 会議ツール (Zoom録画、Teams) などに対応しています。
-      </p>
+      <div id="features">
+        <FeatureBlock
+          eyebrow={tF('stt.eyebrow')}
+          headline={<>{tF('stt.headlineBefore')}<em className="italic text-accent-tan">{tF('stt.headlineEm')}</em>{tF('stt.headlineAfter')}</>}
+          body={tF('stt.body')}
+          meta={[tF('stt.metaA'), tF('stt.metaB'), tF('stt.metaC')]}
+          image={stockImage('Live captions')}
+        />
 
-      <h2>主な機能</h2>
-      <ul>
-        <li>動画を再生するだけで、要点ノートが自動生成</li>
-        <li>スライドも自動でキャプチャ</li>
-        <li>視聴後に PDF / Markdown でダウンロード</li>
-        <li>Obsidian REST API への直接連携</li>
-      </ul>
+        <FeatureBlock
+          variant="primary"
+          eyebrow={tF('privacy.eyebrow')}
+          headline={<>{tF('privacy.headlineBefore')}<em className="italic text-accent-tan">{tF('privacy.headlineEm')}</em>{tF('privacy.headlineAfter')}</>}
+          body={tF('privacy.body')}
+          meta={[tF('privacy.metaA'), tF('privacy.metaB'), tF('privacy.metaC')]}
+          image={stockImage('Local-only diagram')}
+        />
+      </div>
 
-      <h2>料金プラン</h2>
-      <ul>
-        <li><strong>Free</strong>: 月 30 分まで無料</li>
-        <li><strong>Pro</strong>: ¥980 / 月 — 月 30 時間 (Free の 60 倍)</li>
-      </ul>
-      <p style={{ marginTop: 8 }}>
-        <a href="/pricing">→ 料金プランの詳細</a>
-      </p>
+      <Marginalia>{tF('marginalia')}</Marginalia>
 
-      <h2>お問い合わせ</h2>
-      <p>
-        サポート・お問い合わせ:{' '}
-        <a href="mailto:takgun.jr@gmail.com">takgun.jr@gmail.com</a>
-      </p>
+      <FeatureBlock
+        eyebrow={tF('notes.eyebrow')}
+        headline={<>{tF('notes.headlineBefore')}<em className="italic text-accent-tan">{tF('notes.headlineEm')}</em>{tF('notes.headlineAfter')}</>}
+        body={tF('notes.body')}
+        meta={[tF('notes.metaA'), tF('notes.metaB'), tF('notes.metaC')]}
+        image={stockImage('Note preview')}
+      />
 
-      <p style={{ marginTop: 40, fontSize: 14, color: '#64748b' }}>
-        <a href="/pricing">料金</a> ・{' '}
-        <a href="/refunds">返金ポリシー</a> ・{' '}
-        <a href="/terms">利用規約</a> ・{' '}
-        <a href="/privacy">プライバシーポリシー</a> ・{' '}
-        <a href="/tokusho">特定商取引法に基づく表記</a>
-      </p>
-    </main>
-  )
+      <FeatureBlock
+        variant="reverse"
+        eyebrow={tF('export.eyebrow')}
+        headline={<>{tF('export.headlineBefore')}<em className="italic text-accent-tan">{tF('export.headlineEm')}</em>{tF('export.headlineAfter')}</>}
+        body={tF('export.body')}
+        meta={[tF('export.metaA'), tF('export.metaB'), tF('export.metaC')]}
+        image={stockImage('Markdown export')}
+      />
+
+      <PrivacyEmphasis
+        eyebrow={tP('eyebrow')}
+        headline={<>{tP('headlineBefore')}<em className="italic text-accent-tan">{tP('headlineEm')}</em>{tP('headlineAfter')}</>}
+        statValue={tP('statValue')}
+        statSub={tP('statSub')}
+        items={[
+          { title: tP('item1Title'), body: tP('item1Body') },
+          { title: tP('item2Title'), body: tP('item2Body') },
+          { title: tP('item3Title'), body: tP('item3Body') },
+          { title: tP('item4Title'), body: tP('item4Body') },
+          { title: tP('item5Title'), body: tP('item5Body') },
+          { title: tP('item6Title'), body: tP('item6Body') },
+        ]}
+      />
+
+      <PricingCards
+        heading={tPr('heading')}
+        sub={tPr('sub')}
+        plans={[
+          {
+            name: tPr('alphaName'),
+            amount: tPr('alphaAmount'),
+            period: tPr('alphaPeriod'),
+            badge: { label: tPr('alphaBadge'), tone: 'free' },
+            features: [tPr('alphaFeature1'), tPr('alphaFeature2'), tPr('alphaFeature3'), tPr('alphaFeature4')],
+            cta: { label: tPr('alphaCta'), href: '/dl/dmg/latest' },
+            highlighted: true,
+          },
+          {
+            name: tPr('proName'),
+            amount: tPr('proAmount'),
+            period: tPr('proPeriod'),
+            badge: { label: tPr('proBadge'), tone: 'soon' },
+            features: [tPr('proFeature1'), tPr('proFeature2'), tPr('proFeature3'), tPr('proFeature4')],
+          },
+        ]}
+      />
+
+      <FAQAccordion
+        eyebrow={tFaq('eyebrow')}
+        heading={<>{tFaq('headlineBefore')}<em className="italic text-accent-tan">{tFaq('headlineEm')}</em>{tFaq('headlineAfter')}</>}
+        entries={[1, 2, 3, 4, 5, 6].map((n) => ({
+          q: tFaq(`q${n}` as 'q1'),
+          a: tFaq(`a${n}` as 'a1'),
+        }))}
+      />
+
+      <CTAStrip />
+    </MarketingShell>
+  );
 }
