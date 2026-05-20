@@ -1,1 +1,32 @@
-{}
+{
+  "nav": {
+    "product": "Product",
+    "pricing": "Pricing",
+    "docs": "Docs",
+    "changelog": "Changelog",
+    "signin": "Sign in",
+    "dashboard": "Dashboard",
+    "signout": "Sign out"
+  },
+  "hero": {
+    "h1Line1": "Your lectures,",
+    "h1Line2Prefix": "in ",
+    "h1Line2Emphasis": "your",
+    "h1Line2Suffix": " notes.",
+    "sub": "Real-time transcription + structured summaries. 100% on-device — your audio never leaves your Mac.",
+    "cta": "Download for Mac →",
+    "hint": "macOS 13+ · Free during alpha · Apple Silicon · 537 MB"
+  },
+  "trust": {
+    "label": "EARLY USE AT",
+    "keio": "Keio University"
+  },
+  "footer": {
+    "tagline": "Lecture-notes app for students and researchers. Made in Tokyo. 100% on-device.",
+    "productHeading": "Product",
+    "docsHeading": "Docs",
+    "communityHeading": "Community",
+    "legalHeading": "Legal",
+    "copyright": "© 2026 Lisna · All rights reserved"
+  }
+}

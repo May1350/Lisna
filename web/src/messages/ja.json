@@ -1,1 +1,32 @@
-{}
+{
+  "nav": {
+    "product": "プロダクト",
+    "pricing": "料金",
+    "docs": "ドキュメント",
+    "changelog": "更新履歴",
+    "signin": "サインイン",
+    "dashboard": "ダッシュボード",
+    "signout": "サインアウト"
+  },
+  "hero": {
+    "h1Line1": "講義を、",
+    "h1Line2Prefix": "",
+    "h1Line2Emphasis": "あなたの",
+    "h1Line2Suffix": "ノートに。",
+    "sub": "リアルタイム文字起こし + 構造化されたサマリー。100% オンデバイス — 音声が Mac から出ることはありません。",
+    "cta": "Macアプリをダウンロード →",
+    "hint": "macOS 13+ · アルファ版無料 · Apple Silicon · 537 MB"
+  },
+  "trust": {
+    "label": "アルファ版を試している大学",
+    "keio": "慶應義塾大学"
+  },
+  "footer": {
+    "tagline": "学生・研究者のための講義ノートアプリ。東京で開発。100% オンデバイス。",
+    "productHeading": "プロダクト",
+    "docsHeading": "ドキュメント",
+    "communityHeading": "コミュニティ",
+    "legalHeading": "法的事項",
+    "copyright": "© 2026 Lisna · All rights reserved"
+  }
+}

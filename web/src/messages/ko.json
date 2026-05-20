@@ -1,1 +1,32 @@
-{}
+{
+  "nav": {
+    "product": "제품",
+    "pricing": "요금",
+    "docs": "문서",
+    "changelog": "릴리스 노트",
+    "signin": "로그인",
+    "dashboard": "대시보드",
+    "signout": "로그아웃"
+  },
+  "hero": {
+    "h1Line1": "당신의 강의가",
+    "h1Line2Prefix": "",
+    "h1Line2Emphasis": "당신의",
+    "h1Line2Suffix": " 노트로.",
+    "sub": "실시간 전사 + 구조화된 요약. 100% 온디바이스 — 음성이 Mac 을 떠나지 않습니다.",
+    "cta": "Mac 앱 다운로드 →",
+    "hint": "macOS 13+ · 알파 무료 · Apple Silicon · 537 MB"
+  },
+  "trust": {
+    "label": "얼리 어답터",
+    "keio": "게이오 대학"
+  },
+  "footer": {
+    "tagline": "학생과 연구자를 위한 강의 노트 앱. 도쿄에서 개발. 100% 온디바이스.",
+    "productHeading": "제품",
+    "docsHeading": "문서",
+    "communityHeading": "커뮤니티",
+    "legalHeading": "법적 사항",
+    "copyright": "© 2026 Lisna · All rights reserved"
+  }
+}
