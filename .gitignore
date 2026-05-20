@@ -16,6 +16,7 @@ cdk.out/
 extension/dist/
 backend/dist/
 web/.next/
+web/next-env.d.ts
 .vercel/
 lisna-extension.zip
 lisna-extension-*.zip
