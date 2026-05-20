@@ -1,3 +1,4 @@
+import '@/styles/globals.css'
 import type { Metadata } from 'next'
 
 // Root-level metadata. The `robots` block is the load-bearing piece

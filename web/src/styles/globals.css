@@ -1,0 +1,16 @@
+@import "tailwindcss";
+
+@theme {
+  /* Tokens defined in Task 3 — placeholder for now */
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    background-color: #f8f3e9; /* cream-200 placeholder; Task 3 binds to token */
+    color: #1a1410; /* ink-900 placeholder */
+  }
+}
