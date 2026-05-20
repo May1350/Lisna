@@ -24,7 +24,7 @@ export function Hero() {
           </div>
           <p className="mt-3 text-hint text-ink-700/60">{t('hint')}</p>
         </div>
-        <div>
+        <div aria-hidden="true">
           <ScreenshotFrame title="Real Analysis · Lecture 3">
             <div className="font-sans text-body-sm text-ink-700 space-y-3">
               <div className="flex items-center gap-2">
