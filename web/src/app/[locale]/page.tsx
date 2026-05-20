@@ -1,4 +1,5 @@
 // web/src/app/[locale]/page.tsx
+import type { Metadata } from 'next';
 import { setRequestLocale, getTranslations } from 'next-intl/server';
 import { MarketingShell } from '@/components/layout/marketing-shell';
 import { Hero } from '@/components/marketing/hero';
@@ -11,6 +12,41 @@ import { FAQAccordion } from '@/components/marketing/faq-accordion';
 import { CTAStrip } from '@/components/marketing/cta-strip';
 import { ScreenshotFrame } from '@/components/ui/screenshot-frame';
 import type { Locale } from '@/i18n/routing';
+
+export async function generateMetadata({ params }: { params: Promise<{ locale: Locale }> }): Promise<Metadata> {
+  const { locale } = await params;
+  const titles: Record<Locale, string> = {
+    en: 'Lisna — Your lectures, in your notes (100% on-device)',
+    ja: 'Lisna — 講義を、あなたのノートに（100% オンデバイス）',
+    ko: 'Lisna — 강의를 노트로 (100% 온디바이스)',
+  };
+  const descs: Record<Locale, string> = {
+    en: 'Real-time transcription + structured summaries. 100% on-device — your audio never leaves your Mac.',
+    ja: 'リアルタイム文字起こし + 構造化されたサマリー。100% オンデバイス — 音声が Mac から出ることはありません。',
+    ko: '실시간 전사 + 구조화된 요약. 100% 온디바이스 — 음성이 Mac 을 떠나지 않습니다.',
+  };
+  return {
+    title: titles[locale],
+    description: descs[locale],
+    openGraph: {
+      title: titles[locale],
+      description: descs[locale],
+      url: `https://lisna.jp/${locale === 'en' ? '' : locale}`,
+      siteName: 'Lisna',
+      locale: locale === 'en' ? 'en_US' : locale === 'ja' ? 'ja_JP' : 'ko_KR',
+      type: 'website',
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: titles[locale],
+      description: descs[locale],
+    },
+    alternates: {
+      canonical: `https://lisna.jp/${locale === 'en' ? '' : locale}`,
+      languages: { en: '/', ja: '/ja', ko: '/ko' },
+    },
+  };
+}
 
 export default async function HomePage({ params }: { params: Promise<{ locale: Locale }> }) {
   const { locale } = await params;
