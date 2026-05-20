@@ -8,7 +8,9 @@ describe('EmailMagicLinkForm', () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     render(<EmailMagicLinkForm onSubmit={onSubmit} />);
     fireEvent.change(screen.getByPlaceholderText(/email/i), { target: { value: 'a@b.com' } });
-    fireEvent.click(screen.getByRole('button', { name: /send link/i }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /send link/i }));
+    });
     expect(onSubmit).toHaveBeenCalledWith('a@b.com');
   });
   it('disables the button while submitting', async () => {
