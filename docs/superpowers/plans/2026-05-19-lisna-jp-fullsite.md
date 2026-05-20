@@ -1888,7 +1888,7 @@ export async function NavBar({ locale, pathname, authState }: NavBarProps) {
   return (
     <nav className="fixed top-0 inset-x-0 z-40 backdrop-blur-md bg-cream-200/70 border-b border-ink-900/5">
       <div className="mx-auto max-w-7xl flex items-center justify-between px-6 lg:px-12 h-14">
-        <Link href={`${prefix}/`} className="font-serif text-[18px] text-ink-900">Lisna</Link>
+        <Link href={prefix || '/'} className="font-serif text-[18px] text-ink-900">Lisna</Link>
         <div className="flex items-center gap-6 text-body text-ink-900">
           <Link href={`${prefix}/#features`}>{t('product')}</Link>
           <Link href={`${prefix}/pricing`}>{t('pricing')}</Link>
@@ -1905,7 +1905,7 @@ export async function NavBar({ locale, pathname, authState }: NavBarProps) {
                 {authState.name?.[0]?.toUpperCase() ?? '·'}
               </span>
               <span>{authState.name}</span>
-              <span className="text-[10px]">▾</span>
+              <span className="text-[10px]" aria-hidden="true">▾</span>
             </Link>
           )}
         </div>
@@ -1996,7 +1996,7 @@ export async function Footer({ locale }: FooterProps) {
       </div>
       <div className="border-t border-cream-200/10 px-6 lg:px-12 py-6 max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-body-sm">
         <p>{t('copyright')}</p>
-        <p>EN · 日本語 · 한국어</p>
+        <p>EN<span aria-hidden="true"> · </span>日本語<span aria-hidden="true"> · </span>한국어</p>
       </div>
     </footer>
   );
@@ -2063,9 +2063,9 @@ export async function getAuthState(): Promise<'guest' | { name: string; email: s
 }
 ```
 
-- [ ] **Step 3: Add x-pathname header in middleware**
+- [ ] **Step 3: Add x-pathname header in middleware (ADD-only; preserve Phase D matcher)**
 
-Modify `web/middleware.ts`:
+Modify `web/middleware.ts` — wrap the existing `intl` middleware call to set an `x-pathname` response header. **Do NOT rewrite the matcher.** The exclusion list from Phase D Task 17 stays as-is; Phase F removes each entry as it migrates that page under `[locale]/`:
 
 ```ts
 import createMiddleware from 'next-intl/middleware';
@@ -2080,8 +2080,12 @@ export default function middleware(req: NextRequest) {
   return res;
 }
 
+// matcher INHERITED from Phase D Task 17 — do NOT touch here.
+// Phase F removes each exclusion as it migrates that page under [locale]/.
 export const config = {
-  matcher: ['/((?!api|_next|_vercel|.*\\..*).*)'],
+  matcher: [
+    '/((?!api|_next|_vercel|cancel|design-test|pricing|privacy|refunds|success|terms|tokusho|trial-cancel|trial-success|robots.txt|.*\\..*).*)',
+  ],
 };
 ```
 
@@ -2127,7 +2131,7 @@ export async function AuthShell({ locale, children }: AuthShellProps) {
     <div className="notebook-bg ruled-paper red-margin min-h-screen">
       <nav className="absolute top-0 inset-x-0 z-40 backdrop-blur-md bg-cream-200/60">
         <div className="mx-auto max-w-7xl flex items-center justify-between px-6 lg:px-12 h-14">
-          <Link href={`${prefix}/`} className="font-serif text-[18px] text-ink-900">Lisna</Link>
+          <Link href={prefix || '/'} className="font-serif text-[18px] text-ink-900">Lisna</Link>
           <LocaleSwitcher currentLocale={locale} pathname={pathname} />
         </div>
       </nav>
