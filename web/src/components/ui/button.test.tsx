@@ -13,7 +13,11 @@ describe('Button', () => {
   });
   it('applies ghost variant classes when specified', () => {
     render(<Button variant="ghost">X</Button>);
-    expect(screen.getByText('X')).toHaveClass('border');
+    expect(screen.getByText('X')).toHaveClass('border-ink-900/20');
+  });
+  it('applies size="sm" classes when specified', () => {
+    render(<Button size="sm">X</Button>);
+    expect(screen.getByText('X')).toHaveClass('text-[14px]');
   });
   it('renders as <a> when asChild + an <a> is provided', () => {
     render(<Button asChild><a href="/download">D</a></Button>);
