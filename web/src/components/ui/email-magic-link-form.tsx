@@ -4,6 +4,7 @@ import { Input } from './input';
 import { Button } from './button';
 
 export interface EmailMagicLinkFormProps {
+  /** Called on submit. Throw to abort; handle error UI (e.g. toast) at the call site. */
   onSubmit: (email: string) => Promise<void>;
   hint?: string;
 }

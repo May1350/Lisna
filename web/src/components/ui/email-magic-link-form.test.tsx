@@ -1,5 +1,6 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { act } from 'react';
 import { EmailMagicLinkForm } from './email-magic-link-form';
 
 describe('EmailMagicLinkForm', () => {
@@ -17,6 +18,6 @@ describe('EmailMagicLinkForm', () => {
     fireEvent.change(screen.getByPlaceholderText(/email/i), { target: { value: 'a@b.com' } });
     fireEvent.click(screen.getByRole('button', { name: /send link/i }));
     expect(screen.getByRole('button')).toBeDisabled();
-    resolve();
+    await act(async () => { resolve(); });
   });
 });
