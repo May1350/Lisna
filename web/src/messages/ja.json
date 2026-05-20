@@ -138,6 +138,7 @@
     "headlineBefore": "Ready to ",
     "headlineEm": "focus",
     "headlineAfter": "?",
-    "sub": "Free during alpha. Sign in inside the app on first launch."
+    "sub": "Free during alpha. Sign in inside the app on first launch.",
+    "hint": "macOS 13+ · Apple Silicon · 537 MB"
   }
 }
