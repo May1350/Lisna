@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @config "../../tailwind.config.ts";
+@plugin "@tailwindcss/typography";
 
 @theme {
   /* Tokens defined in Task 3 — placeholder for now */
