@@ -31,6 +31,6 @@ export async function GET(req: NextRequest) {
     `<!doctype html><html><head><meta http-equiv="refresh" content="0; url=${escapeHtmlAttr(url)}" /><title>Returning to Lisna…</title></head>
 <body><p>Returning to Lisna… <a href="/auth/success">Continue in browser</a></p>
 <script>window.location.href = ${JSON.stringify(url)};</script></body></html>`,
-    { headers: { 'Content-Type': 'text/html; charset=utf-8' } },
+    { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } },
   );
 }
