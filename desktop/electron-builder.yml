@@ -7,3 +7,15 @@ mac:
       - CFBundleURLName: lisna
         CFBundleURLSchemes:
           - lisna
+
+# M-IM2 — keep keytar's native .node addon outside app.asar so dlopen can
+# load it at runtime (binaries inside an asar archive are not mappable). The
+# sidecar binary is also unpacked because we reference it via filesystem
+# path; extraResources additionally lands it under Contents/Resources/sidecar
+# where the supervisor resolves it.
+asarUnpack:
+  - "**/node_modules/keytar/**/*"
+  - "resources/sidecar"
+extraResources:
+  - from: "resources/sidecar"
+    to: "sidecar"

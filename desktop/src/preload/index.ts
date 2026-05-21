@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { CHANNELS } from '../main/ipc';
 import type {
+  AuthState,
   Capabilities,
   ChunkPayload,
   ChunkResultPayload,
@@ -96,7 +97,7 @@ contextBridge.exposeInMainWorld('lisna', {
    * present in Keychain, `{ signedIn:false }` otherwise. Used by App.tsx's
    * auth gate to decide between SignInView and the authenticated shell.
    */
-  getAuthState: (): Promise<{ signedIn: boolean }> =>
+  getAuthState: (): Promise<AuthState> =>
     ipcRenderer.invoke(CHANNELS.authGetState),
 
   /**
@@ -129,7 +130,7 @@ declare global {
       pickModel(slot: ModelSlot): Promise<PickResult>;
       openExternal(url: string): Promise<void>;
       signIn(): Promise<void>;
-      getAuthState(): Promise<{ signedIn: boolean }>;
+      getAuthState(): Promise<AuthState>;
       onSignedIn(cb: () => void): () => void;
     };
   }

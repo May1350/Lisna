@@ -157,3 +157,16 @@ export type PickResult =
 export interface ModelPickPayload {
   slot: ModelSlot;
 }
+
+// --- Phase M Task 70 — auth gate ---
+
+/**
+ * Phase M — main → renderer reply for `auth/get-state` IPC. The renderer's
+ * auth gate uses this to decide whether to render <SignInView /> or
+ * <AuthenticatedApp />. Mirrors the boolean derived from Keychain presence in
+ * main (`loadToken() !== null`). Future fields (e.g. lastSignInAt, deviceId)
+ * MUST land here first to keep main/preload/renderer in lockstep.
+ */
+export interface AuthState {
+  signedIn: boolean;
+}

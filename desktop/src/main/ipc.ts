@@ -1,6 +1,7 @@
 import os from 'node:os';
 import { app, ipcMain, shell, type BrowserWindow } from 'electron';
 import type {
+  AuthState,
   Capabilities,
   ChunkPayload,
   ChunkResultPayload,
@@ -240,7 +241,7 @@ export function registerIpc(deps: IpcDeps) {
   // returns `null` when the Keychain entry is missing; presence is the
   // sole signedIn signal (token validity is verified lazily on first
   // app-API call, not here).
-  ipcMain.handle(CHANNELS.authGetState, async () => ({
+  ipcMain.handle(CHANNELS.authGetState, async (): Promise<AuthState> => ({
     signedIn: (await loadToken()) !== null,
   }));
 

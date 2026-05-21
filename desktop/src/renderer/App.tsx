@@ -35,7 +35,21 @@ type View =
  *   - `onSignedIn` subscription handles warm dispatch: user clicks Sign In,
  *     browser flow completes, open-url delivers the deep link, the renderer
  *     is already mounted and listening.
- * Both paths idempotently flip `signedIn` to true; order doesn't matter.
+ *
+ * Race precedence (M-IM1):
+ *   The latched-true state wins all races. The poll resolution can only
+ *   advance state from `null` (initial) to its read value; it never demotes
+ *   an already-`true` value back to `false`. This matters when the cold-start
+ *   `auth/signed-in` event arrives BEFORE the `getAuthState` IPC reply (the
+ *   reply was already in-flight reading a stale pre-storeToken Keychain
+ *   state). Without the functional-update precedence, the late poll could
+ *   overwrite the event's `true` with the stale `false`. With it:
+ *     - poll-first-true   → null→true; event redundantly sets true→true ✓
+ *     - poll-first-false  → null→false; event later may set false→true ✓
+ *     - event-first-true  → null→true; poll's prev===true branch keeps true ✓
+ *     - event-late-true   → null→false (stale poll), then false→true (event) ✓
+ *   Once true, the gate is permanently latched; sign-out (future) must reset
+ *   state through a separate mechanism, not via this poll.
  */
 export function App() {
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
@@ -43,7 +57,10 @@ export function App() {
   useEffect(() => {
     let active = true;
     window.lisna.getAuthState().then((s) => {
-      if (active) setSignedIn(s.signedIn);
+      // M-IM1: never demote latched-true. If the event won the cold-start
+      // race and already flipped signedIn to true, the poll's stale `false`
+      // (Keychain read pre-storeToken) must not overwrite it.
+      if (active) setSignedIn((prev) => (prev === true ? true : s.signedIn));
     });
     const off = window.lisna.onSignedIn(() => {
       if (active) setSignedIn(true);
