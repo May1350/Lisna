@@ -29,6 +29,9 @@ function makePool(): Pool {
       database: 'lisna',
       ssl: { rejectUnauthorized: true },
       max: 1,
+      // pg caches the resolved token on the Client after first auth; reconnects after
+      // IAM token expiry (~15 min) re-invoke this fn only if the Client was evicted.
+      // With max:1 + serverless, a single transient 401 on idle reconnect is possible — callers retry.
       password: async () => getIamToken(),
     };
     return new Pool(cfg);
