@@ -56,15 +56,26 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   },
   callbacks: {
     async redirect({ url, baseUrl }) {
-      // If signin was started with source=app, the resend flow sets redirectTo to
-      // /api/auth/exchange-code/issue?app_callback=...  Auth.js calls redirect()
-      // with that URL once verification is complete. Pass it through unchanged.
+      // Phase K source=app flow: keep the exchange-code URL intact even when passed relative.
+      // (Auth.js usually absolutizes redirectTo before calling this callback, but checking the
+      // relative form here keeps the handshake working if the upstream behavior changes.)
       if (url.startsWith('/api/auth/exchange-code/issue')) {
         return `${baseUrl}${url}`;
       }
-      // Default: allow same-origin redirects, otherwise go to /dashboard
-      if (url.startsWith(baseUrl)) return url;
-      if (url.startsWith('/')) return `${baseUrl}${url}`;
+      // Allow same-origin redirects via origin comparison (not prefix match — `lisna.jp.evil.com`
+      // starts with `lisna.jp` and a naive startsWith opens a CVE-class subdomain open-redirect).
+      try {
+        const baseOrigin = new URL(baseUrl).origin;
+        const urlOrigin = new URL(url).origin;
+        if (urlOrigin === baseOrigin) return url;
+      } catch {
+        // url was not absolute — fall through to the relative-path branch
+      }
+      // Allow relative paths only — explicitly reject protocol-relative `//host` form.
+      if (url.startsWith('/') && !url.startsWith('//')) {
+        return `${baseUrl}${url}`;
+      }
+      // Anything else: ignore the requested URL, fall back to the default landing page.
       return `${baseUrl}/dashboard`;
     },
   },
