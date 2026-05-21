@@ -40,7 +40,7 @@ export default async function DownloadPage({ params }: { params: Promise<{ local
           </Card>
         </div>
 
-        <section className="mt-20">
+        <section id="model-files-advanced" className="mt-20">
           <h2 className="font-serif text-h2-sm text-ink-900">Model files (advanced)</h2>
           <p className="mt-4 text-body text-ink-700 max-w-[60ch]">
             For offline install or on a metered connection, place the models at the paths below before first launch:
