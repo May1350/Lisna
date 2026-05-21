@@ -36,22 +36,22 @@ pnpm drizzle:push
 > --    If duplicates exist, decide a merge strategy (or rename one row's email) before proceeding.
 > ALTER TABLE users ADD CONSTRAINT users_email_unique UNIQUE (email);
 >
-> -- 4. Then copy from 0000_*.sql verbatim:
-> --   CREATE TABLE accounts (…)
-> --   CREATE TABLE auth_sessions (…) — see note below, the 0000 DDL is stale; use the corrected DDL
-> --   CREATE TABLE verification_tokens (…)
-> --   CREATE TABLE app_exchange_codes (…)
-> --   CREATE TABLE app_devices (…)
-> --
-> -- 4a. IMPORTANT: 0000_*.sql has an outdated auth_sessions shape (id UUID PK + sessionToken UNIQUE).
-> --     Migration 0001_striped_shape.sql corrects this — @auth/drizzle-adapter requires sessionToken
-> --     as the PRIMARY KEY (no id column). For greenfield deploys you can either apply 0000 then 0001,
-> --     OR substitute the corrected CREATE TABLE directly:
-> --       CREATE TABLE "auth_sessions" (
-> --         "session_token" text PRIMARY KEY NOT NULL,
-> --         "user_id" uuid NOT NULL,
-> --         "expires" timestamp with time zone NOT NULL
-> --       );
+> -- 4. Create the 5 v2 tables. IMPORTANT: 0000_*.sql has a STALE auth_sessions
+> --    shape (id UUID PK + sessionToken UNIQUE) — @auth/drizzle-adapter requires
+> --    sessionToken as the PRIMARY KEY (no id). Use this corrected DDL for
+> --    auth_sessions:
+> --      CREATE TABLE "auth_sessions" (
+> --        "session_token" text PRIMARY KEY NOT NULL,
+> --        "user_id" uuid NOT NULL,
+> --        "expires" timestamp with time zone NOT NULL
+> --      );
+> --    For the other 4 tables, copy from 0000_*.sql verbatim:
+> --      CREATE TABLE accounts (…)
+> --      CREATE TABLE verification_tokens (…)
+> --      CREATE TABLE app_exchange_codes (…)
+> --      CREATE TABLE app_devices (…)
+> --    (Alternative: apply 0000_*.sql then 0001_striped_shape.sql in sequence, but
+> --     that's only suitable if you're building the schema from scratch on an empty DB.)
 > --
 > -- 5. All 4 FK ALTERs (each child table → users):
 > --      accounts_user_id_users_id_fk
