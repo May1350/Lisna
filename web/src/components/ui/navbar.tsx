@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { getTranslations } from 'next-intl/server';
 import { LocaleSwitcher } from './locale-switcher';
+import { AvatarMenu } from './avatar-menu';
 import type { Locale } from '@/i18n/routing';
 
 export interface NavBarProps {
@@ -27,13 +28,17 @@ export async function NavBar({ locale, pathname, authState }: NavBarProps) {
               {t('signin')}
             </Link>
           ) : (
-            <Link href={`${prefix}/dashboard`} aria-label={t('dashboard')} className="flex items-center gap-2">
-              <span className="w-6 h-6 rounded-full bg-accent-tan text-cream-50 text-body-sm grid place-items-center font-serif">
-                {authState.name[0]?.toUpperCase() ?? '·'}
-              </span>
-              <span>{authState.name}</span>
-              <span className="text-[10px]" aria-hidden="true">▾</span>
-            </Link>
+            <AvatarMenu
+              name={authState.name}
+              email={authState.email}
+              image={authState.image}
+              prefix={prefix}
+              onSignOut={async () => {
+                'use server';
+                const { signOut } = await import('@/lib/auth');
+                await signOut({ redirectTo: '/' });
+              }}
+            />
           )}
         </div>
       </div>
