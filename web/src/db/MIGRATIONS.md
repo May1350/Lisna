@@ -38,10 +38,21 @@ pnpm drizzle:push
 >
 > -- 4. Then copy from 0000_*.sql verbatim:
 > --   CREATE TABLE accounts (…)
-> --   CREATE TABLE auth_sessions (…)
+> --   CREATE TABLE auth_sessions (…) — see note below, the 0000 DDL is stale; use the corrected DDL
 > --   CREATE TABLE verification_tokens (…)
 > --   CREATE TABLE app_exchange_codes (…)
 > --   CREATE TABLE app_devices (…)
+> --
+> -- 4a. IMPORTANT: 0000_*.sql has an outdated auth_sessions shape (id UUID PK + sessionToken UNIQUE).
+> --     Migration 0001_striped_shape.sql corrects this — @auth/drizzle-adapter requires sessionToken
+> --     as the PRIMARY KEY (no id column). For greenfield deploys you can either apply 0000 then 0001,
+> --     OR substitute the corrected CREATE TABLE directly:
+> --       CREATE TABLE "auth_sessions" (
+> --         "session_token" text PRIMARY KEY NOT NULL,
+> --         "user_id" uuid NOT NULL,
+> --         "expires" timestamp with time zone NOT NULL
+> --       );
+> --
 > -- 5. All 4 FK ALTERs (each child table → users):
 > --      accounts_user_id_users_id_fk
 > --      auth_sessions_user_id_users_id_fk
@@ -55,7 +66,7 @@ pnpm drizzle:push
 > Future migrations (Phase J onward) that don't touch the v1 `users`
 > table can be applied directly.
 
-1. Confirm migration file is reviewed (`web/src/db/migrations/0000_*.sql`) AND the prepared delta SQL (see callout above) is reviewed.
+1. Confirm migration files are reviewed (`web/src/db/migrations/0000_*.sql` + `0001_striped_shape.sql`) AND the prepared delta SQL (see callout above) is reviewed.
 2. SSM port-forward to RDS (direct, not the Proxy):
    ```bash
    aws ssm start-session --region ap-northeast-1 \
