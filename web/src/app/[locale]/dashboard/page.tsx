@@ -89,9 +89,9 @@ export default async function DashboardPage({ params }: { params: Promise<{ loca
                     'use server';
                     const { db } = await import('@/lib/db');
                     const { appDevices } = await import('@/db/schema');
-                    const { and: a, eq: e } = await import('drizzle-orm');
+                    const { and: a, eq: e, isNull: n } = await import('drizzle-orm');
                     const { revalidatePath } = await import('next/cache');
-                    await db.update(appDevices).set({ revokedAt: new Date() }).where(a(e(appDevices.id, d.id), e(appDevices.userId, session.user!.id!)));
+                    await db.update(appDevices).set({ revokedAt: new Date() }).where(a(e(appDevices.id, d.id), e(appDevices.userId, session.user!.id!), n(appDevices.revokedAt)));
                     revalidatePath('/[locale]/dashboard', 'page');
                   }}>
                     <button type="submit" className="underline text-ink-700/70 hover:text-margin-red">sign out</button>

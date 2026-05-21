@@ -5,17 +5,19 @@ import { db } from '@/lib/db';
 import { appDevices } from '@/db/schema';
 import { eq, and, isNull } from 'drizzle-orm';
 
+const NO_STORE = { 'Cache-Control': 'no-store' } as const;
+
 export async function POST(req: NextRequest) {
   const session = await auth();
-  if (!session?.user?.id) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  if (!session?.user?.id) return NextResponse.json({ error: 'unauthorized' }, { status: 401, headers: NO_STORE });
   const body = await req.json().catch(() => ({})) as { id?: string };
-  if (!body.id) return NextResponse.json({ error: 'missing_id' }, { status: 400 });
+  if (!body.id) return NextResponse.json({ error: 'missing_id' }, { status: 400, headers: NO_STORE });
 
   const result = await db
     .update(appDevices)
     .set({ revokedAt: new Date() })
     .where(and(eq(appDevices.id, body.id), eq(appDevices.userId, session.user.id), isNull(appDevices.revokedAt)))
     .returning({ id: appDevices.id });
-  if (result.length === 0) return NextResponse.json({ error: 'not_found' }, { status: 404 });
-  return NextResponse.json({ id: result[0].id });
+  if (result.length === 0) return NextResponse.json({ error: 'not_found' }, { status: 404, headers: NO_STORE });
+  return NextResponse.json({ id: result[0].id }, { headers: NO_STORE });
 }
