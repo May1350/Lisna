@@ -3,6 +3,9 @@ import { pgTable, uuid, text, timestamp, integer, primaryKey, uniqueIndex } from
 import { relations } from 'drizzle-orm';
 
 // Existing v1 users table — we add `email_verified` via the migration.
+// v1-only columns (google_sub, display_name, plan, stripe_customer_id, stripe_subscription_id)
+// are managed by backend/src/migrations/ and are NOT tracked here; drizzle-kit will not
+// touch them (the tablesFilter in drizzle.config.ts also scopes generation to this set).
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
   email: text('email').notNull().unique(),
