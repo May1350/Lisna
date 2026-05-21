@@ -8,6 +8,13 @@
       "when": 1779347658861,
       "tag": "0000_shallow_madame_web",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1779350732174,
+      "tag": "0001_striped_shape",
+      "breakpoints": true
     }
   ]
 }
