@@ -99,7 +99,7 @@ web/
 │   │   ├── i18n.ts (next-intl config)
 │   │   └── plausible.ts (event helpers)
 │   ├── db/
-│   │   ├── schema.ts (5 tables — accounts/sessions/verification-tokens/app-exchange-codes/app-devices)
+│   │   ├── schema.ts (5 tables — accounts/auth-sessions/verification-tokens/app-exchange-codes/app-devices)
 │   │   └── migrations/ (Drizzle Kit output)
 │   ├── messages/
 │   │   ├── en.json
@@ -4045,6 +4045,12 @@ export default defineConfig({
   },
   verbose: true,
   strict: true,
+  // Scope drizzle-kit to only the v2 Phase-I tables. The same prod RDS
+  // also hosts v1 tables (quota_usage, ws_connections, sessions for
+  // study sessions) that Drizzle must never touch. Without this filter,
+  // `drizzle-kit generate` would surface diffs (and potentially destructive
+  // ALTER/DROP) against v1.
+  tablesFilter: ['users', 'accounts', 'auth_sessions', 'verification_tokens', 'app_exchange_codes', 'app_devices'],
 });
 ```
 
@@ -4075,7 +4081,7 @@ git commit -m "feat(web): install Drizzle + pg + AWS SDK; drizzle.config.ts"
 
 ```ts
 // web/src/db/schema.ts
-import { pgTable, uuid, text, timestamp, integer, primaryKey } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, timestamp, integer, primaryKey, uniqueIndex } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
 // Existing v1 users table — we add `email_verified` via the migration.
@@ -4101,9 +4107,18 @@ export const accounts = pgTable('accounts', {
   scope: text('scope'),
   idToken: text('id_token'),
   sessionState: text('session_state'),
-});
+}, (t) => ({
+  // Auth.js relies on the DB to prevent duplicate OAuth account rows on
+  // concurrent sign-ins (the adapter doesn't enforce uniqueness at the ORM layer).
+  providerAccountIdUnique: uniqueIndex('accounts_provider_account_id_unique')
+    .on(t.provider, t.providerAccountId),
+}));
 
-export const sessions = pgTable('sessions', {
+// Auth.js auth-session table. Named `auth_sessions` (NOT `sessions`) so it
+// does not collide with v1's `sessions` table (backend study sessions:
+// url_hash/notes/slides/pdf_s3_key). drizzle-kit must never see both at the
+// same name — the drizzle.config.ts `tablesFilter` is the second line of defense.
+export const authSessions = pgTable('auth_sessions', {
   id: uuid('id').primaryKey().defaultRandom(),
   sessionToken: text('session_token').notNull().unique(),
   userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
@@ -4138,8 +4153,9 @@ export const appDevices = pgTable('app_devices', {
 
 export const usersRelations = relations(users, ({ many }) => ({
   accounts: many(accounts),
-  sessions: many(sessions),
+  authSessions: many(authSessions),
   devices: many(appDevices),
+  exchangeCodes: many(appExchangeCodes),
 }));
 ```
 
@@ -4153,7 +4169,7 @@ cd web && pnpm exec tsc --noEmit
 
 ```bash
 git add web/src/db/schema.ts
-git commit -m "feat(web): add Drizzle schema (users + accounts + sessions + verif + exchange + devices)"
+git commit -m "feat(web): add Drizzle schema (users + accounts + auth-sessions + verif + exchange + devices)"
 ```
 
 ---
@@ -4339,7 +4355,7 @@ pnpm drizzle:push
 Drizzle does not auto-generate down migrations. Write reverse SQL by hand:
 
 ```sql
-DROP TABLE app_devices, app_exchange_codes, verification_tokens, sessions, accounts;
+DROP TABLE app_devices, app_exchange_codes, verification_tokens, auth_sessions, accounts;
 ALTER TABLE users DROP COLUMN email_verified;
 ```
 
@@ -4426,7 +4442,7 @@ import { DrizzleAdapter } from '@auth/drizzle-adapter';
 import { Resend } from 'resend';
 import { db } from './db';
 import { env } from './env';
-import { users, accounts, sessions, verificationTokens } from '@/db/schema';
+import { users, accounts, authSessions, verificationTokens } from '@/db/schema';
 
 const resend = new Resend(env.RESEND_API_KEY);
 
@@ -4434,7 +4450,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   adapter: DrizzleAdapter(db, {
     usersTable: users,
     accountsTable: accounts,
-    sessionsTable: sessions,
+    sessionsTable: authSessions,
     verificationTokensTable: verificationTokens,
   }),
   session: { strategy: 'database' },

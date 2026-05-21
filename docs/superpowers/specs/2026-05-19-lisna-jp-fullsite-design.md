@@ -794,7 +794,11 @@ The pen-mark (`✎ lecture 3` in cursive) gimmick and the SVG ink-pen variants w
     token_type TEXT, scope TEXT, id_token TEXT, session_state TEXT,
     UNIQUE(provider, provider_account_id)
   );
-  CREATE TABLE sessions (
+  -- Named `auth_sessions` (not `sessions`) — v1 RDS already has a `sessions`
+  -- table for study sessions (url_hash/notes/slides). drizzle-kit `tablesFilter`
+  -- in web/drizzle.config.ts enforces scope; this rename removes the collision
+  -- so the filter is defense-in-depth, not a load-bearing safety check.
+  CREATE TABLE auth_sessions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     session_token TEXT UNIQUE NOT NULL,
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
