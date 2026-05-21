@@ -152,9 +152,18 @@ app.whenReady().then(async () => {
   // autoUpdater.logger wires download-phase + signature events
   // (which fire via the event-emitter, not the Promise chain)
   // to electron-log instead of the default console.
+  //
+  // autoDownload + auto-notify intentionally DISABLED while builds are
+  // unsigned. On unsigned macOS, Squirrel.Mac rejects the post-download
+  // signature swap, so checkForUpdatesAndNotify() would surface a fake
+  // "Update Downloaded" notification that never actually applies. Once
+  // Apple Dev signing lands, swap back to checkForUpdatesAndNotify().
+  // checkForUpdates() still runs — it logs "available update" info via
+  // autoUpdater.logger so we keep observability for alpha-cycle update
+  // channel health.
   autoUpdater.logger = log;
-  autoUpdater.autoDownload = true;
-  autoUpdater.checkForUpdatesAndNotify().catch(() => {
+  autoUpdater.autoDownload = false;
+  autoUpdater.checkForUpdates().catch(() => {
     // No-op: internal error listener already logs via autoUpdater.logger.
   });
 }).catch((err) => {

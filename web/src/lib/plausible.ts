@@ -27,6 +27,10 @@ export function track(event: string, props?: Record<string, string>): void {
 
 export const Events = {
   DownloadClick: 'download_click',
+  // SigninInitiated and SigninCompleted are reserved for instrumentation
+  // in the signin flow (EmailMagicLinkForm + post-auth landing). Wired in
+  // a later phase once the auth flow stabilizes — kept here so the event
+  // name is canonical from day one. Do NOT remove if no call sites.
   SigninInitiated: 'signin_initiated',
   SigninCompleted: 'signin_completed',
   DiscordClick: 'discord_click',

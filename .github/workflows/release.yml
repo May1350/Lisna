@@ -65,6 +65,7 @@ jobs:
       - name: Publish GH Release
         uses: softprops/action-gh-release@v2
         with:
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
             desktop/dist/*.dmg
             desktop/dist/*.dmg.blockmap
