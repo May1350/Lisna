@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: macos-14
+    permissions:
+      contents: write     # softprops/action-gh-release needs this to create Releases
     steps:
       - uses: actions/checkout@v4
         with:
@@ -52,6 +54,8 @@ jobs:
           files: |
             desktop/dist/*.dmg
             desktop/dist/*.dmg.blockmap
+            desktop/dist/*.zip
+            desktop/dist/*.zip.blockmap
             desktop/dist/latest-mac.yml
             desktop/dist/SHA256SUMS.txt
           generate_release_notes: true
