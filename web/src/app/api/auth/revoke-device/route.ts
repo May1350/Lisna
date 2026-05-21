@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { appDevices } from '@/db/schema';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, isNull } from 'drizzle-orm';
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
   const result = await db
     .update(appDevices)
     .set({ revokedAt: new Date() })
-    .where(and(eq(appDevices.id, body.id), eq(appDevices.userId, session.user.id)))
+    .where(and(eq(appDevices.id, body.id), eq(appDevices.userId, session.user.id), isNull(appDevices.revokedAt)))
     .returning({ id: appDevices.id });
   if (result.length === 0) return NextResponse.json({ error: 'not_found' }, { status: 404 });
   return NextResponse.json({ id: result[0].id });
