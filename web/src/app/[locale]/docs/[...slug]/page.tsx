@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import { MDXRemote } from 'next-mdx-remote/rsc';
 import { setRequestLocale } from 'next-intl/server';
 import { loadDocBySlug, listDocs } from '@/lib/mdx';
+import { mdxComponents } from '@/lib/mdx-components';
 import type { Locale } from '@/i18n/routing';
 
 export async function generateStaticParams() {
@@ -18,5 +19,5 @@ export default async function DocsPage({
   setRequestLocale(locale);
   const doc = await loadDocBySlug(slug);
   if (!doc) notFound();
-  return <MDXRemote source={doc.source} />;
+  return <MDXRemote source={doc.source} components={mdxComponents(locale)} />;
 }
