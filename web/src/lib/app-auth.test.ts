@@ -27,4 +27,7 @@ describe('app-auth pure helpers', () => {
   it('buildCallbackUrl rejects non-lisna schemes', () => {
     expect(() => buildCallbackUrl('https://evil.example.com/cb', 'abc')).toThrow(/scheme/i);
   });
+  it('buildCallbackUrl rejects callbacks containing a fragment', () => {
+    expect(() => buildCallbackUrl('lisna://callback#section', 'abc')).toThrow(/fragment/i);
+  });
 });
