@@ -25,8 +25,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={`${fraunces.variable} ${inter.variable}`}>
       <head>
+        {/* next/script default strategy=afterInteractive — non-blocking, post-hydration */}
         <Script
-          defer
           data-domain={env.NEXT_PUBLIC_PLAUSIBLE_DOMAIN}
           src="https://plausible.io/js/script.tagged-events.js"
         />

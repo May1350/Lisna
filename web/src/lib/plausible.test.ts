@@ -16,6 +16,12 @@ describe('track()', () => {
     expect(() => track('download_click')).not.toThrow()
   })
 
+  it('is a no-op when window.plausible is set to a non-function value', () => {
+    // @ts-expect-error — simulating a misbehaving global (browser extension etc.)
+    window.plausible = 'truthy-but-not-a-function'
+    expect(() => track('download_click')).not.toThrow()
+  })
+
   it('calls window.plausible with event name only when no props given', () => {
     const spy = vi.fn()
     window.plausible = spy
