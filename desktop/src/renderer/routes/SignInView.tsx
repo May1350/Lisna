@@ -1,5 +1,3 @@
-import * as React from 'react';
-
 /**
  * Phase M Task 70 — pre-auth landing view.
  *
