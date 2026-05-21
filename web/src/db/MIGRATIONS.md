@@ -19,14 +19,36 @@ pnpm drizzle:push
 > `CREATE TABLE users` and abort. Instead, prepare a delta SQL with:
 >
 > ```sql
+> -- 1. Augment the v1 users table with v2 (Auth.js) columns.
+> --    All ADDs are nullable and non-destructive, safe on populated tables.
 > ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified TIMESTAMPTZ;
-> -- Then copy from 0000_*.sql:
+> ALTER TABLE users ADD COLUMN IF NOT EXISTS name TEXT;   -- v2 Auth.js writes here; v1 OAuth keeps writing display_name
+> ALTER TABLE users ADD COLUMN IF NOT EXISTS image TEXT;  -- v2 Auth.js avatar URL; v1 has no equivalent
+>
+> -- 2. Relax google_sub NOT NULL so Auth.js (non-Google magic-link / Apple / GitHub) inserts succeed.
+> --    Safe per backend/src/handlers/auth-google.ts:43 — v1 Google OAuth ALWAYS supplies google_sub,
+> --    so the existing UNIQUE constraint stays usable (NULLs are distinct in Postgres UNIQUE indexes).
+> ALTER TABLE users ALTER COLUMN google_sub DROP NOT NULL;
+>
+> -- 3. Auth.js looks up users by email. v1 declares `email NOT NULL` without UNIQUE.
+> --    BEFORE running the ADD CONSTRAINT, confirm no duplicates exist:
+> --      SELECT email, COUNT(*) FROM users GROUP BY email HAVING COUNT(*) > 1;
+> --    If duplicates exist, decide a merge strategy (or rename one row's email) before proceeding.
+> ALTER TABLE users ADD CONSTRAINT users_email_unique UNIQUE (email);
+>
+> -- 4. Then copy from 0000_*.sql verbatim:
 > --   CREATE TABLE accounts (…)
 > --   CREATE TABLE auth_sessions (…)
 > --   CREATE TABLE verification_tokens (…)
 > --   CREATE TABLE app_exchange_codes (…)
 > --   CREATE TABLE app_devices (…)
-> --   ALTER TABLE … ADD CONSTRAINT … FOREIGN KEY … (4 FK statements, skip the one for users)
+> -- 5. All 4 FK ALTERs (each child table → users):
+> --      accounts_user_id_users_id_fk
+> --      auth_sessions_user_id_users_id_fk
+> --      app_exchange_codes_user_id_users_id_fk
+> --      app_devices_user_id_users_id_fk
+> --    No FK originates from users itself — copy all four.
+> -- 6. The unique index:
 > --   CREATE UNIQUE INDEX accounts_provider_account_id_unique (…)
 > ```
 >

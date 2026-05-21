@@ -29,7 +29,15 @@ const envSchema = z.object({
   // GitHub Release (for /dl/dmg/latest redirect)
   GITHUB_OWNER: z.string().min(1).default('May1350'),
   GITHUB_REPO: z.string().min(1).default('Lisna'),
-});
+}).refine(
+  // db.ts requires at least one path to be configured. Detect at boot/build
+  // instead of at first request: keeps the failure visible in CI / Vercel deploy logs.
+  (env) => Boolean(env.DATABASE_URL) || Boolean(env.RDS_PROXY_ENDPOINT && env.RDS_USERNAME),
+  {
+    message: 'DB misconfig: set DATABASE_URL (local dev) OR both RDS_PROXY_ENDPOINT + RDS_USERNAME (prod IAM)',
+    path: ['DATABASE_URL'],
+  },
+);
 
 export const env = envSchema.parse(process.env);
 export type Env = z.infer<typeof envSchema>;
