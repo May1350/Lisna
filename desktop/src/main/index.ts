@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog } from 'electron';
+import { autoUpdater } from 'electron-updater';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { registerIpc, handleSidecarExit, handleSidecarGiveUp, setAppQuitting } from './ipc';
@@ -146,6 +147,18 @@ app.whenReady().then(async () => {
   // `createWindow()` so the handler's eventual `webContents.send` (auth/
   // signed-in broadcast, lands in Task 69) has a live target.
   flushPendingUrl();
+
+  // Phase N Task 74 — silent background update check. electron-updater reads
+  // the `publish` block from electron-builder.yml (provider:github, owner:
+  // May1350, repo:Lisna) to know where to poll. In dev (unpackaged) this is a
+  // no-op — electron-updater skips when `app.isPackaged` is false.
+  // On macOS the downloaded update is only applied when code-signed; an
+  // unsigned build silently fails-safe. No IPC channels: update is transparent
+  // to the renderer for alpha.
+  autoUpdater.autoDownload = true;
+  autoUpdater.checkForUpdatesAndNotify().catch((err) => {
+    log.error('[auto-update] check failed:', err);
+  });
 }).catch((err) => {
   // Boot rejection (resolveModels disk failure, supervisor crash mid-init,
   // registerIpc throw, etc.) would otherwise become an unhandled promise
