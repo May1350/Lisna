@@ -1,0 +1,55 @@
+name: Release desktop
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install workspace deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Build sidecars
+        run: |
+          cd desktop
+          JOBS=1 pnpm run build:sidecar
+
+      - name: Typecheck + tests
+        run: |
+          cd desktop && pnpm exec tsc --noEmit && pnpm test
+
+      - name: Build + package Electron
+        env:
+          # Codesigning + notarization stay OFF for alpha — flip on once Apple Dev signup lands.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          cd desktop && JOBS=1 pnpm run package
+
+      - name: Compute SHA256
+        run: |
+          cd desktop/dist
+          shasum -a 256 *.dmg > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Publish GH Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            desktop/dist/*.dmg
+            desktop/dist/*.dmg.blockmap
+            desktop/dist/latest-mac.yml
+            desktop/dist/SHA256SUMS.txt
+          generate_release_notes: true

@@ -13,7 +13,7 @@
     "lint": "eslint src",
     "test": "vitest run --passWithNoTests",
     "test:e2e": "playwright test",
-    "package": "pnpm build:sidecar && pnpm build && electron-builder --mac",
+    "package": "pnpm build:sidecar && pnpm build && electron-builder --mac --publish never",
     "verify": "tsx ci/gates.ts && pnpm typecheck && pnpm lint && pnpm test"
   },
   "devDependencies": {

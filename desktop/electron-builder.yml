@@ -19,3 +19,9 @@ asarUnpack:
 extraResources:
   - from: "resources/sidecar"
     to: "sidecar"
+
+publish:
+  provider: github
+  owner: May1350
+  repo: Lisna
+  releaseType: release
