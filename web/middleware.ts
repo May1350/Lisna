@@ -18,6 +18,6 @@ export const config = {
   // (e.g. /ja/pricing) returns 404 — middleware runs but Next finds no
   // [locale]/pricing/page.tsx until Phase F migrates it.
   matcher: [
-    '/((?!api|_next|_vercel|dl|cancel|design-test|privacy|refunds|success|terms|tokusho|trial-cancel|trial-success|robots.txt|.*\\..*).*)',
+    '/((?!api|_next|_vercel|dl|cancel|design-test|success|trial-cancel|trial-success|robots.txt|.*\\..*).*)',
   ],
 };
