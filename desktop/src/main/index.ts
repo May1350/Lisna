@@ -148,16 +148,14 @@ app.whenReady().then(async () => {
   // signed-in broadcast, lands in Task 69) has a live target.
   flushPendingUrl();
 
-  // Phase N Task 74 — silent background update check. electron-updater reads
-  // the `publish` block from electron-builder.yml (provider:github, owner:
-  // May1350, repo:Lisna) to know where to poll. In dev (unpackaged) this is a
-  // no-op — electron-updater skips when `app.isPackaged` is false.
-  // On macOS the downloaded update is only applied when code-signed; an
-  // unsigned build silently fails-safe. No IPC channels: update is transparent
-  // to the renderer for alpha.
+  // Phase N Task 74 — silent background update check.
+  // autoUpdater.logger wires download-phase + signature events
+  // (which fire via the event-emitter, not the Promise chain)
+  // to electron-log instead of the default console.
+  autoUpdater.logger = log;
   autoUpdater.autoDownload = true;
-  autoUpdater.checkForUpdatesAndNotify().catch((err) => {
-    log.error('[auto-update] check failed:', err);
+  autoUpdater.checkForUpdatesAndNotify().catch(() => {
+    // No-op: internal error listener already logs via autoUpdater.logger.
   });
 }).catch((err) => {
   // Boot rejection (resolveModels disk failure, supervisor crash mid-init,
