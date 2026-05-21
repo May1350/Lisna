@@ -38,7 +38,7 @@ export async function Footer({ locale }: FooterProps) {
         <div>
           <h5 className="text-meta uppercase text-cream-200/50 mb-4">{t('communityHeading')}</h5>
           <ul className="space-y-2 text-body-sm">
-            <li><a href="https://discord.gg/69NkqBTbS" target="_blank" rel="noreferrer">Discord<span className="sr-only"> {t('opensInNewTab')}</span></a></li>
+            <li><a href="https://discord.gg/69NkqBTbS" target="_blank" rel="noreferrer" className="plausible-event-name=discord_click">Discord<span className="sr-only"> {t('opensInNewTab')}</span></a></li>
             <li><a href="https://github.com/May1350/Lisna" target="_blank" rel="noreferrer">GitHub<span className="sr-only"> {t('opensInNewTab')}</span></a></li>
             <li><a href="https://bsky.app/profile/lisna.jp" target="_blank" rel="noreferrer">Bluesky<span className="sr-only"> {t('opensInNewTab')}</span></a></li>
             <li><a href="https://github.com/May1350/Lisna/issues" target="_blank" rel="noreferrer">Bug reports<span className="sr-only"> {t('opensInNewTab')}</span></a></li>

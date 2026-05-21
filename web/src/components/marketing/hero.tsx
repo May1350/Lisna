@@ -19,7 +19,7 @@ export function Hero() {
           <p className="mt-6 font-sans text-sub text-ink-700 max-w-[42ch]">{t('sub')}</p>
           <div className="mt-10">
             <Button asChild size="md">
-              <Link href="/dl/dmg/latest">{t('cta')}</Link>
+              <Link href="/dl/dmg/latest" className="plausible-event-name=download_click">{t('cta')}</Link>
             </Button>
           </div>
           <p className="mt-3 text-hint text-ink-700/60">{t('hint')}</p>

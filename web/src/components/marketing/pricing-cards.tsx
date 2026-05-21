@@ -54,7 +54,7 @@ export function PricingCards({ heading, sub, plans }: PricingCardsProps) {
             {plan.cta && (
               <div className="mt-10">
                 <Button asChild variant={plan.highlighted ? 'primary-ink' : 'ghost'} size="md">
-                  <Link href={plan.cta.href}>{plan.cta.label}</Link>
+                  <Link href={plan.cta.href} className="plausible-event-name=download_click">{plan.cta.label}</Link>
                 </Button>
               </div>
             )}

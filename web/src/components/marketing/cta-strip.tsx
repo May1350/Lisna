@@ -18,7 +18,7 @@ export function CTAStrip() {
         </p>
         <div className="mt-10">
           <Button asChild size="lg">
-            <Link href="/dl/dmg/latest">{tHero('cta')}</Link>
+            <Link href="/dl/dmg/latest" className="plausible-event-name=download_click">{tHero('cta')}</Link>
           </Button>
         </div>
         <p className="mt-3 text-hint text-ink-700/60">{t('hint')}</p>

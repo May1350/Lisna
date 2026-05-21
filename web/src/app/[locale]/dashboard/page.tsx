@@ -38,7 +38,7 @@ export default async function DashboardPage({ params }: { params: Promise<{ loca
           <h3 className="mt-2 font-serif text-h2-sm text-ink-900">Lisna for macOS</h3>
           <p className="mt-3 text-body text-ink-700">The latest desktop build.</p>
           <div className="mt-6">
-            <Button asChild><Link href="/dl/dmg/latest">Download for Mac →</Link></Button>
+            <Button asChild><Link href="/dl/dmg/latest" className="plausible-event-name=download_click">Download for Mac →</Link></Button>
           </div>
           <p className="mt-2 text-hint text-ink-700/60">v0.1.0 · 537 MB · Apple Silicon</p>
           <div className="mt-6 border-t border-ink-900/10 pt-4">
@@ -57,7 +57,7 @@ export default async function DashboardPage({ params }: { params: Promise<{ loca
             <p className="mt-2 text-body-sm text-ink-700">Join the alpha channel for updates, support, and feedback.</p>
             <div className="mt-4">
               <Button asChild variant="text-arrow">
-                <a href="https://discord.gg/69NkqBTbS" target="_blank" rel="noreferrer">Join the alpha channel →</a>
+                <a href="https://discord.gg/69NkqBTbS" target="_blank" rel="noreferrer" className="plausible-event-name=discord_click">Join the alpha channel →</a>
               </Button>
             </div>
           </Card>

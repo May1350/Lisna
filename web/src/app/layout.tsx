@@ -1,6 +1,8 @@
 import '@/styles/globals.css'
 import type { Metadata } from 'next'
+import Script from 'next/script'
 import { fraunces, inter } from '@/lib/fonts'
+import { env } from '@/lib/env'
 
 // Root-level metadata. The `robots` block is the load-bearing piece
 // here: Vercel's auto-generated *.vercel.app domains ship with an
@@ -22,6 +24,13 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${fraunces.variable} ${inter.variable}`}>
+      <head>
+        <Script
+          defer
+          data-domain={env.NEXT_PUBLIC_PLAUSIBLE_DOMAIN}
+          src="https://plausible.io/js/script.tagged-events.js"
+        />
+      </head>
       <body>{children}</body>
     </html>
   )
