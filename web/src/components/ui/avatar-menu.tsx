@@ -1,5 +1,6 @@
 'use client';
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 import { Dropdown, DropdownContent, DropdownItem, DropdownSeparator, DropdownTrigger } from './dropdown';
 
 export interface AvatarMenuProps {
@@ -11,6 +12,7 @@ export interface AvatarMenuProps {
 }
 
 export function AvatarMenu({ name, email, image, prefix, onSignOut }: AvatarMenuProps) {
+  const t = useTranslations('nav');
   return (
     <Dropdown>
       <DropdownTrigger className="flex items-center gap-2">
@@ -27,11 +29,11 @@ export function AvatarMenu({ name, email, image, prefix, onSignOut }: AvatarMenu
         </div>
         <DropdownSeparator />
         <DropdownItem asChild>
-          <Link href={`${prefix}/dashboard`}>Dashboard</Link>
+          <Link href={`${prefix}/dashboard`}>{t('dashboard')}</Link>
         </DropdownItem>
         <DropdownItem asChild>
           <form action={onSignOut} className="w-full">
-            <button type="submit" className="w-full text-left">Sign out</button>
+            <button type="submit" className="w-full text-left">{t('signout')}</button>
           </form>
         </DropdownItem>
       </DropdownContent>
