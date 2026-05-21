@@ -10,7 +10,9 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
+        with:
+          fetch-depth: 0
+          submodules: recursive
 
       - uses: pnpm/action-setup@v4
 
