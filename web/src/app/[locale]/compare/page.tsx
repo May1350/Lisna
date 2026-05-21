@@ -43,9 +43,17 @@ export default async function ComparePage({ params }: { params: Promise<{ locale
                   <td className="py-3 px-4">{row.feature}</td>
                   {row.cells.map((cell, j) => (
                     <td key={j} className="py-3 px-4 text-center">
-                      {cell === '✓' ? <span className="text-accent-sage">✓</span> :
-                       cell === '✗' ? <span className="text-ink-700/40">✗</span> :
-                       <span className="text-ink-700">{cell}</span>}
+                      {cell === '✓' ? (
+                        <span className="text-accent-sage" aria-label="Yes">
+                          <span aria-hidden="true">✓</span>
+                        </span>
+                      ) : cell === '✗' ? (
+                        <span className="text-ink-700/40" aria-label="No">
+                          <span aria-hidden="true">✗</span>
+                        </span>
+                      ) : (
+                        <span className="text-ink-700">{cell}</span>
+                      )}
                     </td>
                   ))}
                 </tr>
