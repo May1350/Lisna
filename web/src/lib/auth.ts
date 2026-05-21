@@ -11,16 +11,13 @@ import { users, accounts, authSessions, verificationTokens } from '@/db/schema';
 
 const resend = new Resend(env.RESEND_API_KEY);
 
-// Schema note: our accounts/sessions tables use camelCase JS property names
-// (refreshToken, accessToken, etc.) but @auth/drizzle-adapter@1.11.2's strict
-// TypeScript types expect snake_case properties (refresh_token, access_token)
-// and sessionToken as the primary key. The `as Parameters<...>[1]` cast bridges
-// the type-level gap without runtime impact. OAuth providers are gated behind env
-// vars and inactive in dev; magic-link flow is unaffected by the naming mismatch.
-// TODO: align account column JS property names to snake_case in a schema migration.
 export const { handlers, signIn, signOut, auth } = NextAuth({
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  adapter: DrizzleAdapter(db, { usersTable: users, accountsTable: accounts, sessionsTable: authSessions, verificationTokensTable: verificationTokens } as any),
+  adapter: DrizzleAdapter(db, {
+    usersTable: users,
+    accountsTable: accounts,
+    sessionsTable: authSessions,
+    verificationTokensTable: verificationTokens,
+  }),
   session: { strategy: 'database' },
   secret: env.NEXTAUTH_SECRET,
   providers: [
