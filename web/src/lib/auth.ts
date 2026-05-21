@@ -37,8 +37,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       maxAge: 60 * 10, // 10 minutes
       from: env.EMAIL_FROM,
       sendVerificationRequest: async ({ identifier: email, url, provider }) => {
+        if (!provider.from) throw new Error('EMAIL_FROM not configured');
         const { error } = await resend.emails.send({
-          from: provider.from!,
+          from: provider.from,
           to: email,
           subject: 'Sign in to Lisna',
           html: magicLinkHtml(url),
