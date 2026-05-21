@@ -1,0 +1,9 @@
+appId: com.lisna.desktop
+productName: Lisna
+
+mac:
+  extendInfo:
+    CFBundleURLTypes:
+      - CFBundleURLName: lisna
+        CFBundleURLSchemes:
+          - lisna
