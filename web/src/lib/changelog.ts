@@ -23,12 +23,19 @@ function parseFrontmatter(source: string): Record<string, string> {
   }, {} as Record<string, string>);
 }
 
+const VALID_CATEGORIES: ChangelogEntry['category'][] = ['feature', 'fix', 'breaking'];
+
 export async function listChangelog(): Promise<ChangelogEntry[]> {
   const files = await fs.readdir(DIR);
   const entries = await Promise.all(
     files.filter((f) => f.endsWith('.mdx')).map(async (f) => {
       const source = await fs.readFile(path.join(DIR, f), 'utf-8');
       const fm = parseFrontmatter(source);
+      if (!(VALID_CATEGORIES as string[]).includes(fm.category)) {
+        throw new Error(
+          `${f}: invalid category "${fm.category}" (expected one of: ${VALID_CATEGORIES.join(', ')})`,
+        );
+      }
       return {
         slug: f.replace(/\.mdx$/, ''),
         date: fm.date,

@@ -25,7 +25,7 @@ export default async function ChangelogPage({ params }: { params: Promise<{ loca
           {entries.map((e) => (
             <li key={e.slug}>
               <header className="flex items-center gap-3 text-body-sm">
-                <time className="font-mono text-ink-700/70">{e.date}</time>
+                <time dateTime={e.date} className="font-mono text-ink-700/70">{e.date}</time>
                 <span className="rounded-sm bg-cream-300 px-2 py-0.5 font-mono">v{e.version}</span>
                 <span className={cn('uppercase text-meta', CAT_COLOR[e.category])}>{e.category}</span>
               </header>
