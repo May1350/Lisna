@@ -54,6 +54,20 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     verifyRequest: '/signin?check-email=1',
     error: '/signin?error=1',
   },
+  callbacks: {
+    async redirect({ url, baseUrl }) {
+      // If signin was started with source=app, the resend flow sets redirectTo to
+      // /api/auth/exchange-code/issue?app_callback=...  Auth.js calls redirect()
+      // with that URL once verification is complete. Pass it through unchanged.
+      if (url.startsWith('/api/auth/exchange-code/issue')) {
+        return `${baseUrl}${url}`;
+      }
+      // Default: allow same-origin redirects, otherwise go to /dashboard
+      if (url.startsWith(baseUrl)) return url;
+      if (url.startsWith('/')) return `${baseUrl}${url}`;
+      return `${baseUrl}/dashboard`;
+    },
+  },
 });
 
 function magicLinkHtml(url: string): string {
