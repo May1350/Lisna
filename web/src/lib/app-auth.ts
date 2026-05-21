@@ -28,7 +28,10 @@ export async function issueExchangeCode(userId: string): Promise<string> {
   return code;
 }
 
-export async function redeemExchangeCode(code: string): Promise<{ userId: string; deviceToken: string }> {
+export async function redeemExchangeCode(
+  code: string,
+  name?: string,
+): Promise<{ userId: string; deviceToken: string }> {
   const now = new Date();
   const deviceToken = randomBytes(48).toString('base64url');
   return await db.transaction(async (tx) => {
@@ -50,10 +53,13 @@ export async function redeemExchangeCode(code: string): Promise<{ userId: string
     }
     const { userId } = updated[0];
 
+    // Trim + fallback covers undefined name (legacy caller), empty
+    // string, and whitespace-only inputs. The desktop client sends
+    // `os.hostname()` which is realistically <= 64 chars on macOS.
     await tx.insert(appDevices).values({
       userId,
       deviceToken,
-      name: 'Mac', // TODO: send a device name from the desktop client
+      name: name?.trim() || 'Mac',
     });
     return { userId, deviceToken };
   });

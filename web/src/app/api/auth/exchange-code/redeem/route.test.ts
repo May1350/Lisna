@@ -41,4 +41,15 @@ describe('POST /api/auth/exchange-code/redeem', () => {
     expect(body.token).toBe('devtok123');
     expect(body.userId).toBe('u1');
   });
+
+  it('forwards device name from request body to redeemExchangeCode', async () => {
+    (redeemExchangeCode as ReturnType<typeof vi.fn>).mockResolvedValue({ userId: 'u1', deviceToken: 'devtok123' });
+    const req = new Request('http://x/api/auth/exchange-code/redeem', {
+      method: 'POST',
+      body: JSON.stringify({ code: 'good', name: 'MyMacBook.local' }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    await POST(req as unknown as Parameters<typeof POST>[0]);
+    expect(redeemExchangeCode).toHaveBeenCalledWith('good', 'MyMacBook.local');
+  });
 });
