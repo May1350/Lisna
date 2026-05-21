@@ -11,4 +11,5 @@ export default defineConfig({
   },
   verbose: true,
   strict: true,
+  tablesFilter: ['users', 'accounts', 'auth_sessions', 'verification_tokens', 'app_exchange_codes', 'app_devices'],
 });

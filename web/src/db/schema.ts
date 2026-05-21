@@ -1,5 +1,5 @@
 // web/src/db/schema.ts
-import { pgTable, uuid, text, timestamp, integer, primaryKey } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, timestamp, integer, primaryKey, uniqueIndex } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
 // Existing v1 users table — we add `email_verified` via the migration.
@@ -25,9 +25,12 @@ export const accounts = pgTable('accounts', {
   scope: text('scope'),
   idToken: text('id_token'),
   sessionState: text('session_state'),
-});
+}, (t) => ({
+  providerAccountIdUnique: uniqueIndex('accounts_provider_account_id_unique')
+    .on(t.provider, t.providerAccountId),
+}));
 
-export const sessions = pgTable('sessions', {
+export const authSessions = pgTable('auth_sessions', {
   id: uuid('id').primaryKey().defaultRandom(),
   sessionToken: text('session_token').notNull().unique(),
   userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
@@ -62,6 +65,7 @@ export const appDevices = pgTable('app_devices', {
 
 export const usersRelations = relations(users, ({ many }) => ({
   accounts: many(accounts),
-  sessions: many(sessions),
+  authSessions: many(authSessions),
   devices: many(appDevices),
+  exchangeCodes: many(appExchangeCodes),
 }));
