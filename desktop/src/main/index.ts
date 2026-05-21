@@ -6,6 +6,8 @@ import { resolveModels, registerModelIpc } from './model-resolver';
 import { installSystemAudioHandler } from './audio/system-audio-handler';
 import { SidecarSupervisor } from './sidecar/supervisor';
 import { initFileLogger, log, redactPath } from './log';
+import { registerUrlScheme, flushPendingUrl } from './url-scheme';
+import { handleAuthCallback } from './auth/exchange';
 
 // Step 5 §4.1 — initialize file logger BEFORE any other module that may log
 // during boot. macOS log path: ~/Library/Logs/Lisna/main.log (rotating).
@@ -20,6 +22,20 @@ let mainWindow: BrowserWindow | undefined;
 // Set on first `before-quit` so the second pass (after `shutdown()` resolves)
 // skips the preventDefault gate and lets Electron quit normally.
 let shuttingDown = false;
+
+// Phase M Task 68 — wire the `lisna://` deep-link handler BEFORE `whenReady`.
+// `registerUrlScheme` acquires the single-instance lock and installs the
+// `open-url` / `second-instance` listeners; macOS may fire `open-url` during
+// `whenReady` resolution, so the listener must already be attached. Cold-
+// start argv URLs are queued in the module and drained by `flushPendingUrl()`
+// after `createWindow()` runs (handler needs a live webContents to target).
+registerUrlScheme(async (url) => {
+  const parsed = new URL(url);
+  if (parsed.host === 'callback') {
+    const code = parsed.searchParams.get('code');
+    if (code) await handleAuthCallback(code);
+  }
+});
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -124,6 +140,12 @@ app.whenReady().then(async () => {
   });
 
   createWindow();
+
+  // Phase M Task 68 — drain any cold-start `lisna://` URL captured by
+  // `registerUrlScheme` before the window existed. Must run AFTER
+  // `createWindow()` so the handler's eventual `webContents.send` (auth/
+  // signed-in broadcast, lands in Task 69) has a live target.
+  flushPendingUrl();
 }).catch((err) => {
   // Boot rejection (resolveModels disk failure, supervisor crash mid-init,
   // registerIpc throw, etc.) would otherwise become an unhandled promise
