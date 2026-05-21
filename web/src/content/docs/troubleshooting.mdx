@@ -1,0 +1,49 @@
+---
+title: Troubleshooting
+description: Common issues during alpha.
+---
+
+# Troubleshooting
+
+## "Lisna.app can't be opened because Apple cannot check it for malicious software"
+
+During alpha, the app is not yet Apple-notarized. The fastest workaround:
+
+1. Right-click on **Lisna.app** in `/Applications`
+2. Choose **Open**
+3. Click **Open** in the dialog that appears
+
+You only need to do this once. macOS remembers the choice.
+
+We're applying for an Apple Developer ID and will codesign + notarize the v2 build before public beta. Track the status in [/changelog](/changelog).
+
+## "Lisna needs Screen Recording permission"
+
+macOS requires explicit permission to capture system audio:
+
+1. **System Settings → Privacy & Security → Screen & System Audio Recording**
+2. Enable **Lisna**
+3. Quit and re-open Lisna
+
+## First-run model download stalls
+
+Check internet connection. If a partial download is corrupted:
+
+1. Quit Lisna
+2. Delete `~/Library/Application Support/@lisna/desktop/models/`
+3. Re-launch Lisna; downloads will retry from scratch
+
+For metered or offline installs, see [Model files (advanced)](/download#model-files-advanced).
+
+## "Sidecar failed to start"
+
+Lisna spawns a native sidecar process for Whisper + Llama. If it fails:
+
+1. Check Console.app for entries from `lisna_sidecar`
+2. Common cause: macOS Gatekeeper blocking the unsigned sidecar. Solution: Apply the Right-click → Open trick to the sidecar binary at `Lisna.app/Contents/Resources/sidecar`.
+
+If you still see the error, post the Console.app log in [Discord](https://discord.gg/69NkqBTbS) for help.
+
+## Other issues
+
+Join [Discord](https://discord.gg/69NkqBTbS) — fastest response.

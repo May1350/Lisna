@@ -1,0 +1,30 @@
+---
+title: FAQ
+description: Frequently asked questions about Lisna.
+---
+
+# FAQ
+
+## Why is Lisna macOS-only at launch?
+
+Our on-device LLM uses Apple's Metal GPU APIs and the Neural Engine for Whisper. Windows / Linux support is on the roadmap, contingent on alpha feedback and model performance benchmarks on non-Apple-Silicon hardware.
+
+## What languages does the transcription support?
+
+Japanese, English, and Korean at launch. Whisper supports 90+ languages; we expand the UI language coverage as the model evolves.
+
+## Will my notes be private?
+
+Yes. Audio is transcribed locally on your Mac. Notes are saved as Markdown to your filesystem. Lisna's servers never see your audio, transcripts, or note content. Our backend only stores your email + signin metadata for account purposes.
+
+## What happens to my data if I uninstall?
+
+Your notes stay where they are on disk (Markdown files). Uninstalling Lisna.app does not delete content. Your account record on Lisna's server can be deleted via Discord support — email is the only personal data we store.
+
+## How do I export to Obsidian?
+
+Set your Obsidian vault path in **Settings → Export**. New notes save into the vault directly. See [Exporting to Obsidian](/docs/exporting-to-obsidian).
+
+## Will Windows / Linux support come?
+
+Yes, post-macOS alpha. Timeline depends on alpha feedback and model performance on non-Apple-Silicon hardware. Subscribe via [/download](/download) to get notified.
