@@ -14,7 +14,7 @@ export default async function Terms({ params }: { params: Promise<{ locale: Loca
   setRequestLocale(locale);
   return (
     <MarketingShell locale={locale}>
-      <article className="mx-auto max-w-3xl px-6 py-16 prose prose-stone font-sans text-body text-ink-700 leading-[1.7]">
+      <article lang="ja" className="mx-auto max-w-3xl px-6 py-16 prose prose-stone font-sans text-body text-ink-700 leading-[1.7]">
         <h1 className="font-serif text-h1 text-ink-900">利用規約</h1>
         <p className="text-body-sm text-ink-700/70 mt-2">最終更新日: 2026年5月8日</p>
 

@@ -13,6 +13,11 @@ const tableStyle: CSSProperties = {
   fontSize: 14,
 }
 
+// v2 table follows an <h2 className="mt-12"> (48 px). The 24 px marginTop
+// from tableStyle would stack onto that gap because there's no preceding
+// <p> to absorb the margin collapse (unlike the v1 table). Override to 0.
+const v2TableStyle: CSSProperties = { ...tableStyle, marginTop: 0 }
+
 const thStyle: CSSProperties = {
   textAlign: 'left',
   padding: '12px 16px',
@@ -34,7 +39,7 @@ export default async function Tokusho({ params }: { params: Promise<{ locale: Lo
   setRequestLocale(locale);
   return (
     <MarketingShell locale={locale}>
-      <article className="mx-auto max-w-3xl px-6 py-16 prose prose-stone font-sans text-body text-ink-700 leading-[1.7]">
+      <article lang="ja" className="mx-auto max-w-3xl px-6 py-16 prose prose-stone font-sans text-body text-ink-700 leading-[1.7]">
         <h1 className="font-serif text-h1 text-ink-900">特定商取引法に基づく表記</h1>
         <p className="text-body-sm text-ink-700/70 mt-2">最終更新日: 2026年5月8日</p>
 
@@ -122,7 +127,7 @@ export default async function Tokusho({ params }: { params: Promise<{ locale: Lo
 
         <h2 className="font-serif text-h2-sm text-ink-900 mt-12">v2 アルファ版 (デスクトップアプリ) に関する表記</h2>
 
-        <table style={tableStyle}>
+        <table style={v2TableStyle}>
           <tbody>
             <tr>
               <th style={thStyle}>販売価格</th>

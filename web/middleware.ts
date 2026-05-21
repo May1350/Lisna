@@ -11,12 +11,19 @@ export default function middleware(req: NextRequest) {
 }
 
 export const config = {
-  // Match all paths except API, _next, static files, and existing top-level
-  // pages that haven't yet been migrated under [locale]/ (Phase F moves them).
-  // When a page is moved under [locale]/, remove it from this exclusion list.
-  // Known transition-period gap: locale-prefixed access to non-migrated pages
-  // (e.g. /ja/pricing) returns 404 — middleware runs but Next finds no
-  // [locale]/pricing/page.tsx until Phase F migrates it.
+  // Match all paths except API, _next, static infrastructure, and Stripe /
+  // checkout return URLs. The 4 transition tokens (cancel, success,
+  // trial-cancel, trial-success) intentionally stay at top level because
+  // Stripe constructs the return URL externally and doesn't know the user's
+  // locale — so they must not be locale-prefixed.
+  //
+  // `dl` is a permanent infrastructure exclusion (release-download redirects
+  // resolved by route handlers, no locale variant).
+  //
+  // `design-test` is a dev-only sandbox page that intentionally stays
+  // un-localized.
+  //
+  // These exclusions are stable — they are NOT migration backlog.
   matcher: [
     '/((?!api|_next|_vercel|dl|cancel|design-test|success|trial-cancel|trial-success|robots.txt|.*\\..*).*)',
   ],
