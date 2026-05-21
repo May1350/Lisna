@@ -14,6 +14,7 @@ import { WhisperCppSTT } from './engines/whisper-cpp-stt';
 import { LlamaCppLLM } from './engines/llama-cpp-llm';
 import { isMacAudioLoopbackSupported } from './platform/hardware-check';
 import { log, sessionLog } from './log';
+import { loadToken } from './auth/keychain';
 
 export const CHANNELS = {
   startRecording: 'recording/start',
@@ -43,6 +44,14 @@ export const CHANNELS = {
   /** renderer → main: launch external URL via shell.openExternal.
    *  Guarded https:// allow-list; rejects all other schemes. */
   shellOpenExternal: 'shell/open-external',
+  /** renderer → main: open the web `/signin` flow with `source=app` and the
+   *  `lisna://callback` URI in the user's default browser. Fire-and-forget. */
+  authSignIn: 'auth/sign-in',
+  /** renderer → main: query whether a device token is present in Keychain. */
+  authGetState: 'auth/get-state',
+  /** main → renderer: broadcast after `handleAuthCallback` successfully
+   *  redeems an exchange code and stores the device token. */
+  authSignedIn: 'auth/signed-in',
 } as const;
 
 export interface IpcDeps {
@@ -214,6 +223,26 @@ export function registerIpc(deps: IpcDeps) {
     }
     await shell.openExternal(payload.url);
   });
+
+  // Phase M Task 70 — open the web sign-in flow in the user's default
+  // browser. `source=app` makes the web `/signin` page redirect to
+  // `/api/auth/exchange-code/issue` after sign-in (instead of `/dashboard`),
+  // which 302s back to `lisna://callback?code=…` for redemption. The web
+  // side handshake is the Phase K contract; do not alter the query params.
+  ipcMain.handle(CHANNELS.authSignIn, async () => {
+    const webUrl = process.env.LISNA_WEB_URL ?? 'https://lisna.jp';
+    const callback = encodeURIComponent('lisna://callback');
+    await shell.openExternal(`${webUrl}/signin?source=app&app_callback=${callback}`);
+  });
+
+  // Phase M Task 70 — boot-time check. The renderer's gate calls this on
+  // mount to decide between SignInView and AuthenticatedApp. `loadToken`
+  // returns `null` when the Keychain entry is missing; presence is the
+  // sole signedIn signal (token validity is verified lazily on first
+  // app-API call, not here).
+  ipcMain.handle(CHANNELS.authGetState, async () => ({
+    signedIn: (await loadToken()) !== null,
+  }));
 
   ipcMain.handle(CHANNELS.sessionStop, async (): Promise<Note> => {
     if (current === null) throw new Error('NO_ACTIVE_SESSION');

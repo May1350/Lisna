@@ -81,6 +81,35 @@ contextBridge.exposeInMainWorld('lisna', {
 
   openExternal: (url: string): Promise<void> =>
     ipcRenderer.invoke(CHANNELS.shellOpenExternal, { url }),
+
+  // --- Phase M Task 70 — sign-in handshake bridges ---
+
+  /**
+   * Fire-and-forget: opens `lisna.jp/signin?source=app&app_callback=…` in the
+   * default browser. Resolves once shell.openExternal returns; the actual
+   * sign-in completes out-of-band and lands via `auth/signed-in`.
+   */
+  signIn: (): Promise<void> => ipcRenderer.invoke(CHANNELS.authSignIn),
+
+  /**
+   * Boot-time check: returns `{ signedIn:true }` when a device token is
+   * present in Keychain, `{ signedIn:false }` otherwise. Used by App.tsx's
+   * auth gate to decide between SignInView and the authenticated shell.
+   */
+  getAuthState: (): Promise<{ signedIn: boolean }> =>
+    ipcRenderer.invoke(CHANNELS.authGetState),
+
+  /**
+   * Subscribe to the post-redeem `auth/signed-in` broadcast. Returns an
+   * unsubscribe function — the auth gate's useEffect MUST call it on cleanup
+   * to avoid duplicate listeners across Strict Mode double-mounts. Matches
+   * the onChunk / onPhase / onSessionError unsubscriber convention.
+   */
+  onSignedIn: (cb: () => void): (() => void) => {
+    const listener = () => cb();
+    ipcRenderer.on(CHANNELS.authSignedIn, listener);
+    return () => ipcRenderer.removeListener(CHANNELS.authSignedIn, listener);
+  },
 });
 
 declare global {
@@ -99,6 +128,9 @@ declare global {
       getModelStatus(): Promise<ModelStatus>;
       pickModel(slot: ModelSlot): Promise<PickResult>;
       openExternal(url: string): Promise<void>;
+      signIn(): Promise<void>;
+      getAuthState(): Promise<{ signedIn: boolean }>;
+      onSignedIn(cb: () => void): () => void;
     };
   }
 }

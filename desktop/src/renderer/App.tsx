@@ -4,6 +4,7 @@ import { NoteView } from './routes/NoteView';
 import { ErrorView } from './routes/ErrorView';
 import { FinalizingView } from './routes/FinalizingView';
 import { SetupView } from './routes/SetupView';
+import { SignInView } from './routes/SignInView';
 import type { Note, TranscriptSegment } from '@shared/types';
 import type { SessionPhase } from '@shared/ipc-protocol';
 
@@ -17,7 +18,62 @@ type View =
   | { kind: 'note'; note: Note }
   | { kind: 'error'; message: string; segments: TranscriptSegment[]; permanent?: boolean };
 
+/**
+ * Phase M Task 70 — top-level auth gate.
+ *
+ * Boot order:
+ *   1. Render nothing while `signedIn === null` (waiting for getAuthState).
+ *   2. If `signedIn === false`, show SignInView (button → main opens browser).
+ *   3. If `signedIn === true`, hand off to AuthenticatedApp.
+ *
+ * Two parallel mechanisms keep the gate in sync with main-side auth state:
+ *   - `getAuthState()` poll on mount handles the cold-start race where
+ *     `handleAuthCallback` ran during boot (argv `lisna://callback?code=…`)
+ *     BEFORE the renderer subscribed. The flushPendingUrl in main/index.ts
+ *     fires after createWindow but before React mounts; by the time the
+ *     poll's promise resolves, the token is already in Keychain.
+ *   - `onSignedIn` subscription handles warm dispatch: user clicks Sign In,
+ *     browser flow completes, open-url delivers the deep link, the renderer
+ *     is already mounted and listening.
+ * Both paths idempotently flip `signedIn` to true; order doesn't matter.
+ */
 export function App() {
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    window.lisna.getAuthState().then((s) => {
+      if (active) setSignedIn(s.signedIn);
+    });
+    const off = window.lisna.onSignedIn(() => {
+      if (active) setSignedIn(true);
+    });
+    return () => {
+      active = false;
+      off();
+    };
+  }, []);
+
+  if (signedIn === null) return null;
+  if (!signedIn) return <SignInView />;
+  return <AuthenticatedApp />;
+}
+
+/**
+ * Post-auth shell — owns the v2 alpha session FSM (`booting | setup |
+ * recording | finalizing | note | error`) and the three onChunk / onPhase /
+ * onSessionError subscriptions. Extracted from the pre-Task-70 `App()` body
+ * verbatim; only the wrapper changed.
+ *
+ * Why a function component instead of inlining into the gate: keeps the
+ * existing 4-useEffect boot sequence (model status, chunk, phase, session
+ * error) gated behind successful auth — the chunk/phase listeners and the
+ * getModelStatus call have no reason to fire on the SignInView and would
+ * be wasted work / log noise pre-sign-in. The function-component split
+ * also means React unmounts AuthenticatedApp on sign-out (future feature),
+ * automatically tearing down its listeners.
+ */
+function AuthenticatedApp() {
   const [view, setView] = useState<View>({ kind: 'booting' });
 
   // Chunk-result: accept in 'recording' AND 'finalizing'. The renderer-side

@@ -1,6 +1,7 @@
 import { hostname } from 'node:os';
 import { BrowserWindow } from 'electron';
 import { log } from '../log';
+import { CHANNELS } from '../ipc';
 import { storeToken } from './keychain';
 
 /**
@@ -53,7 +54,7 @@ export async function handleAuthCallback(code: string): Promise<void> {
     const { token } = (await res.json()) as { token: string };
     await storeToken(token);
     for (const win of BrowserWindow.getAllWindows()) {
-      win.webContents.send('auth/signed-in');
+      win.webContents.send(CHANNELS.authSignedIn);
     }
     log.info('[auth] signed in, token stored');
   } catch (err) {
