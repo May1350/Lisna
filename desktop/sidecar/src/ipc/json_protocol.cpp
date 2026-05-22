@@ -109,7 +109,8 @@ std::string dispatch(const std::string& jsonLine) {
     for (const auto& s : segs) {
       arr.push_back({{"startSec", s.startSec},
                      {"endSec", s.endSec},
-                     {"text", s.text}});
+                     {"text", s.text},
+                     {"noSpeechProb", s.noSpeechProb}});
     }
     return nlohmann::json{{"id", id}, {"type", "segments"}, {"segments", arr}}.dump();
   }
