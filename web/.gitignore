@@ -7,3 +7,4 @@
 # loosened.
 .env.local
 .vercel
+.env*.local

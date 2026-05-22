@@ -25,3 +25,4 @@ lisna-extension-*.zip
 # Playwright E2E artifacts
 extension/test-results/
 extension/playwright-report/
+.vercel
