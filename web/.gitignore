@@ -6,3 +6,4 @@
 # inside web/ can't accidentally pick it up if the root rule is ever
 # loosened.
 .env.local
+.vercel

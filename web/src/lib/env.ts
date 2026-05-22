@@ -9,6 +9,10 @@ const envSchema = z.object({
   DATABASE_URL: z.string().url().optional(),                  // for local dev w/o IAM
   RDS_PROXY_ENDPOINT: z.string().min(1).optional(),           // prod: IAM-authed
   RDS_USERNAME: z.string().min(1).optional(),
+  // Postgres database name. Local dev defaults to 'lisna' (matches MIGRATIONS.md
+  // `createdb lisna` step). Prod RDS uses 'studyhelper' (shared with v1 backend,
+  // see MIGRATIONS.md — v2 Auth.js tables augment the existing v1 users table).
+  RDS_DB_NAME: z.string().min(1).default('lisna'),
   AWS_REGION: z.string().min(1).default('ap-northeast-1'),
 
   // Email (Phase J)

@@ -26,7 +26,7 @@ function makePool(): Pool {
       host: env.RDS_PROXY_ENDPOINT,
       port: 5432,
       user: env.RDS_USERNAME,
-      database: 'lisna',
+      database: env.RDS_DB_NAME,
       ssl: { rejectUnauthorized: true },
       max: 1,
       // pg caches the resolved token on the Client after first auth; reconnects after
