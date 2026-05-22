@@ -148,24 +148,20 @@ export class DataStack extends Stack {
     const proxySg = new SecurityGroup(this, 'DbProxySg', {
       vpc: props.vpc,
       allowAllOutbound: true,
-      description: 'RDS Proxy SG for lisna.jp Vercel ingress (TLS, IAM-auth)',
+      description: 'lisna.jp Vercel <-> RDS Proxy (TLS, IAM-auth)',
     })
     // Public ingress on 5432. Proxy enforces TLS; auth is IAM-token (15-min
     // expiry). Restricting to Vercel egress IPs is not practical — Vercel's
     // serverless function egress uses a dynamic, undocumented range.
     proxySg.addIngressRule(Peer.anyIpv4(), Port.tcp(5432), 'Vercel egress (IAM-authed, TLS-required)')
-    // NOTE: EC2 SecurityGroup GroupDescription enforces a STRICTER char set
-    // than just ASCII — only `a-zA-Z0-9. _-:/()#,@[]+=&;{}!$*` (plus space)
-    // are accepted, max 256 chars. Verified the hard way: first deploy at
-    // 16:16 UTC 2026-05-22 failed on non-ASCII `↔`, second deploy at 16:32
-    // UTC failed on the supposedly-ASCII `<->` (angle brackets are not in
-    // the allowed set). Comments in this file (in TS source, never sent to
-    // AWS) may use any UTF-8 freely. Other AWS APIs (SecretsManager
-    // Description, CloudWatch Alarm AlarmDescription, CfnOutput Description)
-    // are more permissive — verified by the existing pre-existing alarm
-    // description on line 128 (`≤` / `—`) deploying successfully for
-    // months. Validate any future SG description with the EC2 char set
-    // explicitly.
+    // NOTE: All `description` string values passed to AWS APIs (SG description,
+    // SG rule description, SecretsManager description, CfnOutput description)
+    // must be ASCII-only. EC2 SecurityGroup GroupDescription explicitly rejects
+    // non-ASCII at the API layer (verified the hard way on the first deploy
+    // attempt at 16:16 UTC 2026-05-22 -- arrow char `↔` returned "Character
+    // sets beyond ASCII are not supported"). Comments in this file may use
+    // non-ASCII freely (they live in TS source), but anything that crosses
+    // the CloudFormation/SDK boundary must stay ASCII.
 
     const dbProxy = new DatabaseProxy(this, 'DbProxy', {
       dbProxyName: 'lisna-db-proxy',
