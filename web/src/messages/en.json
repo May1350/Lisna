@@ -15,7 +15,7 @@
     "h1Line2Suffix": " notes.",
     "sub": "Real-time transcription + structured summaries. 100% on-device — your audio never leaves your Mac.",
     "cta": "Download for Mac →",
-    "hint": "macOS 13+ · Free during alpha · Apple Silicon · 537 MB"
+    "hint": "macOS 13+ · Free during alpha · Apple Silicon · 158 MB"
   },
   "trust": {
     "label": "EARLY USE AT",
@@ -139,6 +139,6 @@
     "headlineEm": "focus",
     "headlineAfter": "?",
     "sub": "Free during alpha. Sign in inside the app on first launch.",
-    "hint": "macOS 13+ · Apple Silicon · 537 MB"
+    "hint": "macOS 13+ · Apple Silicon · 158 MB"
   }
 }

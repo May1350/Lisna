@@ -40,7 +40,7 @@ export default async function DashboardPage({ params }: { params: Promise<{ loca
           <div className="mt-6">
             <Button asChild><Link href="/dl/dmg/latest" className="plausible-event-name=download_click">Download for Mac →</Link></Button>
           </div>
-          <p className="mt-2 text-hint text-ink-700/60">v0.1.0 · 537 MB · Apple Silicon</p>
+          <p className="mt-2 text-hint text-ink-700/60">v0.1.0 · 158 MB · Apple Silicon</p>
           <div className="mt-6 border-t border-ink-900/10 pt-4">
             <p className="text-meta uppercase text-ink-700/60">Files</p>
             <ul className="mt-2 space-y-1 text-body-sm text-ink-700">

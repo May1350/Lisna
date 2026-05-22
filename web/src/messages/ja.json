@@ -15,7 +15,7 @@
     "h1Line2Suffix": "ノートに。",
     "sub": "リアルタイム文字起こし + 構造化されたサマリー。100% オンデバイス — 音声が Mac から出ることはありません。",
     "cta": "Macアプリをダウンロード →",
-    "hint": "macOS 13+ · アルファ版無料 · Apple Silicon · 537 MB"
+    "hint": "macOS 13+ · アルファ版無料 · Apple Silicon · 158 MB"
   },
   "trust": {
     "label": "アルファ版を試している大学",
@@ -139,6 +139,6 @@
     "headlineEm": "focus",
     "headlineAfter": "?",
     "sub": "Free during alpha. Sign in inside the app on first launch.",
-    "hint": "macOS 13+ · Apple Silicon · 537 MB"
+    "hint": "macOS 13+ · Apple Silicon · 158 MB"
   }
 }

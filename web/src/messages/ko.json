@@ -15,7 +15,7 @@
     "h1Line2Suffix": " 노트로.",
     "sub": "실시간 전사 + 구조화된 요약. 100% 온디바이스 — 음성이 Mac 을 떠나지 않습니다.",
     "cta": "Mac 앱 다운로드 →",
-    "hint": "macOS 13+ · 알파 무료 · Apple Silicon · 537 MB"
+    "hint": "macOS 13+ · 알파 무료 · Apple Silicon · 158 MB"
   },
   "trust": {
     "label": "얼리 어답터",
@@ -139,6 +139,6 @@
     "headlineEm": "focus",
     "headlineAfter": "?",
     "sub": "Free during alpha. Sign in inside the app on first launch.",
-    "hint": "macOS 13+ · Apple Silicon · 537 MB"
+    "hint": "macOS 13+ · Apple Silicon · 158 MB"
   }
 }
