@@ -170,8 +170,11 @@ export class DataStack extends Stack {
       borrowTimeout: Duration.seconds(30),
     })
 
-    // Proxy → RDS connection: allow proxy SG to reach the DB on 5432
-    this.db.connections.allowFrom(proxySg, Port.tcp(5432), 'RDS Proxy → DB')
+    // (No explicit DbSg ingress rule needed here — ProxyTarget.fromInstance
+    // already calls `dbInstance.connections.allowDefaultPortFrom(proxy)`
+    // inside its bind() hook, which adds the proxySg → DbSg:5432 rule
+    // automatically. Duplicating it here would create a second identical
+    // CFN SecurityGroupIngress resource — not broken, but cluttered.)
 
     // IAM principal that Vercel uses to sign tokens. Static access key —
     // Vercel does not yet support OIDC token federation for AWS without
@@ -210,11 +213,16 @@ export class DataStack extends Stack {
     })
     new CfnOutput(this, 'VercelDbCredsSecretArn', {
       value: vercelCredsSecret.secretArn,
-      description: 'Secrets Manager ARN containing AWS access key for Vercel → fetch and set as Vercel env vars',
+      description: 'Secrets Manager ARN containing AWS access key for Vercel → fetch and set AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY in Vercel env',
     })
-    new CfnOutput(this, 'VercelDbUserName', {
-      value: vercelDbUser.userName,
-      description: 'IAM user name (RDS_USERNAME for Vercel env = lisna_web, the DB user, NOT this IAM user)',
+    // RDS_USERNAME literal output — Vercel env should be set to the Postgres
+    // role name (lisna_web, created by backend/src/migrations/008_lisna_web_role.sql),
+    // NOT the IAM user name. Surfacing the literal here avoids the "operator
+    // pastes the wrong value" footgun. The IAM user name itself is intentionally
+    // not output — it's infra-internal; only the SecretsManager ARN matters.
+    new CfnOutput(this, 'VercelRdsUsername', {
+      value: 'lisna_web',
+      description: 'Postgres role name (set as RDS_USERNAME in Vercel env). Created by backend/src/migrations/008_lisna_web_role.sql.',
     })
   }
 }
