@@ -2,7 +2,7 @@ import type { NextConfig } from 'next'
 import createNextIntlPlugin from 'next-intl/plugin'
 import createMDX from '@next/mdx'
 
-const withNextIntl = createNextIntlPlugin()
+const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts')
 // Plugins are passed as serializable string names (not imported functions) so
 // that Turbopack — which serializes loader options to its rust worker — can
 // accept them. `@next/mdx` resolves these names through @mdx-js/loader.
