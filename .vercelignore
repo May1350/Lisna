@@ -1,0 +1,32 @@
+# Workspaces / artifacts unrelated to lisna.jp web build
+.claude
+desktop
+backend
+extension
+shared
+docs
+
+# Build outputs / caches anywhere
+node_modules
+.git
+**/.next
+**/.turbo
+**/cdk.out
+**/dist
+**/out
+**/build
+**/coverage
+**/.cache
+**/*.log
+**/.DS_Store
+
+# Large binaries that might slip through
+**/*.dmg
+**/*.zip
+**/*.tar.gz
+**/*.app
+**/*.exe
+**/*.gguf
+**/*.wav
+**/*.mp3
+**/*.mp4

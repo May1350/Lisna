@@ -331,7 +331,7 @@ Pre-launch checklist lives in [`docs/DEPLOYMENT.md`](./DEPLOYMENT.md).
 1. Stripe live keys + webhook secret (currently `TEMP_PLACEHOLDER`)
 2. Chrome Web Store publish + screenshots
 3. CORS lockdown post-publish (`cdk deploy -c allowedCorsOrigins=...`)
-4. Fill `[TODO:...]` placeholders in `web/src/app/tokushoho/page.tsx`
+4. Fill `[TODO:...]` placeholders in `web/src/app/[locale]/tokusho/page.tsx`
 5. Decide support email (current: `support@study-helper.app(仮)`)
 
 See `DEPLOYMENT.md` for the complete operator runbook.

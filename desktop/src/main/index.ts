@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog } from 'electron';
+import { autoUpdater } from 'electron-updater';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { registerIpc, handleSidecarExit, handleSidecarGiveUp, setAppQuitting } from './ipc';
@@ -6,6 +7,8 @@ import { resolveModels, registerModelIpc } from './model-resolver';
 import { installSystemAudioHandler } from './audio/system-audio-handler';
 import { SidecarSupervisor } from './sidecar/supervisor';
 import { initFileLogger, log, redactPath } from './log';
+import { registerUrlScheme, flushPendingUrl } from './url-scheme';
+import { handleAuthCallback } from './auth/exchange';
 
 // Step 5 §4.1 — initialize file logger BEFORE any other module that may log
 // during boot. macOS log path: ~/Library/Logs/Lisna/main.log (rotating).
@@ -20,6 +23,20 @@ let mainWindow: BrowserWindow | undefined;
 // Set on first `before-quit` so the second pass (after `shutdown()` resolves)
 // skips the preventDefault gate and lets Electron quit normally.
 let shuttingDown = false;
+
+// Phase M Task 68 — wire the `lisna://` deep-link handler BEFORE `whenReady`.
+// `registerUrlScheme` acquires the single-instance lock and installs the
+// `open-url` / `second-instance` listeners; macOS may fire `open-url` during
+// `whenReady` resolution, so the listener must already be attached. Cold-
+// start argv URLs are queued in the module and drained by `flushPendingUrl()`
+// after `createWindow()` runs (handler needs a live webContents to target).
+registerUrlScheme(async (url) => {
+  const parsed = new URL(url);
+  if (parsed.host === 'callback') {
+    const code = parsed.searchParams.get('code');
+    if (code) await handleAuthCallback(code);
+  }
+});
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -124,6 +141,31 @@ app.whenReady().then(async () => {
   });
 
   createWindow();
+
+  // Phase M Task 68 — drain any cold-start `lisna://` URL captured by
+  // `registerUrlScheme` before the window existed. Must run AFTER
+  // `createWindow()` so the handler's eventual `webContents.send` (auth/
+  // signed-in broadcast, lands in Task 69) has a live target.
+  flushPendingUrl();
+
+  // Phase N Task 74 — silent background update check.
+  // autoUpdater.logger wires download-phase + signature events
+  // (which fire via the event-emitter, not the Promise chain)
+  // to electron-log instead of the default console.
+  //
+  // autoDownload + auto-notify intentionally DISABLED while builds are
+  // unsigned. On unsigned macOS, Squirrel.Mac rejects the post-download
+  // signature swap, so checkForUpdatesAndNotify() would surface a fake
+  // "Update Downloaded" notification that never actually applies. Once
+  // Apple Dev signing lands, swap back to checkForUpdatesAndNotify().
+  // checkForUpdates() still runs — it logs "available update" info via
+  // autoUpdater.logger so we keep observability for alpha-cycle update
+  // channel health.
+  autoUpdater.logger = log;
+  autoUpdater.autoDownload = false;
+  autoUpdater.checkForUpdates().catch(() => {
+    // No-op: internal error listener already logs via autoUpdater.logger.
+  });
 }).catch((err) => {
   // Boot rejection (resolveModels disk failure, supervisor crash mid-init,
   // registerIpc throw, etc.) would otherwise become an unhandled promise

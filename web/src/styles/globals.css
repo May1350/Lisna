@@ -1,0 +1,48 @@
+@import "tailwindcss";
+@config "../../tailwind.config.ts";
+@plugin "@tailwindcss/typography";
+
+@theme {
+  /* Tokens defined in Task 3 — placeholder for now */
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    @apply bg-cream-200 text-ink-900 font-sans;
+  }
+}
+
+@layer utilities {
+  .ruled-paper {
+    background-image: repeating-linear-gradient(
+      180deg,
+      transparent 0 30px,
+      rgba(120, 100, 70, 0.07) 30px 31px
+    );
+  }
+
+  .red-margin {
+    position: relative;
+  }
+  .red-margin::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: var(--margin-offset, 80px);
+    width: 1px;
+    background: rgba(184, 80, 80, 0.25);
+    pointer-events: none;
+  }
+
+  .notebook-bg {
+    background:
+      linear-gradient(180deg, rgba(120, 100, 70, 0.02), rgba(120, 100, 70, 0.05)),
+      theme('colors.cream.200');
+    position: relative;
+  }
+}

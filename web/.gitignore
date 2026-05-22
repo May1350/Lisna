@@ -1,1 +1,10 @@
 .vercel/
+
+# Belt-and-suspenders: root .gitignore already ignores .env.local across
+# the whole monorepo. Re-stating it here so the protection is visible
+# when someone reads web/.gitignore in isolation, and so a `git add`
+# inside web/ can't accidentally pick it up if the root rule is ever
+# loosened.
+.env.local
+.vercel
+.env*.local

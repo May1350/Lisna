@@ -1,0 +1,81 @@
+name: Release desktop
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+# Opt JavaScript actions into the Node 24 runtime ahead of GH's
+# 2026-06-02 Node 20 deprecation. See ci.yml for the rationale.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 45     # sidecar ~5m + electron build ~5m + packaging ~10m + margin
+    permissions:
+      contents: write     # softprops/action-gh-release needs this to create Releases
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Verify tag matches desktop/package.json version
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          PKG_VER=$(node -p "require('./desktop/package.json').version")
+          if [ "v${PKG_VER}" != "${TAG}" ]; then
+            echo "::error::Tag ${TAG} does not match desktop/package.json version ${PKG_VER}. Bump the version field and re-tag."
+            exit 1
+          fi
+          echo "Version OK: ${TAG}"
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install workspace deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Build sidecars
+        run: |
+          cd desktop
+          JOBS=1 pnpm run build:sidecar
+
+      - name: Typecheck + tests
+        run: pnpm --filter @lisna/desktop verify
+
+      - name: Build + package Electron
+        env:
+          # Codesigning + notarization stay OFF for alpha — flip on once Apple Dev signup lands.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        # Skip the redundant sidecar rebuild that `pnpm run package` would do —
+        # the sidecar is already built by the previous "Build sidecars" step.
+        # `pnpm build` keeps JOBS=1 because electron-vite's esbuild/rollup workers
+        # can also OOM on M1.
+        run: |
+          cd desktop && JOBS=1 pnpm build && JOBS=1 pnpm exec electron-builder --mac --publish never
+
+      - name: Compute SHA256
+        run: |
+          cd desktop/dist
+          shasum -a 256 *.dmg *.zip > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Publish GH Release
+        uses: softprops/action-gh-release@v2
+        with:
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: |
+            desktop/dist/*.dmg
+            desktop/dist/*.dmg.blockmap
+            desktop/dist/*.zip
+            desktop/dist/*.zip.blockmap
+            desktop/dist/latest-mac.yml
+            desktop/dist/SHA256SUMS.txt
+          generate_release_notes: true

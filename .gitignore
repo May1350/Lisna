@@ -16,6 +16,8 @@ cdk.out/
 extension/dist/
 backend/dist/
 web/.next/
+web/next-env.d.ts
+*.tsbuildinfo
 .vercel/
 lisna-extension.zip
 lisna-extension-*.zip
@@ -23,3 +25,4 @@ lisna-extension-*.zip
 # Playwright E2E artifacts
 extension/test-results/
 extension/playwright-report/
+.vercel

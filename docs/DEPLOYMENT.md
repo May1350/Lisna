@@ -72,8 +72,8 @@ manually.
 The legal pages use `[TODO:...]` placeholders for your business info.
 Edit these files with real values before public launch:
 
-- `web/src/app/tokushoho/page.tsx` (operator name, address, phone)
-- `web/src/app/page.tsx` (Pro plan price)
+- `web/src/app/[locale]/tokusho/page.tsx` (operator name, address, phone)
+- `web/src/app/[locale]/page.tsx` (Pro plan price)
 
 `所在地` and `電話番号` can be left as "請求に応じて開示" if you don't
 have a public business address yet — the law allows this for
@@ -86,9 +86,9 @@ Decide:
 - Buy a domain (e.g. `study-helper.app`), set up email at it.
 
 Update all `[support@study-helper.app(仮)]` references in:
-- `web/src/app/privacy/page.tsx`
-- `web/src/app/terms/page.tsx`
-- `web/src/app/tokushoho/page.tsx`
+- `web/src/app/[locale]/privacy/page.tsx`
+- `web/src/app/[locale]/terms/page.tsx`
+- `web/src/app/[locale]/tokusho/page.tsx`
 
 ### A6. (Optional) Custom domain for API
 

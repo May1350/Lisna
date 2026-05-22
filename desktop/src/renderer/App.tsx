@@ -4,6 +4,7 @@ import { NoteView } from './routes/NoteView';
 import { ErrorView } from './routes/ErrorView';
 import { FinalizingView } from './routes/FinalizingView';
 import { SetupView } from './routes/SetupView';
+import { SignInView } from './routes/SignInView';
 import type { Note, TranscriptSegment } from '@shared/types';
 import type { SessionPhase } from '@shared/ipc-protocol';
 
@@ -17,7 +18,79 @@ type View =
   | { kind: 'note'; note: Note }
   | { kind: 'error'; message: string; segments: TranscriptSegment[]; permanent?: boolean };
 
+/**
+ * Phase M Task 70 — top-level auth gate.
+ *
+ * Boot order:
+ *   1. Render nothing while `signedIn === null` (waiting for getAuthState).
+ *   2. If `signedIn === false`, show SignInView (button → main opens browser).
+ *   3. If `signedIn === true`, hand off to AuthenticatedApp.
+ *
+ * Two parallel mechanisms keep the gate in sync with main-side auth state:
+ *   - `getAuthState()` poll on mount handles the cold-start race where
+ *     `handleAuthCallback` ran during boot (argv `lisna://callback?code=…`)
+ *     BEFORE the renderer subscribed. The flushPendingUrl in main/index.ts
+ *     fires after createWindow but before React mounts; by the time the
+ *     poll's promise resolves, the token is already in Keychain.
+ *   - `onSignedIn` subscription handles warm dispatch: user clicks Sign In,
+ *     browser flow completes, open-url delivers the deep link, the renderer
+ *     is already mounted and listening.
+ *
+ * Race precedence (M-IM1):
+ *   The latched-true state wins all races. The poll resolution can only
+ *   advance state from `null` (initial) to its read value; it never demotes
+ *   an already-`true` value back to `false`. This matters when the cold-start
+ *   `auth/signed-in` event arrives BEFORE the `getAuthState` IPC reply (the
+ *   reply was already in-flight reading a stale pre-storeToken Keychain
+ *   state). Without the functional-update precedence, the late poll could
+ *   overwrite the event's `true` with the stale `false`. With it:
+ *     - poll-first-true   → null→true; event redundantly sets true→true ✓
+ *     - poll-first-false  → null→false; event later may set false→true ✓
+ *     - event-first-true  → null→true; poll's prev===true branch keeps true ✓
+ *     - event-late-true   → null→false (stale poll), then false→true (event) ✓
+ *   Once true, the gate is permanently latched; sign-out (future) must reset
+ *   state through a separate mechanism, not via this poll.
+ */
 export function App() {
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    window.lisna.getAuthState().then((s) => {
+      // M-IM1: never demote latched-true. If the event won the cold-start
+      // race and already flipped signedIn to true, the poll's stale `false`
+      // (Keychain read pre-storeToken) must not overwrite it.
+      if (active) setSignedIn((prev) => (prev === true ? true : s.signedIn));
+    });
+    const off = window.lisna.onSignedIn(() => {
+      if (active) setSignedIn(true);
+    });
+    return () => {
+      active = false;
+      off();
+    };
+  }, []);
+
+  if (signedIn === null) return null;
+  if (!signedIn) return <SignInView />;
+  return <AuthenticatedApp />;
+}
+
+/**
+ * Post-auth shell — owns the v2 alpha session FSM (`booting | setup |
+ * recording | finalizing | note | error`) and the three onChunk / onPhase /
+ * onSessionError subscriptions. Extracted from the pre-Task-70 `App()` body
+ * verbatim; only the wrapper changed.
+ *
+ * Why a function component instead of inlining into the gate: keeps the
+ * existing 4-useEffect boot sequence (model status, chunk, phase, session
+ * error) gated behind successful auth — the chunk/phase listeners and the
+ * getModelStatus call have no reason to fire on the SignInView and would
+ * be wasted work / log noise pre-sign-in. The function-component split
+ * also means React unmounts AuthenticatedApp on sign-out (future feature),
+ * automatically tearing down its listeners.
+ */
+function AuthenticatedApp() {
   const [view, setView] = useState<View>({ kind: 'booting' });
 
   // Chunk-result: accept in 'recording' AND 'finalizing'. The renderer-side
