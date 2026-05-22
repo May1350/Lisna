@@ -9,7 +9,23 @@ import { db } from './db';
 import { env } from './env';
 import { users, accounts, authSessions, verificationTokens } from '@/db/schema';
 
-const resend = new Resend(env.RESEND_API_KEY);
+// Lazy: defer Resend client construction to the first send call, so the
+// Next.js build (which evaluates this module at collect-page-data time)
+// doesn't fail when RESEND_API_KEY is unset. Throws a useful error at
+// send-time if the key is missing — which is the actual operational
+// failure point (the magic-link flow won't work without it), not the
+// build.
+const getResend = (() => {
+  let cached: Resend | null = null;
+  return () => {
+    if (cached) return cached;
+    if (!env.RESEND_API_KEY) {
+      throw new Error('RESEND_API_KEY not configured — set it in Vercel env to enable magic-link sign-in');
+    }
+    cached = new Resend(env.RESEND_API_KEY);
+    return cached;
+  };
+})();
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   adapter: DrizzleAdapter(db, {
@@ -38,7 +54,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       from: env.EMAIL_FROM,
       sendVerificationRequest: async ({ identifier: email, url, provider }) => {
         if (!provider.from) throw new Error('EMAIL_FROM not configured');
-        const { error } = await resend.emails.send({
+        const { error } = await getResend().emails.send({
           from: provider.from,
           to: email,
           subject: 'Sign in to Lisna',
