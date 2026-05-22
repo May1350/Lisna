@@ -148,20 +148,12 @@ export class DataStack extends Stack {
     const proxySg = new SecurityGroup(this, 'DbProxySg', {
       vpc: props.vpc,
       allowAllOutbound: true,
-      description: 'lisna.jp Vercel <-> RDS Proxy (TLS, IAM-auth)',
+      description: 'lisna.jp Vercel ↔ RDS Proxy (TLS, IAM-auth)',
     })
     // Public ingress on 5432. Proxy enforces TLS; auth is IAM-token (15-min
     // expiry). Restricting to Vercel egress IPs is not practical — Vercel's
     // serverless function egress uses a dynamic, undocumented range.
     proxySg.addIngressRule(Peer.anyIpv4(), Port.tcp(5432), 'Vercel egress (IAM-authed, TLS-required)')
-    // NOTE: All `description` string values passed to AWS APIs (SG description,
-    // SG rule description, SecretsManager description, CfnOutput description)
-    // must be ASCII-only. EC2 SecurityGroup GroupDescription explicitly rejects
-    // non-ASCII at the API layer (verified the hard way on the first deploy
-    // attempt at 16:16 UTC 2026-05-22 -- arrow char `↔` returned "Character
-    // sets beyond ASCII are not supported"). Comments in this file may use
-    // non-ASCII freely (they live in TS source), but anything that crosses
-    // the CloudFormation/SDK boundary must stay ASCII.
 
     const dbProxy = new DatabaseProxy(this, 'DbProxy', {
       dbProxyName: 'lisna-db-proxy',
@@ -202,7 +194,7 @@ export class DataStack extends Stack {
     })
     const vercelCredsSecret = new Secret(this, 'VercelDbCredsSecret', {
       secretName: 'lisna/vercel-db-creds',
-      description: 'AWS IAM access key for Vercel -> RDS Proxy IAM-token signing',
+      description: 'AWS IAM access key for Vercel → RDS Proxy IAM-token signing',
       secretObjectValue: {
         AWS_ACCESS_KEY_ID: SecretValue.unsafePlainText(vercelAccessKey.accessKeyId),
         AWS_SECRET_ACCESS_KEY: vercelAccessKey.secretAccessKey,
@@ -212,7 +204,7 @@ export class DataStack extends Stack {
     // ── Outputs (read after deploy to wire Vercel env) ───────────────────
     new CfnOutput(this, 'DbProxyEndpoint', {
       value: dbProxy.endpoint,
-      description: 'RDS Proxy endpoint for Vercel -- set as RDS_PROXY_ENDPOINT in Vercel env',
+      description: 'RDS Proxy endpoint for Vercel — set as RDS_PROXY_ENDPOINT in Vercel env',
       exportName: 'LisnaDbProxyEndpoint',
     })
     new CfnOutput(this, 'DbProxyArn', {
@@ -221,7 +213,7 @@ export class DataStack extends Stack {
     })
     new CfnOutput(this, 'VercelDbCredsSecretArn', {
       value: vercelCredsSecret.secretArn,
-      description: 'Secrets Manager ARN containing AWS access key for Vercel -- fetch and set AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY in Vercel env',
+      description: 'Secrets Manager ARN containing AWS access key for Vercel → fetch and set AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY in Vercel env',
     })
     // RDS_USERNAME literal output — Vercel env should be set to the Postgres
     // role name (lisna_web, created by backend/src/migrations/008_lisna_web_role.sql),
