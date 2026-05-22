@@ -1,4 +1,4 @@
-import { Stack, type StackProps, Duration, RemovalPolicy } from 'aws-cdk-lib'
+import { Stack, type StackProps, Duration, RemovalPolicy, CfnOutput, SecretValue } from 'aws-cdk-lib'
 import { Bucket, BlockPublicAccess, HttpMethods } from 'aws-cdk-lib/aws-s3'
 import {
   Vpc, SubnetType, SecurityGroup, Port, Peer,
@@ -6,13 +6,14 @@ import {
 } from 'aws-cdk-lib/aws-ec2'
 import {
   DatabaseInstance, DatabaseInstanceEngine, PostgresEngineVersion,
-  Credentials,
+  Credentials, DatabaseProxy, ProxyTarget,
 } from 'aws-cdk-lib/aws-rds'
 import { Secret } from 'aws-cdk-lib/aws-secretsmanager'
 import { Alarm, ComparisonOperator, TreatMissingData } from 'aws-cdk-lib/aws-cloudwatch'
 import { SnsAction } from 'aws-cdk-lib/aws-cloudwatch-actions'
 import { Topic } from 'aws-cdk-lib/aws-sns'
 import { EmailSubscription } from 'aws-cdk-lib/aws-sns-subscriptions'
+import { User, AccessKey } from 'aws-cdk-lib/aws-iam'
 import type { Construct } from 'constructs'
 
 interface Props extends StackProps { vpc: Vpc }
@@ -132,5 +133,88 @@ export class DataStack extends Stack {
       treatMissingData: TreatMissingData.NOT_BREACHING,
     })
     lowStorageAlarm.addAlarmAction(new SnsAction(dataAlertsTopic))
+
+    // ── RDS Proxy for Vercel (external) ↔ RDS (VPC private) ──────────────
+    // The lisna.jp web app runs on Vercel (outside this VPC). It needs to
+    // reach the same Postgres instance the v1 Lambda backend uses. Direct
+    // RDS access would require flipping publiclyAccessible=true on the
+    // instance + 0.0.0.0/0 ingress (security regression). RDS Proxy in a
+    // PUBLIC subnet with requireTLS + iamAuth is the standard pattern:
+    //  - Vercel signs a short-lived IAM token (15-min expiry) to authenticate
+    //  - Proxy fetches the actual DB password from dbSecret and forwards
+    //  - All traffic is TLS-terminated at the proxy with a valid AWS cert
+    //  - Connection pooling at the proxy protects the small t3.micro from
+    //    Vercel cold-start connection churn
+    const proxySg = new SecurityGroup(this, 'DbProxySg', {
+      vpc: props.vpc,
+      allowAllOutbound: true,
+      description: 'lisna.jp Vercel ↔ RDS Proxy (TLS, IAM-auth)',
+    })
+    // Public ingress on 5432. Proxy enforces TLS; auth is IAM-token (15-min
+    // expiry). Restricting to Vercel egress IPs is not practical — Vercel's
+    // serverless function egress uses a dynamic, undocumented range.
+    proxySg.addIngressRule(Peer.anyIpv4(), Port.tcp(5432), 'Vercel egress (IAM-authed, TLS-required)')
+
+    const dbProxy = new DatabaseProxy(this, 'DbProxy', {
+      dbProxyName: 'lisna-db-proxy',
+      proxyTarget: ProxyTarget.fromInstance(this.db),
+      secrets: [this.dbSecret],
+      vpc: props.vpc,
+      vpcSubnets: { subnetType: SubnetType.PUBLIC },
+      securityGroups: [proxySg],
+      requireTLS: true,
+      iamAuth: true,
+      // 15-minute connection idle before recycling — matches IAM token TTL,
+      // forces fresh token per connection burst.
+      idleClientTimeout: Duration.minutes(15),
+      borrowTimeout: Duration.seconds(30),
+    })
+
+    // Proxy → RDS connection: allow proxy SG to reach the DB on 5432
+    this.db.connections.allowFrom(proxySg, Port.tcp(5432), 'RDS Proxy → DB')
+
+    // IAM principal that Vercel uses to sign tokens. Static access key —
+    // Vercel does not yet support OIDC token federation for AWS without
+    // their Secure Compute add-on. Acceptable for alpha: the key only
+    // grants rds-db:connect to ONE proxy/dbuser, no other AWS API access.
+    const vercelDbUser = new User(this, 'VercelDbUser', {
+      userName: 'lisna-vercel-db',
+    })
+    dbProxy.grantConnect(vercelDbUser, 'lisna_web')
+
+    // Provision the static access key. Secret is materialized into
+    // SecretsManager so it's encrypted at rest and operator-recoverable
+    // (CloudFormation outputs would expose it in plaintext to anyone with
+    // CloudFormation read access).
+    const vercelAccessKey = new AccessKey(this, 'VercelDbUserAccessKey', {
+      user: vercelDbUser,
+    })
+    const vercelCredsSecret = new Secret(this, 'VercelDbCredsSecret', {
+      secretName: 'lisna/vercel-db-creds',
+      description: 'AWS IAM access key for Vercel → RDS Proxy IAM-token signing',
+      secretObjectValue: {
+        AWS_ACCESS_KEY_ID: SecretValue.unsafePlainText(vercelAccessKey.accessKeyId),
+        AWS_SECRET_ACCESS_KEY: vercelAccessKey.secretAccessKey,
+      },
+    })
+
+    // ── Outputs (read after deploy to wire Vercel env) ───────────────────
+    new CfnOutput(this, 'DbProxyEndpoint', {
+      value: dbProxy.endpoint,
+      description: 'RDS Proxy endpoint for Vercel — set as RDS_PROXY_ENDPOINT in Vercel env',
+      exportName: 'LisnaDbProxyEndpoint',
+    })
+    new CfnOutput(this, 'DbProxyArn', {
+      value: dbProxy.dbProxyArn,
+      description: 'RDS Proxy ARN (for IAM policy reference)',
+    })
+    new CfnOutput(this, 'VercelDbCredsSecretArn', {
+      value: vercelCredsSecret.secretArn,
+      description: 'Secrets Manager ARN containing AWS access key for Vercel → fetch and set as Vercel env vars',
+    })
+    new CfnOutput(this, 'VercelDbUserName', {
+      value: vercelDbUser.userName,
+      description: 'IAM user name (RDS_USERNAME for Vercel env = lisna_web, the DB user, NOT this IAM user)',
+    })
   }
 }
