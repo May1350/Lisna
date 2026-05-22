@@ -9,6 +9,7 @@ struct Segment {
   double startSec;
   double endSec;
   std::string text;
+  double noSpeechProb;  // per-chunk value from whisper_full_get_segment_no_speech_prob (whisper.cpp src/whisper.cpp:7633 — state-level, identical for every segment in one whisper_full call)
 };
 
 class WhisperEngine {
