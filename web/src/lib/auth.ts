@@ -4,10 +4,44 @@ import Google from 'next-auth/providers/google';
 import GitHub from 'next-auth/providers/github';
 import Apple from 'next-auth/providers/apple';
 import { DrizzleAdapter } from '@auth/drizzle-adapter';
+import { eq } from 'drizzle-orm';
 import { Resend } from 'resend';
 import { db } from './db';
 import { env } from './env';
 import { users, accounts, authSessions, verificationTokens } from '@/db/schema';
+
+/**
+ * Provider profile shape narrowed to the fields we read for the users.name
+ * backfill. Auth.js v5 hands `profile` to `events.signIn` as a provider-
+ * dependent record; we only touch `name` (Google + GitHub when full-name is
+ * set) and `login` (GitHub username fallback when full-name is null).
+ */
+export type ProviderProfile =
+  | { name?: string | null; login?: string | null }
+  | undefined
+  | null;
+
+/**
+ * Decide whether to backfill `users.name` from an OAuth profile after sign-in.
+ *
+ * Returns the candidate name string if a backfill should happen, else `null`.
+ *
+ * Why this exists (F-O-10): Auth.js v5's `linkAccount` adapter method does
+ * not update `users.name` when linking a new OAuth provider to an existing
+ * user — so users who signed up via magic-link end up with `name = null`
+ * even after later linking Google/GitHub. The dashboard then renders the
+ * email instead of a friendly display name.
+ */
+export function resolveProviderName(
+  profile: ProviderProfile,
+  currentName: string | null | undefined,
+): string | null {
+  if (currentName) return null;
+  // Prefer profile.name (Google always provides; GitHub provides if user set
+  // it publicly). Fall back to GitHub's `login` (username) when no name.
+  const candidate = profile?.name || profile?.login;
+  return typeof candidate === 'string' && candidate.length > 0 ? candidate : null;
+}
 
 // Lazy: defer Resend client construction to the first send call, so the
 // Next.js build (which evaluates this module at collect-page-data time)
@@ -69,6 +103,24 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     signIn: '/signin',
     verifyRequest: '/signin?check-email=1',
     error: '/signin?error=1',
+  },
+  events: {
+    /**
+     * Backfill `users.name` from the OAuth profile on every sign-in (F-O-10).
+     * Best-effort: any failure is logged but does not block sign-in (events
+     * are post-success hooks).
+     */
+    async signIn({ user, profile }) {
+      if (!user.id) return;
+      const newName = resolveProviderName(profile as ProviderProfile, user.name);
+      if (!newName) return;
+      try {
+        await db.update(users).set({ name: newName }).where(eq(users.id, user.id));
+      } catch (err) {
+        // Don't fail sign-in if backfill fails — it'll retry on the next sign-in.
+        console.error('[auth] users.name backfill failed', err);
+      }
+    },
   },
   callbacks: {
     async redirect({ url, baseUrl }) {
