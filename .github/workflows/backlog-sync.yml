@@ -1,0 +1,87 @@
+name: Backlog ↔ Issues sync
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/REFACTOR_BACKLOG.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse backlog and detect drift
+        id: parse
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const text = fs.readFileSync('docs/REFACTOR_BACKLOG.md', 'utf-8');
+
+            // Parse items: lines like `- [P1] **title** — reason. ... #123`
+            const lines = text.split('\n');
+            const items = [];
+            let section = null;
+            for (const ln of lines) {
+              if (/^## /.test(ln)) {
+                section = ln.replace(/^## /, '').trim();
+                continue;
+              }
+              const m = ln.match(/^- \[(P[0-3])\] \*\*(.+?)\*\* —/);
+              if (m && section && section !== 'Archive') {
+                const issueMatch = ln.match(/#(\d+)/);
+                items.push({
+                  priority: m[1],
+                  title: m[2],
+                  section,
+                  issueNumber: issueMatch ? parseInt(issueMatch[1]) : null,
+                  line: ln
+                });
+              }
+            }
+
+            // List open issues with label refactor
+            const { owner, repo } = context.repo;
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner, repo, state: 'open', labels: 'refactor', per_page: 100
+            });
+
+            const issueByNumber = new Map(issues.map(i => [i.number, i]));
+
+            // Find md-only items (no linked issue) — create issues for P0/P1
+            const created = [];
+            for (const it of items) {
+              if (!it.issueNumber && (it.priority === 'P0' || it.priority === 'P1')) {
+                const body = [
+                  `Linked to backlog: \`docs/REFACTOR_BACKLOG.md\` (section: ${it.section})`,
+                  '',
+                  it.line,
+                  '',
+                  '_Auto-created by `.github/workflows/backlog-sync.yml`. Edit backlog to update._'
+                ].join('\n');
+                const issue = await github.rest.issues.create({
+                  owner, repo,
+                  title: `refactor: ${it.title}`,
+                  body,
+                  labels: ['refactor', 'auto-created']
+                });
+                created.push({ title: it.title, number: issue.data.number });
+              }
+            }
+
+            console.log(`Backlog items: ${items.length}`);
+            console.log(`Open refactor issues: ${issues.length}`);
+            console.log(`Auto-created: ${created.length}`);
+            if (created.length > 0) {
+              console.log('Created issues:');
+              for (const c of created) {
+                console.log(`  #${c.number}: ${c.title}`);
+              }
+            }
