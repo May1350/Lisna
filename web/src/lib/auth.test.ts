@@ -53,3 +53,40 @@ describe('auth module', () => {
     expect(typeof mod.auth).toBe('function');
   });
 });
+
+describe('resolveProviderName (users.name OAuth backfill, F-O-10)', () => {
+  it('returns null when user already has a name — no backfill', async () => {
+    const { resolveProviderName } = await import('./auth');
+    expect(resolveProviderName({ name: 'New Name' }, 'Existing Name')).toBe(null);
+  });
+
+  it('returns profile.name when user.name is null (Google common case)', async () => {
+    const { resolveProviderName } = await import('./auth');
+    expect(resolveProviderName({ name: 'Alice' }, null)).toBe('Alice');
+  });
+
+  it('falls back to GitHub login when profile.name is missing', async () => {
+    const { resolveProviderName } = await import('./auth');
+    expect(resolveProviderName({ name: null, login: 'alice' }, null)).toBe('alice');
+  });
+
+  it('returns null when profile is undefined', async () => {
+    const { resolveProviderName } = await import('./auth');
+    expect(resolveProviderName(undefined, null)).toBe(null);
+  });
+
+  it('returns null when profile.name is empty and no login', async () => {
+    const { resolveProviderName } = await import('./auth');
+    expect(resolveProviderName({ name: '' }, null)).toBe(null);
+  });
+
+  it('returns null when both profile.name and profile.login are empty strings', async () => {
+    const { resolveProviderName } = await import('./auth');
+    expect(resolveProviderName({ name: '', login: '' }, null)).toBe(null);
+  });
+
+  it('treats user.name = "" as falsy and backfills', async () => {
+    const { resolveProviderName } = await import('./auth');
+    expect(resolveProviderName({ name: 'Bob' }, '')).toBe('Bob');
+  });
+});
