@@ -22,6 +22,8 @@ web/next-env.d.ts
 lisna-extension.zip
 lisna-extension-*.zip
 .claude/
+.claire/
+.superpowers/
 # Playwright E2E artifacts
 extension/test-results/
 extension/playwright-report/
