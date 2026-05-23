@@ -22,7 +22,6 @@ product roadmap — that lives in `docs/PRD.md` and `docs/HANDOFF.md` §4.
 
 _(Top priority — actively planned this sprint. Keep ≤ 5 items.)_
 
-- [P1] **Resolve duplicate migration `004_*`** — `004_curate_cooldown.sql` and `004_processed_stripe_events.sql` share number 004. Caught by `pre-commit-check.sh` on first run. Need to renumber one (probably stripe → 004a or shift to 005, depending on which already ran in prod). Touches: `backend/src/migrations/`, `schema_migrations` table on every env. Effort: S (if not yet in prod) / M (if both ran). Verify against prod `schema_migrations` first.
 - [P1] **Lock CORS post-publish** — both API GW and Function URL still `*`. Run `cdk deploy -c allowedCorsOrigins=chrome-extension://<id>` after Web Store publish. Touches: `infra/lib/api-stack.ts`, `infra/lib/curate-stack.ts`. Effort: S.
 - [P2] **Anthropic SDK static import in SessCurateFn** — bundle bloat for a dormant `CURATOR_PROVIDER='anthropic'` branch. Move to dynamic import before flipping the env. Touches: `backend/src/lib/curator.ts`. Effort: S.
 - [P2] **Drop legacy `notes` JSONB column** — new handlers don't write; UI ignores. Two-deploy migration (stop reading first, then DROP). Touches: `backend/src/migrations/`, `handlers/session-get.ts`. Effort: M.
@@ -46,5 +45,7 @@ _(Ideas only — no commitment. Move up only after a real trigger.)_
 ## Archive
 
 _(Completed items — kept for history. Annual sweep moves to git only.)_
+
+- ✅ DONE (2026-05-23) **Resolve duplicate migration `004_*`** — renamed `004_processed_stripe_events.sql` → `008_processed_stripe_events.sql` and added bookkeeping migration `009_renumber_004_stripe_bookkeeping.sql` (DELETE stale `schema_migrations` row). Closed by #18.
 
 <!-- ✅ DONE (YYYY-MM-DD) <title> — <one-line> -->
