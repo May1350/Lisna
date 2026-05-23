@@ -25,7 +25,12 @@
 -- `type` is denormalised here for debugging convenience — "what kinds
 -- of events have we seen lately?" without joining the Stripe dashboard.
 -- We never query by it.
-CREATE TABLE processed_stripe_events (
+--
+-- IF NOT EXISTS guards the rename from 004 → 008 (see migration 009).
+-- Environments where this table was created by the old 004 filename will
+-- no-op here; the bookkeeping migration then removes the stale name from
+-- schema_migrations.
+CREATE TABLE IF NOT EXISTS processed_stripe_events (
   event_id TEXT PRIMARY KEY,
   type TEXT NOT NULL,
   processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
