@@ -107,7 +107,14 @@ jobs:
       # ── Web ───────────────────────────────────────────────────────────
       - name: Web — build (Next.js)
         # `next build` covers TypeScript checks + static-page generation.
-        # No separate typecheck/test scripts exist for this workspace yet.
+        # env.ts evaluates at module load during static page collection
+        # (`/_not-found` etc.), so NEXTAUTH_* + DATABASE_URL must be
+        # present for the Zod schema to parse. Values mirror Vercel
+        # Production envs; no real DB connection happens during build.
+        env:
+          NEXTAUTH_URL: ${{ secrets.NEXTAUTH_URL }}
+          NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: pnpm --filter lisna-web build
 
   # ── Desktop ─────────────────────────────────────────────────────────────
