@@ -111,10 +111,15 @@ jobs:
         # (`/_not-found` etc.), so NEXTAUTH_* + DATABASE_URL must be
         # present for the Zod schema to parse. Values mirror Vercel
         # Production envs; no real DB connection happens during build.
+        #
+        # Fallbacks let Dependabot PRs build — Dependabot has a separate
+        # secrets scope (Settings → Secrets → Dependabot) and won't see
+        # the Actions-scope secrets.* unless duplicated. Real Vercel
+        # deploys use prod env vars, never these dummies.
         env:
-          NEXTAUTH_URL: ${{ secrets.NEXTAUTH_URL }}
-          NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          NEXTAUTH_URL: ${{ secrets.NEXTAUTH_URL || 'https://example.com' }}
+          NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET || 'ci-build-only-not-for-runtime-use!' }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL || 'postgresql://ci:dummy@localhost:5432/dummy' }}
         run: pnpm --filter lisna-web build
 
   # ── Desktop ─────────────────────────────────────────────────────────────
