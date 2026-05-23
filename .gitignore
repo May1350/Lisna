@@ -21,7 +21,9 @@ web/next-env.d.ts
 .vercel/
 lisna-extension.zip
 lisna-extension-*.zip
-.claude/
+# Claude Code: commit shared rules/commands/hooks, ignore only local session state
+.claude/settings.local.json
+.claude/cache/
 .claire/
 .superpowers/
 # Playwright E2E artifacts

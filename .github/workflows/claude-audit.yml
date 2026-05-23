@@ -1,0 +1,140 @@
+name: Claude weekly audit
+
+on:
+  schedule:
+    # Mondays 09:00 JST = 00:00 UTC
+    - cron: '0 0 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check CLAUDE.md size cap
+        id: claude_size
+        run: |
+          if [ -f CLAUDE.md ]; then
+            LINES=$(wc -l < CLAUDE.md)
+            echo "lines=$LINES" >> "$GITHUB_OUTPUT"
+            if [ "$LINES" -gt 150 ]; then
+              echo "::warning::CLAUDE.md is $LINES lines (cap 150)"
+              echo "violation=true" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: Check rule file sizes
+        id: rule_size
+        run: |
+          BIG=""
+          for f in .claude/rules/*.md; do
+            [ -f "$f" ] || continue
+            N=$(wc -l < "$f")
+            if [ "$N" -gt 300 ]; then
+              BIG="$BIG\n$f: $N lines"
+            fi
+          done
+          echo -e "big=$BIG" >> "$GITHUB_OUTPUT"
+
+      - name: Check migration numbering
+        id: migrations
+        run: |
+          MIG_DIR=backend/src/migrations
+          if [ -d "$MIG_DIR" ]; then
+            PREV=0
+            BAD=""
+            for f in $(ls "$MIG_DIR"/*.sql 2>/dev/null | sort); do
+              NUM=$(basename "$f" | grep -oE '^[0-9]+' || echo 0)
+              if [ "$NUM" -eq "$PREV" ]; then
+                BAD="$BAD\n$f DUPLICATE number $NUM"
+              elif [ "$NUM" -lt "$PREV" ]; then
+                BAD="$BAD\n$f out of order ($NUM < $PREV)"
+              fi
+              PREV=$NUM
+            done
+            echo -e "bad=$BAD" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check stale rules
+        id: stale
+        run: |
+          # Rules with last-cited > 90 days ago
+          CUTOFF=$(date -d '90 days ago' +%Y-%m-%d 2>/dev/null || date -v-90d +%Y-%m-%d)
+          STALE=""
+          for f in .claude/rules/*.md; do
+            [ -f "$f" ] || continue
+            while IFS= read -r line; do
+              CITED=$(echo "$line" | grep -oE 'last-cited: [0-9-]+' | sed 's/last-cited: //')
+              if [ -n "$CITED" ] && [ "$CITED" \< "$CUTOFF" ]; then
+                STALE="$STALE\n  $f: $CITED"
+              fi
+            done < "$f"
+          done
+          echo -e "stale=$STALE" >> "$GITHUB_OUTPUT"
+
+      - name: Check HANDOFF freshness
+        id: handoff
+        run: |
+          if [ -f docs/HANDOFF.md ]; then
+            LAST=$(grep -m1 '^\*\*Last updated\*\*' docs/HANDOFF.md | sed 's/.*: //' | tr -d '*')
+            if [ -n "$LAST" ]; then
+              AGE_CUTOFF=$(date -d '21 days ago' +%Y-%m-%d 2>/dev/null || date -v-21d +%Y-%m-%d)
+              if [ "$LAST" \< "$AGE_CUTOFF" ]; then
+                echo "stale=true" >> "$GITHUB_OUTPUT"
+                echo "last=$LAST" >> "$GITHUB_OUTPUT"
+              fi
+            fi
+          fi
+
+      - name: Open / update audit issue
+        if: |
+          steps.claude_size.outputs.violation == 'true' ||
+          steps.rule_size.outputs.big != '' ||
+          steps.migrations.outputs.bad != '' ||
+          steps.stale.outputs.stale != '' ||
+          steps.handoff.outputs.stale == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const today = new Date().toISOString().slice(0, 10);
+            const body = [
+              `# Weekly audit — ${today}`,
+              '',
+              `**CLAUDE.md**: ${{ steps.claude_size.outputs.lines }} lines (cap 150)`,
+              '',
+              `**Big rule files**: ${{ steps.rule_size.outputs.big || 'none' }}`,
+              '',
+              `**Migration order**: ${{ steps.migrations.outputs.bad || 'ok' }}`,
+              '',
+              `**Stale rules (last-cited > 90d)**: ${{ steps.stale.outputs.stale || 'none' }}`,
+              '',
+              `**HANDOFF freshness**: ${{ steps.handoff.outputs.stale == 'true' && format('STALE — last updated {0}', steps.handoff.outputs.last) || 'ok' }}`,
+              '',
+              '## Suggested actions',
+              '- Run `/rules-compress` if CLAUDE.md or rule files over cap',
+              '- Run `/rules-sunset` to archive stale rules',
+              '- Run `/handoff` to refresh HANDOFF.md',
+              '- Fix migration order before next deploy',
+            ].join('\n');
+
+            const { owner, repo } = context.repo;
+            const existing = await github.rest.issues.listForRepo({
+              owner, repo, state: 'open', labels: 'audit'
+            });
+            if (existing.data.length > 0) {
+              await github.rest.issues.update({
+                owner, repo, issue_number: existing.data[0].number, body
+              });
+            } else {
+              await github.rest.issues.create({
+                owner, repo,
+                title: `Weekly audit — ${today}`,
+                body,
+                labels: ['audit', 'claude-rule']
+              });
+            }

@@ -1,0 +1,3 @@
+# Archived rules land here via /rules-sunset.
+# Each archived rule keeps its original date + a `sunset: YYYY-MM-DD` line + a one-sentence reason.
+# Kept for git blame / historical lookup; never re-imported automatically.
