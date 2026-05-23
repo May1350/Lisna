@@ -22,7 +22,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     return { statusCode: 400, body: `signature error: ${e instanceof Error ? e.message : 'x'}` }
   }
 
-  // Idempotency gate (see migrations/004_processed_stripe_events.sql).
+  // Idempotency gate (see migrations/008_processed_stripe_events.sql).
   // Insert the dedup row BEFORE any side effect: if a retry races us
   // (Stripe's webhook delivery is at-least-once), the second attempt's
   // INSERT hits ON CONFLICT, RETURNING comes back empty, and we 200
