@@ -26,7 +26,7 @@ the project's own `CLAUDE.md` + `.claude/rules/`.
 
 ## PR / CI monitoring
 
-- **`subscribe_pr_activity` webhooks are unreliable.** `<github-webhook-activity>` notifications frequently fail to arrive in time, or at all. Don't sit waiting on them.
+- **`subscribe_pr_activity` delivers ONLY failures, comments, and merge events — not CI success.** That's by design (per the tool's own docstring). Waiting on `<github-webhook-activity>` for a "CI green" notification is waiting for something that won't come. Treat webhook events as a fast-fail signal only; rely on polling for terminal-green state.
 - **Don't delegate polling to a sub-agent.** Sub-agents consistently default to `Bash(run_in_background: true)` for the inter-poll `sleep`, then stall waiting for a completion notification that sub-agents have no channel to receive. Explicit prompt prohibitions don't reliably override this behaviour (verified live on PRs #27 and #28). Sub-agent polling is a dead pattern.
 - **Poll directly from the main agent, turn-by-turn.** After pushing a PR, call `pull_request_read` (`get_check_runs`) once. If all required checks are terminal (`success`/`failure`/`cancelled`/`timed_out`), act on the result. If still `in_progress`, report current state to the user and end the turn — the user's next message IS the polling interval. On every subsequent turn until the PR settles, call `get_check_runs` as the first tool call.
 - **Don't try to wait inside a single turn.** Long Bash sleeps are blocked by the harness; cross-turn polling is the only viable form. Token cost (~500 per poll) is negligible vs. sub-agent stall recovery.
