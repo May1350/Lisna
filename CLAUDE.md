@@ -32,6 +32,12 @@ Detailed module map: `.claude/rules/architecture.md`.
 
 ---
 
+## Scope freeze (2026-05-24)
+
+- **`extension/` is FROZEN.** No new features, refactors, or human/agent-initiated code edits inside `extension/**`. Dependency security patches via Dependabot still merge (CI continues to typecheck + test + build the extension so they verify safely). **If asked to work on the extension, decline and refer the user to this section.** Reason: user has shifted focus; revisit only when explicitly unfrozen here.
+
+---
+
 ## Top 20 rules (always loaded)
 
 ### Workflow
