@@ -375,6 +375,28 @@ Most likely next priorities (pick what matches user's current ask):
 
 If user asks something specific, prioritize their request. The above is just the deferred queue.
 
+**⚠️ Scope note (2026-05-24)**: items #1, #2, #4, #5 above all touch
+`extension/`. The extension is **frozen** as of 2026-05-24 — see
+§8.5 below before picking any of them up.
+
+---
+
+## 8.5. Scope decisions (current)
+
+**2026-05-24 — `extension/` is FROZEN.** No new features, refactors,
+or human/agent-initiated code edits inside `extension/**`. The
+pipeline (audio capture → STT → curator → outline → modal) still
+runs as-is; the user has shifted attention. Dependency security
+patches via Dependabot continue to merge — Lisna's CI auto-builds +
+tests the extension so those patches verify safely. Backend, web,
+shared, infra, docs, `.claude/`, `.github/` all remain in scope.
+
+If a future session is asked to touch `extension/`, decline and point
+the requester to this section + `CLAUDE.md` "Scope freeze".
+
+Unfreezing requires updating both `CLAUDE.md` "Scope freeze" and this
+section explicitly.
+
 ---
 
 ## 9. Global memory notes
