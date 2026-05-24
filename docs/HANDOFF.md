@@ -86,6 +86,9 @@ segments). Curator: OpenAI gpt-4o-mini. Auth: JWT issued from Google OAuth.
 | #18 | **Migration 004 collision fix.** `004_processed_stripe_events.sql` → `008_…` to remove numeric clash with `004_curate_cooldown.sql`. Bookkeeping migration `009_renumber_004_stripe_bookkeeping.sql` deletes the stale `schema_migrations` row. Body now `CREATE TABLE IF NOT EXISTS`. |
 | #21 | **CI Dependabot env fallback.** `Web — build` step uses `${{ secrets.X \|\| 'dummy' }}` pattern so Dependabot PRs (which use a separate secrets scope) can build. Real Vercel deploys ignore Actions env. |
 | #20 | **Next.js 16.2.4 → 16.2.6 security patch.** High-severity: SSRF, Proxy bypass (×3), DoS, Cache poisoning, XSS. Merged after #21 unblocked. |
+| #24 / #25 | Cold-start audit closure (hooks wired via `core.hooksPath`, UTF-8 commit-msg, handler-test enforcement) + `personal/CLAUDE.md` PR-monitoring rule (use sub-agent polling, not webhooks). |
+| #26 | `extension/` **frozen** — no new code work there. See `CLAUDE.md` "Scope freeze" + §8.5 below. |
+| (this PR) | `.github/workflows/deploy-backend.yml` + `migrate.yml` + `monitor-backend.yml` added. Backend can now deploy + migrate + self-monitor purely from GitHub once the user completes the one-time AWS OIDC IAM setup (see `.claude/rules/operations.md` `(oidc)` and the "deploy-backend fails with AWS_DEPLOY_ROLE_ARN" runbook). |
 
 ### Operational guards on GitHub (added 2026-05-24)
 

@@ -12,6 +12,10 @@ file BEFORE diagnosing.
 - [2026-05-24] (codeql) CodeQL code scanning ON (default-setup language matrix: actions, javascript-typescript, c-cpp). Reason: passive vulnerability check on every PR. NOT in the ruleset required-checks list, so CodeQL failure does NOT block merge — investigate via Security tab. last-cited: 2026-05-24
 - [2026-05-24] (dependabot) Dependabot security updates + version updates ON. Reason: produces automatic PRs for upstream vulnerabilities (e.g. PR #20 next 16.2.4 → 16.2.6 security patch). Dependabot PRs use a SEPARATE secrets scope (Settings → Secrets → Dependabot tab) — see `(ci-secrets)` below. last-cited: 2026-05-24
 - [2026-05-24] (ci-secrets) CI `Web — build` step uses `${{ secrets.NEXTAUTH_URL || 'https://example.com' }}` fallback pattern (introduced PR #21). Reason: lets Dependabot PRs build without secret duplication. Don't strip the fallback when adding new secrets — instead add the same fallback for each. last-cited: 2026-05-24
+- [2026-05-24] (deploy-backend) `.github/workflows/deploy-backend.yml` deploys ALL CDK stacks via OIDC on main push to `backend/**`, `shared/**`, lockfile, or the workflow itself. Also `workflow_dispatch`. Concurrency group `deploy-backend-${ref}` with `cancel-in-progress: false` — never cancel a deploy mid-flight (partial CDK deploys leave Cloudformation in UPDATE_IN_PROGRESS). Requires `AWS_DEPLOY_ROLE_ARN` repo secret. last-cited: 2026-05-24
+- [2026-05-24] (migrate) `.github/workflows/migrate.yml` is `workflow_dispatch` only — requires a typed `reason` string for audit trail. Invokes the CDK-managed MigrateFn Lambda (resolved via name prefix). Output includes the last 4 KB of CloudWatch logs so failures are debuggable from the run page. last-cited: 2026-05-24
+- [2026-05-24] (monitor-backend) `.github/workflows/monitor-backend.yml` runs cron `0 */6 * * *`. Scans `${LOG_GROUP_PREFIX}*` for `ERROR|Timeout|Throttle|Exception`. On hit, opens (or comments on) a single open issue labelled `cloudwatch-alert`. Skips silently on schedule if OIDC secret missing; fails loudly on manual run. last-cited: 2026-05-24
+- [2026-05-24] (oidc) GitHub Actions → AWS auth uses OIDC (no static keys). Setup: IAM → Identity providers → Add `token.actions.githubusercontent.com` with audience `sts.amazonaws.com` → create IAM Role with trust policy scoped to `repo:May1350/Lisna:ref:refs/heads/main` (or wildcard during initial testing) → grant deploy permissions (CDK requires CloudFormation/IAM/Lambda/RDS/S3/SecretsManager/VPC + APIGateway) → put Role ARN into repo secret `AWS_DEPLOY_ROLE_ARN` + Dependabot secret (same name/value). Reason: static AWS access keys in GitHub secrets are a long-running credential risk. last-cited: 2026-05-24
 
 ## What to do when you hit one
 
@@ -35,3 +39,34 @@ CodeQL ran and found something. It does NOT block merge. Decide:
 ### Dependabot PR failing only `Web — build`
 
 If the failure is `Process completed with exit code 1` on the Next.js build step and the fallback envs are present in `ci.yml` (introduced PR #21), Dependabot might be running against a base before the fallback landed. Comment `@dependabot rebase` on the PR to pull current main.
+
+### `deploy-backend.yml` fails with "AWS_DEPLOY_ROLE_ARN secret not configured"
+
+One-time OIDC setup is missing. Steps:
+
+1. **AWS Console → IAM → Identity providers → Add provider**
+   - Type: OpenID Connect
+   - URL: `https://token.actions.githubusercontent.com`
+   - Audience: `sts.amazonaws.com`
+
+2. **IAM → Roles → Create role** (Web identity)
+   - Identity provider: the one just created
+   - Audience: `sts.amazonaws.com`
+   - GitHub org: `May1350`, repo: `Lisna`, branch: `main` (or `*` for first test)
+   - Permissions: `PowerUserAccess` (quick) OR fine-grained: CloudFormation + IAM + Lambda + RDS + S3 + SecretsManager + VPC + APIGateway
+   - Name: `GitHubActionsLisnaDeploy`
+   - Copy the resulting Role ARN
+
+3. **GitHub repo → Settings → Secrets and variables → Actions**
+   - New repo secret: `AWS_DEPLOY_ROLE_ARN` = the ARN
+   - Also add under the **Dependabot** tab (same name/value) per `(ci-secrets)` rule
+
+4. **Test**: Actions tab → Deploy Backend → Run workflow on `main`.
+
+### `migrate.yml` says "No Lambda matching prefix 'MigrateFn'"
+
+The CDK stack hasn't deployed yet — run `Deploy Backend` first. Or the construct name changed; update `MIGRATE_FN_NAME_PREFIX` in `migrate.yml` to match the new construct name.
+
+### `monitor-backend.yml` opens duplicate `cloudwatch-alert` issues
+
+Should not happen — the script checks for an existing open issue with the label before creating a new one. If you see duplicates, the previous one likely got closed between scans. Close all but the latest manually; the next scan will respect the survivor.
