@@ -236,6 +236,7 @@ feedback validates the demand.
 | Migration 004 duplicate | ✅ Fixed (PR #18, 2026-05-23) | Renumbered to 008 + bookkeeping migration 009. See `backend/src/migrations/`. |
 | CI fails on Dependabot PRs | ✅ Fixed (PR #21, 2026-05-24) | `Web — build` step has `secrets.X \|\| 'dummy'` fallback. Don't strip when adding new secrets. |
 | Open Dependabot PRs (2026-05-24) | Open | `dependabot/npm_and_yarn/postcss-8.5.15`, `dependabot/npm_and_yarn/vite-6.4.2`. CI should pass via the #21 fallback. |
+| **AWS OIDC IAM setup (for backend deploy/migrate/monitor workflows)** | Deferred — do on PC, not mobile | All three workflow YAMLs are dormant on main (PR #27); only one-time IAM setup blocks activation. Runbook: `.claude/rules/operations.md` `(oidc)` rule + "deploy-backend.yml fails with AWS_DEPLOY_ROLE_ARN" section. Attempted on mobile/iPad 2026-05-24 but JSON editor + on-screen keyboard combo is too error-prone (smart-quote substitution, no easy fix). ~5 min on PC. NOT needed until next backend code change. |
 
 ### Pending questions for the user
 
