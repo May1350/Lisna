@@ -89,6 +89,8 @@ segments). Curator: OpenAI gpt-4o-mini. Auth: JWT issued from Google OAuth.
 | #24 / #25 | Cold-start audit closure (hooks wired via `core.hooksPath`, UTF-8 commit-msg, handler-test enforcement) + `personal/CLAUDE.md` PR-monitoring rule (use sub-agent polling, not webhooks). |
 | #26 | `extension/` **frozen** — no new code work there. See `CLAUDE.md` "Scope freeze" + §8.5 below. |
 | (this PR) | `.github/workflows/deploy-backend.yml` + `migrate.yml` + `monitor-backend.yml` added. Backend can now deploy + migrate + self-monitor purely from GitHub once the user completes the one-time AWS OIDC IAM setup (see `.claude/rules/operations.md` `(oidc)` and the "deploy-backend fails with AWS_DEPLOY_ROLE_ARN" runbook). |
+| #32 | **Legal-pad design system on marketing surfaces.** `.pad-paper` page surface (cream + printed red margin + ruled lines), `<Postit>` yellow screenshot frame (V2-B drop-shadow, em-scaled, square / wide / portrait), `#pencil-rough` SVG filter shared at root layout (used by hero circle, marginalia arrow, pricing star), Caveat handwriting font (marginalia + post-it captions only), tokens `pencil.red` / `print.red` / `postit.*` / `fontFamily.hand`. Full spec in `.claude/rules/web-design.md`. |
+| #33 | **Burgundy NavBar binding.** `#6e1e1e` solid (no gradient/staples), `LocaleSwitcher` decoupled to `text-inherit` so it stays neutral on both NavBar (dark) and auth-shell (light). Same red family as `print.red` / `pencil.red` — header is the darkest value, hierarchy: header > margin line > pencil accents. |
 
 ### Operational guards on GitHub (added 2026-05-24)
 
@@ -188,7 +190,13 @@ manifest.config.ts      — host_permissions: ['<all_urls>'], OAuth client_id, s
 ```
 
 ### Web (`web/`)
-Static landing/privacy/terms (Next.js). Out of scope for handoff.
+Next.js marketing site (lisna.jp). Legal-pad notebook design system —
+cream paper + printed red margin + ruled lines + yellow post-it
+screenshot frames + pencil-red accents + burgundy NavBar binding.
+Token + utility spec in `.claude/rules/web-design.md`. Key components:
+`Postit` (replaces ScreenshotFrame on marketing surfaces),
+`MarketingShell` (.pad-paper), `Marginalia` (Caveat handwriting). PR #32
+applied the page surface; PR #33 added the burgundy NavBar.
 
 ---
 
