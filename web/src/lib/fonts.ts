@@ -1,4 +1,4 @@
-import { Fraunces, Inter, Noto_Serif_JP } from 'next/font/google';
+import { Fraunces, Inter, Noto_Serif_JP, Caveat } from 'next/font/google';
 
 export const fraunces = Fraunces({
   subsets: ['latin'],
@@ -10,6 +10,13 @@ export const fraunces = Fraunces({
 export const inter = Inter({
   subsets: ['latin'],
   variable: '--font-inter',
+  display: 'swap',
+});
+
+export const caveat = Caveat({
+  weight: ['400', '500', '600', '700'],
+  subsets: ['latin'],
+  variable: '--font-caveat',
   display: 'swap',
 });
 

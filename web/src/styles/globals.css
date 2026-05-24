@@ -45,4 +45,221 @@
       theme('colors.cream.200');
     position: relative;
   }
+
+  /* ──────────────────────────────────────────────────────────
+     Legal-pad page surface — printed ruled lines + red margin.
+     Replaces the faint cream + ruled-paper combo. The marketing
+     shell renders this as the full-page background.
+     ────────────────────────────────────────────────────────── */
+  .pad-paper {
+    /* Red margin line is encoded as a vertical strip in background-image so
+       any child section with its own background-color (PrivacyEmphasis dark,
+       pricing card white, footer dark) naturally covers it — only sections
+       with transparent backgrounds show the margin. This matches a real
+       legal pad where the printed margin only shows on the paper. */
+    --margin-offset: 96px;
+    background-color: #fdf2c4;
+    background-image:
+      linear-gradient(
+        90deg,
+        transparent 0,
+        transparent calc(var(--margin-offset) - 0.75px),
+        #c8333a calc(var(--margin-offset) - 0.75px),
+        #c8333a calc(var(--margin-offset) + 0.75px),
+        transparent calc(var(--margin-offset) + 0.75px)
+      ),
+      repeating-linear-gradient(
+        180deg,
+        transparent 0 31px,
+        rgba(120, 80, 50, 0.22) 31px 32px
+      );
+    background-position: 0 0, 0 18px;
+    background-repeat: no-repeat, repeat;
+    background-attachment: scroll, scroll;
+    position: relative;
+  }
+  @media (max-width: 720px) {
+    .pad-paper { --margin-offset: 32px; }
+  }
+
+  /* ──────────────────────────────────────────────────────────
+     Pencil accents — hand-drawn, use the shared #pencil-rough
+     SVG filter (defined in app/layout.tsx).
+     ────────────────────────────────────────────────────────── */
+
+  /* Hero headline circle. Place inside an inline-block element. */
+  .pencil-circle {
+    position: absolute;
+    left: -12px; right: -12px;
+    top: -8px; bottom: -8px;
+    width: calc(100% + 24px);
+    height: calc(100% + 16px);
+    pointer-events: none;
+  }
+  .pencil-circle ellipse {
+    fill: none;
+    stroke: theme('colors.pencil.red');
+    stroke-width: 3.6;
+    stroke-linecap: round;
+    opacity: 0.85;
+    filter: url(#pencil-rough);
+  }
+
+  /* Body emphasis underline — text-width fitted via inline-block + ::after. */
+  .pencil-line {
+    position: relative;
+    display: inline-block;
+    color: theme('colors.ink.900');
+    font-weight: 500;
+  }
+  .pencil-line::after {
+    content: '';
+    position: absolute;
+    left: -1px; right: -1px;
+    bottom: -2px;
+    height: 3.5px;
+    background: theme('colors.pencil.red');
+    filter: url(#pencil-rough);
+    opacity: 0.9;
+    border-radius: 2px;
+  }
+
+  /* Highlighter — text-width fitted via background-image with
+     box-decoration-break so line-wraps stay natural. Default pink. */
+  .hl {
+    --hl-rgb: 255, 138, 168;
+    background-image: linear-gradient(
+      180deg,
+      transparent 14%,
+      rgba(var(--hl-rgb), 0.55) 14%,
+      rgba(var(--hl-rgb), 0.70) 30%,
+      rgba(var(--hl-rgb), 0.70) 80%,
+      rgba(var(--hl-rgb), 0.55) 80%,
+      transparent 92%
+    );
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    padding: 0 4px;
+    margin: 0 -2px;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+  }
+
+  /* ──────────────────────────────────────────────────────────
+     Post-it (yellow) — used by <Postit> in place of
+     <ScreenshotFrame> on marketing surfaces.
+     V2-B shadow: filter drop-shadow stacks with y = blur (no
+     upward bleed). em units → scales with .postit font-size.
+     ────────────────────────────────────────────────────────── */
+  .postit {
+    position: relative;
+    width: 100%;
+    max-width: 420px;
+    aspect-ratio: 1 / 1;
+    font-size: clamp(11px, 1.5vw, 17px);
+    padding: 1.14em;
+    display: flex;
+    flex-direction: column;
+    transform: rotate(-1deg);
+    isolation: isolate;
+    background:
+      linear-gradient(180deg,
+        theme('colors.postit.adhesive') 0%,
+        theme('colors.postit.adhesive') 4%,
+        theme('colors.postit.main') 9%,
+        theme('colors.postit.main') 92%,
+        theme('colors.postit.shadow') 100%);
+    box-shadow:
+      0 0.07em 0 rgba(255, 255, 255, 0.6) inset,
+      0 -0.05em 0 rgba(0, 0, 0, 0.06) inset;
+    filter:
+      drop-shadow(0 0.3em 0.3em rgba(60, 40, 10, 0.14))
+      drop-shadow(0 0.7em 0.7em rgba(60, 40, 10, 0.18))
+      drop-shadow(0 1.4em 1.4em rgba(60, 40, 10, 0.20));
+  }
+  /* Paper grain — subtle multiply layer above background, below content. */
+  .postit::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 0.7 0 0 0 0 0.55 0 0 0 0 0.2 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    mix-blend-mode: multiply;
+    z-index: 1;
+  }
+  .postit--reverse { transform: rotate(1deg); }
+  .postit--wide     { aspect-ratio: 5 / 4; max-width: 460px; font-size: clamp(11px, 1.6vw, 18px); }
+  .postit--portrait { aspect-ratio: 4 / 5; max-width: 360px; font-size: clamp(10px, 1.3vw, 15px); }
+
+  .postit__inner {
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.6), rgba(255, 255, 255, 0.42));
+    border: 1px solid rgba(60, 45, 15, 0.12);
+    position: relative;
+    z-index: 2;
+    overflow: hidden;
+  }
+  .postit__caption {
+    font-family: theme('fontFamily.hand');
+    font-size: 20px;
+    line-height: 22px;
+    color: #2a2018;
+    text-align: center;
+    margin-top: 12px;
+    font-weight: 500;
+    position: relative;
+    z-index: 2;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transform: rotate(-0.3deg);
+  }
+
+  /* ──────────────────────────────────────────────────────────
+     Marginalia — handwritten side-note in body flow (does NOT
+     bleed across the printed red margin). Color: pencil red.
+     ────────────────────────────────────────────────────────── */
+  .marginalia-hand {
+    position: relative;
+    font-family: theme('fontFamily.hand');
+    font-size: 26px;
+    color: theme('colors.pencil.red');
+    line-height: 32px;
+    transform: rotate(-1deg);
+    max-width: 380px;
+    padding-left: 52px;
+    font-weight: 500;
+  }
+  .marginalia-hand__arrow {
+    position: absolute;
+    left: 0; top: -6px;
+    width: 44px; height: 44px;
+    pointer-events: none;
+  }
+  .marginalia-hand__arrow path {
+    stroke: theme('colors.pencil.red');
+    stroke-width: 3.2;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    opacity: 0.85;
+    filter: url(#pencil-rough);
+  }
+
+  /* Pencil star (for pricing emphasis next to the free price) */
+  .pencil-star {
+    position: absolute;
+    pointer-events: none;
+  }
+  .pencil-star path {
+    stroke: theme('colors.pencil.red');
+    stroke-width: 3;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    opacity: 0.92;
+    filter: url(#pencil-rough);
+  }
 }

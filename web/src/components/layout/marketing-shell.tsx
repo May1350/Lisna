@@ -15,7 +15,7 @@ export async function MarketingShell({ locale, children }: MarketingShellProps) 
   // Until Phase J lands, getAuthState always returns 'guest':
   const authState = await getAuthState();
   return (
-    <div className="notebook-bg min-h-screen">
+    <div className="pad-paper min-h-screen">
       <NavBar locale={locale} pathname={pathname} authState={authState} />
       <main className="pt-14">{children}</main>
       <Footer locale={locale} />

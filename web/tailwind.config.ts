@@ -20,6 +20,20 @@ const config: Config = {
         margin: {
           red: '#b85050',
         },
+        // Pencil red — saturated red for hand-drawn accents (circle, underline, star, arrow).
+        // Distinct from margin.red which prints the vertical margin line.
+        pencil: {
+          red: '#dc2626',
+        },
+        // Print red — the printed vertical margin line on the legal pad (more pigmented than margin.red).
+        print: {
+          red: '#c8333a',
+        },
+        postit: {
+          main:     '#ffeb6b',
+          adhesive: '#f5d850',
+          shadow:   '#f0d055',
+        },
         accent: {
           tan:  '#8a6a3a',
           sage: '#5fa872',
@@ -29,6 +43,8 @@ const config: Config = {
         serif:      ['var(--font-fraunces)', 'Iowan Old Style', 'Georgia', 'serif'],
         'serif-jp': ['var(--font-noto-serif-jp)', 'Yu Mincho', 'Hiragino Mincho ProN', 'serif'],
         sans:       ['var(--font-inter)', '-apple-system', 'system-ui', 'sans-serif'],
+        // Handwriting — for marginalia and post-it captions only. Never body.
+        hand:       ['var(--font-caveat)', 'Caveat', 'Bradley Hand', 'cursive'],
       },
       fontSize: {
         'display-1':       ['3.5rem',    { lineHeight: '1.05', letterSpacing: '-0.025em', fontWeight: '400' }],
