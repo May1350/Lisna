@@ -1,6 +1,6 @@
 # Lisna — Session Handoff
 
-**Last updated**: 2026-05-24
+**Last updated**: 2026-05-24 (i18n parity PR)
 **Purpose**: Bring a new session up to speed in <5 min. Read top → bottom in order.
 **Reader**: future-self (or another Claude). Skip what you already know.
 
@@ -91,6 +91,7 @@ segments). Curator: OpenAI gpt-4o-mini. Auth: JWT issued from Google OAuth.
 | (this PR) | `.github/workflows/deploy-backend.yml` + `migrate.yml` + `monitor-backend.yml` added. Backend can now deploy + migrate + self-monitor purely from GitHub once the user completes the one-time AWS OIDC IAM setup (see `.claude/rules/operations.md` `(oidc)` and the "deploy-backend fails with AWS_DEPLOY_ROLE_ARN" runbook). |
 | #32 | **Legal-pad design system on marketing surfaces.** `.pad-paper` page surface (cream + printed red margin + ruled lines), `<Postit>` yellow screenshot frame (V2-B drop-shadow, em-scaled, square / wide / portrait), `#pencil-rough` SVG filter shared at root layout (used by hero circle, marginalia arrow, pricing star), Caveat handwriting font (marginalia + post-it captions only), tokens `pencil.red` / `print.red` / `postit.*` / `fontFamily.hand`. Full spec in `.claude/rules/web-design.md`. |
 | #33 | **Burgundy NavBar binding.** `#6e1e1e` solid (no gradient/staples), `LocaleSwitcher` decoupled to `text-inherit` so it stays neutral on both NavBar (dark) and auth-shell (light). Same red family as `print.red` / `pencil.red` — header is the darkest value, hierarchy: header > margin line > pencil accents. |
+| (this PR) | **EN/JA/KO i18n parity.** ~60% of marketing copy was untranslated (features.privacy/notes/export/marginalia, privacyEmphasis, pricingSection, faq, ctaStrip). Filled JA + KO. Extracted hardcoded strings from `footer`, `signin/page.tsx`, `download/page.tsx`, `pricing/page.tsx`, `compare/page.tsx` into new namespaces (`footer.links`, `auth`, `downloadPage`, `pricingPage`, `comparePage`). Added `web/src/i18n/brand-vocabulary.ts` as single source of truth for never-translate tokens (Lisna, Whisper, Llama, Obsidian, competitors, ¥/$, license codes) + the value-parity / hardcoded-CJK allowlists. Legal pages: privacy/terms/refunds now have EN + JA blocks in the same file, switched via `ENGLISH_LOCALES` (`en` + `ko` → EN, `ja` → JA, per design decision pending KO legal review); tokusho stays JA-only. New: `web/scripts/check-i18n.mjs` (key parity HARD, value parity + hardcoded CJK WARN; `--strict` upgrades to FAIL), wired into pre-commit (warn) + CI (strict). New rule file `.claude/rules/i18n.md` + skill `.claude/skills/i18n-check`. CLAUDE.md gained rule 17b. |
 
 ### Operational guards on GitHub (added 2026-05-24)
 

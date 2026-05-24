@@ -1,9 +1,10 @@
 // web/src/app/[locale]/signin/page.tsx
-import { setRequestLocale } from 'next-intl/server';
+import { getTranslations, setRequestLocale } from 'next-intl/server';
 import Link from 'next/link';
 import { AuthShell } from '@/components/layout/auth-shell';
 import { Button } from '@/components/ui/button';
 import { EmailMagicLinkForm } from '@/components/ui/email-magic-link-form';
+import { BRAND } from '@/i18n/brand-vocabulary';
 import type { Locale } from '@/i18n/routing';
 import { signIn } from '@/lib/auth';
 
@@ -17,6 +18,7 @@ export default async function SignInPage({
   const { locale } = await params;
   const sp = await searchParams;
   setRequestLocale(locale);
+  const t = await getTranslations('auth');
 
   const checkEmail = sp['check-email'] === '1';
 
@@ -40,8 +42,8 @@ export default async function SignInPage({
     return (
       <AuthShell locale={locale}>
         <div className="max-w-[440px] w-full text-center">
-          <h1 className="font-serif text-h2-sm text-ink-900">Check your email.</h1>
-          <p className="mt-3 text-body text-ink-700">We sent a magic link to your inbox. It expires in 10 minutes.</p>
+          <h1 className="font-serif text-h2-sm text-ink-900">{t('checkEmailHeading')}</h1>
+          <p className="mt-3 text-body text-ink-700">{t('checkEmailBody')}</p>
         </div>
       </AuthShell>
     );
@@ -51,33 +53,33 @@ export default async function SignInPage({
     <AuthShell locale={locale}>
       <div className="max-w-[440px] w-full">
         <h1 className="font-serif text-h2-sm text-ink-900 text-center">
-          Continue to <em className="italic text-accent-tan">Lisna</em>.
+          {t('continueHeadingPrefix')}<em className="italic text-accent-tan">{BRAND.appName}</em>{t('continueHeadingSuffix')}
         </h1>
         <p className="mt-3 text-body text-ink-700 text-center">
-          Sign in or sign up — same flow either way. Either method below works.
+          {t('continueBody')}
         </p>
 
         <div className="mt-8">
-          <EmailMagicLinkForm onSubmit={sendMagicLink} hint="We'll email you a magic link." />
+          <EmailMagicLinkForm onSubmit={sendMagicLink} hint={t('magicLinkHint')} />
         </div>
 
         <div className="my-8 flex items-center gap-3">
           <span className="flex-1 h-px bg-ink-900/10" />
-          <span className="text-meta uppercase text-accent-tan">or</span>
+          <span className="text-meta uppercase text-accent-tan">{t('oauthDivider')}</span>
           <span className="flex-1 h-px bg-ink-900/10" />
         </div>
 
         <form className="space-y-3">
-          <Button formAction={oauth.bind(null, 'google')} variant="ghost" className="w-full justify-center">Continue with Google</Button>
-          <Button formAction={oauth.bind(null, 'apple')} variant="ghost" className="w-full justify-center">Continue with Apple</Button>
-          <Button formAction={oauth.bind(null, 'github')} variant="ghost" className="w-full justify-center">Continue with GitHub</Button>
+          <Button formAction={oauth.bind(null, 'google')} variant="ghost" className="w-full justify-center">{t('continueGoogle')}</Button>
+          <Button formAction={oauth.bind(null, 'apple')} variant="ghost" className="w-full justify-center">{t('continueApple')}</Button>
+          <Button formAction={oauth.bind(null, 'github')} variant="ghost" className="w-full justify-center">{t('continueGithub')}</Button>
         </form>
 
         <p className="mt-8 text-hint text-ink-700/60 text-center">
-          By continuing, you agree to our <Link href="/terms" className="underline">Terms</Link> and <Link href="/privacy" className="underline">Privacy</Link> policy.
+          {t('tosPrefix')}<Link href="/terms" className="underline">{t('tosTerms')}</Link>{t('tosMiddle')}<Link href="/privacy" className="underline">{t('tosPrivacy')}</Link>{t('tosSuffix')}
         </p>
         <p className="mt-3 text-hint text-ink-700/60 text-center">
-          Need help? Join our <a href="https://discord.gg/69NkqBTbS" className="underline" target="_blank" rel="noreferrer">Discord</a>.
+          {t('needHelpPrefix')}<a href="https://discord.gg/69NkqBTbS" className="underline" target="_blank" rel="noreferrer">{BRAND.discord}</a>{t('needHelpSuffix')}
         </p>
       </div>
     </AuthShell>

@@ -14,6 +14,7 @@ file.
 | `workflow.md` | PR / commit / branch / deploy / migration conventions | Opening a PR, writing a migration, deploying |
 | `operations.md` | GitHub-side guards (ruleset, secret scanning, CodeQL, Dependabot, auto-delete) | Hitting unexpected `git push` rejection, PR check failure, push-protection block |
 | `web-design.md` | Marketing site design system — tokens, utilities, component placement rules, red-family hierarchy | Touching `web/tailwind.config.ts`, `web/src/styles/globals.css`, or any `web/src/components/marketing/*` / `web/src/components/ui/postit.tsx` / NavBar / MarketingShell |
+| `i18n.md` | EN/JA/KO parity contract — message catalogs, brand vocabulary, check script, legal-page split | Editing any `web/src/**` `.tsx` text, `web/src/messages/*.json`, or adding a new locale |
 | `archived/` | Rules sunset by `/rules-sunset` (kept for git blame) | Rarely — only for historical lookup |
 
 ## Rule format
