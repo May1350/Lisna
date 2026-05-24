@@ -27,5 +27,6 @@ the project's own `CLAUDE.md` + `.claude/rules/`.
 ## PR / CI monitoring
 
 - **`subscribe_pr_activity` webhooks are unreliable.** `<github-webhook-activity>` notifications frequently fail to arrive in time (or at all). Don't sit waiting on them when the user is blocked on the result.
-- **Instead, spawn a sub-agent (`general-purpose`) to poll** `pull_request_read` (`get_check_runs`, `get_status`) on a short interval until terminal state (`success` / `failure` / `timed_out` / `cancelled`) on all required checks, then report back. Pattern: 15-30s polls, exit on first terminal state, ≤ 5 min cap.
+- **Instead, spawn a sub-agent (`general-purpose`) to poll** `pull_request_read` (`get_check_runs`, `get_status`). Pattern: 15-30s **foreground** `sleep` between calls, exit on first terminal-state hit on all required checks (`success`/`failure`/`cancelled`/`timed_out`), hard cap ≤ 5 min total, report a one-line summary.
 - **Don't poll from the main agent thread.** That burns context on raw API output. Delegate to a sub-agent and ask for a one-line summary.
+- **In the polling sub-agent, NEVER `Bash(run_in_background: true)` for `sleep`.** Sub-agents do NOT receive background-task completion notifications — the agent will stall forever waiting on a notification that won't arrive. Use plain foreground `Bash` (default `run_in_background: false`); `sleep 25` blocks the agent until done, then the next `get_check_runs` call follows immediately.
