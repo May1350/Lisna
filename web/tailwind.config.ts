@@ -34,6 +34,10 @@ const config: Config = {
           adhesive: '#f5d850',
           shadow:   '#f0d055',
         },
+        // Binding burgundy — NavBar / page-header backing. Same red family
+        // as print.red / pencil.red, the darkest value sets the visual
+        // hierarchy: header (darkest) > margin line > pencil accents.
+        burgundy: '#6e1e1e',
         accent: {
           tan:  '#8a6a3a',
           sage: '#5fa872',

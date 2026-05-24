@@ -14,17 +14,17 @@ export async function NavBar({ locale, pathname, authState }: NavBarProps) {
   const t = await getTranslations('nav');
   const prefix = locale === 'en' ? '' : `/${locale}`;
   return (
-    <nav className="fixed top-0 inset-x-0 z-40 backdrop-blur-md bg-cream-200/70 border-b border-ink-900/5">
+    <nav className="fixed top-0 inset-x-0 z-40 bg-burgundy text-cream-100">
       <div className="mx-auto max-w-7xl flex items-center justify-between px-6 lg:px-12 h-14">
-        <Link href={prefix || '/'} className="font-serif text-[18px] text-ink-900">Lisna</Link>
-        <div className="flex items-center gap-6 text-body text-ink-900">
-          <Link href={`${prefix}/#features`}>{t('product')}</Link>
-          <Link href={`${prefix}/pricing`}>{t('pricing')}</Link>
-          <Link href={`${prefix}/docs/getting-started`}>{t('docs')}</Link>
-          <Link href={`${prefix}/changelog`}>{t('changelog')}</Link>
+        <Link href={prefix || '/'} className="font-serif text-[18px] text-cream-100 hover:text-white transition-colors">Lisna</Link>
+        <div className="flex items-center gap-6 text-body">
+          <Link href={`${prefix}/#features`} className="hover:text-white transition-colors">{t('product')}</Link>
+          <Link href={`${prefix}/pricing`} className="hover:text-white transition-colors">{t('pricing')}</Link>
+          <Link href={`${prefix}/docs/getting-started`} className="hover:text-white transition-colors">{t('docs')}</Link>
+          <Link href={`${prefix}/changelog`} className="hover:text-white transition-colors">{t('changelog')}</Link>
           <LocaleSwitcher currentLocale={locale} pathname={pathname} />
           {authState === 'guest' ? (
-            <Link href={`${prefix}/signin`} className="underline underline-offset-4">
+            <Link href={`${prefix}/signin`} className="underline underline-offset-4 hover:text-white transition-colors">
               {t('signin')}
             </Link>
           ) : (

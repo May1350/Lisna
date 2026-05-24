@@ -28,7 +28,10 @@ export function LocaleSwitcher({ currentLocale, pathname }: LocaleSwitcherProps)
     <Dropdown>
       <DropdownTrigger
         aria-label={`Locale: ${LABELS[currentLocale]}`}
-        className="inline-flex items-center gap-1 text-body text-ink-900 hover:text-margin-red transition-colors"
+        // text color inherits from parent — works on both light (auth-shell)
+        // and dark (NavBar burgundy) backgrounds. Hover dims via opacity to
+        // stay neutral to whichever currentColor is in effect.
+        className="inline-flex items-center gap-1 text-body text-inherit hover:opacity-70 transition-opacity"
       >
         {LABELS[currentLocale]} <span className="text-[10px]" aria-hidden="true">▾</span>
       </DropdownTrigger>
