@@ -10,7 +10,7 @@ import { PrivacyEmphasis } from '@/components/marketing/privacy-emphasis';
 import { PricingCards } from '@/components/marketing/pricing-cards';
 import { FAQAccordion } from '@/components/marketing/faq-accordion';
 import { CTAStrip } from '@/components/marketing/cta-strip';
-import { ScreenshotFrame } from '@/components/ui/screenshot-frame';
+import { Postit } from '@/components/ui/postit';
 import type { Locale } from '@/i18n/routing';
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: Locale }> }): Promise<Metadata> {
@@ -56,10 +56,12 @@ export default async function HomePage({ params }: { params: Promise<{ locale: L
   const tPr = await getTranslations('pricingSection');
   const tFaq = await getTranslations('faq');
 
-  const stockImage = (label: string) => (
-    <ScreenshotFrame title={label}>
-      <div className="h-64 grid place-items-center text-body-sm text-ink-700/40">[ screenshot placeholder ]</div>
-    </ScreenshotFrame>
+  const stockImage = (label: string, reverse = false) => (
+    <Postit caption={label} variant={reverse ? 'reverse' : 'default'}>
+      <div className="h-full grid place-items-center text-body-sm text-ink-700/40 italic font-serif">
+        [ screenshot ]
+      </div>
+    </Postit>
   );
 
   return (
@@ -102,7 +104,7 @@ export default async function HomePage({ params }: { params: Promise<{ locale: L
         headline={<>{tF('export.headlineBefore')}<em className="italic text-accent-tan">{tF('export.headlineEm')}</em>{tF('export.headlineAfter')}</>}
         body={tF('export.body')}
         meta={[tF('export.metaA'), tF('export.metaB'), tF('export.metaC')]}
-        image={stockImage('Markdown export')}
+        image={stockImage('Markdown export', true)}
       />
 
       <PrivacyEmphasis

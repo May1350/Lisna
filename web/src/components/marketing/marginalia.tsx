@@ -1,14 +1,14 @@
 // web/src/components/marketing/marginalia.tsx
 export function Marginalia({ children }: { children: React.ReactNode }) {
   return (
-    <section className="red-margin relative border-b border-dashed border-ink-900/15 py-6">
+    <section className="relative py-6">
       <div className="relative mx-auto max-w-7xl px-6 lg:px-24">
-        <span aria-hidden className="absolute left-[88px] top-1/2 -translate-y-1/2 text-[12px] text-margin-red/70 hidden lg:inline">
-          ✎
-        </span>
-        <p className="font-serif italic text-accent-tan text-[18px] lg:text-[20px] text-center lg:text-left lg:pl-32 max-w-[60ch] mx-auto lg:mx-0">
+        <div className="marginalia-hand">
+          <svg className="marginalia-hand__arrow" viewBox="0 0 44 44" aria-hidden="true">
+            <path d="M5,4 Q12,16 18,24 Q24,32 36,38 M28,30 L36,38 L28,42" />
+          </svg>
           {children}
-        </p>
+        </div>
       </div>
     </section>
   );

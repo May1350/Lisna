@@ -1,7 +1,7 @@
 import '@/styles/globals.css'
 import type { Metadata } from 'next'
 import Script from 'next/script'
-import { fraunces, inter } from '@/lib/fonts'
+import { fraunces, inter, caveat } from '@/lib/fonts'
 import { env } from '@/lib/env'
 
 // Root-level metadata. The `robots` block is the load-bearing piece
@@ -23,7 +23,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${fraunces.variable} ${inter.variable}`}>
+    <html lang="en" className={`${fraunces.variable} ${inter.variable} ${caveat.variable}`}>
       <head>
         {/* next/script default strategy=afterInteractive — non-blocking, post-hydration */}
         <Script
@@ -31,7 +31,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           src="https://plausible.io/js/script.tagged-events.js"
         />
       </head>
-      <body>{children}</body>
+      <body>
+        {/* Pencil rough filter — shared SVG filter for all pencil-style accents (circle, underline, star, arrow). Inline once at root. */}
+        <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden="true">
+          <defs>
+            <filter id="pencil-rough" x="-5%" y="-5%" width="110%" height="110%">
+              <feTurbulence type="fractalNoise" baseFrequency="0.05 1.2" numOctaves={2} seed={3} />
+              <feDisplacementMap in="SourceGraphic" scale={2.8} />
+            </filter>
+          </defs>
+        </svg>
+        {children}
+      </body>
     </html>
   )
 }

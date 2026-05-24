@@ -3,9 +3,9 @@ import { cn } from '@/lib/cn';
 export interface FeatureBlockProps {
   eyebrow: string;
   headline: React.ReactNode;     // includes <em> for emphasis
-  body: string;
+  body: React.ReactNode;
   meta: string[];
-  image: React.ReactNode;        // screenshot or illustration
+  image: React.ReactNode;        // screenshot or illustration (typically <Postit>)
   variant?: 'default' | 'reverse' | 'primary';
 }
 
@@ -19,7 +19,7 @@ export function FeatureBlock({ eyebrow, headline, body, meta, image, variant = '
         reverse && 'lg:[&>div:first-child]:order-2',
       )}>
         <div>
-          <p className="text-meta uppercase tracking-[0.18em] text-accent-tan">{eyebrow}</p>
+          <p className="text-meta uppercase tracking-[0.18em] text-print-red">{eyebrow}</p>
           <h2 className={cn(
             'mt-3 font-serif leading-[1.15] text-ink-900',
             isPrimary ? 'text-feature-primary' : 'text-feature',
@@ -28,7 +28,11 @@ export function FeatureBlock({ eyebrow, headline, body, meta, image, variant = '
           </h2>
           <p className="mt-5 font-sans text-body text-ink-700 leading-[1.65] max-w-[52ch]">{body}</p>
           <ul className="mt-6 flex flex-wrap gap-x-6 gap-y-2 text-body-sm text-ink-700/80">
-            {meta.map((m, i) => <li key={i}>{m}</li>)}
+            {meta.map((m, i) => (
+              <li key={i} className="relative pl-4 before:content-[''] before:absolute before:left-0 before:top-[0.7em] before:w-2 before:h-[1.5px] before:bg-print-red/85">
+                {m}
+              </li>
+            ))}
           </ul>
         </div>
         <div>{image}</div>

@@ -2,18 +2,28 @@
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { ScreenshotFrame } from '@/components/ui/screenshot-frame';
+import { Postit } from '@/components/ui/postit';
 
 export function Hero() {
   const t = useTranslations('hero');
   return (
-    <section className="red-margin relative mx-auto max-w-7xl px-6 lg:px-24 py-24 lg:py-32">
+    <section className="relative mx-auto max-w-7xl px-6 lg:px-24 py-24 lg:py-32">
       <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-12 lg:gap-20 items-center">
         <div>
           <h1 className="font-serif text-display-1 text-ink-900 leading-[1.05]">
             {t('h1Line1')}<br />
             {t('h1Line2Prefix')}
-            <em className="font-serif italic text-accent-tan text-[1.05em]">{t('h1Line2Emphasis')}</em>
+            <em className="relative inline-block font-serif italic text-accent-tan text-[1.05em]">
+              {t('h1Line2Emphasis')}
+              <svg
+                className="pencil-circle"
+                viewBox="0 0 400 80"
+                preserveAspectRatio="none"
+                aria-hidden="true"
+              >
+                <ellipse cx={200} cy={40} rx={194} ry={32} />
+              </svg>
+            </em>
             {t('h1Line2Suffix')}
           </h1>
           <p className="mt-6 font-sans text-sub text-ink-700 max-w-[42ch]">{t('sub')}</p>
@@ -25,8 +35,8 @@ export function Hero() {
           <p className="mt-3 text-hint text-ink-700/60">{t('hint')}</p>
         </div>
         <div aria-hidden="true">
-          <ScreenshotFrame title="Real Analysis · Lecture 3">
-            <div className="font-sans text-body-sm text-ink-700 space-y-3">
+          <Postit caption="Real Analysis · Lecture 3">
+            <div className="font-sans text-body-sm text-ink-700 space-y-3 p-4">
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-margin-red animate-pulse" />
                 <span className="text-meta uppercase">Live</span>
@@ -41,19 +51,11 @@ export function Hero() {
                   />
                 ))}
               </div>
-              <div className="border-t border-dashed border-ink-900/15 pt-3">
-                <p className="text-body-sm"><span className="text-hint text-accent-tan mr-2">04:25</span>The Bolzano-Weierstrass theorem states that…</p>
-              </div>
-              <div className="border-t border-dashed border-ink-900/15 pt-3">
-                <p className="text-meta uppercase text-accent-tan">Note · auto-generated</p>
-                <h4 className="font-serif text-grid-title mt-1">§ Compactness</h4>
-                <ul className="mt-2 space-y-1 text-body-sm">
-                  <li>· Bolzano-Weierstrass</li>
-                  <li>· Heine-Cantor</li>
-                </ul>
+              <div className="border-t border-dashed border-ink-900/15 pt-2">
+                <p className="text-body-sm leading-snug"><span className="text-hint text-accent-tan mr-2">04:25</span>Bolzano-Weierstrass…</p>
               </div>
             </div>
-          </ScreenshotFrame>
+          </Postit>
         </div>
       </div>
     </section>
