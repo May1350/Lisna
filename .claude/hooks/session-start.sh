@@ -45,25 +45,15 @@ if [ -n "$DIRTY" ]; then
   echo "$DIRTY"
 fi
 
-# Install git hooks if absent — wiring for pre-commit-check.sh + commit-msg-check.sh.
-# Idempotent: only writes if the file doesn't exist. Re-installs if user
-# deletes .git/hooks (fresh clone).
-if [ -d ".git/hooks" ]; then
-  if [ ! -f ".git/hooks/pre-commit" ] && [ -f ".claude/hooks/pre-commit-check.sh" ]; then
-    cat > .git/hooks/pre-commit <<'HOOK_EOF'
-#!/usr/bin/env bash
-exec "$(git rev-parse --show-toplevel)/.claude/hooks/pre-commit-check.sh"
-HOOK_EOF
-    chmod +x .git/hooks/pre-commit
-    echo "Installed .git/hooks/pre-commit → .claude/hooks/pre-commit-check.sh"
-  fi
-  if [ ! -f ".git/hooks/commit-msg" ] && [ -f ".claude/hooks/commit-msg-check.sh" ]; then
-    cat > .git/hooks/commit-msg <<'HOOK_EOF'
-#!/usr/bin/env bash
-exec "$(git rev-parse --show-toplevel)/.claude/hooks/commit-msg-check.sh" "$1"
-HOOK_EOF
-    chmod +x .git/hooks/commit-msg
-    echo "Installed .git/hooks/commit-msg → .claude/hooks/commit-msg-check.sh"
+# Ensure git uses the checked-in .githooks/ directory. The canonical wiring
+# is `pnpm install`'s postinstall script; this is the safety net for
+# (a) sessions that started before postinstall ran, (b) repos cloned without
+# pnpm. Idempotent: skips if already set.
+if [ -d ".githooks" ]; then
+  CURRENT_HOOKS_PATH="$(git config --get core.hooksPath 2>/dev/null || true)"
+  if [ "$CURRENT_HOOKS_PATH" != ".githooks" ]; then
+    git config core.hooksPath .githooks 2>/dev/null && \
+      echo "Set core.hooksPath = .githooks (was: ${CURRENT_HOOKS_PATH:-unset})"
   fi
 fi
 

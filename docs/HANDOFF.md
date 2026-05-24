@@ -87,7 +87,7 @@ segments). Curator: OpenAI gpt-4o-mini. Auth: JWT issued from Google OAuth.
 | #21 | **CI Dependabot env fallback.** `Web — build` step uses `${{ secrets.X \|\| 'dummy' }}` pattern so Dependabot PRs (which use a separate secrets scope) can build. Real Vercel deploys ignore Actions env. |
 | #20 | **Next.js 16.2.4 → 16.2.6 security patch.** High-severity: SSRF, Proxy bypass (×3), DoS, Cache poisoning, XSS. Merged after #21 unblocked. |
 
-### 2.5 Operational guards on GitHub (added 2026-05-24)
+### Operational guards on GitHub (added 2026-05-24)
 
 Runtime guards enforced by GitHub repo settings, NOT code. Canonical list +
 "what to do when you hit one" lives in `.claude/rules/operations.md`. Summary:

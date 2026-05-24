@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Checked-in git commit-msg hook. See .githooks/pre-commit for activation notes.
+exec "$(git rev-parse --show-toplevel)/.claude/hooks/commit-msg-check.sh" "$@"
