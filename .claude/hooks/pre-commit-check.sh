@@ -55,6 +55,19 @@ if [ -d ".claude/rules" ]; then
   done
 fi
 
+# 5. New backend handlers should have a matching test (warn only).
+# Triggers on newly-added handler files. testing.md mandates one for every new route.
+NEW_HANDLERS="$(echo "$STAGED" | grep -E '^backend/src/handlers/[^/]+\.ts$' || true)"
+for h in $NEW_HANDLERS; do
+  if git diff --cached --name-status -- "$h" 2>/dev/null | grep -q '^A'; then
+    base="$(basename "$h" .ts)"
+    if ! find backend/tests -name "${base}*.test.ts" 2>/dev/null | grep -q .; then
+      echo "WARN: new handler $h has no matching backend/tests/**/${base}*.test.ts."
+      echo "      See .claude/rules/testing.md — new backend route needs a test."
+    fi
+  fi
+done
+
 if [ "$FAIL" -eq 0 ]; then
   echo "pre-commit-check: ok"
 fi

@@ -45,6 +45,28 @@ if [ -n "$DIRTY" ]; then
   echo "$DIRTY"
 fi
 
+# Install git hooks if absent — wiring for pre-commit-check.sh + commit-msg-check.sh.
+# Idempotent: only writes if the file doesn't exist. Re-installs if user
+# deletes .git/hooks (fresh clone).
+if [ -d ".git/hooks" ]; then
+  if [ ! -f ".git/hooks/pre-commit" ] && [ -f ".claude/hooks/pre-commit-check.sh" ]; then
+    cat > .git/hooks/pre-commit <<'HOOK_EOF'
+#!/usr/bin/env bash
+exec "$(git rev-parse --show-toplevel)/.claude/hooks/pre-commit-check.sh"
+HOOK_EOF
+    chmod +x .git/hooks/pre-commit
+    echo "Installed .git/hooks/pre-commit → .claude/hooks/pre-commit-check.sh"
+  fi
+  if [ ! -f ".git/hooks/commit-msg" ] && [ -f ".claude/hooks/commit-msg-check.sh" ]; then
+    cat > .git/hooks/commit-msg <<'HOOK_EOF'
+#!/usr/bin/env bash
+exec "$(git rev-parse --show-toplevel)/.claude/hooks/commit-msg-check.sh" "$1"
+HOOK_EOF
+    chmod +x .git/hooks/commit-msg
+    echo "Installed .git/hooks/commit-msg → .claude/hooks/commit-msg-check.sh"
+  fi
+fi
+
 echo ""
 echo "=== Read CLAUDE.md → top rules + index ==="
 echo "=== Read docs/HANDOFF.md before non-trivial work ==="
