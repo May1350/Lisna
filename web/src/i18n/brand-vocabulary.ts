@@ -118,6 +118,8 @@ export const IDENTICAL_VALUES_OK = new Set<string>([
   'features.notes.metaB',                // "→ Markdown"
   'features.export.metaB',               // "→ Markdown"
   'features.export.metaC',               // "→ PDF"
+  // Partner org names — fixed in canonical English across all locales.
+  'trust.keio',                          // "Keio University"
   // Download page — tech / brand strings that don't translate.
   'downloadPage.versionLine',            // "v0.1.0 · 158 MB · Apple Silicon"
   'downloadPage.shaPrefix',              // "SHA256: "

@@ -64,6 +64,7 @@ const IDENTICAL_VALUES_OK = new Set([
   'features.notes.metaB',
   'features.export.metaB',
   'features.export.metaC',
+  'trust.keio',
   'downloadPage.versionLine',
   'downloadPage.shaPrefix',
   'downloadPage.modelsWhisperLabel',
