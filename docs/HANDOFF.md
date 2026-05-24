@@ -1,6 +1,6 @@
 # Lisna — Session Handoff
 
-**Last updated**: 2026-05-12
+**Last updated**: 2026-05-24
 **Purpose**: Bring a new session up to speed in <5 min. Read top → bottom in order.
 **Reader**: future-self (or another Claude). Skip what you already know.
 
@@ -77,6 +77,26 @@ segments). Curator: OpenAI gpt-4o-mini. Auth: JWT issued from Google OAuth.
 | Stop redesign | 停止 click now: video pause + final curate auto-trigger + sessionId stays + isCapturing flag → ExportMenu / 📝 ノートを生成 still usable. Manual curate goes via direct callApi (bypasses dead content-script listener). |
 | Slide POST fix | Was returning 500 because client omitted `url` field. Backend now wraps Zod errors as 400 in `withAuth`. |
 | Chunk retry | stream-audio chunk POST retries once after 1.5 s on 5xx. Cures the ~22 % API-GW-upstream-503 rate observed in real usage. |
+
+### What landed since (2026-05-23 → 2026-05-24)
+
+| PR | What |
+|---|---|
+| #17 | **Rule system bootstrap.** `CLAUDE.md` (≤150 lines, top-20 rules) + `.claude/rules/{architecture,domain,pitfalls,testing,workflow,operations}.md` (on-demand detail) + `.claude/commands/` (8 slash commands) + `.claude/hooks/{session-start,pre-commit-check,commit-msg-check}.sh` + GHA workflows (`claude-audit`, `backlog-sync`) + `docs/REFACTOR_BACKLOG.md`. Every session auto-loads CLAUDE.md; SessionStart hook prints branch + HANDOFF date + top-3 backlog + installs git hooks. |
+| #18 | **Migration 004 collision fix.** `004_processed_stripe_events.sql` → `008_…` to remove numeric clash with `004_curate_cooldown.sql`. Bookkeeping migration `009_renumber_004_stripe_bookkeeping.sql` deletes the stale `schema_migrations` row. Body now `CREATE TABLE IF NOT EXISTS`. |
+| #21 | **CI Dependabot env fallback.** `Web — build` step uses `${{ secrets.X \|\| 'dummy' }}` pattern so Dependabot PRs (which use a separate secrets scope) can build. Real Vercel deploys ignore Actions env. |
+| #20 | **Next.js 16.2.4 → 16.2.6 security patch.** High-severity: SSRF, Proxy bypass (×3), DoS, Cache poisoning, XSS. Merged after #21 unblocked. |
+
+### Operational guards on GitHub (added 2026-05-24)
+
+Runtime guards enforced by GitHub repo settings, NOT code. Canonical list +
+"what to do when you hit one" lives in `.claude/rules/operations.md`. Summary:
+
+- **Branch protection ruleset on `main`**: requires PR, `ci` + `desktop-ci` green; blocks force-push and deletion. Direct `git push origin main` rejected.
+- **Auto-delete head branches** ON: PR merge removes the head branch automatically.
+- **Secret scanning + push protection** ON: blocks pushes with secret-shaped strings (Stripe `sk_live_…`, AWS `AKIA…`, etc.).
+- **CodeQL** ON (actions, javascript-typescript, c-cpp): passive, NOT in required-checks.
+- **Dependabot** security + version updates ON: open Dependabot PRs at any time.
 
 ---
 
@@ -210,6 +230,9 @@ feedback validates the demand.
 | Curator latency on long lectures | Acceptable | 30-min content ~30-50 s, 60-min ~50-90 s. Function URL bypasses API GW 30 s limit. |
 | `notes` JSONB column | Legacy, kept | Old sessions may still have data. New handlers don't write. session-get still SELECTs but UI ignores. Drop in a future migration when comfortable. |
 | Stripe `apiVersion` cast | `as any` | SDK 22.1's literal type drifted to `'2026-04-22.dahlia'`. We pin `'2025-09-30.acacia'`. Update both together when the SDK upgrade is intentional. |
+| Migration 004 duplicate | ✅ Fixed (PR #18, 2026-05-23) | Renumbered to 008 + bookkeeping migration 009. See `backend/src/migrations/`. |
+| CI fails on Dependabot PRs | ✅ Fixed (PR #21, 2026-05-24) | `Web — build` step has `secrets.X \|\| 'dummy'` fallback. Don't strip when adding new secrets. |
+| Open Dependabot PRs (2026-05-24) | Open | `dependabot/npm_and_yarn/postcss-8.5.15`, `dependabot/npm_and_yarn/vite-6.4.2`. CI should pass via the #21 fallback. |
 
 ### Pending questions for the user
 

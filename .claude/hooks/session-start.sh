@@ -45,6 +45,18 @@ if [ -n "$DIRTY" ]; then
   echo "$DIRTY"
 fi
 
+# Ensure git uses the checked-in .githooks/ directory. The canonical wiring
+# is `pnpm install`'s postinstall script; this is the safety net for
+# (a) sessions that started before postinstall ran, (b) repos cloned without
+# pnpm. Idempotent: skips if already set.
+if [ -d ".githooks" ]; then
+  CURRENT_HOOKS_PATH="$(git config --get core.hooksPath 2>/dev/null || true)"
+  if [ "$CURRENT_HOOKS_PATH" != ".githooks" ]; then
+    git config core.hooksPath .githooks 2>/dev/null && \
+      echo "Set core.hooksPath = .githooks (was: ${CURRENT_HOOKS_PATH:-unset})"
+  fi
+fi
+
 echo ""
 echo "=== Read CLAUDE.md → top rules + index ==="
 echo "=== Read docs/HANDOFF.md before non-trivial work ==="

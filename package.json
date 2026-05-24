@@ -8,6 +8,7 @@
     "dev:extension": "pnpm --filter extension dev",
     "dev:backend": "pnpm --filter backend dev",
     "dev:web": "pnpm --filter lisna-web dev",
-    "deploy:backend": "pnpm --filter backend deploy"
+    "deploy:backend": "pnpm --filter backend deploy",
+    "postinstall": "git config core.hooksPath .githooks 2>/dev/null || true"
   }
 }

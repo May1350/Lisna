@@ -12,6 +12,7 @@ file.
 | `pitfalls.md` | Battle scars — bugs we've already paid for | Before adding retries, timeouts, cross-frame messaging, audio sync |
 | `testing.md` | Test conventions, fixture layout, eval baselines | Writing or modifying tests / eval scripts |
 | `workflow.md` | PR / commit / branch / deploy / migration conventions | Opening a PR, writing a migration, deploying |
+| `operations.md` | GitHub-side guards (ruleset, secret scanning, CodeQL, Dependabot, auto-delete) | Hitting unexpected `git push` rejection, PR check failure, push-protection block |
 | `archived/` | Rules sunset by `/rules-sunset` (kept for git blame) | Rarely — only for historical lookup |
 
 ## Rule format

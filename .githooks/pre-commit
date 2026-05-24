@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Checked-in git pre-commit hook. Activated by `git config core.hooksPath .githooks`,
+# wired automatically by `pnpm install` (postinstall) and re-confirmed on every
+# Claude Code session start. See .claude/rules/operations.md for details.
+exec "$(git rev-parse --show-toplevel)/.claude/hooks/pre-commit-check.sh" "$@"

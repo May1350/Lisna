@@ -55,6 +55,26 @@ if [ -d ".claude/rules" ]; then
   done
 fi
 
+# 5. New backend handlers MUST have a matching test (testing.md mandates one
+# for every new route). Fail-by-default; explicit env override leaves an
+# audit trail in shell history instead of being a silent "warning ignored".
+NEW_HANDLERS="$(echo "$STAGED" | grep -E '^backend/src/handlers/[^/]+\.ts$' || true)"
+for h in $NEW_HANDLERS; do
+  if git diff --cached --name-status -- "$h" 2>/dev/null | grep -q '^A'; then
+    base="$(basename "$h" .ts)"
+    if ! find backend/tests -name "${base}*.test.ts" 2>/dev/null | grep -q .; then
+      if [ "${SKIP_HANDLER_TEST_CHECK:-0}" = "1" ]; then
+        echo "WARN: new handler $h has no test (override: SKIP_HANDLER_TEST_CHECK=1)."
+      else
+        echo "FAIL: new handler $h needs a test in backend/tests/**/${base}*.test.ts."
+        echo "      .claude/rules/testing.md mandates it for every new backend route."
+        echo "      Audited override: SKIP_HANDLER_TEST_CHECK=1 git commit ..."
+        FAIL=1
+      fi
+    fi
+  fi
+done
+
 if [ "$FAIL" -eq 0 ]; then
   echo "pre-commit-check: ok"
 fi

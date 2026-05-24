@@ -16,6 +16,7 @@ a 21st, run `/rules-compress` first.
 | `docs/REFACTOR_BACKLOG.md` | Prioritized refactor + maintenance queue. `/refactor-next` reads this. |
 | `docs/superpowers/{plans,specs,decisions}/` | Spec stubs, plans, decision records. |
 | `.claude/rules/_index.md` | What rule lives in which file. Open when looking up a category. |
+| `.claude/rules/operations.md` | GitHub-side guards (ruleset, secret scanning, etc.). Open when push / merge / CI behaves unexpectedly. |
 | `.claude/commands/` | Slash commands (`/learn`, `/handoff`, `/audit`, etc.) |
 
 ## Repo layout (one screen)
@@ -37,7 +38,7 @@ Detailed module map: `.claude/rules/architecture.md`.
 
 1. **Read `docs/HANDOFF.md` first** on any task involving runtime behavior, deployments, or recent changes. It is the authoritative live state.
 2. **Defer to `docs/PRD.md`** when product scope is ambiguous. Don't add scope; ask.
-3. **Branch convention**: feature branches off `main` (`fix/...`, `feat/...`, `chore/...`). Never push to `main` directly.
+3. **Branch convention**: feature branches off `main` (`fix/...`, `feat/...`, `chore/...`). Never push to `main` directly — the ruleset rejects it (see `.claude/rules/operations.md`).
 4. **Conventional commit prefixes** match what `git log` shows: `fix(scope):`, `feat(scope):`, `chore(scope):`, `refactor(scope):`. Subject ≤ 72 chars.
 5. **One PR = one concern.** If the diff spans backend + extension because of a shared type change, that's fine. If it spans unrelated bug fixes, split.
 
