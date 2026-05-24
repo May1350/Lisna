@@ -23,3 +23,9 @@ the project's own `CLAUDE.md` + `.claude/rules/`.
 ## Session lifecycle
 
 - When context is getting heavy (long session, many re-reads, ≥ ~70% used), proactively offer to wrap: extract learnings, update HANDOFF/decisions, write next-session prompt. Don't ask permission to offer — just offer.
+
+## PR / CI monitoring
+
+- **`subscribe_pr_activity` webhooks are unreliable.** `<github-webhook-activity>` notifications frequently fail to arrive in time (or at all). Don't sit waiting on them when the user is blocked on the result.
+- **Instead, spawn a sub-agent (`general-purpose`) to poll** `pull_request_read` (`get_check_runs`, `get_status`) on a short interval until terminal state (`success` / `failure` / `timed_out` / `cancelled`) on all required checks, then report back. Pattern: 15-30s polls, exit on first terminal state, ≤ 5 min cap.
+- **Don't poll from the main agent thread.** That burns context on raw API output. Delegate to a sub-agent and ask for a one-line summary.
