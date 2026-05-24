@@ -29,8 +29,9 @@ export default async function ComparePage({ params }: { params: Promise<{ locale
           {t('intro')}
         </p>
 
-        <div className="mt-12 overflow-x-auto rounded-md border border-ink-900/10">
-          <table className="w-full text-body text-ink-900">
+        <div className="mt-12 relative">
+          <div className="overflow-x-auto rounded-md border border-ink-900/10">
+            <table className="w-full min-w-[640px] text-body text-ink-900">
             <thead className="bg-cream-50 border-b border-ink-900/10">
               <tr>
                 <th className="text-left py-3 px-4 font-serif">{t('thFeature')}</th>
@@ -62,7 +63,13 @@ export default async function ComparePage({ params }: { params: Promise<{ locale
                 </tr>
               ))}
             </tbody>
-          </table>
+            </table>
+          </div>
+          {/* Mobile-only scroll hint — fade-right gradient indicating more columns. */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-y-0 right-0 w-10 rounded-r-md bg-gradient-to-l from-cream-100 to-transparent md:hidden"
+          />
         </div>
 
         <section className="mt-16 prose prose-stone max-w-none text-body text-ink-700 leading-[1.7] font-sans space-y-5">
