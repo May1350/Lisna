@@ -7,7 +7,7 @@ import { Postit } from '@/components/ui/postit';
 export function Hero() {
   const t = useTranslations('hero');
   return (
-    <section className="relative mx-auto max-w-7xl px-6 lg:px-24 py-24 lg:py-32">
+    <section className="relative mx-auto max-w-7xl pad-x py-24 lg:py-32">
       <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-12 lg:gap-20 items-center">
         <div>
           <h1 className="font-serif text-display-1 text-ink-900 leading-[1.05]">

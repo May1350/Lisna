@@ -10,7 +10,7 @@ export interface PrivacyEmphasisProps {
 export function PrivacyEmphasis({ eyebrow, headline, statValue, statSub, items }: PrivacyEmphasisProps) {
   return (
     <section className="bg-ink-900 text-cream-200 py-28">
-      <div className="mx-auto max-w-7xl px-6 lg:px-24 grid lg:grid-cols-[5fr_4fr] gap-16">
+      <div className="mx-auto max-w-7xl pad-x grid lg:grid-cols-[5fr_4fr] gap-16">
         <div>
           <p className="text-meta uppercase tracking-[0.18em] text-accent-tan">{eyebrow}</p>
           <h2 className="mt-4 font-serif text-h2 text-cream-200 leading-[1.1]">{headline}</h2>

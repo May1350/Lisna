@@ -47,6 +47,27 @@
   }
 
   /* ──────────────────────────────────────────────────────────
+     Content gutter — keeps body text right of the printed red
+     margin line. Pair with `pr-*` for the right side; the right
+     side does NOT need a margin-offset (no red line over there).
+     `--margin-offset` cascades from `.pad-paper`; the fallback
+     mirrors the desktop value in case a child renders outside
+     pad-paper (auth-shell, dashboard).
+
+     Decorative elements (marginalia arrow, pencil-circle, Postit
+     drop-shadow) are intentionally placed with negative offsets
+     INSIDE these containers — they extend past the margin line on
+     purpose. Only running text should respect it.
+     ────────────────────────────────────────────────────────── */
+  .pad-l {
+    padding-left: var(--margin-offset, 96px);
+  }
+  .pad-x {
+    padding-left: var(--margin-offset, 96px);
+    padding-right: var(--margin-offset, 96px);
+  }
+
+  /* ──────────────────────────────────────────────────────────
      Legal-pad page surface — printed ruled lines + red margin.
      Replaces the faint cream + ruled-paper combo. The marketing
      shell renders this as the full-page background.

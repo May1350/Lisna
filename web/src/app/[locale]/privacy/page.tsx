@@ -41,7 +41,7 @@ export default async function Privacy({ params }: { params: Promise<{ locale: Lo
 
 function PrivacyJa({ homeLabel }: { homeLabel: string }) {
   return (
-    <article lang="ja" className="mx-auto max-w-3xl px-6 py-16 prose prose-stone font-sans text-body text-ink-700 leading-[1.7]">
+    <article lang="ja" className="mx-auto max-w-3xl pad-x py-16 prose prose-stone font-sans text-body text-ink-700 leading-[1.7]">
       <h1 className="font-serif text-h1 text-ink-900">プライバシーポリシー</h1>
       <p className="text-body-sm text-ink-700/70 mt-2">最終更新日: 2026年5月9日</p>
 
@@ -122,7 +122,7 @@ function PrivacyJa({ homeLabel }: { homeLabel: string }) {
 
 function PrivacyEn({ homeLabel }: { homeLabel: string }) {
   return (
-    <article lang="en" className="mx-auto max-w-3xl px-6 py-16 prose prose-stone font-sans text-body text-ink-700 leading-[1.7]">
+    <article lang="en" className="mx-auto max-w-3xl pad-x py-16 prose prose-stone font-sans text-body text-ink-700 leading-[1.7]">
       <h1 className="font-serif text-h1 text-ink-900">Privacy Policy</h1>
       <p className="text-body-sm text-ink-700/70 mt-2">Last updated: May 9, 2026</p>
 

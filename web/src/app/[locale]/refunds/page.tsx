@@ -39,7 +39,7 @@ export default async function Refunds({ params }: { params: Promise<{ locale: Lo
 
 function RefundsJa({ tL }: { tL: (key: string) => string }) {
   return (
-    <article lang="ja" className="mx-auto max-w-3xl px-6 py-16 prose prose-stone font-sans text-body text-ink-700 leading-[1.7]">
+    <article lang="ja" className="mx-auto max-w-3xl pad-x py-16 prose prose-stone font-sans text-body text-ink-700 leading-[1.7]">
       <h1 className="font-serif text-h1 text-ink-900">返金ポリシー</h1>
       <p className="text-body-sm text-ink-700/70 mt-2">最終更新日: 2026年5月10日</p>
 
@@ -111,7 +111,7 @@ function RefundsJa({ tL }: { tL: (key: string) => string }) {
 
 function RefundsEn({ tL }: { tL: (key: string) => string }) {
   return (
-    <article lang="en" className="mx-auto max-w-3xl px-6 py-16 prose prose-stone font-sans text-body text-ink-700 leading-[1.7]">
+    <article lang="en" className="mx-auto max-w-3xl pad-x py-16 prose prose-stone font-sans text-body text-ink-700 leading-[1.7]">
       <h1 className="font-serif text-h1 text-ink-900">Refund Policy</h1>
       <p className="text-body-sm text-ink-700/70 mt-2">Last updated: May 10, 2026</p>
 

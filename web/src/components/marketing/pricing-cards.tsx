@@ -21,7 +21,7 @@ export interface PricingCardsProps {
 
 export function PricingCards({ heading, sub, plans }: PricingCardsProps) {
   return (
-    <section className="mx-auto max-w-7xl px-6 lg:px-24 py-24">
+    <section className="mx-auto max-w-7xl pad-x py-24">
       <div className="text-center">
         <h2 className="font-serif text-h2-sm text-ink-900">{heading}</h2>
         <p className="mt-4 font-sans text-body text-ink-700 max-w-[52ch] mx-auto">{sub}</p>

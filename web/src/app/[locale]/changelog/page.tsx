@@ -20,7 +20,7 @@ export default async function ChangelogPage({ params }: { params: Promise<{ loca
   const components = mdxComponents(locale);
   return (
     <MarketingShell locale={locale}>
-      <section className="mx-auto max-w-3xl px-6 py-16">
+      <section className="mx-auto max-w-3xl pad-x py-16">
         <h1 className="font-serif text-h1 text-ink-900">Changelog</h1>
         <p className="mt-3 text-body text-ink-700">Release notes for Lisna desktop. <a href="/changelog/rss.xml" className="underline">RSS</a>.</p>
         <ol className="mt-12 space-y-12">

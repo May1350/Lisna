@@ -21,7 +21,7 @@ export default async function DocsLayout({
   const prefix = locale === 'en' ? '' : `/${locale}`;
   return (
     <MarketingShell locale={locale as Locale}>
-      <div className="mx-auto max-w-6xl px-6 lg:px-12 py-12 grid lg:grid-cols-[220px_1fr] gap-12">
+      <div className="mx-auto max-w-6xl pad-x py-12 grid lg:grid-cols-[220px_1fr] gap-12">
         <aside className="lg:sticky lg:top-20 self-start">
           <p className="text-meta uppercase text-ink-700/60 mb-3">Docs</p>
           <ul className="space-y-2 text-body text-ink-900">

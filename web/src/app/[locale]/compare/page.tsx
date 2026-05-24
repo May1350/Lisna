@@ -23,7 +23,7 @@ export default async function ComparePage({ params }: { params: Promise<{ locale
 
   return (
     <MarketingShell locale={locale}>
-      <section className="mx-auto max-w-5xl px-6 lg:px-12 py-16">
+      <section className="mx-auto max-w-5xl pad-x py-16">
         <h1 className="font-serif text-h1 text-ink-900">{t('title')}</h1>
         <p className="mt-4 font-sans text-body text-ink-700 max-w-[60ch]">
           {t('intro')}
