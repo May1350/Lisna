@@ -1,0 +1,139 @@
+name: Monitor Backend (CloudWatch)
+
+# Every 6 hours, scans CloudWatch Logs for ERROR/Timeout patterns across all
+# Lisna Lambda log groups. If found, opens (or comments on existing) issue
+# tagged `cloudwatch-alert`. Lets a GitHub-only operator notice prod problems
+# without manually tailing CW Logs.
+#
+# Requires AWS_DEPLOY_ROLE_ARN (same OIDC role as deploy-backend — read-only
+# on Lambda + CloudWatch Logs is enough).
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # 6-hourly: 00:00 / 06:00 / 12:00 / 18:00 UTC
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+  issues: write  # for opening / commenting on alert issues
+
+env:
+  AWS_REGION: ap-northeast-1
+  # Lambda log groups all start with this prefix per the CDK stack name.
+  # If you rename the stack, update both here and the JMESPath filter.
+  LOG_GROUP_PREFIX: '/aws/lambda/StudyHelperApi'
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Skip if OIDC secret missing (don't fail cron silently)
+        # Schedule runs shouldn't email-spam fail notifications when the user
+        # hasn't done OIDC setup yet. Manual runs still fail loudly.
+        id: precheck
+        run: |
+          if [ -z "${{ secrets.AWS_DEPLOY_ROLE_ARN }}" ]; then
+            if [ "${{ github.event_name }}" = "schedule" ]; then
+              echo "AWS_DEPLOY_ROLE_ARN not set; skipping scheduled scan."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "::error::AWS_DEPLOY_ROLE_ARN not set. See operations.md."
+              exit 1
+            fi
+          fi
+
+      - name: Configure AWS credentials (OIDC)
+        if: steps.precheck.outputs.skip != 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Scan log groups for errors (last 6h window)
+        if: steps.precheck.outputs.skip != 'true'
+        id: scan
+        run: |
+          end_ms=$(($(date -u +%s) * 1000))
+          start_ms=$((end_ms - 21600000))  # 6 h
+          groups=$(aws logs describe-log-groups \
+            --log-group-name-prefix "${LOG_GROUP_PREFIX}" \
+            --query 'logGroups[].logGroupName' \
+            --output text)
+
+          total=0
+          report=""
+          for group in $groups; do
+            # `?ERROR ?Error ?Timeout ?Throttle` = OR-match (CW Logs filter syntax)
+            count=$(aws logs filter-log-events \
+              --log-group-name "$group" \
+              --start-time "$start_ms" \
+              --end-time "$end_ms" \
+              --filter-pattern '?ERROR ?Error ?Timeout ?Throttle ?Exception' \
+              --query 'length(events)' \
+              --output text 2>/dev/null || echo 0)
+            if [ "$count" -gt 0 ]; then
+              total=$((total + count))
+              report="${report}- \`${group}\`: ${count} hits%0A"
+            fi
+          done
+
+          echo "Total error hits: $total"
+          echo "count=$total" >> "$GITHUB_OUTPUT"
+          # %0A is the GHA encoding for newline in a single-line output.
+          echo "report=${report}" >> "$GITHUB_OUTPUT"
+
+      - name: Open or update alert issue
+        if: steps.precheck.outputs.skip != 'true' && steps.scan.outputs.count != '0'
+        uses: actions/github-script@v7
+        env:
+          ERROR_COUNT: ${{ steps.scan.outputs.count }}
+          ERROR_REPORT: ${{ steps.scan.outputs.report }}
+        with:
+          # Use process.env (not ${{ }} interpolation) so log-text values
+          # can't terminate the JS string. See operations.md (codeql).
+          script: |
+            const count = process.env.ERROR_COUNT;
+            const report = process.env.ERROR_REPORT.replace(/%0A/g, '\n');
+            const title = `[monitor] CloudWatch errors: ${count} hits in last 6h`;
+            const body = [
+              `Detected by \`.github/workflows/monitor-backend.yml\` on ${new Date().toISOString()}.`,
+              '',
+              '### Affected log groups',
+              report,
+              '',
+              '### Investigate',
+              '```bash',
+              `aws logs tail ${process.env.LOG_GROUP_PREFIX || '/aws/lambda/StudyHelperApi'}-... --since 6h --filter-pattern '?ERROR'`,
+              '```',
+              '',
+              'Close this issue when triaged. The next 6h scan will reopen if the pattern persists.',
+            ].join('\n');
+
+            const open = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'cloudwatch-alert',
+              state: 'open',
+            });
+
+            if (open.data.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: open.data[0].number,
+                body: `Re-fired: ${count} hits in the latest 6h window.\n\n${report}`,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ['cloudwatch-alert', 'auto-created'],
+              });
+            }

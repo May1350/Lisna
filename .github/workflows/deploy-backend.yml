@@ -1,0 +1,87 @@
+name: Deploy Backend
+
+# Triggers a CDK deploy of all backend stacks to AWS whenever backend code,
+# infra, or shared/ changes land on main. Also runnable manually via the
+# Actions UI. Requires `AWS_DEPLOY_ROLE_ARN` repo secret pointing at a
+# GitHub-Actions-OIDC-trusted IAM role. See .claude/rules/operations.md
+# `(deploy-backend)` for the AWS setup runbook.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'shared/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - '.github/workflows/deploy-backend.yml'
+  workflow_dispatch:
+
+# OIDC token write is required for aws-actions/configure-aws-credentials.
+# contents:read for checkout.
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-northeast-1
+  # Match ci.yml's Node 24 opt-in. See ci.yml header for rationale.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+# Avoid stacking deploys. In-progress deploys for an older commit get
+# cancelled so the latest main sha is what hits AWS.
+concurrency:
+  group: deploy-backend-${{ github.ref }}
+  cancel-in-progress: false  # NEVER cancel a deploy mid-flight — CDK partial deploys are bad
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify OIDC secret is configured
+        # Friendlier error than "Role ARN is empty" from configure-aws-credentials.
+        run: |
+          if [ -z "${{ secrets.AWS_DEPLOY_ROLE_ARN }}" ]; then
+            echo "::error::AWS_DEPLOY_ROLE_ARN secret not configured."
+            echo "::error::See .claude/rules/operations.md → '(deploy-backend) AWS OIDC setup'"
+            echo "::error::for the one-time IAM Identity Provider + Role setup steps."
+            exit 1
+          fi
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Shared — build (backend depends on shared dist)
+        run: pnpm --filter shared build
+
+      - name: Backend — build (tsc)
+        run: pnpm --filter backend build
+
+      - name: CDK — synth (sanity-check before deploy)
+        run: pnpm --filter backend synth
+
+      - name: CDK — deploy --all
+        # Matches workflow.md (deploy): `pnpm cdk deploy --all --require-approval never`.
+        # NOTE: this deploys ALL stacks. If only one stack changed, CDK still
+        # checks all of them but only updates the diff. Cold runs ~3-8 min.
+        run: pnpm --filter backend deploy
