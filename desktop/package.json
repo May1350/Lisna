@@ -1,6 +1,6 @@
 {
   "name": "@lisna/desktop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "main": "out/main/index.js",
   "type": "module",
@@ -14,7 +14,8 @@
     "test": "vitest run --passWithNoTests",
     "test:e2e": "playwright test",
     "package": "pnpm build:sidecar && pnpm build && electron-builder --mac --publish never",
-    "verify": "tsx ci/gates.ts && pnpm typecheck && pnpm lint && pnpm test"
+    "smoke:main": "tsx ci/smoke-main-boot.ts",
+    "verify": "tsx ci/gates.ts && pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm smoke:main"
   },
   "devDependencies": {
     "@types/node": "^20",
