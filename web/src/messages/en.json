@@ -179,6 +179,7 @@
     "title": "Lisna for macOS",
     "versionLine": "v0.1.0 · 158 MB · Apple Silicon",
     "shaPrefix": "SHA256: ",
+    "shaToggle": "Verify download (SHA-256)",
     "downloadCta": "Download .dmg →",
     "sysReqHeading": "System requirements",
     "sysReq1": "macOS 13 Ventura or later",

@@ -15,7 +15,10 @@ export default async function DownloadPage({ params }: { params: Promise<{ local
       <section className="relative mx-auto max-w-5xl pad-x py-16">
         <h1 className="font-serif text-h1 text-ink-900">{t('title')}</h1>
         <p className="mt-3 font-sans text-body text-ink-700">{t('versionLine')}</p>
-        <p className="mt-1 text-body-sm text-ink-700/85 font-mono break-all">{t('shaPrefix')}d924684478db9437b96dab94f24a8947e4fd4a740505cdf0e915a830bac9bb01</p>
+        <details className="mt-2 max-w-[60ch]">
+          <summary className="cursor-pointer select-none text-body-sm text-ink-700/70 hover:text-ink-700">{t('shaToggle')}</summary>
+          <p className="mt-1 text-body-sm text-ink-700/85 font-mono break-all">{t('shaPrefix')}d924684478db9437b96dab94f24a8947e4fd4a740505cdf0e915a830bac9bb01</p>
+        </details>
         <div className="mt-8">
           <Button asChild size="lg">
             <Link href="/dl/dmg/latest">{t('downloadCta')}</Link>
