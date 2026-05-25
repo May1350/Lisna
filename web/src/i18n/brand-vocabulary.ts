@@ -102,7 +102,7 @@ export const IDENTICAL_VALUES_OK = new Set<string>([
   'pricingSection.alphaAmount',          // "$0"
   'pricingSection.proAmount',            // "$?"
   'pricingSection.proName',              // "Pro" — brand-style tier name.
-  'hero.hint',                           // "macOS 13+ · Apple Silicon · 158 MB"
+  'hero.hint',                           // "macOS 13+ · Apple Silicon · 107 MB"
   'ctaStrip.hint',                       // same hint, different surface
   // Copyright — legal short form, stays in EN.
   'footer.copyright',                    // "© 2026 Lisna · All rights reserved"
@@ -121,7 +121,7 @@ export const IDENTICAL_VALUES_OK = new Set<string>([
   // Partner org names — fixed in canonical English across all locales.
   'trust.keio',                          // "Keio University"
   // Download page — tech / brand strings that don't translate.
-  'downloadPage.versionLine',            // "v0.1.0 · 158 MB · Apple Silicon"
+  'downloadPage.versionLine',            // "v0.1.1 · 107 MB · Apple Silicon"
   'downloadPage.shaPrefix',              // "SHA256: "
   'downloadPage.modelsWhisperLabel',     // "Whisper STT"
   'downloadPage.modelsLlamaLabel',       // "Llama LLM"

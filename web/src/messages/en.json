@@ -14,7 +14,7 @@
     "h1Line2Suffix": ".",
     "sub": "Real-time transcription and structured summaries for lectures, meetings, and everyday conversations — processed entirely on-device.",
     "cta": "Download for Mac →",
-    "hint": "macOS 13+ · Apple Silicon · 158 MB"
+    "hint": "macOS 13+ · Apple Silicon · 107 MB"
   },
   "trust": {
     "label": "EARLY USE AT",
@@ -151,7 +151,7 @@
     "sub": "Free during alpha. Sign in inside the app on first launch.",
     "bullet1": "100% on-device — works offline",
     "bullet2": "Your notes are always yours to keep",
-    "hint": "macOS 13+ · Apple Silicon · 158 MB"
+    "hint": "macOS 13+ · Apple Silicon · 107 MB"
   },
   "auth": {
     "checkEmailHeading": "Check your email.",
