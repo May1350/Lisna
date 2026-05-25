@@ -156,8 +156,8 @@
   "auth": {
     "checkEmailHeading": "メールをご確認ください。",
     "checkEmailBody": "受信箱にマジックリンクをお送りしました。10 分で期限切れになります。",
-    "continueHeadingPrefix": "次へ：",
-    "continueHeadingSuffix": "。",
+    "continueHeadingPrefix": "",
+    "continueHeadingSuffix": "へ進む",
     "magicLinkHint": "マジックリンクをメールでお送りします。",
     "sendLink": "リンクを送信",
     "sending": "送信中…",
