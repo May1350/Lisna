@@ -5,17 +5,35 @@ description: Common issues during alpha.
 
 # Troubleshooting
 
-## "Lisna.app can't be opened because Apple cannot check it for malicious software"
+## "Apple could not verify Lisna is free of malware..." (macOS Gatekeeper)
 
-During alpha, the app is not yet Apple-notarized. The fastest workaround:
+The v0.1.x alpha builds are not yet Apple-notarized. macOS Gatekeeper blocks first launch with one of two warning dialogs depending on your OS version:
 
-1. Right-click on **Lisna.app** in `/Applications`
-2. Choose **Open**
-3. Click **Open** in the dialog that appears
+- **macOS 13–14 (Ventura, Sonoma)**: "Lisna.app can't be opened because Apple cannot check it for malicious software"
+- **macOS 15+ (Sequoia, Tahoe)**: "Apple could not verify *Lisna* is free of malware that may harm your Mac or compromise your privacy"
+
+The older right-click → Open bypass was removed in macOS 15. Use one of the two paths below.
+
+### Option A — System Settings (any macOS version)
+
+1. Try opening **Lisna.app** once. The warning dialog appears — dismiss it.
+2. Open **System Settings → Privacy & Security**.
+3. Scroll to the **Security** section.
+4. You'll see "*Lisna* was blocked from use because it is not from an identified developer" → click **Open Anyway**.
+5. Confirm with Touch ID or password.
+6. Open Lisna again. The next dialog now has an **Open** button — click it.
 
 You only need to do this once. macOS remembers the choice.
 
-We're applying for an Apple Developer ID and will codesign + notarize the v2 build before public beta. Track the status in [/changelog](/changelog).
+### Option B — Terminal (one command, covers sidecar too)
+
+```bash
+sudo xattr -rd com.apple.quarantine /Applications/Lisna.app
+```
+
+Removes the `com.apple.quarantine` extended attribute Gatekeeper checks. The `-r` flag is recursive, so the bundled sidecar binary inside `Lisna.app/Contents/Resources/sidecar` is covered in the same pass — no separate step required.
+
+We're applying for an Apple Developer ID and will codesign + notarize before public beta. Track the status in [/changelog](/changelog).
 
 ## "Lisna needs Screen Recording permission"
 
@@ -40,7 +58,7 @@ For metered or offline installs, see [Model files (advanced)](/download#model-fi
 Lisna spawns a native sidecar process for Whisper + Llama. If it fails:
 
 1. Check Console.app for entries from `lisna_sidecar`
-2. Common cause: macOS Gatekeeper blocking the unsigned sidecar. Solution: Apply the Right-click → Open trick to the sidecar binary at `Lisna.app/Contents/Resources/sidecar`.
+2. Common cause: macOS Gatekeeper blocked the unsigned sidecar binary at `Lisna.app/Contents/Resources/sidecar`. Option B above (`sudo xattr -rd ...`) covers it recursively. If you used Option A on the main app, repeat the System Settings → Open Anyway flow for the sidecar binary the first time you record audio.
 
 If you still see the error, post the Console.app log in [Discord](https://discord.gg/69NkqBTbS) for help.
 

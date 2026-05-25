@@ -45,6 +45,13 @@ export default async function DownloadPage({ params }: { params: Promise<{ local
           </Card>
         </div>
 
+        <aside className="mt-10 max-w-3xl rounded-md border-l-4 border-print-red bg-cream-50 px-6 py-5">
+          <h3 className="font-serif text-h2-sm text-ink-900">{t('gatekeeperTitle')}</h3>
+          <p className="mt-2 text-body text-ink-700">
+            {t('gatekeeperBody')}<Link href={`${prefix}/docs/troubleshooting`} className="underline">{t('troubleLink')}</Link>{t('gatekeeperSuffix')}
+          </p>
+        </aside>
+
         <section id="model-files-advanced" className="mt-20">
           <h2 className="font-serif text-h2-sm text-ink-900">{t('modelsHeading')}</h2>
           <p className="mt-4 text-body text-ink-700 max-w-[60ch]">
