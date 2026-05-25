@@ -10,8 +10,7 @@
   },
   "hero": {
     "h1Line1": "Every conversation,",
-    "h1Line2Prefix": "stays on ",
-    "h1Line2Emphasis": "your Mac",
+    "h1Line2Prefix": "stays on your ",
     "h1Line2Suffix": ".",
     "sub": "Real-time transcription and structured summaries for lectures, meetings, and everyday conversations — processed entirely on-device.",
     "cta": "Download for Mac →",

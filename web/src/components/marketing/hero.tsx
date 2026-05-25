@@ -3,6 +3,7 @@ import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Postit } from '@/components/ui/postit';
+import { BRAND } from '@/i18n/brand-vocabulary';
 
 export function Hero() {
   const t = useTranslations('hero');
@@ -14,7 +15,7 @@ export function Hero() {
             {t('h1Line1')}<br />
             {t('h1Line2Prefix')}
             <em className="relative inline-block font-serif italic text-accent-tan text-[1.05em]">
-              {t('h1Line2Emphasis')}
+              {BRAND.mac}
               <svg
                 className="pencil-circle"
                 viewBox="0 0 400 80"

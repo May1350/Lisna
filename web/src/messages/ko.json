@@ -10,8 +10,7 @@
   },
   "hero": {
     "h1Line1": "모든 대화는",
-    "h1Line2Prefix": "",
-    "h1Line2Emphasis": "당신의 Mac",
+    "h1Line2Prefix": "당신의 ",
     "h1Line2Suffix": " 안에만 머뭅니다.",
     "sub": "강의, 회의, 일상 대화까지 실시간으로 전사하고 구조화된 요약으로. 모든 처리는 온디바이스로 이루어집니다.",
     "cta": "Mac 앱 다운로드 →",
