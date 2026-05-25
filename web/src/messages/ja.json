@@ -9,11 +9,11 @@
     "signout": "サインアウト"
   },
   "hero": {
-    "h1Line1": "講義を、",
+    "h1Line1": "すべての会話は",
     "h1Line2Prefix": "",
-    "h1Line2Emphasis": "あなたの",
-    "h1Line2Suffix": "ノートに。",
-    "sub": "リアルタイム文字起こし + 構造化されたサマリー。100% オンデバイス — 音声が Mac から出ることはありません。",
+    "h1Line2Emphasis": "あなたのMac",
+    "h1Line2Suffix": "の中だけに留まる。",
+    "sub": "講義・会議・日常の会話まで、リアルタイムで文字起こしし、構造化された要約に。すべてデバイス内で処理されます。",
     "cta": "Mac アプリをダウンロード →",
     "hint": "macOS 13+ · Apple Silicon · 158 MB"
   },

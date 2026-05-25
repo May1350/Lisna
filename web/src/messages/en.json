@@ -9,11 +9,11 @@
     "signout": "Sign out"
   },
   "hero": {
-    "h1Line1": "Your lectures,",
-    "h1Line2Prefix": "in ",
-    "h1Line2Emphasis": "your",
-    "h1Line2Suffix": " notes.",
-    "sub": "Real-time transcription + structured summaries. 100% on-device — your audio never leaves your Mac.",
+    "h1Line1": "Every conversation,",
+    "h1Line2Prefix": "stays on ",
+    "h1Line2Emphasis": "your Mac",
+    "h1Line2Suffix": ".",
+    "sub": "Real-time transcription and structured summaries for lectures, meetings, and everyday conversations — processed entirely on-device.",
     "cta": "Download for Mac →",
     "hint": "macOS 13+ · Apple Silicon · 158 MB"
   },
