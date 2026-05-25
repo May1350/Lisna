@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { AuthShell } from '@/components/layout/auth-shell';
 import { Button } from '@/components/ui/button';
 import { EmailMagicLinkForm } from '@/components/ui/email-magic-link-form';
+import { GoogleIcon, AppleIcon, GithubIcon } from '@/components/ui/provider-icons';
 import { BRAND } from '@/i18n/brand-vocabulary';
 import type { Locale } from '@/i18n/routing';
 import { signIn } from '@/lib/auth';
@@ -19,6 +20,7 @@ export default async function SignInPage({
   const sp = await searchParams;
   setRequestLocale(locale);
   const t = await getTranslations('auth');
+  const prefix = locale === 'en' ? '' : `/${locale}`;
 
   const checkEmail = sp['check-email'] === '1';
 
@@ -70,13 +72,34 @@ export default async function SignInPage({
         </div>
 
         <form className="space-y-3">
-          <Button formAction={oauth.bind(null, 'google')} variant="ghost" className="w-full justify-center">{t('continueGoogle')}</Button>
-          <Button formAction={oauth.bind(null, 'apple')} variant="ghost" className="w-full justify-center">{t('continueApple')}</Button>
-          <Button formAction={oauth.bind(null, 'github')} variant="ghost" className="w-full justify-center">{t('continueGithub')}</Button>
+          <Button
+            formAction={oauth.bind(null, 'google')}
+            variant="ghost"
+            className="w-full justify-center gap-3 font-medium bg-white border-[#dadce0] text-[#3c4043] hover:bg-[#f8f9fa]"
+          >
+            <GoogleIcon className="h-[18px] w-[18px]" />
+            {t('continueGoogle')}
+          </Button>
+          <Button
+            formAction={oauth.bind(null, 'apple')}
+            variant="ghost"
+            className="w-full justify-center gap-3 font-medium bg-black border-black text-white hover:bg-[#1a1a1a]"
+          >
+            <AppleIcon className="h-[19px] w-[19px] -mt-[2px]" />
+            {t('continueApple')}
+          </Button>
+          <Button
+            formAction={oauth.bind(null, 'github')}
+            variant="ghost"
+            className="w-full justify-center gap-3 font-medium bg-[#24292f] border-[#24292f] text-white hover:bg-[#1b1f23]"
+          >
+            <GithubIcon className="h-[19px] w-[19px]" />
+            {t('continueGithub')}
+          </Button>
         </form>
 
         <p className="mt-8 text-hint text-ink-700/60 text-center">
-          {t('tosPrefix')}<Link href="/terms" className="underline">{t('tosTerms')}</Link>{t('tosMiddle')}<Link href="/privacy" className="underline">{t('tosPrivacy')}</Link>{t('tosSuffix')}
+          {t('tosPrefix')}<Link href={`${prefix}/terms`} className="underline">{t('tosTerms')}</Link>{t('tosMiddle')}<Link href={`${prefix}/privacy`} className="underline">{t('tosPrivacy')}</Link>{t('tosSuffix')}
         </p>
         <p className="mt-3 text-hint text-ink-700/60 text-center">
           {t('needHelpPrefix')}<a href="https://discord.gg/69NkqBTbS" className="underline" target="_blank" rel="noreferrer">{BRAND.discord}</a>{t('needHelpSuffix')}
