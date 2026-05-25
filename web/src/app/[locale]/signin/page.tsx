@@ -59,7 +59,13 @@ export default async function SignInPage({
         </h1>
 
         <div className="mt-8">
-          <EmailMagicLinkForm onSubmit={sendMagicLink} hint={t('magicLinkHint')} />
+          <EmailMagicLinkForm
+            onSubmit={sendMagicLink}
+            hint={t('magicLinkHint')}
+            submitLabel={t('sendLink')}
+            submittingLabel={t('sending')}
+            sentLabel={t('linkSent')}
+          />
         </div>
 
         <div className="my-8 flex items-center gap-3">
