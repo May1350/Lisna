@@ -1,6 +1,5 @@
 'use client';
 import * as React from 'react';
-import Link from 'next/link';
 import { Dropdown, DropdownContent, DropdownItem, DropdownTrigger } from './dropdown';
 import type { Locale } from '@/i18n/routing';
 
@@ -38,9 +37,13 @@ export function LocaleSwitcher({ currentLocale, pathname }: LocaleSwitcherProps)
       <DropdownContent align="end">
         {ALL.map((loc) => (
           <DropdownItem key={loc} asChild>
-            <Link href={loc === 'en' ? basePath : `/${loc}${basePath === '/' ? '' : basePath}`}>
+            {/* Full-page navigation (plain <a>, not next/link) so the whole
+                page re-renders in the target locale in one atomic load —
+                a client transition repaints the long page section-by-section
+                and reads as "only the hero changed." */}
+            <a href={loc === 'en' ? basePath : `/${loc}${basePath === '/' ? '' : basePath}`}>
               {LABELS[loc]}
-            </Link>
+            </a>
           </DropdownItem>
         ))}
       </DropdownContent>
