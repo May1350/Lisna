@@ -174,7 +174,7 @@
   },
   "downloadPage": {
     "title": "macOS 용 Lisna",
-    "versionLine": "v0.1.0 · 158 MB · Apple Silicon",
+    "versionLine": "v0.1.1 · 107 MB · Apple Silicon",
     "shaPrefix": "SHA256: ",
     "shaToggle": "다운로드 검증 (SHA-256)",
     "downloadCta": ".dmg 다운로드 →",

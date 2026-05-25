@@ -1,5 +1,9 @@
 import { app, BrowserWindow, dialog } from 'electron';
-import { autoUpdater } from 'electron-updater';
+// electron-updater is CJS; Node's ESM loader can't pull named exports from it.
+// Default-import the module object, then destructure. Removing this pattern
+// recreates the v0.1.0 boot crash (SyntaxError on autoUpdater named import).
+import electronUpdater from 'electron-updater';
+const { autoUpdater } = electronUpdater;
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { registerIpc, handleSidecarExit, handleSidecarGiveUp, setAppQuitting } from './ipc';

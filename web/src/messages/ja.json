@@ -174,7 +174,7 @@
   },
   "downloadPage": {
     "title": "macOS 版 Lisna",
-    "versionLine": "v0.1.0 · 158 MB · Apple Silicon",
+    "versionLine": "v0.1.1 · 107 MB · Apple Silicon",
     "shaPrefix": "SHA256: ",
     "shaToggle": "ダウンロードを検証 (SHA-256)",
     "downloadCta": ".dmg をダウンロード →",

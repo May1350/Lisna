@@ -17,7 +17,7 @@ export default async function DownloadPage({ params }: { params: Promise<{ local
         <p className="mt-3 font-sans text-body text-ink-700">{t('versionLine')}</p>
         <details className="mt-2 max-w-[60ch]">
           <summary className="cursor-pointer select-none text-body-sm text-ink-700/70 hover:text-ink-700">{t('shaToggle')}</summary>
-          <p className="mt-1 text-body-sm text-ink-700/85 font-mono break-all">{t('shaPrefix')}d924684478db9437b96dab94f24a8947e4fd4a740505cdf0e915a830bac9bb01</p>
+          <p className="mt-1 text-body-sm text-ink-700/85 font-mono break-all">{t('shaPrefix')}4d05e078a4eceb8152b7e47a88a7eea374fdb06e4a485c63b0271e4d1a2ec770</p>
         </details>
         <div className="mt-8">
           <Button asChild size="lg">
