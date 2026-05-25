@@ -158,7 +158,6 @@
     "checkEmailBody": "受信箱にマジックリンクをお送りしました。10 分で期限切れになります。",
     "continueHeadingPrefix": "次へ：",
     "continueHeadingSuffix": "。",
-    "continueBody": "サインインもサインアップも同じ流れ。下記いずれの方法でも進めます。",
     "magicLinkHint": "マジックリンクをメールでお送りします。",
     "oauthDivider": "または",
     "continueGoogle": "Google で続ける",

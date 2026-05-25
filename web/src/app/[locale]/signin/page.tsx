@@ -57,9 +57,6 @@ export default async function SignInPage({
         <h1 className="font-serif text-h2-sm text-ink-900 text-center">
           {t('continueHeadingPrefix')}<em className="italic text-accent-tan">{BRAND.appName}</em>{t('continueHeadingSuffix')}
         </h1>
-        <p className="mt-3 text-body text-ink-700 text-center">
-          {t('continueBody')}
-        </p>
 
         <div className="mt-8">
           <EmailMagicLinkForm onSubmit={sendMagicLink} hint={t('magicLinkHint')} />

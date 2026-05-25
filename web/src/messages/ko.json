@@ -158,7 +158,6 @@
     "checkEmailBody": "받은편지함으로 매직 링크를 보냈습니다. 10 분 후 만료됩니다.",
     "continueHeadingPrefix": "다음 — ",
     "continueHeadingSuffix": ".",
-    "continueBody": "로그인이든 가입이든 흐름은 같습니다. 아래 어느 방법으로도 진행됩니다.",
     "magicLinkHint": "매직 링크를 메일로 보내드립니다.",
     "oauthDivider": "또는",
     "continueGoogle": "Google 로 계속",
