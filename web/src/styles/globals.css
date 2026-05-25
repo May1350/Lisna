@@ -96,6 +96,11 @@
       );
     background-position: 0 0, 0 18px;
     background-repeat: no-repeat, repeat;
+    /* Lock the ruled layer to a single 32px tile. Without an explicit
+       size the repeating gradient is computed over the full page height
+       and Chromium's rasterizer beats it into 1–5px lines at fractional
+       DPR; a fixed tile rasterizes once and repeats at integer bounds. */
+    background-size: auto, 100% 32px;
     background-attachment: scroll, scroll;
     position: relative;
   }
