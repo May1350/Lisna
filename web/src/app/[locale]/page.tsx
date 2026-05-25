@@ -16,14 +16,14 @@ import type { Locale } from '@/i18n/routing';
 export async function generateMetadata({ params }: { params: Promise<{ locale: Locale }> }): Promise<Metadata> {
   const { locale } = await params;
   const titles: Record<Locale, string> = {
-    en: 'Lisna — Your lectures, in your notes (100% on-device)',
-    ja: 'Lisna — 講義を、あなたのノートに（100% オンデバイス）',
-    ko: 'Lisna — 강의를 노트로 (100% 온디바이스)',
+    en: 'Lisna — Every conversation, on your Mac (100% on-device)',
+    ja: 'Lisna — すべての会話を、あなたのMacで（100% オンデバイス）',
+    ko: 'Lisna — 모든 대화를, 당신의 Mac에서 (100% 온디바이스)',
   };
   const descs: Record<Locale, string> = {
-    en: 'Real-time transcription + structured summaries. 100% on-device — your audio never leaves your Mac.',
-    ja: 'リアルタイム文字起こし + 構造化されたサマリー。100% オンデバイス — 音声が Mac から出ることはありません。',
-    ko: '실시간 전사 + 구조화된 요약. 100% 온디바이스 — 음성이 Mac 을 떠나지 않습니다.',
+    en: 'Real-time transcription and structured summaries for lectures, meetings, and everyday conversations — 100% on-device, so your audio never leaves your Mac.',
+    ja: '講義・会議・日常の会話をリアルタイムで文字起こしし、構造化された要約に。すべてオンデバイスで、音声が Mac から出ることはありません。',
+    ko: '강의, 회의, 일상 대화를 실시간으로 전사하고 구조화된 요약으로. 100% 온디바이스 — 음성이 Mac 을 떠나지 않습니다.',
   };
   return {
     title: titles[locale],
@@ -55,6 +55,20 @@ export default async function HomePage({ params }: { params: Promise<{ locale: L
   const tP = await getTranslations('privacyEmphasis');
   const tPr = await getTranslations('pricingSection');
   const tFaq = await getTranslations('faq');
+
+  const faqEntries = [1, 2, 3, 4, 5, 6].map((n) => ({
+    q: tFaq(`q${n}` as 'q1'),
+    a: tFaq(`a${n}` as 'a1'),
+  }));
+  const faqSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: faqEntries.map((e) => ({
+      '@type': 'Question',
+      name: e.q,
+      acceptedAnswer: { '@type': 'Answer', text: e.a },
+    })),
+  };
 
   const stockImage = (label: string, reverse = false) => (
     <Postit caption={label} variant={reverse ? 'reverse' : 'default'}>
@@ -145,13 +159,11 @@ export default async function HomePage({ params }: { params: Promise<{ locale: L
         ]}
       />
 
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }} />
       <FAQAccordion
         eyebrow={tFaq('eyebrow')}
         heading={<>{tFaq('headlineBefore')}<em className="italic text-accent-tan">{tFaq('headlineEm')}</em>{tFaq('headlineAfter')}</>}
-        entries={[1, 2, 3, 4, 5, 6].map((n) => ({
-          q: tFaq(`q${n}` as 'q1'),
-          a: tFaq(`a${n}` as 'a1'),
-        }))}
+        entries={faqEntries}
       />
 
       <CTAStrip />
