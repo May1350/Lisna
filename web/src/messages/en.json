@@ -158,7 +158,6 @@
     "checkEmailBody": "We sent a magic link to your inbox. It expires in 10 minutes.",
     "continueHeadingPrefix": "Continue to ",
     "continueHeadingSuffix": ".",
-    "continueBody": "Sign in or sign up — same flow either way. Either method below works.",
     "magicLinkHint": "We'll email you a magic link.",
     "oauthDivider": "or",
     "continueGoogle": "Continue with Google",
