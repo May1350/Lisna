@@ -131,8 +131,6 @@ export default async function HomePage({ params }: { params: Promise<{ locale: L
           { title: tP('item2Title'), body: tP('item2Body') },
           { title: tP('item3Title'), body: tP('item3Body') },
           { title: tP('item4Title'), body: tP('item4Body') },
-          { title: tP('item5Title'), body: tP('item5Body') },
-          { title: tP('item6Title'), body: tP('item6Body') },
         ]}
       />
 
