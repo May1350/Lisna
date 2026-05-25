@@ -66,6 +66,13 @@ This spec defines the architecture that replaces the default picker with an **ap
 | 8 | Demo content stays Japanese always (alpha JA-first) | §2 review consensus |
 | 9 | License acceptance at Q4 (post-demo understanding) | §2 review consensus |
 | 10 | Hardware-tier filtering is client-side, not server | §1 reviewer P1 #5 |
+| 11 | Wizard carries an on-device privacy footer across Q1-Q4 (concept yardstick anchoring) | 2026-05-25 brand audit P0.1 |
+| 12 | Rollout uses `MODEL_DOWNLOAD_ROLLOUT_PCT` env (0/10/50/100) with `users.id` hash-bucket + 1-2 user holdout cohort inside allowlist phase | 2026-05-25 brand audit P0.2 |
+| 13 | Manifest-update notification: Settings-icon badge + 7d cooldown for non-mandatory; inline banner reserved for mandatory (corruption / license refresh) | 2026-05-25 brand audit P1.2 |
+| 14 | Error UI: primary copy = "what to do next" (no error codes); expandable "Details" carries code + attempt + diagnostic | 2026-05-25 brand audit P1.3 |
+| 15 | `source_intent: 'meeting' \| 'lecture' \| 'unset'` collected as Q2 sub-chip; split PRD primary vs test-board target in telemetry | 2026-05-25 brand audit P1.4 |
+| 16 | License decline → picker-only mode (Settings → Advanced picker accessible; auto-download disabled until accepted). NOT app.quit. | 2026-05-25 brand audit P2.1 |
+| 17 | Telemetry default identity = locally-generated anonymous `device_id` (UUID). `user_id` (JWT→users.id join) is opt-in via Settings → "Share debug telemetry with account" toggle. | 2026-05-25 brand audit P2.2 |
 
 ---
 
@@ -196,16 +203,24 @@ Telemetry sink. Best-effort from client (5s timeout, no retry on send-failure �
   "event": "download.complete",
   "event_id": "uuid-v4",
   "timestamp": "2026-05-25T10:32:14Z",
+  "device_id": "<uuid-v4-local>",
   "app_version": "0.2.0",
   "os_family": "macos-26",
   "arch": "arm64",
+  "source_intent": "lecture",
   "payload": { "slot": "stt", "duration_ms": 92834, "resumed": false }
 }
 ```
 
-**Server-side**:
-- Lambda extracts JWT `sub` → joins to `users.id` UUID → inserts that as `user_id` in `model_download_events` table. **Email never in event row.**
-- Common-field bucketing at write: `os_version` → `os_family` (drop minor+build; e.g. `darwin-25.3.0-arm64` → `macos-26`); `arch` retained verbatim; `app_version` verbatim.
+**Identity model (anonymous-first, per 2026-05-25 brand audit P2.2)**:
+- **Default — anonymous `device_id`**: UUID v4 generated on first launch, persisted at `<userData>/telemetry-id.json`. Sent in every event. **NO backend join to `users.id`.** Lambda inserts `device_id` only.
+- **Opt-in `user_id` correlation**: Settings → Privacy → "Share debug telemetry with my account" toggle. When ON, request carries `Authorization: Bearer <jwt>` AND `X-Lisna-Telemetry-Identify: 1`. Lambda then ALSO extracts JWT `sub` → joins to `users.id` → stores BOTH `device_id` and `user_id` on the row. When OFF (default), only `device_id` is stored. Email never in event row regardless.
+- Toggle copy: "Helps us investigate problems against your account. Off by default — Lisna can still aggregate anonymous device data."
+
+**Source intent (P1.4)**:
+- `source_intent: 'meeting' | 'lecture' | 'unset'` — closed enum. Collected as Q2 sub-chip during wizard (see §3.1 / §4.7 wizard answer schema). Splits PRD-primary (workplace meetings) vs test-board (student lectures) signal in dashboards. `unset` is allowed (chip optional); inferred later from session metadata if needed.
+
+**Common-field bucketing at write**: `os_version` → `os_family` (drop minor+build; e.g. `darwin-25.3.0-arm64` → `macos-26`); `arch` retained verbatim; `app_version` verbatim.
 
 **Allowed event types** (closed enum):
 
@@ -221,7 +236,7 @@ Telemetry sink. Best-effort from client (5s timeout, no retry on send-failure �
 | `sha.mismatch` | `{ slot, expected_prefix: 8-char, got_prefix: 8-char }` |
 | `recording_active_block` | `{ source: 'banner_click' \| 'settings_click' }` |
 | `license.accept` | `{ license_id, manifest_version }` |
-| `license.decline` | `{ }` (zero payload; quit modal coming next) |
+| `license.decline` | `{ }` (zero payload; user routed to picker-only mode per P2.1) |
 | `picker.fallback` | `{ from_state: 'manifest_fail' \| 'sha_exhausted' \| 'user_choice' }` |
 | `update_banner.show` | `{ manifest_version }` |
 | `update_banner.dismiss` | `{ manifest_version }` |
@@ -244,25 +259,31 @@ New migration: `backend/src/migrations/NNN_model_download_events.sql` (NNN = nex
 
 ```sql
 CREATE TABLE IF NOT EXISTS model_download_events (
-  event_id    uuid PRIMARY KEY,
-  user_id     uuid NOT NULL REFERENCES users(id),
-  timestamp   timestamptz NOT NULL,
-  event_type  text NOT NULL,
-  app_version text NOT NULL,
-  os_family   text NOT NULL,
-  arch        text NOT NULL,
-  payload     jsonb NOT NULL DEFAULT '{}'::jsonb
+  event_id      uuid PRIMARY KEY,
+  device_id     uuid NOT NULL,                                  -- always present (anonymous-first)
+  user_id       uuid REFERENCES users(id),                      -- NULL unless user opted in to identify
+  timestamp     timestamptz NOT NULL,
+  event_type    text NOT NULL,
+  app_version   text NOT NULL,
+  os_family     text NOT NULL,
+  arch          text NOT NULL,
+  source_intent text NOT NULL DEFAULT 'unset',                  -- 'meeting' | 'lecture' | 'unset'
+  payload       jsonb NOT NULL DEFAULT '{}'::jsonb
 );
-CREATE INDEX idx_mde_user_time ON model_download_events (user_id, timestamp DESC);
-CREATE INDEX idx_mde_type_time ON model_download_events (event_type, timestamp DESC);
+CREATE INDEX idx_mde_device_time ON model_download_events (device_id, timestamp DESC);
+CREATE INDEX idx_mde_user_time   ON model_download_events (user_id, timestamp DESC) WHERE user_id IS NOT NULL;
+CREATE INDEX idx_mde_type_time   ON model_download_events (event_type, timestamp DESC);
+CREATE INDEX idx_mde_intent      ON model_download_events (source_intent, timestamp DESC);
 
 CREATE TABLE IF NOT EXISTS model_download_weekly_agg (
-  user_id     uuid NOT NULL REFERENCES users(id),
-  model_id    text NOT NULL,
-  week_start  date NOT NULL,
-  event_type  text NOT NULL,
-  count       int  NOT NULL DEFAULT 0,
-  PRIMARY KEY (user_id, model_id, week_start, event_type)
+  device_id     uuid NOT NULL,
+  user_id       uuid REFERENCES users(id),                      -- NULL if device never opted in
+  model_id      text NOT NULL,
+  week_start    date NOT NULL,
+  event_type    text NOT NULL,
+  source_intent text NOT NULL DEFAULT 'unset',
+  count         int  NOT NULL DEFAULT 0,
+  PRIMARY KEY (device_id, model_id, week_start, event_type, source_intent)
 );
 ```
 
@@ -342,12 +363,12 @@ Updates `desktop/src/renderer/App.tsx` view FSM. New routes under `desktop/src/r
 |---|---|
 | **v0.1.x alpha upgrade** (existing Discord-acquired models) | Boot resolver reads `installed-models.json` (or migrates from `models.json`) → paths point to real files → `recording` directly. Background manifest check (§4.1) computes SHA against installed; if match, mark as adopted (no UI). If mismatch, surface in Settings → Models as "update available". Saves ~5 GB re-download. |
 | **Network offline at first run** | Wizard Q1-Q4 still works (offline-capable). After Q4, manifest fetch fails → error screen with "매뉴얼 picker 로 진행 ↗" link to existing §5.1 picker. Once online, user can retry via Settings → "모델 업데이트 확인". |
-| **Q4 license declined** | OS confirm dialog: "License is required to use Lisna on-device features. Quit Lisna?" (`dialog.showMessageBox`, `cancelId: 0, defaultId: 0` so accidental Enter doesn't quit). Cancel → back to Q4. OK → `app.quit()`. No partial-acceptance state. |
+| **Q4 license declined** (P2.1) | NOT `app.quit()`. App enters **picker-only mode**: auto-download disabled; `installed-models.json` consulted as today; Settings → Advanced picker available for manual model placement. Wizard exits to a "License declined — limited mode" landing card with [Re-read license] [Settings → Advanced] buttons. Less hostile than binary quit (Cursor / Ollama Desktop pattern). License acceptance state persists at `<userData>/settings.json: licenseAccepted = {}` so future Q4 re-prompt happens on next launch. |
 | **Cancel mid-download** | `models/download/cancel` IPC → AbortController fires → state → `cancelled`. `.partial` files left on disk. Swept on next boot if `mtime > 24h`. |
 | **Disk full pre-check** | Before `start`, compute `requiredBytes = sum(manifest.models[].size_bytes) * 1.1 + 1_073_741_824`. `fs.statfs` checks `bavail * bsize`. Below threshold → `error: DISK_INSUFFICIENT` with `{ needed, available }`. UI: "디스크 공간 부족 (필요 N GB, 가용 M GB) — 공간 확보 후 재시도". |
 | **SHA mismatch** | `unlink(.partial)` → retry once (full re-download from byte 0) → still mismatch = `error: SHA_MISMATCH`. UI: "다운로드 손상 — 재시도 1회 실패" + picker fallback offered. |
 | **JWT expired mid-download** | 401 on chunk → `error: JWT_EXPIRED`. UI: "재로그인이 필요해요" + re-auth via `lisna://`. User must call `models/download/restart` (no auto-resume). Re-auth failure within 60s → degrades to `MANIFEST_FETCH_FAIL` with backoff (prevents infinite re-auth loop). |
-| **Newer manifest version available** | After boot lazy manifest fetch, if `new.manifest_version > local.manifest_version`, render inline `ManifestUpdateBanner` at top of `recording` view. Dismissible per-version via `<userData>/dismissed-manifest-versions.json` (capped 50 entries, prune entries `< current - 10` on every read). |
+| **Newer manifest version available** (P1.2) | **Non-mandatory updates**: Settings icon gets a subtle badge dot. NO inline banner over the recording view. 7-day cooldown after dismissal — re-appears only if user has not opened Settings → Models within 7d AND a new `manifest_version` shows up. Cursor / VS Code / Linear pattern. **Mandatory updates** (sha mismatch detected on installed file OR `license_id` changed for an installed model): inline banner persists across launches until acknowledged in Settings → Models. Dismissed-versions list (`<userData>/dismissed-manifest-versions.json`) still tracks non-mandatory per-version dismissal with cap 50 and prune < `currentVersion - 10`. |
 | **Sign-out from any state** | Unmounts `AuthenticatedApp` → `SignInView`. Active downloads cancel via AbortController + preserve `.partial`. Wizard draft persists in `<userData>/wizard-draft.json` (slot-keyed). Re-sign-in resumes at `wizard-q?` of last completed +1, NOT Q1. Drafts > 30 days auto-purged on boot. (Sign-out implementation deferred per `App.tsx:51` comment, but contract is locked here.) |
 | **Multi-window** | Single BrowserWindow invariant. Wizard + download FSM state lives in main-process (`model-downloader.ts` + `wizard-state.ts`), not renderer. `app.on('activate')` macOS-reopen returns the existing window; never creates a second one during `setup-download`. (No new-window UI today; forward-looking invariant.) |
 
@@ -573,6 +594,7 @@ type WizardDraft = {
   answers: {
     uiLang?: 'ja' | 'en' | 'ko' | 'auto';
     recLang?: 'ja' | 'en' | 'ko' | 'multi';
+    sourceIntent?: 'meeting' | 'lecture' | 'unset';   // P1.4 — sub-chip on Q2
     storage?: 'lisna' | 'obsidian' | 'folder';
     licenseAccepted?: { [license_id: string]: { acceptedAt: string; manifestVersion: number } };
   };
@@ -598,22 +620,24 @@ function loadWizardDraft(): WizardDraft | null {
 
 ### 4.8 Error → UI mapping
 
-i18n keys in `desktop/src/renderer/i18n/messages-{en,ja,ko}.json` (separate catalog from web). Example for KO:
+i18n keys in `desktop/src/renderer/i18n/messages-{en,ja,ko}.json` (separate catalog from web).
 
-| Code | Message (KO) | Action |
-|---|---|---|
-| `NETWORK_OFFLINE` | "오프라인입니다" | "매뉴얼 picker 로 ↗" link + retry ↻ |
-| `MANIFEST_FETCH_FAIL` | "모델 목록을 가져올 수 없어요" | 30s auto-retry + manual retry button |
-| `JWT_EXPIRED` | "재로그인이 필요해요" | Trigger `lisna://` re-auth flow |
-| `APP_VERSION_UNSUPPORTED` | "Lisna 업데이트가 필요해요. v{min}+ 로 업데이트하세요" | Modal blocking; link to `lisna.jp/download` |
-| `DISK_INSUFFICIENT` | "디스크 공간 부족 (필요 N GB, 가용 M GB)" | Block until space freed + retry |
-| `SHA_MISMATCH` | "다운로드 손상 — 재시도 1회 실패" | Picker fallback offered |
-| `CHECKSUM_RETRY_EXHAUSTED` | "체크섬 검증 실패 — 매뉴얼 picker 권장" | Picker fallback offered |
-| `FS_WRITE_FAIL` | "디스크 쓰기 실패 — 권한 확인" | OS permission deeplink |
-| `R2_5XX` | "서버 일시 오류 — 재시도 중 ({attempt}/4)…" | Background backoff `[1s, 2s, 4s]`, UI shows attempt count |
-| `RECORDING_ACTIVE` | "녹음 종료 후 가능해요" | Inline message in Settings → Models |
+**UI pattern (P1.3 — Stripe/Sentry style)**: primary copy = "what to do next" only. Error codes + attempt counters + technical diagnostics live in an expandable `<details>` block beneath the primary message. Reduces trust-eroding noise; preserves debug detail for support.
 
-All copy lives in `messages-{en,ja,ko}.json`; never hardcoded. Pre-commit `check-i18n.mjs` (adapted from web's) enforces key parity.
+| Code | Primary copy (KO; "what to do next") | Expandable "Details" content | Recovery action |
+|---|---|---|---|
+| `NETWORK_OFFLINE` | "오프라인 상태예요. 연결을 확인하고 다시 시도해주세요." | `NETWORK_OFFLINE · 매니페스트 호출 시점` | [재시도 ↻] · [매뉴얼 picker 사용 ↗] |
+| `MANIFEST_FETCH_FAIL` | "잠시 후 다시 시도할게요." (자동 retry) | `MANIFEST_FETCH_FAIL · attempt {N}/4 · backoff {ms}` | (auto) + 수동 retry |
+| `JWT_EXPIRED` | "로그인이 만료됐어요. 다시 로그인해주세요." | `JWT_EXPIRED · auth/exchange.ts` | [다시 로그인하기 →] (lisna://) |
+| `APP_VERSION_UNSUPPORTED` | "Lisna 업데이트가 필요해요." | `APP_VERSION_UNSUPPORTED · current {X} · minimum {min}` | [업데이트 받기 →] (lisna.jp/download) |
+| `DISK_INSUFFICIENT` | "디스크 공간이 부족해요. {needed} 필요한데 {available} 만 남았어요." | `DISK_INSUFFICIENT · bavail {bytes} · required {bytes}` | [Finder 에서 공간 확보 ↗] · [재시도 ↻] |
+| `SHA_MISMATCH` | "파일을 받는 중에 문제가 있었어요. 한 번 다시 시도했지만 안 됐어요." | `SHA_MISMATCH · expected {prefix} · got {prefix} · retried 1×` | [매뉴얼 picker 로 ↗] · [재시도 ↻] |
+| `CHECKSUM_RETRY_EXHAUSTED` | "재시도해도 파일 검증이 안 됐어요." | `CHECKSUM_RETRY_EXHAUSTED · model={slot}` | [매뉴얼 picker 로 ↗] |
+| `FS_WRITE_FAIL` | "디스크에 쓸 수 없어요. 권한을 확인해주세요." | `FS_WRITE_FAIL · errno={code}` | [시스템 설정 → 권한 ↗] |
+| `R2_5XX` | "서버에 일시적 문제가 있어요. 잠시 후 다시 시도할게요." | `R2_5XX · attempt {N}/4 · backoff {ms}` | (auto) |
+| `RECORDING_ACTIVE` | "녹음을 끝낸 뒤에 다시 시도해주세요." | `RECORDING_ACTIVE · blocked at IPC` | Inline in Settings → Models |
+
+All copy lives in `messages-{en,ja,ko}.json`; never hardcoded. Pre-commit `check-i18n.mjs` (adapted from web's) enforces key parity. Error codes never appear in primary copy; always behind a `<details>` toggle ("자세히 보기 ▾").
 
 ### 4.9 Renderer component tree
 
@@ -622,25 +646,39 @@ App.tsx (existing, FSM updated)
 └── AuthenticatedApp (existing)
     ├── (existing) Recording / Finalizing / NoteView / Error
     └── (NEW) SetupDownloadView
+        ├── PrivacyFooter (NEW, P0.1) — fixed-position eyebrow visible across Q1-Q4
+        │      copy (i18n): "🔒 録音は全てこの端末で処理されます — クラウドには何も送られません"
+        │                   "🔒 Recordings stay on this device — never sent to the cloud"
+        │                   "🔒 녹음은 모두 이 기기에서 처리됩니다 — 클라우드로 전송되지 않습니다"
+        │      stays in DOM during DemoRecordingUI + download phase (also as banner second-line)
         ├── WizardStep (1 of 4)
         │   ├── LanguagePicker (Q1, self-localized — no Korean prose; cards in native script + flag)
-        │   ├── RecordingLangPicker (Q2)
+        │   ├── RecordingLangPicker (Q2) — primary cards JA/EN/KO/multi; sub-chip row below
+        │   │   "주로 어떤 자리에서 녹음하시나요?" → [회의 / 강의 / 자유로움] (P1.4 source_intent)
         │   ├── StoragePicker (Q3) — default Lisna; Obsidian option has inline ObsidianExplainer + "Obsidian 이 뭔가요?" expand
-        │   └── LicenseGate (Q4) — checkbox + Decline triggers OS confirm dialog
+        │   └── LicenseGate (Q4) — checkbox + Decline routes to picker-only mode (P2.1, NOT app.quit)
         ├── DemoRecordingUI (post-Q4 mount, JA pre-canned content)
         └── DownloadProgressBanner (sticky top)
+            ├── second-line tagline (i18n, P0.1): "📱 全てこの端末で / On-device only / 모두 이 기기에서"
             └── "데모 끝내고 시작 →" CTA (when state=complete)
 
 Recording (existing, real mode)
-└── ManifestUpdateBanner (NEW; shown when newer manifest_version not dismissed)
+└── ManifestUpdateBanner (NEW, MANDATORY-only per P1.2) — inline at top
+    ONLY when: corruption sha-mismatch detected OR installed model's license_id changed
+    (non-mandatory updates surface as Settings-icon badge instead, see SettingsBadge below)
+
+(global)
+└── SettingsBadge (NEW, P1.2) — small dot on Settings icon when new non-mandatory manifest_version detected
+    cooldown 7d after user dismisses or visits Settings → Models
 
 NoteView (existing, real mode)
 └── VaultPathCallout (NEW; one-shot on FIRST note when settings.vault.vaultPath===null && provider==='obsidian')
 
 Settings (NEW or extend existing)
 ├── General (existing)
-├── Models (NEW) — shows installed vs available, per-slot update buttons
-└── Advanced (NEW) — relocated §5.1 picker
+├── Privacy (NEW) — "Share debug telemetry with my account" toggle (P2.2 opt-in user_id)
+├── Models (NEW) — shows installed vs available, per-slot update buttons; "Check for updates" button
+└── Advanced (NEW) — relocated §5.1 picker; also reachable from picker-only mode (post-Q4-decline)
 ```
 
 ---
@@ -688,8 +726,21 @@ const triggers = {
 // compare of installed-models.json against cached manifest. Cheap.
 const driftedNow = inMemoryCompareInstalledVsManifestSha(installed, cachedManifest);
 
-if (triggers.versionBump || triggers.slotMismatch.length > 0 || driftedNow.length > 0) {
-  showUpdateBanner({ versions: triggers, drifted: driftedNow });
+// P1.2 — Mandatory vs non-mandatory split:
+//   mandatory = corruption / sha drift on installed file / license_id changed for installed model
+//   non-mandatory = version bump without functional regression
+const mandatory = driftedNow.length > 0 || triggers.licenseChanged;
+const nonMandatory = !mandatory && (triggers.versionBump || triggers.slotMismatch.length > 0);
+
+if (mandatory) {
+  // Inline banner in Recording view; persists until user acknowledges in Settings → Models.
+  setMandatoryUpdateBanner({ reason: driftedNow.length ? 'drift' : 'license', slots: driftedNow });
+} else if (nonMandatory) {
+  // Settings-icon badge with 7-day cooldown.
+  const lastDismissAt = readLastDismissAt(newManifest.manifest_version);
+  if (Date.now() - lastDismissAt > 7 * 86400 * 1000) {
+    setSettingsBadge({ manifestVersion: newManifest.manifest_version });
+  }
 }
 if (triggers.licenseChanged) markLicenseReprompt();
 ```
@@ -707,10 +758,20 @@ if (triggers.licenseChanged) markLicenseReprompt();
 ```
 
 Per-slot "업데이트":
-1. License change → modal preempts download (user must re-accept).
+1. License change check (see table below) → if re-prompt required, modal preempts download.
 2. `models/download/restart` with `{ slot: 'llm' }` — single-slot variant of §4.3.
 3. After `complete` → `models/sidecar/reload` automatically fires. Sidecar reload, not app restart.
 4. If `recordingActive === true` → rejects with `RECORDING_ACTIVE` error at IPC boundary. UI inline message: "녹음 종료 후 가능해요".
+
+**License re-prompt matrix (P1.1)** — when does Q4 fire again?
+
+| Manifest delta | `id` | `sha256` | `license_id` | Re-prompt? | Rationale |
+|---|---|---|---|---|---|
+| Patch release | same | NEW | same | NO | Same license_id; user already accepted. Spec keys acceptance on `license_id`, not `id+version`. |
+| Version bump, same family | same family | NEW | same | NO | E.g. Llama 3.2 → 3.2.1: `license_id` stays `llama-3.2-community`. No re-prompt. |
+| Cross-family or new model | NEW | NEW | NEW or DIFFERENT | YES | User has not accepted this `license_id`; Q4-style modal preempts download. |
+| Same id, license_id changed | same | same | NEW | YES | Rare but possible if upstream relicenses. User must re-accept. |
+| License text edit (same id+sha) | same | same | same; `license_text_sha256` differs | YES — soft prompt | Subtle change to legal text. Show "License updated — please review" non-blocking banner with [Re-read] [Acknowledge]. Acknowledgement writes new `license_text_sha256` to `settings.json:licenseAccepted[license_id]`. |
 
 ### 5.4 Same-id SHA overwrite (model patch)
 
@@ -758,17 +819,50 @@ Backend keeps v(N) and v(N+1) handler code until v(N) clients sunset. Sunset rul
 
 ## 6 — §5 Rollout · telemetry · phasing
 
-### 6.1 Feature flag
+### 6.1 Feature flag — percentage ramp with allowlist + holdout (P0.2)
 
-`MODEL_DOWNLOAD_ENABLED: 'off' | 'allowlist' | 'all'` env var on Lambda.
+Two env vars on Lambda:
 
-- `off` (initial ship): `/v1/models/manifest` returns 503 with `MODEL_DOWNLOAD_NOT_YET_ENABLED`. Desktop falls back to picker silently. No user-visible change.
-- `allowlist` (alpha rollout): Lambda checks JWT email against `AppSecret.ALLOWLIST_EMAILS` (comma-joined value).
-- `all`: every signed-in user receives manifest.
+- **`MODEL_DOWNLOAD_ENABLED: 'off' | 'allowlist' | 'all'`** — top-level gate (preserved from prior spec)
+- **`MODEL_DOWNLOAD_ROLLOUT_PCT: 0..100`** — percentage gate inside `'all'`
 
-**Allowlist audit trail**: source = `infra/allowlist-emails.json` checked into repo. CDK reads at deploy → syncs to Secrets Manager. `git log -p infra/allowlist-emails.json` is the audit trail. **No raw Secrets Manager console edits.** Operational scale ceiling: ~500 entries; beyond that, migrate to DB-backed allowlist (F2 follow-up).
+**Stage semantics:**
 
-**App-version EOL**: `MIN_SUPPORTED_APP_VERSION` env (semver). Backend returns 410 `APP_VERSION_UNSUPPORTED` if client UA < min. Desktop shows blocking modal linking to download. v0.1.x EOL triggered manually when Phase E is `all`.
+| Stage | `MODEL_DOWNLOAD_ENABLED` | `MODEL_DOWNLOAD_ROLLOUT_PCT` | Behavior |
+|---|---|---|---|
+| Initial ship | `off` | (ignored) | `/v1/models/manifest` → 503 `MODEL_DOWNLOAD_NOT_YET_ENABLED`. Picker fallback silent. No user-visible change. |
+| Alpha rollout | `allowlist` | (ignored) | JWT email checked against `AppSecret.ALLOWLIST_EMAILS`. Inside allowlist: **1-2 user holdout cohort** marked in `infra/allowlist-emails.json` with `holdout: true` field — those users see 503 deliberately for control-vs-treatment comparison. |
+| Gradual rollout | `all` | `10`, then `50`, then `100` | All allowlist users get manifest. Beyond allowlist, Lambda hash-buckets `users.id` UUID modulo 100. If `bucket < ROLLOUT_PCT` → manifest; else 503. Bucket is stable per-user — no cohort churn across deploys. |
+
+**Hash-bucket implementation**:
+```ts
+function inRolloutBucket(userId: string, pct: number): boolean {
+  if (pct <= 0) return false;
+  if (pct >= 100) return true;
+  // Stable bucket: SHA-1 first 4 bytes → uint32 → modulo 100
+  const h = createHash('sha1').update(userId).digest();
+  const bucket = h.readUInt32BE(0) % 100;
+  return bucket < pct;
+}
+```
+
+**Auto-rollback signal**: Phase D dashboard alarms on `manifest.fetch.fail / (success+fail) > 1%` over rolling 24h trigger PagerDuty / human review; manual roll-back is operator-driven (no auto-flip-down). Future iteration could add automated rollback once metric baselines are established.
+
+**Allowlist file format** (`infra/allowlist-emails.json`):
+```json
+{
+  "version": 1,
+  "users": [
+    { "email": "takgun.jr@gmail.com", "added_at": "2026-05-25", "holdout": false },
+    { "email": "alpha-tester-1@example.com", "added_at": "2026-05-26", "holdout": false },
+    { "email": "alpha-tester-2@example.com", "added_at": "2026-05-26", "holdout": true }
+  ]
+}
+```
+
+CDK syncs the email list (filtered to non-holdout when `MODEL_DOWNLOAD_ENABLED=allowlist`) to Secrets Manager. `git log -p infra/allowlist-emails.json` = audit trail. **No raw Secrets Manager console edits.** Operational scale ceiling: ~500 entries; beyond that, migrate to DB-backed allowlist (F2 follow-up).
+
+**App-version EOL**: `MIN_SUPPORTED_APP_VERSION` env (semver). Backend returns 410 `APP_VERSION_UNSUPPORTED` if client UA < min. Desktop shows blocking modal linking to download. v0.1.x EOL triggered manually when Phase E is `all` + `ROLLOUT_PCT >= 100`.
 
 Picker **always available** regardless of flag — no flag controls it.
 
@@ -776,11 +870,13 @@ Picker **always available** regardless of flag — no flag controls it.
 
 See §2.2.2 for the event list and common fields. Recap of key points:
 
-- `user_id` = `users.id` UUID via JWT→DB lookup at write time (Lambda). Email never in event row.
+- **Default identity = anonymous `device_id`** (UUID v4 generated locally; P2.2 brand audit). `user_id` correlation is OPT-IN via Settings → Privacy toggle.
+- `device_id` always present in event rows; `user_id` NULL by default (only populated when user has explicitly opted in).
+- `source_intent` (P1.4) included in every event — `'meeting' | 'lecture' | 'unset'` from wizard Q2 sub-chip; splits PRD primary (workplace) vs test-board (lecture) target signal.
 - `os_family` bucketed at write (drops minor+build).
 - 8-char SHA prefix only (never full hash).
-- 90d raw retention; weekly rollup.
-- No transcripts, no paths.
+- 90d raw retention; weekly rollup keyed on `(device_id, model_id, week_start, event_type, source_intent)`.
+- No transcripts, no paths, no email.
 
 ### 6.3 Open questions / residual risks
 
