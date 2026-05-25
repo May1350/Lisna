@@ -35,7 +35,7 @@ export default async function ComparePage({ params }: { params: Promise<{ locale
             <thead className="bg-cream-50 border-b border-ink-900/10">
               <tr>
                 <th className="text-left py-3 px-4 font-serif">{t('thFeature')}</th>
-                <th className="py-3 px-4 font-serif">{BRAND.appName}</th>
+                <th className="py-3 px-4 font-serif text-ink-900 bg-postit-main/60">{BRAND.appName}</th>
                 <th className="py-3 px-4 font-serif text-ink-700">{BRAND.otter}</th>
                 <th className="py-3 px-4 font-serif text-ink-700">{BRAND.fireflies}</th>
                 <th className="py-3 px-4 font-serif text-ink-700">{BRAND.notionAi}</th>
@@ -46,7 +46,7 @@ export default async function ComparePage({ params }: { params: Promise<{ locale
                 <tr key={i} className="border-b border-ink-900/5 last:border-b-0">
                   <td className="py-3 px-4">{row.feature}</td>
                   {row.cells.map((cell, j) => (
-                    <td key={j} className="py-3 px-4 text-center">
+                    <td key={j} className={`py-3 px-4 text-center${j === 0 ? ' bg-postit-main/25' : ''}`}>
                       {cell === '✓' ? (
                         <span className="text-accent-sage" aria-label={t('ariaYes')}>
                           <span aria-hidden="true">✓</span>
