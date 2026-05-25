@@ -23,7 +23,7 @@ export async function NavBar({ locale, pathname, authState }: NavBarProps) {
   return (
     <nav className="fixed top-0 inset-x-0 z-40 bg-burgundy text-cream-100">
       <div className="mx-auto max-w-7xl flex items-center justify-between px-6 lg:px-12 h-14">
-        <Link href={prefix || '/'} className="font-serif text-[18px] text-cream-100 hover:text-white transition-colors">Lisna</Link>
+        <Link href={prefix || '/'} className="font-serif text-[26px] leading-none text-cream-100 hover:text-white transition-colors">Lisna</Link>
 
         {/* Desktop nav */}
         <div className="hidden md:flex items-center gap-6 text-body">
