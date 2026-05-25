@@ -91,8 +91,8 @@
       ),
       repeating-linear-gradient(
         180deg,
-        transparent 0 31px,
-        rgba(120, 80, 50, 0.22) 31px 32px
+        transparent 0 30px,
+        rgba(120, 80, 50, 0.15) 30px 32px
       );
     background-position: 0 0, 0 18px;
     background-repeat: no-repeat, repeat;
