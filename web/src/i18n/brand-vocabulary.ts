@@ -61,9 +61,10 @@ export const BRAND = {
   fireflies: 'Fireflies',
   notionAi: 'Notion AI',
 
-  /** Community */
+  /** Community + auth providers */
   discord: 'Discord',
   github: 'GitHub',
+  google: 'Google',
   bluesky: 'Bluesky',
 
   /** Currency symbols (numeric values stay locale-stable too) */

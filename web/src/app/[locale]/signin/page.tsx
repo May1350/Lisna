@@ -2,9 +2,7 @@
 import { getTranslations, setRequestLocale } from 'next-intl/server';
 import Link from 'next/link';
 import { AuthShell } from '@/components/layout/auth-shell';
-import { Button } from '@/components/ui/button';
-import { EmailMagicLinkForm } from '@/components/ui/email-magic-link-form';
-import { GoogleIcon, AppleIcon, GithubIcon } from '@/components/ui/provider-icons';
+import { SignInPanel } from '@/components/ui/sign-in-panel';
 import { BRAND } from '@/i18n/brand-vocabulary';
 import type { Locale } from '@/i18n/routing';
 import { signIn } from '@/lib/auth';
@@ -59,47 +57,13 @@ export default async function SignInPage({
         </h1>
 
         <div className="mt-8">
-          <EmailMagicLinkForm
-            onSubmit={sendMagicLink}
-            hint={t('magicLinkHint')}
-            submitLabel={t('sendLink')}
-            submittingLabel={t('sending')}
-            sentLabel={t('linkSent')}
+          <SignInPanel
+            sendMagicLink={sendMagicLink}
+            googleAction={oauth.bind(null, 'google')}
+            appleAction={oauth.bind(null, 'apple')}
+            githubAction={oauth.bind(null, 'github')}
           />
         </div>
-
-        <div className="my-8 flex items-center gap-3">
-          <span className="flex-1 h-px bg-ink-900/10" />
-          <span className="text-meta uppercase text-accent-tan">{t('oauthDivider')}</span>
-          <span className="flex-1 h-px bg-ink-900/10" />
-        </div>
-
-        <form className="space-y-3">
-          <Button
-            formAction={oauth.bind(null, 'google')}
-            variant="ghost"
-            className="w-full justify-center gap-3 font-medium bg-white border-[#dadce0] text-[#3c4043] hover:bg-[#f8f9fa]"
-          >
-            <GoogleIcon className="h-[18px] w-[18px]" />
-            {t('continueGoogle')}
-          </Button>
-          <Button
-            formAction={oauth.bind(null, 'apple')}
-            variant="ghost"
-            className="w-full justify-center gap-3 font-medium bg-black border-black text-white hover:bg-[#1a1a1a]"
-          >
-            <AppleIcon className="h-[19px] w-[19px] -mt-[2px]" />
-            {t('continueApple')}
-          </Button>
-          <Button
-            formAction={oauth.bind(null, 'github')}
-            variant="ghost"
-            className="w-full justify-center gap-3 font-medium bg-[#24292f] border-[#24292f] text-white hover:bg-[#1b1f23]"
-          >
-            <GithubIcon className="h-[19px] w-[19px]" />
-            {t('continueGithub')}
-          </Button>
-        </form>
 
         <p className="mt-8 text-hint text-ink-700/60 text-center">
           {t('tosPrefix')}<Link href={`${prefix}/terms`} className="underline">{t('tosTerms')}</Link>{t('tosMiddle')}<Link href={`${prefix}/privacy`} className="underline">{t('tosPrivacy')}</Link>{t('tosSuffix')}
