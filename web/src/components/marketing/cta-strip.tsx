@@ -21,6 +21,14 @@ export function CTAStrip() {
             <Link href="/dl/dmg/latest" className="plausible-event-name=download_click">{tHero('cta')}</Link>
           </Button>
         </div>
+        <ul className="mt-6 flex flex-wrap justify-center gap-x-6 gap-y-2 text-body-sm text-ink-700">
+          {[t('bullet1'), t('bullet2')].map((b) => (
+            <li key={b} className="flex items-center gap-1.5">
+              <span className="text-accent-sage" aria-hidden="true">✓</span>
+              {b}
+            </li>
+          ))}
+        </ul>
         <p className="mt-3 text-hint text-ink-700/60">{t('hint')}</p>
       </div>
     </section>

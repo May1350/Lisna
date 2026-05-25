@@ -149,6 +149,8 @@
     "headlineEm": "focus",
     "headlineAfter": "?",
     "sub": "Free during alpha. Sign in inside the app on first launch.",
+    "bullet1": "100% on-device — works offline",
+    "bullet2": "Your notes are always yours to keep",
     "hint": "macOS 13+ · Apple Silicon · 158 MB"
   },
   "auth": {
