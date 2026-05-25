@@ -14,7 +14,7 @@
     "h1Line2Suffix": " 안에만 머뭅니다.",
     "sub": "강의, 회의, 일상 대화까지 실시간으로 전사하고 구조화된 요약으로. 모든 처리는 온디바이스로 이루어집니다.",
     "cta": "Mac 앱 다운로드 →",
-    "hint": "macOS 13+ · Apple Silicon · 158 MB"
+    "hint": "macOS 13+ · Apple Silicon · 107 MB"
   },
   "trust": {
     "label": "얼리 어답터",
@@ -151,7 +151,7 @@
     "sub": "알파 기간 동안 무료. 첫 실행 시 앱 안에서 로그인하세요.",
     "bullet1": "100% 온디바이스 — 오프라인 동작",
     "bullet2": "노트는 언제나 당신의 것",
-    "hint": "macOS 13+ · Apple Silicon · 158 MB"
+    "hint": "macOS 13+ · Apple Silicon · 107 MB"
   },
   "auth": {
     "checkEmailHeading": "메일함을 확인해주세요.",

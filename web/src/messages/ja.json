@@ -14,7 +14,7 @@
     "h1Line2Suffix": "の中だけに留まる。",
     "sub": "講義・会議・日常の会話まで、リアルタイムで文字起こしし、構造化された要約に。すべてデバイス内で処理されます。",
     "cta": "Mac アプリをダウンロード →",
-    "hint": "macOS 13+ · Apple Silicon · 158 MB"
+    "hint": "macOS 13+ · Apple Silicon · 107 MB"
   },
   "trust": {
     "label": "アルファ版を試している大学",
@@ -151,7 +151,7 @@
     "sub": "アルファ期間中は無料。初回起動時にアプリ内でサインインします。",
     "bullet1": "100% オンデバイス — オフラインで動作",
     "bullet2": "ノートはいつでもあなたのもの",
-    "hint": "macOS 13+ · Apple Silicon · 158 MB"
+    "hint": "macOS 13+ · Apple Silicon · 107 MB"
   },
   "auth": {
     "checkEmailHeading": "メールをご確認ください。",
