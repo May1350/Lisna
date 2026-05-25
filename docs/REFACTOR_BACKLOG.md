@@ -32,6 +32,7 @@ _(Ready but waiting for capacity. Promote to Now when slot opens.)_
 
 - [P2] **Promote `Outline` type to `shared/`** — currently duplicated in `backend/src/lib/curator.ts` and `extension/src/side-panel/api-client.ts`. Drift caused at least one 404. Touches: `shared/`, both call sites. Effort: M.
 - [P3] **Eval baseline coverage** — add fixture transcripts for the underserved cases (60+ min lectures, JA/EN mixed, low-SNR). Touches: `backend/tests/fixtures/transcripts/`, baselines via `scripts/eval-curator.ts`. Effort: M.
+- [P3] **Passkey sign-in (WebAuthn)** — add passkeys as a returning-user method on the signin page (2026 passwordless standard; complements the existing magic-link + OAuth). Needs an Auth.js WebAuthn provider + a credential-storage table + the "last used" hint already shipped on the signin page. Touches: `web/src/lib/auth.ts`, `web/src/components/ui/sign-in-panel.tsx`, a `webauthn_credentials` migration. Effort: L.
 
 ## Parking lot
 
