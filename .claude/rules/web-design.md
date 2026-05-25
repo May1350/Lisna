@@ -132,6 +132,9 @@ not resolve from CSS.
   (`.pad-paper`) + burgundy binding nav as the marketing site — not the
   old `notebook-bg`/blurred-cream nav. Keep the two bindings in sync
   (burgundy, `cream-100` wordmark `text-[26px]`).
+- **`DashboardShell`** (web account home) is also a brand/low-density
+  surface: `.pad-paper` + the marketing `NavBar` (burgundy) + `Footer`,
+  content in `pad-x`. NOT `notebook-bg`.
 - **`<LocaleSwitcher>`** uses `text-inherit` so it inherits whatever the
   parent sets (both NavBar and AuthShell are now burgundy → `cream-100`).
   Hover dims via opacity. Don't hardcode a text color again.
@@ -148,3 +151,4 @@ not resolve from CSS.
 - [2026-05-25] (pad-paper) `.pad-paper` ruled layer MUST carry an explicit `background-size: ..., 100% 32px`. Without it the repeating gradient renders over the full page height and Chromium beats it into 1–5px lines with uneven gaps at fractional DPR (measured 1.5×/2×). A fixed 32px tile rasterizes one cell and repeats on integer bounds. Reason: uniform line weight across DPRs. last-cited: 2026-05-25
 - [2026-05-25] (auth-surface) Auth pages use `.pad-paper` + burgundy binding (same as marketing), NOT `notebook-bg`/`ruled-paper`/`red-margin`. The `ruled-paper` utility still exists for cards but is NOT the page surface. Reason: one legal-pad surface, consistent across marketing + auth. last-cited: 2026-05-25
 - [2026-05-25] (oauth-buttons) Social sign-in buttons use each provider's conventional treatment — Google (white + 4-color G), Apple (black + apple mark), GitHub (`#24292f` + octocat) — via `Button variant="ghost"` + per-provider `className` override (twMerge wins) + icon from `provider-icons.tsx`. Keep `size` default (don't shrink). Reason: recognizable trust cues; deviating from convention hurts conversion. last-cited: 2026-05-25
+- [2026-05-25] (scope-boundary) The FULL legal-pad treatment (`.pad-paper` ruled surface + `.postit` + `.pencil-*` + `.marginalia-hand`) applies to **brand / low-density** surfaces only: marketing pages, signin/auth, and the web dashboard. **Dense WORK surfaces** (the Mac app's capture/notes UI; any future editor) stay function-first — they share ONLY the tokens (ink/cream/burgundy/accent colors, Fraunces/Inter type, the wordmark, sparing red accents), NOT the decoration. Reason: skeuomorphic paper/post-it/pencil aids brand + trust on marketing, but becomes visual noise and reading fatigue in a tool used for hours. Intentional differentiation ≠ accidental inconsistency — unity lives in the tokens, not the decoration. last-cited: 2026-05-25
