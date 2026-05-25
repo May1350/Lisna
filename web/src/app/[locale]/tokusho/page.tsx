@@ -39,7 +39,7 @@ export default async function Tokusho({ params }: { params: Promise<{ locale: Lo
   setRequestLocale(locale);
   return (
     <MarketingShell locale={locale}>
-      <article lang="ja" className="mx-auto max-w-3xl px-6 py-16 prose prose-stone font-sans text-body text-ink-700 leading-[1.7]">
+      <article lang="ja" className="mx-auto max-w-3xl pad-x py-16 prose prose-stone font-sans text-body text-ink-700 leading-[1.7]">
         <h1 className="font-serif text-h1 text-ink-900">特定商取引法に基づく表記</h1>
         <p className="text-body-sm text-ink-700/70 mt-2">最終更新日: 2026年5月8日</p>
 

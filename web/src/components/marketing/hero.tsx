@@ -3,18 +3,19 @@ import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Postit } from '@/components/ui/postit';
+import { BRAND } from '@/i18n/brand-vocabulary';
 
 export function Hero() {
   const t = useTranslations('hero');
   return (
-    <section className="relative mx-auto max-w-7xl px-6 lg:px-24 py-24 lg:py-32">
+    <section className="relative mx-auto max-w-7xl pad-x py-24 lg:py-32">
       <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-12 lg:gap-20 items-center">
         <div>
           <h1 className="font-serif text-display-1 text-ink-900 leading-[1.05]">
             {t('h1Line1')}<br />
             {t('h1Line2Prefix')}
             <em className="relative inline-block font-serif italic text-accent-tan text-[1.05em]">
-              {t('h1Line2Emphasis')}
+              {BRAND.mac}
               <svg
                 className="pencil-circle"
                 viewBox="0 0 400 80"

@@ -8,6 +8,8 @@
     "start": "next start",
     "test": "vitest run",
     "test:watch": "vitest",
+    "check:i18n": "node scripts/check-i18n.mjs",
+    "check:i18n:strict": "node scripts/check-i18n.mjs --strict",
     "drizzle:generate": "drizzle-kit generate",
     "drizzle:push": "drizzle-kit push",
     "drizzle:studio": "drizzle-kit studio"

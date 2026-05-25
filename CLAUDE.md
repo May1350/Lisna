@@ -65,6 +65,7 @@ Detailed module map: `.claude/rules/architecture.md`.
 15. **Content-script re-injection guard**: `__SH_CONTENT_BOOTED__` window sentinel. New content-script listeners MUST be inside the guarded block, otherwise SPA navigations stack them.
 16. **Function URL CORS is separate from API GW CORS.** Both must be locked post-publish. `cdk deploy -c allowedCorsOrigins=...`.
 17. **All JSON API responses set `Content-Type: application/json`,** especially 4xx/5xx. Frontend SW JSON-parses every response.
+17b. **Marketing site is EN/JA/KO with hard parity.** When touching `web/src/**` text or `web/src/messages/*.json`, run `pnpm --filter lisna-web check:i18n` before commit (pre-commit + CI enforce key parity; CI runs strict). Brand tokens that never translate (Lisna, Whisper, Llama, Obsidian, competitor names, ¥/$, MIT/Meta license) live in `web/src/i18n/brand-vocabulary.ts` — import, don't inline. Details: `.claude/rules/i18n.md`. Skill: `i18n-check`.
 
 ### Self-maintenance (meta-rules — do not skip)
 

@@ -55,7 +55,23 @@ if [ -d ".claude/rules" ]; then
   done
 fi
 
-# 5. New backend handlers MUST have a matching test (testing.md mandates one
+# 5. i18n consistency — when a commit touches `web/`, every key in en.json
+# must exist in ja.json and ko.json (and vice versa). Hard fail on parity
+# breaks; warnings (value parity, hardcoded CJK) surface but don't block —
+# CI runs in strict mode for full enforcement. See .claude/skills/i18n-check
+# for resolution recipes.
+if echo "$STAGED" | grep -qE '^web/(src/(app|components|messages|i18n)/|scripts/check-i18n\.mjs$)'; then
+  if [ -f "web/scripts/check-i18n.mjs" ]; then
+    if ! node web/scripts/check-i18n.mjs; then
+      echo "FAIL: i18n check failed (key parity)."
+      echo "      Run \`pnpm --filter lisna-web check:i18n\` locally for details."
+      echo "      See .claude/skills/i18n-check/SKILL.md for resolution steps."
+      FAIL=1
+    fi
+  fi
+fi
+
+# 6. New backend handlers MUST have a matching test (testing.md mandates one
 # for every new route). Fail-by-default; explicit env override leaves an
 # audit trail in shell history instead of being a silent "warning ignored".
 NEW_HANDLERS="$(echo "$STAGED" | grep -E '^backend/src/handlers/[^/]+\.ts$' || true)"

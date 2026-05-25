@@ -105,6 +105,14 @@ jobs:
         run: pnpm --filter extension test:e2e
 
       # ── Web ───────────────────────────────────────────────────────────
+      - name: Web — i18n parity (en/ja/ko)
+        # Hard-fails on key drift across messages/{en,ja,ko}.json; strict
+        # mode also fails on value-parity warnings (key whose value is the
+        # same as en, but isn't in the allowlist) and on hardcoded CJK in
+        # JSX. The allowlists live in web/src/i18n/brand-vocabulary.ts +
+        # web/scripts/check-i18n.mjs (kept in sync by the script itself).
+        run: node web/scripts/check-i18n.mjs --strict
+
       - name: Web — build (Next.js)
         # `next build` covers TypeScript checks + static-page generation.
         # env.ts evaluates at module load during static page collection

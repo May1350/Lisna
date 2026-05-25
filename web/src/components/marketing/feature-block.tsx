@@ -13,7 +13,7 @@ export function FeatureBlock({ eyebrow, headline, body, meta, image, variant = '
   const reverse = variant === 'reverse';
   const isPrimary = variant === 'primary';
   return (
-    <section className="mx-auto max-w-7xl px-6 lg:px-24 py-24">
+    <section className="mx-auto max-w-7xl pad-x py-24">
       <div className={cn(
         'grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-20 items-center',
         reverse && 'lg:[&>div:first-child]:order-2',

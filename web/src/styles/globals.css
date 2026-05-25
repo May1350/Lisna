@@ -47,6 +47,27 @@
   }
 
   /* ──────────────────────────────────────────────────────────
+     Content gutter — keeps body text right of the printed red
+     margin line. Pair with `pr-*` for the right side; the right
+     side does NOT need a margin-offset (no red line over there).
+     `--margin-offset` cascades from `.pad-paper`; the fallback
+     mirrors the desktop value in case a child renders outside
+     pad-paper (auth-shell, dashboard).
+
+     Decorative elements (marginalia arrow, pencil-circle, Postit
+     drop-shadow) are intentionally placed with negative offsets
+     INSIDE these containers — they extend past the margin line on
+     purpose. Only running text should respect it.
+     ────────────────────────────────────────────────────────── */
+  .pad-l {
+    padding-left: var(--margin-offset, 96px);
+  }
+  .pad-x {
+    padding-left: var(--margin-offset, 96px);
+    padding-right: var(--margin-offset, 96px);
+  }
+
+  /* ──────────────────────────────────────────────────────────
      Legal-pad page surface — printed ruled lines + red margin.
      Replaces the faint cream + ruled-paper combo. The marketing
      shell renders this as the full-page background.
@@ -70,11 +91,16 @@
       ),
       repeating-linear-gradient(
         180deg,
-        transparent 0 31px,
-        rgba(120, 80, 50, 0.22) 31px 32px
+        transparent 0 30px,
+        rgba(120, 80, 50, 0.15) 30px 32px
       );
     background-position: 0 0, 0 18px;
     background-repeat: no-repeat, repeat;
+    /* Lock the ruled layer to a single 32px tile. Without an explicit
+       size the repeating gradient is computed over the full page height
+       and Chromium's rasterizer beats it into 1–5px lines at fractional
+       DPR; a fixed tile rasterizes once and repeats at integer bounds. */
+    background-size: auto, 100% 32px;
     background-attachment: scroll, scroll;
     position: relative;
   }

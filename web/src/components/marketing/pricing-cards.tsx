@@ -21,7 +21,7 @@ export interface PricingCardsProps {
 
 export function PricingCards({ heading, sub, plans }: PricingCardsProps) {
   return (
-    <section className="mx-auto max-w-7xl px-6 lg:px-24 py-24">
+    <section className="mx-auto max-w-7xl pad-x py-24">
       <div className="text-center">
         <h2 className="font-serif text-h2-sm text-ink-900">{heading}</h2>
         <p className="mt-4 font-sans text-body text-ink-700 max-w-[52ch] mx-auto">{sub}</p>
@@ -44,19 +44,21 @@ export function PricingCards({ heading, sub, plans }: PricingCardsProps) {
               </span>
             )}
             <h3 className="mt-3 font-serif text-plan text-ink-900">{plan.name}</h3>
-            <p className="mt-4 relative inline-block">
-              <span className="font-serif text-display-2 text-ink-900">{plan.amount}</span>
-              <span className="ml-2 font-sans text-body text-ink-700/70">{plan.period}</span>
-              {plan.highlighted && (
-                <svg
-                  className="pencil-star"
-                  style={{ top: 8, right: -8, width: 28, height: 28 }}
-                  viewBox="0 0 32 32"
-                  aria-hidden="true"
-                >
-                  <path d="M16,3 L19,11.5 L28,12 L21,18 L23.5,26.5 L16,21.5 L8.5,26.5 L11,18 L4,12 L13,11.5 Z" />
-                </svg>
-              )}
+            <p className="mt-4 flex items-baseline gap-2 flex-wrap">
+              <span className="relative inline-block font-serif text-display-2 text-ink-900">
+                {plan.amount}
+                {plan.highlighted && (
+                  <svg
+                    className="pencil-star"
+                    style={{ top: -10, right: -22, width: 28, height: 28 }}
+                    viewBox="0 0 32 32"
+                    aria-hidden="true"
+                  >
+                    <path d="M16,3 L19,11.5 L28,12 L21,18 L23.5,26.5 L16,21.5 L8.5,26.5 L11,18 L4,12 L13,11.5 Z" />
+                  </svg>
+                )}
+              </span>
+              <span className="font-sans text-body text-ink-700/70">{plan.period}</span>
             </p>
             <ul className="mt-8 space-y-3 text-body text-ink-700">
               {plan.features.map((f, j) => <li key={j}>· {f}</li>)}
