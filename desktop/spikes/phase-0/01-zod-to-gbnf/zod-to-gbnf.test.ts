@@ -19,4 +19,12 @@ describe('zodToGbnf', () => {
     expect(gbnf).toContain('Container_items ::= "[" ws (');
     expect(gbnf).toContain(')? ws "]"');
   });
+
+  it('omits optional field from grammar when absent', () => {
+    const schema = z.object({ required: z.string(), maybe: z.string().optional() });
+    const gbnf = zodToGbnf(schema, 'X');
+    expect(gbnf).toMatch(/X ::= "{" ws .* ws "}"/);
+    expect(gbnf).toContain('X_maybe');  // rule for maybe field exists (post-fix)
+    expect(gbnf).toContain('("," ws "\\"maybe\\"" ":" ws X_maybe)?');  // present as an optional branch
+  });
 });

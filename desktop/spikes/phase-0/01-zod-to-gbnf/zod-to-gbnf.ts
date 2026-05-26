@@ -14,12 +14,24 @@ function emit(schema: z.ZodType, name: string, rules: string[], visited: Set<str
 
   if (def.typeName === 'ZodObject') {
     const fields = Object.entries(def.shape()) as [string, z.ZodType][];
-    const fieldRules = fields.map(([k, v]) => {
+    const requiredParts: string[] = [];
+    const optionalParts: string[] = [];
+    for (const [k, v] of fields) {
       const fieldRuleName = `${name}_${k}`;
-      emit(v, fieldRuleName, rules, visited);
-      return `"\\"${k}\\"" ":" ws ${fieldRuleName}`;
-    });
-    rules.push(`${name} ::= "{" ws ${fieldRules.join(' "," ws ')} ws "}"`);
+      const isOptional = (v as any)._def.typeName === 'ZodOptional';
+      const inner = isOptional ? (v as any)._def.innerType : v;
+      emit(inner, fieldRuleName, rules, visited);
+      const entry = `"\\"${k}\\"" ":" ws ${fieldRuleName}`;
+      if (isOptional) optionalParts.push(entry);
+      else requiredParts.push(entry);
+    }
+    rules.push(`${name} ::= "{" ws ${requiredParts.join(' "," ws ')} ${optionalParts.map(p => `("," ws ${p})?`).join(' ')} ws "}"`);
+    return;
+  }
+
+  // Trivial guard — should only be reached via plain emit() outside ZodObject:
+  if (def.typeName === 'ZodOptional') {
+    emit(def.innerType, name, rules, visited);
     return;
   }
 
