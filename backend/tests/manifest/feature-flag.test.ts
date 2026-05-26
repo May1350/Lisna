@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { evaluateModelDownloadFlag, inRolloutBucket } from '../../src/lib/feature-flag';
+import { evaluateModelDownloadFlag, inRolloutBucket } from '../../src/lib/feature-flag.js';
 
 describe('feature-flag', () => {
   describe('evaluateModelDownloadFlag', () => {
@@ -44,8 +44,7 @@ describe('feature-flag', () => {
         userEmail: 'a@b.c',
         allowlistEmails: new Set(),
       });
-      expect(r.allowed).toBe(false);
-      expect(r.reason).toBe('NOT_IN_ROLLOUT_BUCKET');
+      expect(r).toMatchObject({ allowed: false, reason: 'NOT_IN_ROLLOUT_BUCKET' });
     });
 
     it('returns "all" + rolloutPct=100 → allowed for any user', () => {
