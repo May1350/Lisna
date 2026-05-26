@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { signR2GetUrl, type R2Config } from './r2-signer.js';
@@ -36,9 +36,13 @@ export interface PublicManifest {
 }
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-// Lambda bundle puts manifests in dist/backend/manifests/; dev path is backend/manifests/.
-// We resolve relative to this file: ../../manifests/ works for both layouts.
-const MANIFEST_PATH = path.resolve(here, '..', '..', 'manifests', 'model-manifest.v1.json');
+// CDK esbuild bundle: index.js lands at /var/task/index.js and afterBundling copies
+// backend/manifests/ to /var/task/manifests/ (one level up from here).
+// Dev/test: this file is at backend/src/lib/, so ../../manifests/ = backend/manifests/.
+// Try the bundle-layout path first; fall back to the source-layout path.
+const MANIFEST_BUNDLE = path.resolve(here, 'manifests', 'model-manifest.v1.json');
+const MANIFEST_SRC    = path.resolve(here, '..', '..', 'manifests', 'model-manifest.v1.json');
+const MANIFEST_PATH   = existsSync(MANIFEST_BUNDLE) ? MANIFEST_BUNDLE : MANIFEST_SRC;
 
 let cached: SourceManifest | null = null;
 function readManifestOnce(): SourceManifest {
