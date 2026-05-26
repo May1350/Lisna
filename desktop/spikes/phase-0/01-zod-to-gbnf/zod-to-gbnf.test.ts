@@ -11,4 +11,12 @@ describe('zodToGbnf', () => {
     expect(gbnf).toContain(`"\\"name\\""`);
     expect(gbnf).toContain(`"\\"age\\""`);
   });
+
+  it('emits GBNF for array of objects', () => {
+    const Item = z.object({ text: z.string() });
+    const schema = z.object({ items: z.array(Item) });
+    const gbnf = zodToGbnf(schema, 'Container');
+    expect(gbnf).toContain('Container_items ::= "[" ws (');
+    expect(gbnf).toContain(')? ws "]"');
+  });
 });

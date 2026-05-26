@@ -28,6 +28,13 @@ function emit(schema: z.ZodType, name: string, rules: string[], visited: Set<str
   if (def.typeName === 'ZodNumber') { rules.push(`${name} ::= json_number`); return; }
   if (def.typeName === 'ZodBoolean') { rules.push(`${name} ::= "true" | "false"`); return; }
 
+  if (def.typeName === 'ZodArray') {
+    const elemRuleName = `${name}_elem`;
+    emit(def.type, elemRuleName, rules, visited);
+    rules.push(`${name} ::= "[" ws (${elemRuleName} (ws "," ws ${elemRuleName})*)? ws "]"`);
+    return;
+  }
+
   throw new Error(`Unsupported Zod type: ${def.typeName} for rule ${name}`);
 }
 
