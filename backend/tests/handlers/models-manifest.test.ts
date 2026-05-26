@@ -10,10 +10,12 @@ vi.mock('../../src/lib/db.js', () => ({
 }))
 
 // ── Secrets / env mock ───────────────────────────────────────────────────────
-// Skip Secrets Manager; the handler calls loadAppSecrets() for side-effects.
+// Skip Secrets Manager; the handler calls loadAppSecrets() and
+// loadModelDownloadSecrets() for side-effects.
 // Return env vars needed by Env.parse(process.env) inside the handler.
 vi.mock('../../src/lib/env.js', () => ({
   loadAppSecrets: vi.fn(async () => ({})),
+  loadModelDownloadSecrets: vi.fn(async () => ({})),
   Env: {
     parse: vi.fn((_src: unknown) => ({
       MODEL_DOWNLOAD_ENABLED: 'allowlist',

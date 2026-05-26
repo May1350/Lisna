@@ -1,6 +1,6 @@
 import type { APIGatewayProxyHandlerV2, APIGatewayProxyResultV2 } from 'aws-lambda'
 import { withAuth } from '../lib/with-auth.js'
-import { loadAppSecrets, Env } from '../lib/env.js'
+import { loadAppSecrets, loadModelDownloadSecrets, Env } from '../lib/env.js'
 import { query } from '../lib/db.js'
 import { parseLisnaUserAgent, compareSemver } from '../lib/user-agent.js'
 import { evaluateModelDownloadFlag } from '../lib/feature-flag.js'
@@ -18,7 +18,10 @@ function json(status: number, body: unknown): APIGatewayProxyResultV2 {
 const authed = withAuth(
   'models-manifest',
   async (event, payload): Promise<APIGatewayProxyResultV2> => {
-    // Read typed env — loadAppSecrets() already ran inside withAuth.
+    // loadAppSecrets() already ran inside withAuth (operator-managed keys).
+    // Also load the CDK-managed ModelDownloadSecret so R2_* + ALLOWLIST_EMAILS
+    // are populated in process.env before Env.parse() reads them.
+    await loadModelDownloadSecrets()
     const env = Env.parse(process.env)
 
     // 1. User-Agent parse — strict (no silent v1 fallback per spec §2.2.1)

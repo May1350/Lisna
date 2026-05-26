@@ -23,6 +23,7 @@ vi.mock('../../src/lib/db.js', () => ({
 // ── Secrets / env mock ────────────────────────────────────────────────────────
 vi.mock('../../src/lib/env.js', () => ({
   loadAppSecrets: vi.fn(async () => ({})),
+  loadModelDownloadSecrets: vi.fn(async () => ({})),
   Env: {
     parse: vi.fn((_src: unknown) => ({
       MODEL_DOWNLOAD_ENABLED: 'allowlist',

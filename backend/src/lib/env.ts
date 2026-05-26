@@ -19,13 +19,22 @@ export const Env = z.object({
   R2_SECRET_ACCESS_KEY: z.string().optional(),
   R2_BUCKET: z.string().optional(),
   R2_ENDPOINT_URL: z.string().url().optional(),
-  // Comma-joined email allowlist loaded from AppSecrets. Only used when
+  // Comma-joined email allowlist loaded from ModelDownloadSecret. Only used when
   // MODEL_DOWNLOAD_ENABLED === 'allowlist'. Parsed into a Set in the handler.
   ALLOWLIST_EMAILS: z.string().optional(),
 })
 
 let cachedSecrets: Record<string, string> | undefined
 
+/**
+ * Load the operator-managed AppSecret (studyhelper/app) into process.env.
+ *
+ * The AppSecret is an empty CDK container — CDK does NOT manage its value.
+ * All runtime keys (JWT_SECRET, GOOGLE_CLIENT_*, GROQ_API_KEY, STRIPE_*, …)
+ * are set by the operator via AWS Console and are never overwritten by a deploy.
+ *
+ * Idempotent: subsequent calls return the cached value without a network round-trip.
+ */
 export async function loadAppSecrets(): Promise<Record<string, string>> {
   if (cachedSecrets) return cachedSecrets
   const arn = process.env.APP_SECRET_ARN
@@ -48,4 +57,38 @@ export async function loadAppSecrets(): Promise<Record<string, string>> {
     }
   }
   return cachedSecrets!
+}
+
+let cachedModelDownloadSecrets: Record<string, string> | undefined
+
+/**
+ * Load the CDK-managed ModelDownloadSecret (studyhelper/model-download) into
+ * process.env. This secret carries R2 credentials and ALLOWLIST_EMAILS for
+ * the model-download feature. It is separate from AppSecret so CDK deploys
+ * can safely rewrite it without touching operator-managed production keys.
+ *
+ * Call this from model-download handler entry points in addition to
+ * loadAppSecrets(). Idempotent — subsequent calls are no-ops.
+ *
+ * Fields merged: ALLOWLIST_EMAILS, R2_BUCKET, R2_ACCESS_KEY_ID,
+ *                R2_SECRET_ACCESS_KEY, R2_ENDPOINT_URL
+ * Same non-overwrite rule as loadAppSecrets (CDK env wins over secret value).
+ */
+export async function loadModelDownloadSecrets(): Promise<Record<string, string>> {
+  if (cachedModelDownloadSecrets) return cachedModelDownloadSecrets
+  const arn = process.env.MODEL_DOWNLOAD_SECRET_ARN
+  if (!arn) {
+    // Local / test environment — process.env already has the vars (or they're absent).
+    cachedModelDownloadSecrets = process.env as Record<string, string>
+    return cachedModelDownloadSecrets
+  }
+  const out = await getSecretsManager().send(new GetSecretValueCommand({ SecretId: arn }))
+  cachedModelDownloadSecrets = JSON.parse(out.SecretString!)
+  // Same non-overwrite rule as loadAppSecrets: CDK-injected Lambda env wins.
+  for (const [k, v] of Object.entries(cachedModelDownloadSecrets!)) {
+    if (process.env[k] === undefined || process.env[k] === '') {
+      process.env[k] = v
+    }
+  }
+  return cachedModelDownloadSecrets!
 }

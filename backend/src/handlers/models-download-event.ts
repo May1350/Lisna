@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import type { APIGatewayProxyHandlerV2, APIGatewayProxyResultV2 } from 'aws-lambda'
 import { withAuth } from '../lib/with-auth.js'
-import { Env } from '../lib/env.js'
+import { loadModelDownloadSecrets, Env } from '../lib/env.js'
 import { query, getPool } from '../lib/db.js'
 import { parseLisnaUserAgent, compareSemver } from '../lib/user-agent.js'
 import { evaluateModelDownloadFlag } from '../lib/feature-flag.js'
@@ -47,6 +47,10 @@ const EventBody = z.object({
 const authed = withAuth(
   'models-download-event',
   async (event, payload): Promise<APIGatewayProxyResultV2> => {
+    // Load the CDK-managed ModelDownloadSecret so ALLOWLIST_EMAILS is in
+    // process.env before Env.parse() reads it. loadAppSecrets() already
+    // ran inside withAuth for the operator-managed keys.
+    await loadModelDownloadSecrets()
     const env = Env.parse(process.env)
 
     // 1. User-Agent parse — strict (no silent v1 fallback)
