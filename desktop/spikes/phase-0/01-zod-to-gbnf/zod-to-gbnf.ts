@@ -47,6 +47,16 @@ function emit(schema: z.ZodType, name: string, rules: string[], visited: Set<str
     return;
   }
 
+  if (def.typeName === 'ZodEnum') {
+    const opts = def.values.map((v: string) => `"\\"${v}\\""`).join(' | ');
+    rules.push(`${name} ::= ${opts}`);
+    return;
+  }
+  if (def.typeName === 'ZodLiteral') {
+    rules.push(`${name} ::= "\\"${def.value}\\""`);
+    return;
+  }
+
   throw new Error(`Unsupported Zod type: ${def.typeName} for rule ${name}`);
 }
 

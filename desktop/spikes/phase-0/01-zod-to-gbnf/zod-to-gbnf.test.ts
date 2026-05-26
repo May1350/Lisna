@@ -27,4 +27,16 @@ describe('zodToGbnf', () => {
     expect(gbnf).toContain('X_maybe');  // rule for maybe field exists (post-fix)
     expect(gbnf).toContain('("," ws "\\"maybe\\"" ":" ws X_maybe)?');  // present as an optional branch
   });
+
+  it('emits GBNF for enum values', () => {
+    const schema = z.object({ family: z.enum(['lecture', 'meeting']) });
+    const gbnf = zodToGbnf(schema, 'X');
+    expect(gbnf).toContain(`"\\"lecture\\"" | "\\"meeting\\""`);
+  });
+
+  it('emits GBNF for literal value', () => {
+    const schema = z.object({ kind: z.literal('lecture') });
+    const gbnf = zodToGbnf(schema, 'X');
+    expect(gbnf).toContain(`"\\"lecture\\""`);
+  });
 });
