@@ -39,4 +39,15 @@ describe('zodToGbnf', () => {
     const gbnf = zodToGbnf(schema, 'X');
     expect(gbnf).toContain(`"\\"lecture\\""`);
   });
+
+  it('emits GBNF for discriminated union (Lecture extras pattern)', () => {
+    const Step = z.object({ type: z.literal('procedure_steps'), items: z.array(z.string()) });
+    const Formula = z.object({ type: z.literal('formula'), items: z.array(z.string()) });
+    const Extras = z.discriminatedUnion('type', [Step, Formula]);
+    const schema = z.object({ extras: z.array(Extras).optional() });
+    const gbnf = zodToGbnf(schema, 'Lecture');
+    expect(gbnf).toContain('Lecture_extras_elem ::=');
+    expect(gbnf).toMatch(/Lecture_extras_elem_.*procedure_steps/);
+    expect(gbnf).toMatch(/Lecture_extras_elem_.*formula/);
+  });
 });

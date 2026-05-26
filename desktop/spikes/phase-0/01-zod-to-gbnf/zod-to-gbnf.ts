@@ -57,6 +57,17 @@ function emit(schema: z.ZodType, name: string, rules: string[], visited: Set<str
     return;
   }
 
+  if (def.typeName === 'ZodDiscriminatedUnion') {
+    const variants: string[] = [];
+    for (let i = 0; i < def.options.length; i++) {
+      const variantName = `${name}_v${i}`;
+      emit(def.options[i], variantName, rules, visited);
+      variants.push(variantName);
+    }
+    rules.push(`${name} ::= ${variants.join(' | ')}`);
+    return;
+  }
+
   throw new Error(`Unsupported Zod type: ${def.typeName} for rule ${name}`);
 }
 
