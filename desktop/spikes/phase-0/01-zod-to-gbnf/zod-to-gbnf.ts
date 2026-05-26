@@ -14,9 +14,25 @@ function emit(schema: z.ZodType, name: string, rules: string[], visited: Set<str
 
   if (def.typeName === 'ZodObject') {
     const fields = Object.entries(def.shape()) as [string, z.ZodType][];
+    // Filter out fields marked .describe(JSON.stringify({ postDecodeOnly: true })).
+    // Zod v3 has no .meta(); the v3 metadata channel is .describe(string), so the
+    // marker is encoded as a JSON-stringified object on _def.description (or on the
+    // inner ZodOptional's _def.description for `.optional().describe(...)` patterns).
+    // Non-JSON descriptions are treated as plain human-readable text — field kept.
+    const filtered = fields.filter(([_, v]) => {
+      const fdef = (v as any)._def;
+      const description = fdef.description ?? fdef.innerType?._def?.description;
+      if (!description) return true;
+      try {
+        const meta = JSON.parse(description) as Record<string, unknown>;
+        return !meta.postDecodeOnly;
+      } catch {
+        return true;  // non-JSON description is just human-readable text — keep field
+      }
+    });
     const requiredParts: string[] = [];
     const optionalParts: string[] = [];
-    for (const [k, v] of fields) {
+    for (const [k, v] of filtered) {
       const fieldRuleName = `${name}_${k}`;
       const isOptional = (v as any)._def.typeName === 'ZodOptional';
       const inner = isOptional ? (v as any)._def.innerType : v;

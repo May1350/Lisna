@@ -50,4 +50,14 @@ describe('zodToGbnf', () => {
     expect(gbnf).toMatch(/Lecture_extras_elem_.*procedure_steps/);
     expect(gbnf).toMatch(/Lecture_extras_elem_.*formula/);
   });
+
+  it('strips fields marked .describe(JSON.stringify({ postDecodeOnly: true }))', () => {
+    const schema = z.object({
+      text: z.string(),
+      from: z.enum(['transcript', 'inferred']).describe(JSON.stringify({ postDecodeOnly: true })),
+    });
+    const gbnf = zodToGbnf(schema, 'Item');
+    expect(gbnf).not.toContain(`"\\"from\\""`);  // field absent in object rule
+    expect(gbnf).toContain(`"\\"text\\""`);  // text field still present
+  });
 });
