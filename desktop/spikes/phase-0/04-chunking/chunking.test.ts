@@ -41,7 +41,7 @@ describe('chunkTranscript', () => {
 
   it('hard-cuts at token budget when no silence in slack window', () => {
     const segs: Array<{ ts: number; text: string }> = [];
-    for (let i = 0; i < 200; i++) segs.push({ ts: i * 0.5, text: 'x'.repeat(100) });
+    for (let i = 0; i < 200; i++) segs.push({ ts: i * 0.5, text: 'あ'.repeat(100) });
     const t = mkTranscript(segs);
     const chunks = chunkTranscript(t, 1000, 5);
     expect(chunks.length).toBeGreaterThan(1);
