@@ -19,6 +19,9 @@ export const Env = z.object({
   R2_SECRET_ACCESS_KEY: z.string().optional(),
   R2_BUCKET: z.string().optional(),
   R2_ENDPOINT_URL: z.string().url().optional(),
+  // Comma-joined email allowlist loaded from AppSecrets. Only used when
+  // MODEL_DOWNLOAD_ENABLED === 'allowlist'. Parsed into a Set in the handler.
+  ALLOWLIST_EMAILS: z.string().optional(),
 })
 
 let cachedSecrets: Record<string, string> | undefined
