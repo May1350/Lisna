@@ -16,7 +16,10 @@ describe('zodToGbnf', () => {
     const Item = z.object({ text: z.string() });
     const schema = z.object({ items: z.array(Item) });
     const gbnf = zodToGbnf(schema, 'Container');
-    expect(gbnf).toContain('Container_items ::= "[" ws (');
+    // Rule-name segments are joined with `-` (not `_`) because llama.cpp's
+    // GBNF parser only accepts [a-zA-Z0-9-] in rule identifiers — see
+    // zod-to-gbnf.ts::sanitize. JSON-key string literals keep underscores.
+    expect(gbnf).toContain('Container-items ::= "[" ws (');
     expect(gbnf).toContain(')? ws "]"');
   });
 
@@ -24,8 +27,8 @@ describe('zodToGbnf', () => {
     const schema = z.object({ required: z.string(), maybe: z.string().optional() });
     const gbnf = zodToGbnf(schema, 'X');
     expect(gbnf).toMatch(/X ::= "{" ws .* ws "}"/);
-    expect(gbnf).toContain('X_maybe');  // rule for maybe field exists (post-fix)
-    expect(gbnf).toContain('("," ws "\\"maybe\\"" ":" ws X_maybe)?');  // present as an optional branch
+    expect(gbnf).toContain('X-maybe');  // rule for maybe field exists (post-fix)
+    expect(gbnf).toContain('("," ws "\\"maybe\\"" ":" ws X-maybe)?');  // present as an optional branch
   });
 
   it('emits GBNF for enum values', () => {
@@ -46,9 +49,12 @@ describe('zodToGbnf', () => {
     const Extras = z.discriminatedUnion('type', [Step, Formula]);
     const schema = z.object({ extras: z.array(Extras).optional() });
     const gbnf = zodToGbnf(schema, 'Lecture');
-    expect(gbnf).toContain('Lecture_extras_elem ::=');
-    expect(gbnf).toMatch(/Lecture_extras_elem_.*procedure_steps/);
-    expect(gbnf).toMatch(/Lecture_extras_elem_.*formula/);
+    // Rule-name segments use `-`, but the literal value (`procedure_steps`)
+    // inside JSON string quotes keeps its underscore — that's the actual
+    // discriminator value the model emits in JSON.
+    expect(gbnf).toContain('Lecture-extras-elem ::=');
+    expect(gbnf).toMatch(/Lecture-extras-elem-.*procedure_steps/);
+    expect(gbnf).toMatch(/Lecture-extras-elem-.*formula/);
   });
 
   it('strips fields marked .describe(JSON.stringify({ postDecodeOnly: true }))', () => {

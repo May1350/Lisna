@@ -1,9 +1,24 @@
 import { z } from 'zod';
 
+// llama.cpp's GBNF parser accepts only [a-zA-Z0-9-] in rule names
+// (src/llama-grammar.cpp::is_word_char). Underscores break the parse —
+// our composite rule names (e.g. `LectureNote_sections_elem`) and field
+// keys with underscores (e.g. `key_terms`, `schemaVersion`) must be
+// sanitized into dashes before being used as a rule identifier. The
+// underlying JSON string literal MUST keep the original key (line:
+// `"\"key_terms\"" ":" ws ...`); only the rule-name identifier is
+// rewritten. Caught by lecture-mini round-trip against
+// test-gbnf-validator: composite names with `_` produced
+// "expecting ::= at _schemaVersion ::= json_number".
+function sanitize(name: string): string {
+  return name.replace(/_/g, '-');
+}
+
 export function zodToGbnf(schema: z.ZodType, rootName: string): string {
-  const rules: string[] = [`root ::= ${rootName}`];
+  const safeRoot = sanitize(rootName);
+  const rules: string[] = [`root ::= ${safeRoot}`];
   const visited = new Set<string>();
-  emit(schema, rootName, rules, visited);
+  emit(schema, safeRoot, rules, visited);
   return rules.join('\n') + '\n' + scalarRules();
 }
 
@@ -33,7 +48,10 @@ function emit(schema: z.ZodType, name: string, rules: string[], visited: Set<str
     const requiredParts: string[] = [];
     const optionalParts: string[] = [];
     for (const [k, v] of filtered) {
-      const fieldRuleName = `${name}_${k}`;
+      // Sanitize the field name when used as a rule identifier (k may itself
+      // contain `_`, e.g. `key_terms`), but keep the original `k` in the
+      // emitted JSON string literal so the grammar still matches actual keys.
+      const fieldRuleName = sanitize(`${name}_${k}`);
       const isOptional = (v as any)._def.typeName === 'ZodOptional';
       const inner = isOptional ? (v as any)._def.innerType : v;
       emit(inner, fieldRuleName, rules, visited);
@@ -51,13 +69,13 @@ function emit(schema: z.ZodType, name: string, rules: string[], visited: Set<str
     return;
   }
 
-  // scalars
-  if (def.typeName === 'ZodString') { rules.push(`${name} ::= json_string`); return; }
-  if (def.typeName === 'ZodNumber') { rules.push(`${name} ::= json_number`); return; }
+  // scalars (rule names use `-` per is_word_char — see sanitize() above)
+  if (def.typeName === 'ZodString') { rules.push(`${name} ::= json-string`); return; }
+  if (def.typeName === 'ZodNumber') { rules.push(`${name} ::= json-number`); return; }
   if (def.typeName === 'ZodBoolean') { rules.push(`${name} ::= "true" | "false"`); return; }
 
   if (def.typeName === 'ZodArray') {
-    const elemRuleName = `${name}_elem`;
+    const elemRuleName = sanitize(`${name}_elem`);
     emit(def.type, elemRuleName, rules, visited);
     rules.push(`${name} ::= "[" ws (${elemRuleName} (ws "," ws ${elemRuleName})*)? ws "]"`);
     return;
@@ -76,7 +94,7 @@ function emit(schema: z.ZodType, name: string, rules: string[], visited: Set<str
   if (def.typeName === 'ZodDiscriminatedUnion') {
     const variants: string[] = [];
     for (let i = 0; i < def.options.length; i++) {
-      const variantName = `${name}_v${i}`;
+      const variantName = sanitize(`${name}_v${i}`);
       emit(def.options[i], variantName, rules, visited);
       variants.push(variantName);
     }
@@ -90,8 +108,8 @@ function emit(schema: z.ZodType, name: string, rules: string[], visited: Set<str
 function scalarRules(): string {
   return [
     'ws ::= [ \\t\\n]*',
-    'json_string ::= "\\"" char* "\\""',
+    'json-string ::= "\\"" char* "\\""',
     'char ::= [^"\\\\] | "\\\\" ["\\\\/bfnrt]',
-    'json_number ::= "-"? ("0" | [1-9] [0-9]*) ("." [0-9]+)? ([eE] [-+]? [0-9]+)?',
+    'json-number ::= "-"? ("0" | [1-9] [0-9]*) ("." [0-9]+)? ([eE] [-+]? [0-9]+)?',
   ].join('\n');
 }
