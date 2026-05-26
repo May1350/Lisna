@@ -9,3 +9,8 @@ sidecar/deps/llama.cpp/build
 *.log
 .DS_Store
 docs/last-smoke-note.txt
+
+# Phase 0 spikes — ephemeral outputs
+spikes/phase-0/results/
+spikes/phase-0/**/results/
+spikes/phase-0/03-diarization-ja/fixtures/*.wav
