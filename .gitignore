@@ -24,6 +24,8 @@ lisna-extension-*.zip
 # Claude Code: commit shared rules/commands/hooks, ignore only local session state
 .claude/settings.local.json
 .claude/cache/
+.claude/launch.json
+.claude/worktrees/
 .claire/
 .superpowers/
 # Playwright E2E artifacts

@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>Lisna Note — Provenance Marking Comparison</title>
+<style>
+:root {
+  --paper-100: #FFFEFB;
+  --paper-200: #FBFAF7;
+  --paper-300: #F4F2EC;
+  --paper-edge: #E8E4DC;
+  --ink-900: #1A1614;
+  --ink-700: #3D3733;
+  --ink-500: #6E6660;
+  --ink-300: #A39A93;
+  --ink-200: #C8C0B7;
+  --terra: #C2410C;
+  --terra-700: #9A330A;
+  --terra-soft: #FED7AA;
+  --terra-tint: #FFF7ED;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--paper-300);
+  color: var(--ink-900);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Sans', 'Apple SD Gothic Neo', sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.page {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 32px 24px 64px;
+}
+
+.page-header h1 {
+  font-size: 19px;
+  font-weight: 600;
+  color: var(--ink-900);
+  margin: 0 0 4px;
+  letter-spacing: -0.015em;
+}
+.page-header p {
+  color: var(--ink-500);
+  font-size: 13px;
+  margin: 0 0 32px;
+  line-height: 1.55;
+  max-width: 820px;
+}
+
+.comparison {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 28px;
+}
+
+.column { display: flex; flex-direction: column; }
+
+.column-title {
+  font-size: 11px;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--ink-500);
+  margin: 0 0 4px;
+  font-weight: 600;
+}
+.column-subtitle {
+  font-size: 12px;
+  color: var(--ink-700);
+  margin: 0 0 14px;
+  line-height: 1.5;
+}
+
+.sidepanel {
+  background: var(--paper-100);
+  border: 1px solid var(--paper-edge);
+  border-radius: 14px;
+  padding: 18px 16px;
+  box-shadow: 0 1px 0 rgba(26,22,20,0.02), 0 8px 24px -12px rgba(26,22,20,0.08);
+}
+
+.note-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink-900);
+  margin: 0 0 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--paper-edge);
+  letter-spacing: -0.015em;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.section-head h3 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-900);
+  margin: 0;
+  line-height: 1.3;
+  flex: 1;
+}
+
+.ts-chip {
+  font-size: 10px;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-700);
+  background: var(--paper-200);
+  border: 1px solid var(--paper-edge);
+  padding: 1px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.ts-chip.none {
+  color: var(--ink-300);
+  background: transparent;
+  border-color: transparent;
+}
+
+.takeaway {
+  background: var(--terra-tint);
+  border: 1px solid var(--terra-soft);
+  border-left: 3px solid var(--terra);
+  padding: 6px 10px;
+  border-radius: 8px;
+}
+.takeaway p {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-900);
+  line-height: 1.4;
+}
+
+.eyebrow {
+  font-size: 10px;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-weight: 600;
+  margin-right: 6px;
+}
+.eyebrow.warm { color: var(--terra-700); }
+.eyebrow.dim  { color: var(--ink-500); }
+
+/* === KEY TERMS === */
+.kt-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.kt-item {
+  background: var(--paper-200);
+  border: 1px solid var(--paper-edge);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.kt-item .kt-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.kt-item .kt-term { font-weight: 600; color: var(--ink-900); }
+.kt-item .kt-def  { color: var(--ink-700); margin-top: 2px; line-height: 1.5; }
+
+/* AI inline (option i) — dashed terra border + AI badge inline */
+.kt-item.ai {
+  background: var(--paper-200);
+  border: 1px dashed var(--terra-soft);
+}
+.ai-badge {
+  display: inline-block;
+  font-size: 9px;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-weight: 700;
+  color: var(--terra-700);
+  background: var(--terra-tint);
+  border: 1px solid var(--terra-soft);
+  letter-spacing: 0.08em;
+  padding: 0 4px;
+  border-radius: 3px;
+  margin-right: 6px;
+  vertical-align: middle;
+  position: relative;
+  top: -1px;
+  line-height: 1.4;
+}
+
+/* === POINTS === */
+.points { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.point {
+  font-size: 12px;
+  line-height: 1.5;
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.point .bullet-imp {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--terra);
+  box-shadow: 0 0 0 2px var(--terra-tint);
+  flex-shrink: 0;
+  align-self: center;
+  display: inline-block;
+}
+.point .text-imp {
+  color: var(--ink-900);
+  font-weight: 500;
+  flex: 1;
+}
+.point .lisna-hl {
+  background: linear-gradient(180deg, transparent 60%, var(--terra-soft) 60%);
+  padding: 0 1px;
+}
+.point.ai .bullet-imp {
+  background: var(--paper-100);
+  border: 1.5px dashed var(--terra);
+  box-shadow: none;
+  width: 7px;
+  height: 7px;
+}
+.point.ai .lisna-hl {
+  background: linear-gradient(180deg, transparent 60%, var(--paper-300) 60%);
+  border-bottom: 1px dashed var(--terra-soft);
+}
+
+/* === CHECK QUESTION === */
+.check {
+  background: var(--paper-200);
+  border: 1px solid var(--paper-edge);
+  padding: 6px 10px;
+  border-radius: 8px;
+}
+.check p { margin: 0; font-size: 12px; color: var(--ink-700); line-height: 1.4; }
+
+/* === OPTION ii — AI 보충 BLOCK === */
+.ai-supplement {
+  margin-top: 4px;
+  padding: 10px 12px;
+  background: var(--paper-200);
+  border: 1px dashed var(--terra-soft);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: relative;
+}
+.ai-supplement::before {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: 12px;
+  bottom: 12px;
+  width: 3px;
+  background: var(--terra-soft);
+  border-radius: 0 2px 2px 0;
+}
+.ai-supplement-head {
+  font-size: 10px;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-weight: 600;
+  color: var(--terra-700);
+  margin: 0 0 2px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ai-supplement-head::before {
+  content: 'AI';
+  font-size: 9px;
+  font-weight: 700;
+  background: var(--terra-tint);
+  border: 1px solid var(--terra-soft);
+  padding: 0 4px;
+  border-radius: 3px;
+  letter-spacing: 0.08em;
+}
+.ai-supplement .kt-item,
+.ai-supplement .point-card {
+  background: var(--paper-100);
+  border: 1px solid var(--paper-edge);
+}
+.point-card {
+  background: var(--paper-100);
+  border: 1px solid var(--paper-edge);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--ink-900);
+  line-height: 1.5;
+}
+.point-card .lbl {
+  font-size: 9px;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--ink-500);
+  font-weight: 600;
+  margin-right: 6px;
+}
+
+/* === TRADE-OFF FOOTER === */
+.note-block {
+  margin-top: 14px;
+  padding: 12px 14px;
+  background: var(--paper-100);
+  border: 1px solid var(--paper-edge);
+  border-radius: 10px;
+  font-size: 12px;
+  color: var(--ink-700);
+  line-height: 1.55;
+}
+.note-block dt {
+  font-size: 10px;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--ink-500);
+  font-weight: 600;
+  margin-top: 8px;
+}
+.note-block dt:first-child { margin-top: 0; }
+.note-block dt.warm { color: var(--terra-700); }
+.note-block dd { margin: 3px 0 0; }
+
+@media (max-width: 940px) {
+  .comparison { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="page-header">
+    <h1>Provenance marking — 2 candidates</h1>
+    <p>같은 섹션 <strong>「資産と負債の基本概念」</strong> + 동일한 AI 보충 데이터(純資産 정의 + 簿記基本等式 bridging)로 두 표시 방식을 나란히 비교. 모든 색·간격·폰트는 <code>tailwind.config.ts</code> 토큰(paper / ink / terra)을 그대로 사용 — 실제 사이드패널과 동일한 visual fingerprint.</p>
+  </header>
+
+  <div class="comparison">
+
+    <!-- ──────────── COLUMN 1 ──────────── -->
+    <article class="column">
+      <h2 class="column-title">(i) Inline + provenance marker</h2>
+      <p class="column-subtitle">기존 슬롯(<code>key_terms</code>, <code>points</code>)에 AI 항목을 그대로 끼움. 카드는 점선 테두리 + <span class="ai-badge" style="margin:0;">AI</span> 라벨로 구별.</p>
+
+      <div class="sidepanel">
+        <h2 class="note-title">簿記入門</h2>
+
+        <section class="section">
+          <div class="section-head">
+            <h3>資産と負債の基本概念</h3>
+            <span class="ts-chip">10:00</span>
+          </div>
+
+          <div class="takeaway">
+            <p>
+              <span class="eyebrow warm">要点</span>
+              資産は所有する価値のあるもの、負債は将来支払う義務を持つもの。
+            </p>
+          </div>
+
+          <ul class="kt-list">
+            <li class="kt-item">
+              <div class="kt-head">
+                <span class="kt-term">資産</span>
+                <span class="ts-chip">10:00</span>
+              </div>
+              <div class="kt-def">企業が所有する価値のあるもの。</div>
+            </li>
+            <li class="kt-item">
+              <div class="kt-head">
+                <span class="kt-term">負債</span>
+                <span class="ts-chip">10:30</span>
+              </div>
+              <div class="kt-def">将来支払う義務を持つ債務。</div>
+            </li>
+            <li class="kt-item ai">
+              <div class="kt-head">
+                <span class="kt-term"><span class="ai-badge">AI</span>純資産</span>
+                <span class="ts-chip none">—</span>
+              </div>
+              <div class="kt-def">自己資本とも呼ばれ、企業の正味の財産価値。資産から負債を差し引いた残額。</div>
+            </li>
+          </ul>
+
+          <ul class="points">
+            <li class="point">
+              <span class="bullet-imp" aria-hidden></span>
+              <span class="text-imp"><span class="lisna-hl">資産は現金、土地、建物などを含む。</span></span>
+              <span class="ts-chip">10:10</span>
+            </li>
+            <li class="point">
+              <span class="bullet-imp" aria-hidden></span>
+              <span class="text-imp"><span class="lisna-hl">負債は借金や買掛金などを含む。</span></span>
+              <span class="ts-chip">10:40</span>
+            </li>
+            <li class="point ai">
+              <span class="bullet-imp" aria-hidden></span>
+              <span class="text-imp"><span class="ai-badge">AI</span><span class="lisna-hl">簿記の基本等式: 資産 = 負債 + 純資産。三者は常に均衡する会計恒等式。</span></span>
+              <span class="ts-chip none">—</span>
+            </li>
+          </ul>
+
+          <div class="check">
+            <p>
+              <span class="eyebrow dim">確認</span>
+              資産と負債の違いを説明せよ。
+            </p>
+          </div>
+        </section>
+      </div>
+
+      <dl class="note-block">
+        <dt class="warm">장점</dt>
+        <dd>강의자 정의 바로 옆에 AI 보충이 붙어 있어 비교가 쉬움. 데이터 모델 변경 가벼움 — 항목마다 <code>from: 'transcript' | 'inferred'</code> 한 줄.</dd>
+        <dt>단점</dt>
+        <dd>스캔 시 시각 분리가 약함 — 점선 테두리 + 작은 라벨이라 빠르게 훑으면 놓침. "강의자 본문만 우선 읽기" 같은 학습 모드가 카드 단위 필터링을 강제함.</dd>
+      </dl>
+    </article>
+
+    <!-- ──────────── COLUMN 2 ──────────── -->
+    <article class="column">
+      <h2 class="column-title">(ii) Parallel slot — AI 보충 block</h2>
+      <p class="column-subtitle">강의자 영역은 그대로 유지. 그 아래 별도 <strong>AI 補足</strong> 블록(점선 둘레)에 보충 정의 + bridging 을 모아 둠.</p>
+
+      <div class="sidepanel">
+        <h2 class="note-title">簿記入門</h2>
+
+        <section class="section">
+          <div class="section-head">
+            <h3>資産と負債の基本概念</h3>
+            <span class="ts-chip">10:00</span>
+          </div>
+
+          <div class="takeaway">
+            <p>
+              <span class="eyebrow warm">要点</span>
+              資産は所有する価値のあるもの、負債は将来支払う義務を持つもの。
+            </p>
+          </div>
+
+          <ul class="kt-list">
+            <li class="kt-item">
+              <div class="kt-head">
+                <span class="kt-term">資産</span>
+                <span class="ts-chip">10:00</span>
+              </div>
+              <div class="kt-def">企業が所有する価値のあるもの。</div>
+            </li>
+            <li class="kt-item">
+              <div class="kt-head">
+                <span class="kt-term">負債</span>
+                <span class="ts-chip">10:30</span>
+              </div>
+              <div class="kt-def">将来支払う義務を持つ債務。</div>
+            </li>
+          </ul>
+
+          <ul class="points">
+            <li class="point">
+              <span class="bullet-imp" aria-hidden></span>
+              <span class="text-imp"><span class="lisna-hl">資産は現金、土地、建物などを含む。</span></span>
+              <span class="ts-chip">10:10</span>
+            </li>
+            <li class="point">
+              <span class="bullet-imp" aria-hidden></span>
+              <span class="text-imp"><span class="lisna-hl">負債は借金や買掛金などを含む。</span></span>
+              <span class="ts-chip">10:40</span>
+            </li>
+          </ul>
+
+          <div class="ai-supplement">
+            <p class="ai-supplement-head">補足 (推測)</p>
+
+            <div class="kt-item">
+              <div class="kt-head">
+                <span class="kt-term">純資産</span>
+              </div>
+              <div class="kt-def">自己資本とも呼ばれ、企業の正味の財産価値。資産から負債を差し引いた残額。</div>
+            </div>
+
+            <div class="point-card">
+              <span class="lbl">論理 bridge</span>
+              簿記の基本等式: <strong>資産 = 負債 + 純資産</strong>。三者は常に均衡する会計恒等式。
+            </div>
+          </div>
+
+          <div class="check">
+            <p>
+              <span class="eyebrow dim">確認</span>
+              資産と負債の違いを説明せよ。
+            </p>
+          </div>
+        </section>
+      </div>
+
+      <dl class="note-block">
+        <dt class="warm">장점</dt>
+        <dd>한눈에 영역 구분 — 박스 + AI 라벨 + 점선 좌측 막대. 학생이 "강의자 본문만 우선" 모드에서 박스 위에서 멈추는 자연스러운 visual cut. 원칙 3의 "한눈에" 요건과 강하게 맞물림.</dd>
+        <dt>단점</dt>
+        <dd>스키마 1-2 슬롯 추가 필요 (<code>ai_supplement</code>). 강의자 정의와 AI 보충 정의가 같은 줄에 보이지 않아 직접 대조 시 시선 이동 더 큼 (예: "資産"의 강의자 정의 vs AI 보충 정의를 동시에 보고 싶을 때).</dd>
+      </dl>
+    </article>
+
+  </div>
+</div>
+</body>
+</html>
