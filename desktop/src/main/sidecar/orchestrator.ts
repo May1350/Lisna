@@ -203,7 +203,6 @@ export async function finalizeLecture(
   // ── Correction D: family lookup via registry ──────────────────────────────
   // Side-effect import in callers (or beforeEach in tests) ensures the lecture
   // family is registered before we reach here.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const fam = familyCoreRegistry['lecture'];
   if (!fam) throw new Error('LECTURE_FAMILY_NOT_REGISTERED');
 
@@ -226,7 +225,6 @@ export async function finalizeLecture(
 
   const generator = makeSidecarGenerator(args.sidecar);
   const partials: Array<Partial<LectureNote>> = [];
-  let totalAttemptsUsed = 0;
 
   // ── Per-chunk: call LLM + post-decode pipeline ────────────────────────────
   for (let i = 0; i < chunks.length; i++) {
@@ -255,7 +253,6 @@ export async function finalizeLecture(
     if (!result.ok) {
       throw new Error(`CHUNK_FAILED:${i}:${result.finalReason}`);
     }
-    totalAttemptsUsed += result.attemptsUsed;
 
     // ── Correction C: re-serialize → runPostDecodePipeline ─────────────────
     // callWithGrammar parses JSON internally (with z.unknown(), it passes through).

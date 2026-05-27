@@ -220,7 +220,22 @@ describe('finalizeLecture', () => {
     expect(result.note.sections.length).toBe(3);
   });
 
-  it('validation_warnings stays empty for Lecture (no SpeakerRef)', async () => {
+  it('throws CHUNK_FAILED when a chunk exhausts all 3 retry attempts', async () => {
+    const sidecar = mockSidecar({
+      responses: [],                       // never consulted — every attempt fails
+      failuresPerCall: { 0: 5 },           // chunk 0 fails > maxAttempts(3)
+    });
+    await expect(
+      finalizeLecture({
+        sessionId: 'exhaust-test',
+        transcript: makeTranscript(1),     // single-segment → single-chunk
+        sidecar,
+        modelProfile: modelProfiles['llama-3.2-3b-q4-km']!,
+      }),
+    ).rejects.toThrow(/^CHUNK_FAILED:0:/);
+  });
+
+  it('telemetry shape ships empty arrays for warnings/dedup/mutations (placeholder until pipeline plumbs them — Plan 7)', async () => {
     const response = makeLectureNoteJson('単一セクション', 0);
     const sidecar = mockSidecar({ responses: [response] });
     const transcript = makeTranscript(3);
@@ -234,6 +249,7 @@ describe('finalizeLecture', () => {
 
     const result = await finalizeLecture(args);
 
+    // TODO(plan-7): when pipeline returns side-channel telemetry, replace these constant assertions with real-value checks.
     // Lecture schema has no SpeakerRef → pipeline produces no warnings
     expect(result.telemetry.validationWarnings).toEqual([]);
     expect(result.telemetry.dedupHits).toEqual([]);
