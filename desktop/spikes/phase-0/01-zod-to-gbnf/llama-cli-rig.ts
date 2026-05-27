@@ -47,7 +47,7 @@ export interface RunLlamaResult {
   text: string;
   /** Raw stdout, useful for debugging. */
   rawStdout: string;
-  /** Tail of stderr (last 2 KB), useful for timing / grammar-error context. */
+  /** Tail of stderr (last 4 KB), useful for timing / grammar-error context. */
   stderrTail: string;
   /** Wall-clock elapsed in ms. */
   elapsedMs: number;
@@ -112,7 +112,7 @@ export async function runLlamaCli(opts: RunLlamaOptions): Promise<RunLlamaResult
     proc.on('error', (e) => rejectP(e));
     proc.on('close', (code) => {
       const elapsedMs = Date.now() - t0;
-      const stderrTail = err.slice(-2000);
+      const stderrTail = err.slice(-4000);
       if (code !== 0) {
         rejectP(new Error(`llama-completion exit ${code}\nstderr tail:\n${stderrTail}`));
         return;

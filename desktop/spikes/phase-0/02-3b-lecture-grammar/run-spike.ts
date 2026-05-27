@@ -132,7 +132,7 @@ async function main(): Promise<void> {
       sections,
       sample: parsed,
       failureReason,
-      stderrTail: llamaResult.stderrTail.slice(-1800), // Spike 0.2 Path E: keep llama.cpp perf-timing block (~1.5KB above memory-breakdown footer).
+      stderrTail: llamaResult.stderrTail, // Spike 0.2 Path E: keep full rig buffer (4KB) — llama.cpp perf-timing block lives above memory-breakdown footer.
     };
   } catch (e) {
     result = {
