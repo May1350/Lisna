@@ -100,7 +100,7 @@ function fillBrainstormIdeaIds(parsed: Record<string, unknown>): void {
  *   2. Has a numeric `ts` field
  *   3. Has `from === undefined` (not yet set)
  *   4. Has at least one discriminator field indicating it's a
- *      provenance-bearing leaf: `text`, `term`, `expression`, or `claim`
+ *      provenance-bearing leaf: `text`, `term`, or `expression`
  *
  * Discriminator rationale (verified against current slot schemas):
  *   - LectureSectionSchema.key_terms[]:    has `term`
@@ -110,10 +110,6 @@ function fillBrainstormIdeaIds(parsed: Record<string, unknown>): void {
  *   - ProcedureStepsSchema.steps[]:        has `text`
  *   - ArgumentChainSchema.claims[]:        has `text`
  *   - TimelineSchema.events[]:             has `text`
- *
- * The `claim` discriminator is included for argument_chain.claims (which
- * uses `text`, so that is sufficient, but `claim` is added as a future-safe
- * alias for any variant slot that might use that field name).
  *
  * Objects that do NOT have any of these fields (e.g. the outer section
  * object, the note root) are skipped — we do not add `from` to objects that
@@ -138,11 +134,10 @@ function fillProvenanceRecursive(
     (
       'text' in o ||
       'term' in o ||
-      'expression' in o ||
-      'claim' in o
+      'expression' in o
     )
   ) {
-    o['from'] = computeProvenance(o as { ts?: number }, transcript);
+    o['from'] = computeProvenance(o as { ts: number }, transcript);
   }
 
   for (const key of Object.keys(o)) {

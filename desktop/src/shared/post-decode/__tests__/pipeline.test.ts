@@ -119,7 +119,7 @@ describe('runPostDecodePipeline (Lecture)', () => {
     expect(note.sections[0]!.key_terms[0]!.from).toBe('inferred');
   });
 
-  it('Stage 4: Zod parse validates successfully (closure passes for valid note)', () => {
+  it('Stage 4: Zod parse accepts a valid filled note (Lecture has no SpeakerRef → closure is a no-op for this family)', () => {
     const raw = makeLectureRaw({
       sections: [{
         heading: 'Valid Section',
