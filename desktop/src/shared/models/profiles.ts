@@ -1,3 +1,18 @@
+import type { NoteFamily } from '@shared/note-schema';
+
+/** Family-specific runtime tuning. Per spec §2.3 + decision-0.2-path-f.md.
+ *
+ * `tier: 'default'` = picker recommends this model for this family.
+ * `tier: 'fallback'` = lower-RAM Macs only; quality is acceptable-but-degraded
+ * until prompt-engineering work (Plan 6 Task 16) re-evaluates.
+ */
+export interface PerFamilyTuning {
+  recommendedChunkTokens: number;
+  maxGenTokens: number;
+  temperature: number;
+  tier: 'default' | 'fallback';
+}
+
 /** Per spec section 4.0 and section 4 item 10. */
 export interface ModelProfile {
   id: string;
@@ -5,21 +20,26 @@ export interface ModelProfile {
   filename: string;
   chatTemplate: 'llama-3.2' | 'qwen-2.5' | 'phi-3.5' | 'auto';
   contextWindow: number;
-  recommendedChunkTokens: number;
   grammarDialect: 'llama-cpp' | 'llama-cpp-strict';
   bosTokenFix?: 'dormant-bos';
-  recommendedTemp: number;
   warmupRequired: boolean;
   ramBudgetMB: number;
+  perFamily: Record<NoteFamily, PerFamilyTuning>;
 }
 
 /**
- * Runtime profile registry. Alpha ships with one entry; Plan 6 may add
- * `qwen-2.5-3b` if Spike 0.2 Path E shows it's worth swapping.
+ * Runtime profile registry. Two entries alpha-ships with:
+ *
+ * - `llama-3.2-3b-q4-km` — default for Lecture (Path F: 1B quality FAIL on Lecture).
+ * - `llama-3.2-1b-q4-km` — fallback tier on ≤12 GB RAM Macs until Plan 6
+ *   Task 16 prompt-engineering re-evaluation.
  *
  * n_ctx=16384 chosen per memory feedback_llm_chat_template_sidecar:
- * 32K caused 8GB OOM. 8K = recommendedChunkTokens (half-ctx leaves
- * room for system prompt + generated tokens).
+ * 32K caused 8GB OOM. 8K = recommendedChunkTokens for dense families
+ * (lecture, meeting); 7K for interview/brainstorm (more dialogue/idea density).
+ *
+ * maxGenTokens=3000 calibrated per decision-0.2-path-f.md (reduced from
+ * spike's 4096 — tail-risk mitigation).
  */
 export const modelProfiles: Record<string, ModelProfile> = {
   'llama-3.2-3b-q4-km': {
@@ -28,12 +48,33 @@ export const modelProfiles: Record<string, ModelProfile> = {
     filename: 'Llama-3.2-3B-Instruct-Q4_K_M.gguf',
     chatTemplate: 'llama-3.2',
     contextWindow: 16384,
-    recommendedChunkTokens: 8000,
     grammarDialect: 'llama-cpp',
     bosTokenFix: 'dormant-bos',
-    recommendedTemp: 0.4,
     warmupRequired: true,
     ramBudgetMB: 3072,
+    perFamily: {
+      lecture:    { recommendedChunkTokens: 8000, maxGenTokens: 3000, temperature: 0.4, tier: 'default'  },
+      meeting:    { recommendedChunkTokens: 8000, maxGenTokens: 3000, temperature: 0.4, tier: 'default'  },
+      interview:  { recommendedChunkTokens: 7000, maxGenTokens: 3500, temperature: 0.4, tier: 'default'  },
+      brainstorm: { recommendedChunkTokens: 7000, maxGenTokens: 3500, temperature: 0.5, tier: 'default'  },
+    },
+  },
+  'llama-3.2-1b-q4-km': {
+    id: 'llama-3.2-1b-q4-km',
+    displayName: 'Llama 3.2 1B (Q4_K_M)',
+    filename: 'Llama-3.2-1B-Instruct-Q4_K_M.gguf',
+    chatTemplate: 'llama-3.2',
+    contextWindow: 16384,
+    grammarDialect: 'llama-cpp',
+    bosTokenFix: 'dormant-bos',
+    warmupRequired: true,
+    ramBudgetMB: 1024,
+    perFamily: {
+      lecture:    { recommendedChunkTokens: 8000, maxGenTokens: 3000, temperature: 0.4, tier: 'fallback' },
+      meeting:    { recommendedChunkTokens: 8000, maxGenTokens: 3000, temperature: 0.4, tier: 'fallback' },
+      interview:  { recommendedChunkTokens: 7000, maxGenTokens: 3500, temperature: 0.4, tier: 'fallback' },
+      brainstorm: { recommendedChunkTokens: 7000, maxGenTokens: 3500, temperature: 0.5, tier: 'fallback' },
+    },
   },
 };
 

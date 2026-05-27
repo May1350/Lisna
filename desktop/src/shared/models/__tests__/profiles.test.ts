@@ -8,7 +8,7 @@ describe('modelProfiles', () => {
     expect(p!.contextWindow).toBe(16384);
     expect(p!.chatTemplate).toBe('llama-3.2');
     expect(p!.grammarDialect).toBe('llama-cpp');
-    expect(p!.recommendedChunkTokens).toBeLessThanOrEqual(p!.contextWindow);
+    expect(p!.perFamily.lecture.recommendedChunkTokens).toBeLessThanOrEqual(p!.contextWindow);
   });
 
   it('getModelProfile returns the profile for a known id', () => {
@@ -20,11 +20,13 @@ describe('modelProfiles', () => {
     expect(() => getModelProfile('phantom-model')).toThrow();
   });
 
-  it('every profile has positive ramBudgetMB and recommendedChunkTokens', () => {
+  it('every profile has positive ramBudgetMB and per-family recommendedChunkTokens', () => {
     for (const id of Object.keys(modelProfiles)) {
       const p = modelProfiles[id]!;
       expect(p.ramBudgetMB).toBeGreaterThan(0);
-      expect(p.recommendedChunkTokens).toBeGreaterThan(0);
+      for (const family of Object.keys(p.perFamily) as Array<keyof typeof p.perFamily>) {
+        expect(p.perFamily[family].recommendedChunkTokens).toBeGreaterThan(0);
+      }
     }
   });
 });
