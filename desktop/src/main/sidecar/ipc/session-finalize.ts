@@ -14,6 +14,7 @@ import path from 'node:path';
 import { ipcMain } from 'electron';
 import type { TranscriptSegment as LegacySegment } from '@shared/types';
 import type { SessionTranscript, TranscriptSegment as V2Segment } from '@shared/note-schema/transcript';
+import type { NoteFamily } from '@shared/note-schema';
 import type { GrammarCapableSidecar } from '../grammar-call';
 import { finalizeLecture } from '../orchestrator';
 import { modelProfiles } from '@shared/models/profiles';
@@ -21,7 +22,7 @@ import { modelProfiles } from '@shared/models/profiles';
 // ─── public types ────────────────────────────────────────────────────────────
 
 export interface SessionFinalizeArgs {
-  family: 'lecture' | 'meeting' | 'interview' | 'brainstorm';
+  family: NoteFamily;
   promptVariant?: string;
 }
 
@@ -101,8 +102,12 @@ async function routeLecture(
     promptVariantId,
   });
 
-  // 5. Return placeholder noteId (real ID assignment lands in Task 13 / persistence)
-  return { noteId: result.note.title };
+  // 5. Return placeholder noteId. We thread telemetry.noteId (which is
+  // args.sessionId — currently the hardcoded 'live' placeholder) instead of
+  // result.note.title because the title is content (user-visible text that
+  // may collide). Task 13 assigns the real persistence ID; that propagates
+  // through telemetry.noteId here without touching this line.
+  return { noteId: result.telemetry.noteId };
 }
 
 // ─── adapter ──────────────────────────────────────────────────────────────────

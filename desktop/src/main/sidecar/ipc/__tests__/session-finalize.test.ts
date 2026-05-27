@@ -147,13 +147,29 @@ describe('registerSessionFinalize', () => {
   // (e) lecture + valid session + mock sidecar → resolves { noteId: string }
   it('(e) family lecture, valid session → resolves { noteId: string }', async () => {
     const sidecar = makeMockSidecar(makeLectureNoteJson());
-    const ctx = makeSessionContext({ sidecar });
+    const ctx = (() => {
+      const baseCtx = makeSessionContext({ sidecar });
+      // Augment one segment with noSpeechProb to exercise adapter plumbing
+      baseCtx.segments = [
+        ...baseCtx.segments.slice(0, 0),
+        { ...baseCtx.segments[0]!, noSpeechProb: 0.1 },
+      ];
+      return baseCtx;
+    })();
     const handler = setup(() => ctx);
     const result = await handler({}, { family: 'lecture' });
     expect(result).toHaveProperty('noteId');
     expect(typeof result.noteId).toBe('string');
     // sidecar was called at least once
     expect((sidecar.generateWithGrammar as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
+    // Verify noSpeechProb was plumbed through: the prompt should contain the segment text
+    const calls = (sidecar.generateWithGrammar as ReturnType<typeof vi.fn>).mock.calls;
+    const firstCall = calls[0];
+    expect(firstCall).toBeDefined();
+    if (firstCall && typeof firstCall[0] === 'object' && 'prompt' in firstCall[0]) {
+      const promptArg = firstCall[0] as { prompt?: string };
+      expect(promptArg.prompt).toContain('Segment 1 content here');
+    }
   });
 
   // (f) lecture + unknown llmModelPath → UNKNOWN_MODEL_PROFILE
