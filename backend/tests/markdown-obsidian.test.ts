@@ -298,6 +298,34 @@ describe('outlineToObsidianMarkdown', () => {
     expect(md).not.toContain('[[A^B#C]]')
   })
 
+  it('escapes backslash in extraTags so YAML frontmatter round-trips', () => {
+    // CodeQL js/incomplete-sanitization (alert #3) — quoteIfNeeded
+    // originally escaped `"` but not `\`. A backslash in a tag breaks
+    // the YAML scalar two ways:
+    //   - middle: `back\slash` emits `"back\slash"`; the parser reads
+    //     `\s` as an undefined escape sequence
+    //   - trailing: `foo\` emits `"foo\"`; the parser reads `\"` as an
+    //     escaped close-quote and the scalar never closes, corrupting
+    //     the entire frontmatter document
+    const o: Outline = {
+      title: 't',
+      sections: [{
+        heading: 'h', ts: 0, summary: '',
+        key_terms: [], examples: [], points: [],
+      }],
+    }
+    const md = outlineToObsidianMarkdown(o, {
+      ...ctx,
+      extraTags: ['back\\slash', 'foo\\'],
+    })
+    // Each `\` must be emitted as `\\` in the YAML scalar.
+    expect(md).toContain('"back\\\\slash"')
+    expect(md).toContain('"foo\\\\"')
+    // Single-escape forms (the buggy output) must never appear.
+    expect(md).not.toContain('"back\\slash"')
+    expect(md).not.toContain('"foo\\"')
+  })
+
   // ──────────────────────────────────────────────────────────────────
   // New slot serialization (Task 23): procedure_steps / formula /
   // argument_chain / timeline — transcript + inferred variants each

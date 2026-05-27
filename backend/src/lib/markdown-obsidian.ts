@@ -418,7 +418,14 @@ function frontmatter(o: Outline, ctx: ExportContext): string[] {
 }
 
 function quoteIfNeeded(s: string): string {
-  return /^[a-zA-Z0-9_-]+$/.test(s) ? s : `"${s.replace(/"/g, '\\"')}"`
+  // YAML double-quoted scalars treat `\` as the start of an escape
+  // sequence, so a literal backslash in the input must become `\\` in
+  // the output. Escape order matters: backslash first, then double-quote
+  // (matching JSON.stringify) — reversing the order would re-escape the
+  // `\` introduced by the quote-escape pass.
+  if (/^[a-zA-Z0-9_-]+$/.test(s)) return s
+  const escaped = s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+  return `"${escaped}"`
 }
 
 function collectImportantPoints(o: Outline, sourceUrl: string): string[] {
