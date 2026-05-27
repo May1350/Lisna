@@ -12,14 +12,18 @@ export interface EvaluateInput {
 }
 
 /**
- * Stable per-user rollout bucket. Hash users.id with SHA-1, take first 4 bytes
- * as uint32, modulo 100. bucket < pct → in cohort.
- * Same input always yields same bucket (no churn across deploys).
+ * Stable per-user rollout bucket. SHA-256(userId) first 4 bytes as uint32,
+ * modulo 100. bucket < pct → in cohort. Deterministic; no churn across
+ * deploys.
+ *
+ * SHA-256 (not a faster non-crypto hash) because CodeQL's
+ * js/weak-cryptographic-algorithm flags SHA-1 even for non-crypto uses
+ * like bucketing — and a stdlib digest beats pulling in a new dep.
  */
 export function inRolloutBucket(userId: string, pct: number): boolean {
   if (pct <= 0) return false;
   if (pct >= 100) return true;
-  const h = createHash('sha1').update(userId).digest();
+  const h = createHash('sha256').update(userId).digest();
   const bucket = h.readUInt32BE(0) % 100;
   return bucket < pct;
 }
