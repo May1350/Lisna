@@ -49,6 +49,8 @@ export interface ContractTestInput {
 
 export function runContractTest(input: ContractTestInput): ContractTestResult {
   const parsed = input.schema.safeParse(input.note);
+  // findings stay empty on schema-parse failure — rule findings are rule-driven only;
+  // parse error surfaces via schemaParseError (matches BaselineFile shape in Task 14).
   if (!parsed.success) {
     return {
       family: input.family,

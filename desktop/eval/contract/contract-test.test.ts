@@ -18,6 +18,7 @@ describe('runContractTest', () => {
     expect(result.schemaParse).toBe('FAIL');
     expect(result.findings.length).toBe(0);
     expect(result.overall).toBe('FAIL');
+    expect(result.schemaParseError).toMatch(/title/i);
   });
 
   it('reports schemaParse=PASS and runs rules when input is valid', () => {
@@ -95,5 +96,25 @@ describe('runContractTest', () => {
     expect(f.pass).toBe(false);
     expect(f.message).toContain('boom');
     expect(result.overall).toBe('FAIL');
+  });
+
+  it('preserves warning severity when a warning-severity rule throws', () => {
+    const throwingWarn: ContractRule = {
+      id: 'throws-warn',
+      severity: 'warning',
+      run: () => { throw new Error('boom-warn'); },
+    };
+    const result = runContractTest({
+      family: 'lecture',
+      schema: TrivialSchema,
+      note: { family: 'lecture', title: 'X' },
+      rules: [throwingWarn],
+      transcript: { transcripts: [] } as never,
+      groundTruth: undefined,
+    });
+    const f = result.findings.find(x => x.ruleId === 'throws-warn')!;
+    expect(f.pass).toBe(false);
+    expect(f.severity).toBe('warning');
+    expect(result.overall).toBe('PASS');   // warning does NOT escalate overall
   });
 });
