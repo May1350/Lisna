@@ -33,5 +33,5 @@ export function computeProvenance(
   return within ? 'transcript' : 'inferred';
 }
 
-/** Type alias for use in FamilyDefinition.inferProvenance? optional override. */
+/** Type alias for use in FamilyCoreDefinition.inferProvenance? optional override. */
 export type ProvenanceComputer = typeof computeProvenance;
