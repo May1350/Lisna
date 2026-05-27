@@ -2,25 +2,13 @@ import type { FamilyCoreDefinition } from '../families';
 import type { NoteBase } from '../note-schema/base';
 import type { SessionTranscript } from '../note-schema/transcript';
 import { computeProvenance } from '../note-schema/provenance';
+import { ForwardIncompatNoteError } from '../note-schema/forward-incompat';
+
+// Re-export for backwards compat — existing callers import from this module.
+export { ForwardIncompatNoteError } from '../note-schema/forward-incompat';
 
 /** The highest schemaVersion this app build can read. */
 export const CURRENT_SCHEMA_VERSION = 1;
-
-/**
- * Thrown in Stage 1 when the decoded note has a schemaVersion newer than
- * this app supports. The user needs to update Lisna before opening the note.
- */
-export class ForwardIncompatNoteError extends Error {
-  constructor(
-    public readonly observed: number,
-    public readonly supported: number,
-  ) {
-    super(
-      `Note schemaVersion ${observed} is newer than this app supports (${supported}). Please update Lisna.`,
-    );
-    this.name = 'ForwardIncompatNoteError';
-  }
-}
 
 /**
  * Run the 5-stage post-decode pipeline per spec §5.2.

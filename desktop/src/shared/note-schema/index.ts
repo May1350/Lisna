@@ -39,3 +39,4 @@ export {
 
 export { hydratePostDecode } from './post-decode-hydration';
 export { zodToGbnf } from './zod-to-gbnf';
+export { ForwardIncompatNoteError } from './forward-incompat';
