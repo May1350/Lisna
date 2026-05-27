@@ -11,6 +11,17 @@ export interface ModelDescriptor {
   source: { url: string };   // hf hub or self-mirror
 }
 
+/**
+ * Legacy (alpha) transcript segment shape — drives the alpha single-shot
+ * `ja-note-v1.ts` path. v2 structured-note pipeline uses
+ * `desktop/src/shared/note-schema/transcript.ts::TranscriptSegment`
+ * (`{ ts, endTs, text, speakerId, meta? }`).
+ *
+ * Both shapes coexist during alpha→v2 transition (spec §10.1).
+ * Adapter direction: STT emits legacy → orchestrator converts to v2 after
+ * diarization assigns `speakerId`. See
+ * `desktop/src/shared/note-schema/NAMING.md` for the locked convention.
+ */
 export interface TranscriptSegment {
   startSec: number;
   endSec: number;
