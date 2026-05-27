@@ -241,3 +241,70 @@ The production grammar-constrained-call wrapper in Plan 2 MUST plumb:
 4. Surface `attemptsUsed` and `attempts[].reason` in logs for eval-loop tuning.
 
 Without those, the same failure modes hit production unchanged.
+
+---
+
+## Capability-floor measurement — take-5 1B run (2026-05-27)
+
+Same 5-sample rig (commit `251c1fc`), same `temperature=0.6`, same retry
+budget (3), same seeds (`1000..1004` base + `+100` per attempt). Only
+swap: `SPIKE_LLM_MODEL_PATH=/Users/guntak/.lisna-test-models/Llama-3.2-1B-Instruct-Q4_K_M.gguf`.
+
+```
+pass=5/5 (attempt 1: 4, attempt 2: 1, attempt 3: 0)
+mean attempts/sample = 1.20, p90 = 2
+latency ms p50=17362 p90=57547 total=143630ms (2.39 min)
+```
+
+### Side-by-side with 3B (take-4)
+
+| Metric | 3B Q4_K_M | 1B Q4_K_M | Delta |
+|---|---|---|---|
+| pass | 5/5 | 5/5 | identical |
+| attempt-1 hit | 4/5 | 4/5 | identical |
+| mean attempts/sample | 1.20 | 1.20 | identical |
+| p50 latency | 22 452 ms | 17 362 ms | 1B is 1.29× faster |
+| p90 latency | 239 063 ms | 57 547 ms | 1B is 4.15× faster |
+| total wall (5 samples + 4 × 5 s cooldown) | 5.79 min | 2.39 min | 1B is 2.42× faster |
+| GGUF on disk | ~2.0 GB | ~0.77 GB | 1B is 2.6× smaller |
+| Estimated resident (Metal) | ~3 GB | ~1 GB | 1B fits 8 GB headroom with room to spare |
+| Sample 0 first-attempt latency | 239 s (runaway, n=4096 saturated) | 57 s (runaway, n=4096 saturated) | both hit array-runaway, 1B's runaway is 4× shorter wall |
+| Sample 0 retry latency | 18 s | 13 s | both recover at seed +100 |
+
+The Sample-0 runaway pattern is **identical on both models**. The cause
+isn't model-size — it's the grammar's unbounded-array shape (failure mode
+A from the original analysis). 1B simply burns less wall before the
+n-cap fires, because per-token latency is faster.
+
+### What this means for the picker (Step 5 §5.1)
+
+**On Zod compliance + speed alone**, 1B is the better default — faster,
+smaller, same grammar-compliance recovery profile. **BUT** Spike 0.1 only
+verifies that the grammar produces parseable JSON; it does NOT verify
+semantic quality of the JSON content. The picker's "recommended" tier
+turns on *whether the LLM produces useful notes*, not just *parseable
+notes*. Spike 0.2 (slot emergence) is the load-bearing data for picker
+priority. Until then, do NOT promote 1B to "recommended"; capability
+floor is established (1B doesn't catastrophically fail grammar), but
+quality-floor is unproven.
+
+If Spike 0.2 shows comparable slot emergence on 1B vs 3B, **the picker
+should default to 1B for ≤ 12 GB Macs and offer 3B as "higher quality"
+upgrade**. If 1B's slot emergence is materially worse, keep 3B as
+default and use 1B only as the explicit "fits-low-RAM" fallback.
+
+### What this means for the production wrapper
+
+The wrapper mandates from the 3B-resolution section still apply
+unchanged. The retry budget of 3 is empirically calibrated against both
+model sizes, so a future model swap (1B ↔ 3B ↔ 7B) does not require
+re-tuning the retry layer. The runaway-recovery contract is model-size-
+invariant.
+
+### Take-5 is NOT a new HARD GATE
+
+The Plan-1 HARD GATE was satisfied by take-4 (3B PASS). Take-5 is
+*supplementary capability-floor data*, not a gate re-test. Do not run
+take-5 results back into the spec scorecard's "Result" column — the
+README's 0.1 row stays "PASS (3B …)" with this file as the reference
+for capability floor.
