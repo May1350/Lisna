@@ -17,6 +17,24 @@
 
 import { z } from 'zod';
 
+// Internal Zod v3 introspection: `._def` is the unstable internal API but
+// is the only way to discriminate Zod schema shapes at runtime (Zod v3 has
+// no public type-name discriminator). We narrow the access surface here so
+// the rest of the file stays type-safe instead of sprinkling `any` casts.
+interface ZodDef {
+  typeName: string;
+  description?: string;
+  innerType?: z.ZodType;
+  shape?: () => Record<string, z.ZodType>;
+  type?: z.ZodType;
+  values?: readonly string[];
+  options?: readonly z.ZodType[];
+  value?: string;
+}
+
+const getDef = (schema: z.ZodType): ZodDef =>
+  (schema as unknown as { _def: ZodDef })._def;
+
 // llama.cpp's GBNF parser accepts only [a-zA-Z0-9-] in rule names
 // (src/llama-grammar.cpp::is_word_char). Underscores break the parse —
 // our composite rule names (e.g. `LectureNote_sections_elem`) and field
@@ -42,18 +60,19 @@ export function zodToGbnf(schema: z.ZodType, rootName: string): string {
 function emit(schema: z.ZodType, name: string, rules: string[], visited: Set<string>): void {
   if (visited.has(name)) return;
   visited.add(name);
-  const def = (schema as any)._def;
+  const def = getDef(schema);
 
   if (def.typeName === 'ZodObject') {
-    const fields = Object.entries(def.shape()) as [string, z.ZodType][];
+    const fields = Object.entries(def.shape!()) as [string, z.ZodType][];
     // Filter out fields marked .describe(JSON.stringify({ postDecodeOnly: true })).
     // Zod v3 has no .meta(); the v3 metadata channel is .describe(string), so the
     // marker is encoded as a JSON-stringified object on _def.description (or on the
     // inner ZodOptional's _def.description for `.optional().describe(...)` patterns).
     // Non-JSON descriptions are treated as plain human-readable text — field kept.
-    const filtered = fields.filter(([_, v]) => {
-      const fdef = (v as any)._def;
-      const description = fdef.description ?? fdef.innerType?._def?.description;
+    const filtered = fields.filter(([, v]) => {
+      const fdef = getDef(v);
+      const description =
+        fdef.description ?? (fdef.innerType ? getDef(fdef.innerType).description : undefined);
       if (!description) return true;
       try {
         const meta = JSON.parse(description) as Record<string, unknown>;
@@ -69,8 +88,9 @@ function emit(schema: z.ZodType, name: string, rules: string[], visited: Set<str
       // contain `_`, e.g. `key_terms`), but keep the original `k` in the
       // emitted JSON string literal so the grammar still matches actual keys.
       const fieldRuleName = sanitize(`${name}_${k}`);
-      const isOptional = (v as any)._def.typeName === 'ZodOptional';
-      const inner = isOptional ? (v as any)._def.innerType : v;
+      const vdef = getDef(v);
+      const isOptional = vdef.typeName === 'ZodOptional';
+      const inner = isOptional ? vdef.innerType! : v;
       emit(inner, fieldRuleName, rules, visited);
       const entry = `"\\"${k}\\"" ":" ws ${fieldRuleName}`;
       if (isOptional) optionalParts.push(entry);
@@ -82,7 +102,7 @@ function emit(schema: z.ZodType, name: string, rules: string[], visited: Set<str
 
   // Trivial guard — should only be reached via plain emit() outside ZodObject:
   if (def.typeName === 'ZodOptional') {
-    emit(def.innerType, name, rules, visited);
+    emit(def.innerType!, name, rules, visited);
     return;
   }
 
@@ -93,13 +113,13 @@ function emit(schema: z.ZodType, name: string, rules: string[], visited: Set<str
 
   if (def.typeName === 'ZodArray') {
     const elemRuleName = sanitize(`${name}_elem`);
-    emit(def.type, elemRuleName, rules, visited);
+    emit(def.type!, elemRuleName, rules, visited);
     rules.push(`${name} ::= "[" ws (${elemRuleName} (ws "," ws ${elemRuleName})*)? ws "]"`);
     return;
   }
 
   if (def.typeName === 'ZodEnum') {
-    const opts = def.values.map((v: string) => `"\\"${v}\\""`).join(' | ');
+    const opts = def.values!.map((v: string) => `"\\"${v}\\""`).join(' | ');
     rules.push(`${name} ::= ${opts}`);
     return;
   }
@@ -110,9 +130,10 @@ function emit(schema: z.ZodType, name: string, rules: string[], visited: Set<str
 
   if (def.typeName === 'ZodDiscriminatedUnion') {
     const variants: string[] = [];
-    for (let i = 0; i < def.options.length; i++) {
+    const options = def.options!;
+    for (let i = 0; i < options.length; i++) {
       const variantName = sanitize(`${name}_v${i}`);
-      emit(def.options[i], variantName, rules, visited);
+      emit(options[i]!, variantName, rules, visited);
       variants.push(variantName);
     }
     rules.push(`${name} ::= ${variants.join(' | ')}`);
