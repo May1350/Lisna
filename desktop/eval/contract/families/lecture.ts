@@ -1,5 +1,6 @@
 // desktop/eval/contract/families/lecture.ts
 import type { ContractRule } from '../contract-test';
+import { parrotingRule } from '../anti-parroting';
 
 // Per spec §3.3 + §7.2 + P7. Encodes the v1-plateau insight:
 // mode-collapse looks like a "valid but bland" note where each section
@@ -82,4 +83,5 @@ export const LECTURE_RULES: ContractRule[] = [
   sectionsHaveKeyTerms,
   fromTranscriptRatio,
   slotsEmergeWhenExpected,
+  parrotingRule,
 ];
