@@ -31,19 +31,16 @@ function mockSidecar(
   const failures = opts.failuresPerCall ?? {};
   const calls: Array<{ prompt: string; grammar: string; seed: number }> = [];
   let successCallIdx = 0;
-  let totalCallIdx = 0;
   return {
     calls,
     async generateWithGrammar(req) {
       calls.push({ prompt: req.prompt, grammar: req.grammar, seed: req.seed });
       if (failures[successCallIdx] && failures[successCallIdx]! > 0) {
         failures[successCallIdx]!--;
-        totalCallIdx++;
         throw new Error('mock-fail');
       }
       const text = responses ? (responses[successCallIdx] ?? '{}') : makeLectureNoteJson('セクション', 0);
       successCallIdx++;
-      totalCallIdx++;
       return { text, seed: req.seed };
     },
   };
