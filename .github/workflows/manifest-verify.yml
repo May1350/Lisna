@@ -24,6 +24,10 @@ concurrency:
   group: manifest-verify-${{ github.ref }}
   cancel-in-progress: true
 
+# Workflow only reads the repo + downloads from R2; no GitHub write-back.
+permissions:
+  contents: read
+
 # Opt JavaScript actions into the Node 24 runtime ahead of GH's
 # 2026-06-02 Node 20 deprecation. See ci.yml for the rationale.
 env:
