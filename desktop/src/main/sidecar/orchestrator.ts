@@ -14,6 +14,7 @@ import { z } from 'zod';
 import { familyCoreRegistry, selectPromptVariant } from '@shared/families';
 import { zodToGbnf } from '@shared/note-schema/zod-to-gbnf';
 import { chunkTranscript } from '@shared/note-schema/chunking';
+import { estimateTokens } from '@shared/note-schema/tokens';
 import { runPostDecodePipeline } from '@shared/post-decode/pipeline';
 import { deterministicMerge } from '@shared/post-decode/deterministic-merge';
 import { callWithGrammar, makeSidecarGenerator, type GrammarCapableSidecar } from './grammar-call';
@@ -277,8 +278,10 @@ export async function finalizeLecture(
   const note = fam.schema.parse(merged) as LectureNote;
 
   // ── Build telemetry ───────────────────────────────────────────────────────
-  // totalTokensOut is 0 — the sidecar doesn't surface token counts yet.
-  // Future: expose token count from generateWithGrammar response (Minor).
+  // totalTokensIn = sum of estimateTokens over each rendered chunk (prompt side
+  // is knowable without sidecar plumbing — plan line 1338).
+  // totalTokensOut stays 0: sidecar doesn't surface generated-token counts yet;
+  // future work plumbs it through generateWithGrammar response (Minor).
   const telemetry: GenerationTelemetry = {
     noteId: args.sessionId,          // Task 13 / persistence assigns the real note ID
     modelId: args.modelProfile.id,
@@ -287,13 +290,17 @@ export async function finalizeLecture(
     generationStartedAt,
     generationDurationMs: Date.now() - t0,
     chunkCount: chunks.length,
-    totalTokensIn: 0,               // sidecar doesn't expose token counts yet (Minor)
-    totalTokensOut: 0,              // same
+    totalTokensIn: chunks.reduce(
+      (sum, chunk) => sum + estimateTokens(renderTranscriptChunk(chunk)),
+      0,
+    ),
+    totalTokensOut: 0,              // sidecar doesn't expose token counts yet (Minor)
     validationWarnings: [],
     dedupHits: [],
     postDecodeMutations: [],
   };
 
+  args.onProgress?.({ phase: 'persist' });
   return { note, telemetry };
 }
 
