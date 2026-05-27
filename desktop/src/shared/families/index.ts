@@ -61,6 +61,8 @@ export interface FamilyCoreDefinition<T extends NoteBase> {
   picker: FamilyPickerConfig;
   evalBaselines: ReadonlyArray<string>;
   inferProvenance?: ProvenanceComputer;
+  /** Whether this family's orchestrator stage runs diarization (multi-speaker labels). Lecture=false, Meeting/Interview=true, Brainstorm=false. */
+  requiresDiarization: boolean;
   slots?: ReadonlyArray<SlotSchemaDefinition<unknown>>;
   mergeStrategy: MergeStrategy;
 }
