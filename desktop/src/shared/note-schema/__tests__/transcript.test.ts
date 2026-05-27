@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   TranscriptSegmentSchema,
   SessionTranscriptSchema,
-  type TranscriptSegment,
   type SessionTranscript,
 } from '../transcript';
 

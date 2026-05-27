@@ -1,5 +1,4 @@
 import { describe, it, expect } from 'vitest';
-import { z } from 'zod';
 import {
   NoteBaseSchema,
   Provenance,
@@ -64,7 +63,7 @@ describe('NoteBase / Provenance / SpeakerRef Zod', () => {
     // via .describe(). zod-to-gbnf reads _def.description and strips fields
     // whose JSON-parsed description has postDecodeOnly: true (see
     // desktop/spikes/phase-0/01-zod-to-gbnf/zod-to-gbnf.ts:32-47).
-    const desc = (ProvenanceSchema as any)._def.description;
+    const desc = (ProvenanceSchema as unknown as { _def: { description: string } })._def.description;
     expect(desc).toBe(POST_DECODE_MARKER_DESCRIPTION);
     const parsed = JSON.parse(desc) as { postDecodeOnly?: boolean };
     expect(parsed.postDecodeOnly).toBe(true);

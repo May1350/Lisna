@@ -23,7 +23,7 @@ describe('estimateTokens — extended CJK coverage', () => {
   });
 
   it('JP punctuation + ideographic space', () => {
-    // 「」、。　 = 5 chars × 0.6 = 3
+    // 「」、。 + U+3000 ideographic space = 5 chars × 0.6 = 3
     expect(estimateTokens('「」、。　')).toBe(3);
   });
 

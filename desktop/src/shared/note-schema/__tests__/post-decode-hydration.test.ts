@@ -15,13 +15,13 @@ describe('hydratePostDecode', () => {
   it('fills `from` on a top-level leaf with ts (transcript match)', () => {
     const obj = { key: 'k', text: 'x', ts: 0 };
     hydratePostDecode(obj, transcript);
-    expect((obj as any).from).toBe('transcript');
+    expect((obj as { from?: string }).from).toBe('transcript');
   });
 
   it('fills `from = inferred` when ts outside window', () => {
     const obj = { key: 'k', text: 'x', ts: 999 };
     hydratePostDecode(obj, transcript);
-    expect((obj as any).from).toBe('inferred');
+    expect((obj as { from?: string }).from).toBe('inferred');
   });
 
   it('recurses into arrays of objects', () => {
@@ -37,8 +37,8 @@ describe('hydratePostDecode', () => {
       ],
     };
     hydratePostDecode(obj, transcript);
-    expect((obj.sections[0]!.key_terms[0] as any).from).toBe('transcript');
-    expect((obj.sections[0]!.key_terms[1] as any).from).toBe('inferred');
+    expect((obj.sections[0]!.key_terms[0] as { from?: string }).from).toBe('transcript');
+    expect((obj.sections[0]!.key_terms[1] as { from?: string }).from).toBe('inferred');
   });
 
   it('does NOT overwrite an explicit `from` already present', () => {
@@ -50,7 +50,7 @@ describe('hydratePostDecode', () => {
   it('does NOT add `from` to leaves without ts', () => {
     const obj = { text: 'no-anchor' };
     hydratePostDecode(obj, transcript);
-    expect((obj as any).from).toBeUndefined();
+    expect((obj as { from?: string }).from).toBeUndefined();
   });
 
   it('handles null / non-object values gracefully', () => {
@@ -62,6 +62,6 @@ describe('hydratePostDecode', () => {
     const empty: SessionTranscript = { sessionId: 'e', speakers: [], transcriptSegments: [] };
     const obj = { ts: 5 };
     hydratePostDecode(obj, empty);
-    expect((obj as any).from).toBe('inferred');
+    expect((obj as { from?: string }).from).toBe('inferred');
   });
 });

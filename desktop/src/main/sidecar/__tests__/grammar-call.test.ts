@@ -4,8 +4,6 @@ import {
   callWithGrammar,
   makeSidecarGenerator,
   type LlmGenerator,
-  type GrammarCallSuccess,
-  type GrammarCallFailure,
 } from '../grammar-call';
 
 const SimpleSchema = z.object({ name: z.string(), n: z.number() });
