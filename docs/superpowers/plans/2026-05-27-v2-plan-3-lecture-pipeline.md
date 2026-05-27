@@ -601,6 +601,47 @@ git commit -m "feat(v2-lecture): FamilyDefinition registration (single-speaker, 
 
 ---
 
+## CHECKPOINT (founder gate) — fork app-design session?
+
+**STOP after Task 3 commits. Do NOT proceed to Task 4 without founder
+acknowledgement.**
+
+Phase A (Tasks 1-3) is the **contract-freeze point** for app-design:
+- `LectureNote` schema + slots are now locked
+- `LectureFamily.renderer: ComponentType<{note: LectureNote}>` slot exists
+  (still stub / undefined-pending — Task 11 fills it)
+
+Per the `.claude/lanes.md` app-design lane and the 2026-05-28
+post-Plan-2 design discussion, this is the right moment to fork a
+parallel app-design session so the renderer work proceeds while
+ai-infra continues Phases B-E (Tasks 4-16).
+
+**The decision to present to founder (with both options spelled out):**
+
+- **(A) Fork now** — create `.claude/worktrees/app-design` from current
+  branch, launch a new Claude session in that worktree to work
+  `desktop/src/renderer/` (LectureRenderer + UI integration =
+  Plan 3 Tasks 11-12, formally re-homed to app-design lane).
+  This session continues with Phase B (Tasks 4-10) in parallel.
+  Setup commands in `.claude/lanes.md` "App design" entry.
+
+- **(B) Sequential** — stay in this session, complete all of Plan 3
+  Phases B-E linearly. Renderer work (Tasks 11-12) lands inside
+  ai-infra lane as cross-lane edits with `Cross-lane:` trailer.
+  No design-session overhead, but no parallel speed-up.
+
+After founder picks A or B, **explicitly note the decision in a memory
+entry** (e.g. `v2_plan3_fork_decision_<date>.md`) so subsequent sessions
+inherit the choice, then proceed.
+
+If A: this session continues from Task 4 (Phase B). The new app-design
+session reads `.claude/lanes.md`, picks up Plan 3 Tasks 11-12 spec, and
+implements LectureRenderer against the now-locked `LectureNote` schema.
+
+If B: this session continues from Task 4 straight through Task 16.
+
+---
+
 ## Phase B — Prompts (Tasks 4-5)
 
 ### Task 4: Lecture system prompt + chunkUserTemplate (PromptVariant v1)
