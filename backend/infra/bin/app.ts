@@ -26,6 +26,7 @@ new ApiStack(app, 'StudyHelperApi', {
   bucket: data.bucket,
   db: data.db,
   appSecret: secrets.appSecret,
+  modelDownloadSecret: secrets.modelDownloadSecret,
   wsEndpoint: ws.wsEndpoint,
   wsApiId: ws.wsApiId,
   wsStageName: ws.wsStageName,

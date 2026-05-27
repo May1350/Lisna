@@ -28,6 +28,11 @@ interface Props extends StackProps {
   bucket: Bucket
   db: DatabaseInstance
   appSecret: Secret
+  /** CDK-owned model-download secret (studyhelper/model-download).
+   *  Granted to model-download Lambdas so they can read R2 creds +
+   *  ALLOWLIST_EMAILS at runtime. Separate from appSecret so operator-
+   *  managed production keys in appSecret are never overwritten by CDK. */
+  modelDownloadSecret: Secret
   wsEndpoint: string
   wsApiId: string
   wsStageName: string
@@ -47,6 +52,12 @@ export class ApiStack extends Stack {
       // URL — fine until the marketing site moves to a custom domain,
       // at which point checkout URLs would 404.
       PUBLIC_WEB_BASE_URL: 'https://lisna.jp',
+    }
+    // Model-download Lambdas additionally read this secret for R2 creds +
+    // ALLOWLIST_EMAILS. Kept separate from commonEnv so non-model-download
+    // Lambdas don't receive the ARN (least-privilege).
+    const modelDownloadEnv = {
+      MODEL_DOWNLOAD_SECRET_ARN: props.modelDownloadSecret.secretArn,
     }
     const wsEndpoint = props.wsEndpoint
 
@@ -481,6 +492,78 @@ export class ApiStack extends Stack {
       path: '/v1/errors',
       methods: [HttpMethod.POST],
       integration: new HttpLambdaIntegration('ErrInt', errorReport),
+    })
+
+    // ── Model download: manifest + telemetry ──────────────────────────────
+    // Both handlers are wrapped in withAuth (no VPC needed — no RDS direct
+    // access; DB is read via DB_SECRET_ARN + appSecret like all other handlers).
+    // modelsManifestFn needs the bundled manifest JSON alongside the Lambda;
+    // afterBundling copies backend/manifests/ into the asset zip.
+    // MODEL_DOWNLOAD_ENABLED='off' + ROLLOUT_PCT='0' keep these endpoints
+    // in dead-letter mode until R2 bucket + allowlist are ready (Task 12+).
+    // R2_* + ALLOWLIST_EMAILS are loaded at runtime from MODEL_DOWNLOAD_SECRET_ARN
+    // (studyhelper/model-download), NOT from appSecret, so CDK deploys can safely
+    // rewrite modelDownloadSecret without touching operator-managed appSecret keys.
+    const modelsManifestFn = new NodejsFunction(this, 'ModelsManifestFn', {
+      entry: path.join(__dirname, '../../src/handlers/models-manifest.ts'),
+      runtime: Runtime.NODEJS_20_X,
+      memorySize: 256,
+      timeout: Duration.seconds(5),
+      environment: {
+        ...commonEnv,
+        ...modelDownloadEnv,
+        MODEL_DOWNLOAD_ENABLED: 'off',
+        MODEL_DOWNLOAD_ROLLOUT_PCT: '0',
+        MIN_SUPPORTED_APP_VERSION: '0.1.1',
+      },
+      bundling: {
+        minify: true,
+        sourceMap: true,
+        externalModules: ['@aws-sdk/*'],
+        commandHooks: {
+          beforeBundling() { return []; },
+          beforeInstall() { return []; },
+          afterBundling(inputDir: string, outputDir: string) {
+            // Copy backend/manifests/ into the Lambda asset so the runtime
+            // path resolver (manifest-loader.ts) finds it at ./manifests/.
+            return [`cp -r ${inputDir}/backend/manifests ${outputDir}/manifests`];
+          },
+        },
+      },
+      logRetention: RetentionDays.ONE_MONTH,
+    })
+    props.dbSecret.grantRead(modelsManifestFn)
+    props.appSecret.grantRead(modelsManifestFn)
+    props.modelDownloadSecret.grantRead(modelsManifestFn)
+
+    const modelsDownloadEventFn = new NodejsFunction(this, 'ModelsDownloadEventFn', {
+      entry: path.join(__dirname, '../../src/handlers/models-download-event.ts'),
+      runtime: Runtime.NODEJS_20_X,
+      memorySize: 256,
+      timeout: Duration.seconds(10),
+      environment: {
+        ...commonEnv,
+        ...modelDownloadEnv,
+        MODEL_DOWNLOAD_ENABLED: 'off',
+        MODEL_DOWNLOAD_ROLLOUT_PCT: '0',
+        MIN_SUPPORTED_APP_VERSION: '0.1.1',
+      },
+      bundling: { minify: true, sourceMap: true, externalModules: ['@aws-sdk/*'] },
+      logRetention: RetentionDays.ONE_MONTH,
+    })
+    props.dbSecret.grantRead(modelsDownloadEventFn)
+    props.appSecret.grantRead(modelsDownloadEventFn)
+    props.modelDownloadSecret.grantRead(modelsDownloadEventFn)
+
+    api.addRoutes({
+      path: '/v1/models/manifest',
+      methods: [HttpMethod.GET],
+      integration: new HttpLambdaIntegration('ModelsManifestInt', modelsManifestFn),
+    })
+    api.addRoutes({
+      path: '/v1/models/download-event',
+      methods: [HttpMethod.POST],
+      integration: new HttpLambdaIntegration('ModelsDownloadEventInt', modelsDownloadEventFn),
     })
 
     // ── Operational alerting: SNS topic + email subscription ───────────────
