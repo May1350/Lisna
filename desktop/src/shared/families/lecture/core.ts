@@ -1,17 +1,8 @@
 import { registerFamilyCore, type FamilyCoreDefinition } from '@shared/families';
-import type { MergeStrategy } from '@shared/families';
 import { LectureNoteSchema, type LectureNote } from './schema';
 import { LECTURE_SLOTS } from './slots';
 import { lecturePromptsV1 } from './prompts/v1';
-
-// Placeholder MergeStrategy — Task 6 lands the real concat-dedup + sections
-// concat-only strategy per spec §5.2b. This stub matches the type and lets
-// downstream code (orchestrator Task 9) read the field shape.
-const lectureMergeStub: MergeStrategy = {
-  scalarPolicy: 'longest',
-  arrayPolicy: 'concat-dedup',
-  sortByTs: true,
-};
+import { lectureMergeStrategy } from './merge';
 
 export const LectureFamilyCore: FamilyCoreDefinition<LectureNote> = {
   id: 'lecture',
@@ -27,7 +18,7 @@ export const LectureFamilyCore: FamilyCoreDefinition<LectureNote> = {
   evalBaselines: [],                         // Plan 7 Task 14 registers spike-0.2-v0 baseline
   requiresDiarization: false,                // single-speaker; orchestrator skips diarization
   slots: LECTURE_SLOTS,
-  mergeStrategy: lectureMergeStub,
+  mergeStrategy: lectureMergeStrategy,
 };
 
 registerFamilyCore(LectureFamilyCore);
