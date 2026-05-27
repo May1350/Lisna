@@ -245,6 +245,8 @@ feedback validates the demand.
 | Migration 004 duplicate | ✅ Fixed (PR #18, 2026-05-23) | Renumbered to 008 + bookkeeping migration 009. See `backend/src/migrations/`. |
 | CI fails on Dependabot PRs | ✅ Fixed (PR #21, 2026-05-24) | `Web — build` step has `secrets.X \|\| 'dummy'` fallback. Don't strip when adding new secrets. |
 | Open Dependabot PRs (2026-05-24) | Open | `dependabot/npm_and_yarn/postcss-8.5.15`, `dependabot/npm_and_yarn/vite-6.4.2`. CI should pass via the #21 fallback. |
+| v2 Spike 0.1 N=5 envelope | Acknowledged (2026-05-27) | Spike 0.1 PASS at N=5 reduced scope per Plan Amendment 1 (commit `9eda9b1`). i=8 Maxwell (iter-3 mode-B string char-escape runaway) unverified — production risk covered ONLY by the retry budget. Before v2 alpha: (a) Plan 2 wrapper enforces retry contract via failing test (paper mandate today), (b) per-attempt wall-time cap 90-120 s (prevents triple-runaway 24-min UI hang), (c) UI retry counter (renderer shows "Retrying 2/3…"). Full N=10 recovery: `desktop/spikes/phase-0/01-zod-to-gbnf/decision-0.1-fail.md` "Path 2.A/B/C procedures". |
+| v2 Spike 0.2 latency MIXED | Open | 3B Lecture spike PASS on Zod + slot emergence; latency 73-98 s/chunk vs spec §7.2 30 s threshold (2.5-3× over). Controller's path A-E (decision-0.2-latency.md) — recommended Path E (per-phase timings, 30 min) before A/B/C/D. Affects alpha post-Stop UX: 53-min lecture ≈ 3 min wall, 90-min ≈ 5 min wall. |
 
 ### Pending questions for the user
 

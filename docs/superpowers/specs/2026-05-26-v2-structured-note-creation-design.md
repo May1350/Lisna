@@ -851,6 +851,20 @@ Implement minimal converter for one family schema (Lecture). Verify:
 
 **Acceptance**: (a) `llama_grammar_init` returns success on every family's generated grammar; (b) 10/10 LLM outputs Zod-parse; (c) converter < 100ms first-call, < 10ms cached subsequent calls per family.
 
+> **Spec Amendment 1 (2026-05-27)** — Acceptance (b) reduced from `10/10`
+> to `N/N within ≤ 3 attempts`, where N is the largest sample count
+> fitting dev hardware's safe sustained-load envelope. Currently **N=5**
+> on the M3-8GB dev machine (per `.claude/rules/pitfalls.md (spike-llm)`
+> kernel-panic post-mortem). The Plan 2 wrapper mandate makes the retry
+> budget load-bearing — without retry plumbing, the same failure modes
+> (array runaway, char-escape runaway) hit production unchanged.
+> Full N=10 recovery via Path 2.A (foreground isolated rig) / Path 2.B
+> (relocate ≥16GB machine) / Path 2.C (combined with Path 1 bounded-
+> array grammar) — concrete procedures in
+> `desktop/spikes/phase-0/01-zod-to-gbnf/decision-0.1-fail.md`.
+> Amendment STANDS until a founder commit explicitly raises N — moving
+> to ≥16GB hardware does NOT auto-restore N=10.
+
 **Fallback if (b) < 100%**: bug in converter — handle that Zod construct (Optional / Discriminated Union / Tuple / etc.) explicitly. Reviewer 2 estimated ~150 LOC for the converter; expect a few iterations to cover all Zod constructs the schema actually uses.
 
 ---

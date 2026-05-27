@@ -1,10 +1,17 @@
-// Spike 0.1 HARD GATE — drive 10 grammar-constrained LLM completions through
-// the converter end-to-end and assert 10/10 Zod-parse cleanly within retries.
+// Spike 0.1 HARD GATE — drive N grammar-constrained LLM completions through
+// the converter end-to-end and assert N/N Zod-parse cleanly within retries.
 //
-// Acceptance per Phase-0 plan: <10/10 → STOP, do NOT claim Spike 0.1 PASS.
-// If this test asserts pass=10, the entire on-device Lecture v2 path is
-// green-lit to proceed to Spike 0.2 (recipe selection) and Spike 0.3
-// (diarization). Faking the threshold invalidates the verdict.
+// Currently N=5 per Plan Amendment 1 (2026-05-27), originally specified at
+// N=10 in the spec; reduced to fit the M3-8GB safe sustained-load envelope
+// (`.claude/rules/pitfalls.md (spike-llm)` kernel-panic post-mortem).
+// Re-running at N=10 requires the Amendment 1 expiry conditions
+// (≥16GB hardware AND founder approval) — see Plan §Spike 0.1 Amendment 1
+// + `decision-0.1-fail.md` "Path 2.A/B/C procedures".
+//
+// Acceptance per Phase-0 plan as amended: <N/N → STOP, do NOT claim
+// Spike 0.1 PASS. If this test asserts pass=PROMPTS.length, the on-device
+// Lecture v2 path is green-lit to proceed to Spike 0.2 (recipe selection)
+// and Spike 0.3 (diarization). Faking the threshold invalidates the verdict.
 //
 // Retry contract (Path 2 remediation per `decision-0.1-fail.md`, founder
 // decision 2026-05-26):

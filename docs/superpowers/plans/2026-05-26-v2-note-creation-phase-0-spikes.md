@@ -133,7 +133,17 @@ git commit -m "chore(spikes): scaffold Phase 0 spike workspace"
 > historic-N context; the operational gate is **N/N at the current N**.
 > Recovery path to full 10/10 also documented in the decision memo
 > (Path 2.A foreground isolated rig / Path 2.B relocate ≥16GB machine
-> / Path 2.C combine with Path 1 bounded-array grammar).
+> / Path 2.C combine with Path 1 bounded-array grammar). Concrete
+> procedures (commands, seeds, scorecard update rules) live in
+> `01-zod-to-gbnf/decision-0.1-fail.md` "Path 2.A/B/C procedures".
+>
+> **Amendment STANDS until a founder commit explicitly raises N.**
+> Migrating to ≥16GB hardware does NOT auto-restore N=10; re-running
+> at N=10 requires both (a) hardware capacity AND (b) founder approval
+> of the time/cost tradeoff (full N=10 was empirically ~50 min wall in
+> worst case at iter-3 single-attempt; multi-attempt budget is higher).
+> Spec §7.4 mirror in `2026-05-26-v2-structured-note-creation-design.md`
+> as "Spec Amendment 1" — keep both in lockstep when amending.
 
 **Goal:** Produce a converter that takes Zod schemas (covering ALL constructs the 4 family schemas use) and emits GBNF that (a) `llama_grammar_init` accepts, (b) round-trips: schema → grammar → LLM output → parse via original schema, N/N samples (see Amendment 1).
 

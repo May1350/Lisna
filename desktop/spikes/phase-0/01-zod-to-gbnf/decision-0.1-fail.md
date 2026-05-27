@@ -49,6 +49,16 @@ All runs used:
   `LectureMiniSchema`
 - 10 distinct prompts, deterministic per-sample seeds (`1000..1009`)
 
+> **Sample-index remap note (post-Path-2 trim)**: Iter-1..3 below use the
+> original 10-prompt order with Newton at i=2, Bread at i=6, Maxwell at i=9.
+> The Amendment 1 box (Plan §Spike 0.1) refers to "Maxwell at i=8" — this
+> reflects a hypothetical 9-sample remap that was NOT executed; in the
+> actual N=5 take-4 list (Resolution section below) Maxwell is NOT
+> present at all. Read references in this iter-1..3 section as their
+> original 10-prompt indices; cross-references in the Amendment 1 box
+> and the top status box use "i=8 Maxwell" as shorthand for "the
+> mode-B sample, regardless of position number".
+
 | Iter | `maxTokens` | Temp range | Pass | Failure type (samples) |
 |---|---|---|---|---|
 | 1 | 2048 | 0.40..0.85 | 8/10 | sample 2 (Newton, temp=0.5, seed=1002) and sample 6 (Bread, temp=0.7, seed=1006): JSON.parse "Bad control character" / "Expected ',' or ']'" at offset ~6000 = `n`-cap truncation mid-string/array |
@@ -335,3 +345,90 @@ The Plan-1 HARD GATE was satisfied by take-4 (3B PASS). Take-5 is
 take-5 results back into the spec scorecard's "Result" column — the
 README's 0.1 row stays "PASS (3B …)" with this file as the reference
 for capability floor.
+
+---
+
+## Path 2.A/B/C procedures (concrete steps for full N=10 recovery)
+
+When Amendment 1 is lifted (founder approval + ≥16GB hardware), one of
+these paths re-validates full 10/10. The Amendment box in Plan §Spike
+0.1 references these by label — actual commands live here.
+
+### Path 2.A — foreground isolated rig (any hardware that can run 3B at all)
+
+Run the 5 missing prompts (indices 5..9 of the original 10-prompt list:
+Bread, Einstein relativity, nervous system, Maxwell, Bayesian) each as
+**separate `tsx` foreground process**, with peak RAM released between
+samples. This is the lightest path and works on the current dev box.
+
+1. Add `desktop/spikes/phase-0/01-zod-to-gbnf/single-sample-rig.ts` that
+   accepts `--prompt-index <i>` and runs the same `runSampleWithRetries`
+   logic as `round-trip.test.ts` but for one prompt only. Reuses
+   `runLlamaCli`, `parseAndValidate`, `MAX_ATTEMPTS=3`,
+   `TEMPERATURE=0.6`, `MAX_TOKENS=4096`, seed contract
+   `1000 + i + 100 × (attempt-1)`.
+2. For each `i ∈ {5, 6, 7, 8, 9}`:
+   `tsx single-sample-rig.ts --prompt-index $i 2>&1 | tee ~/lisna-spike-runs/spike-0.1-path-2a-i${i}.log`
+3. Between samples: wait ~10 s (process exit clears RSS naturally; the
+   rig's `await new Promise(r => setTimeout(r, 10_000))` is fine too).
+4. After all 5 PASS: update README scorecard "PASS (take-4 5/5 …)" →
+   "PASS (take-4 5/5 + Path-2A 5/5 = 10/10)"; lift Amendment 1 by
+   committing `spec amendment-1: lifted` to both spec §7.4 and Plan
+   §Spike 0.1; update this memo's title to "PASS at N=10 (Iter-4 + Path 2.A)".
+5. If any of i=5..9 fails all 3 attempts: capture the failure JSON dump
+   + attempts metadata, do NOT lift the amendment, and append an
+   "Iteration 5" section here documenting which prompt and which mode.
+
+**Estimated effort: 90-120 min** (rig writing + 5 sequential runs at
+up to ~8 min runaway + ~1 min retry each + analysis).
+
+### Path 2.B — relocate to ≥16GB machine, re-run the existing test
+
+The current `round-trip.test.ts` is N=5 hardcoded (PROMPTS array). To
+run at N=10:
+
+1. On ≥16GB hardware, restore the original 10-prompt list (the 5
+   currently in PROMPTS + the 5 missing ones from the iter-3 sample
+   list above).
+2. `pnpm exec vitest run --reporter=verbose spikes/phase-0/01-zod-to-gbnf/round-trip.test.ts 2>&1 | tee ~/lisna-spike-runs/spike-0.1-path-2b.log`
+3. If 10/10 within ≤3 attempts: same closeout as Path 2.A step 4.
+
+GitHub Actions `macos-15` is 6-core 14GB — borderline. Borrowed M1
+Pro / M2 Pro / cloud Mac with ≥16GB is the cleaner runner.
+
+**Estimated effort: 60-90 min** (machine + 1 run + cleanup).
+
+### Path 2.C — bounded-array grammar (combined with Path 1 from above)
+
+Extend `zod-to-gbnf.ts` to emit `(elem ("," elem){0,N-1})?` bounded
+repetition when the Zod schema declares `.max(N)` on an array. Annotate
+`LectureMiniSchema` arrays with `.max(N)` (`key_terms.max(12)`,
+`extras.max(8)`, `items.max(20)`, `sections.max(10)`). This
+**structurally eliminates** failure mode A (array runaway). Failure
+mode B (string char-escape loop) is NOT addressed by Path 1.
+
+After landing Path 1: re-run via either Path 2.A or Path 2.B above to
+verify the new bounded grammar holds 10/10.
+
+**Estimated effort: 2-3 h** (converter changes + schema annotations +
+re-spike via Path 2.A or 2.B).
+
+---
+
+## Take-N artifact mapping (disambiguation)
+
+The "take-N" label drifted between disk logs, memo prose, and commit
+messages during the iter-4 process. Canonical mapping:
+
+| Label | Where it appears | What it actually is |
+|---|---|---|
+| `~/lisna-spike-runs/spike-0.1-take-3.log` | on-disk | Iter-3 N=10 single-attempt run, hit 900s testTimeout at sample 6 (saved 6 PASS) |
+| `~/lisna-spike-runs/spike-0.1-take-4.log` | on-disk | Iter-4 N=10 first retry-contract attempt, killed when parent shell exited (saved 7 PASS) |
+| `~/lisna-spike-runs/spike-0.1-take-5.log` | on-disk | Iter-4 N=10 redirect-bug run, died at header |
+| `~/lisna-spike-runs/spike-0.1-take-6.log` | on-disk | Iter-4 N=10 final attempt, founder-killed to avoid 3rd kernel panic (saved 3 PASS) |
+| **"take-4"** in commit `46ed08a` body + this memo "Resolution" | prose | Post-trim N=5 first run — **the PASS run**. Stdout was NOT preserved as a `~/lisna-spike-runs/` log file; the captured numbers live in the commit body and Resolution section above. |
+| **"take-5"** in this memo "Capability-floor measurement" | prose | Post-trim N=5 1B Q4_K_M run. Same caveat — no `~/lisna-spike-runs/` log file. |
+
+If future re-runs land via Path 2.A/B/C, use the labels
+`path-2a-i<N>` / `path-2b-run` etc. above, NOT a fresh `take-N` number,
+to avoid extending the ambiguity.
