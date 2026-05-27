@@ -326,6 +326,47 @@ describe('outlineToObsidianMarkdown', () => {
     expect(md).not.toContain('"foo\\"')
   })
 
+  it('escapes backslash and double-quote in course/lecturer/key_terms frontmatter', () => {
+    // Same bug class as the extraTags fix in markdown-obsidian.ts:
+    // course / lecturer / key_terms each wrap a sanitiseWikilink(...)
+    // value in a raw `"[[…]]"` YAML scalar. sanitiseWikilink only strips
+    // `[`, `]`, `|`, `^`, `#` — it leaves `\` and `"` untouched. An LLM-
+    // generated course / lecturer / tag that contains either character
+    // (round-tripped through sessions.outline JSONB) corrupts the
+    // exported .md frontmatter three ways:
+    //   - middle `\`     : YAML reads `\W` as an undefined escape
+    //   - trailing `\`   : YAML reads `\]` as undefined, and the
+    //                      following `]]"` no longer closes the scalar
+    //   - embedded `"`   : terminates the YAML scalar early, breaking
+    //                      the rest of the frontmatter line
+    const o: Outline = {
+      title: 't',
+      course: 'Course\\With"Quote',  // mid `\` + embedded `"`
+      lecturer: 'Prof\\',             // trailing `\`
+      sections: [{
+        heading: 'h', ts: 0, summary: '',
+        key_terms: [
+          { term: 'term\\one', definition: 'd1', ts: 0, from: 'transcript' as const },
+          { term: 'tag"with"q', definition: 'd2', ts: 0, from: 'transcript' as const },
+        ],
+        examples: [], points: [],
+      }],
+    }
+    const md = outlineToObsidianMarkdown(o, ctx)
+
+    // Each `\` must be emitted as `\\` and each `"` as `\"` in the YAML.
+    expect(md).toContain('course: "[[Course\\\\With\\"Quote]]"')
+    expect(md).toContain('lecturer: "[[Prof\\\\]]"')
+    expect(md).toContain('- "[[term\\\\one]]"')
+    expect(md).toContain('- "[[tag\\"with\\"q]]"')
+
+    // Buggy single-escape forms (current pre-fix output) must NOT appear.
+    expect(md).not.toContain('course: "[[Course\\With"Quote]]"')
+    expect(md).not.toContain('lecturer: "[[Prof\\]]"')
+    expect(md).not.toContain('- "[[term\\one]]"')
+    expect(md).not.toContain('- "[[tag"with"q]]"')
+  })
+
   // ──────────────────────────────────────────────────────────────────
   // New slot serialization (Task 23): procedure_steps / formula /
   // argument_chain / timeline — transcript + inferred variants each
