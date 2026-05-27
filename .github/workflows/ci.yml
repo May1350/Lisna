@@ -13,6 +13,11 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Both jobs only read the repo + run build/test/lint locally; no PR
+# comments, artifact uploads, or deploys.
+permissions:
+  contents: read
+
 # Opt JavaScript actions into the Node 24 runtime ahead of GH's
 # 2026-06-02 Node 20 deprecation (forced default from that date,
 # Node 20 removed from runner 2026-09-16). The actions used here

@@ -1,0 +1,33 @@
+{
+  "manifest_version": 1,
+  "generated_at": "2026-05-25T00:00:00Z",
+  "cache_max_age_seconds": 604800,
+  "models": [
+    {
+      "slot": "stt",
+      "id": "kotoba-whisper-v2.0-q5_0",
+      "version": "2.0",
+      "size_bytes": 0,
+      "sha256": "PENDING_UPLOAD",
+      "tier": "default",
+      "lang": "ja",
+      "license_url": "https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0/blob/main/README.md",
+      "license_id": "kotoba-whisper-tin",
+      "license_text_sha256": "PENDING_UPLOAD",
+      "object_key": "kotoba-whisper-v2.0/q5_0/whisper.bin"
+    },
+    {
+      "slot": "llm",
+      "id": "Llama-3.2-3B-Q4_K_M",
+      "version": "3.2",
+      "size_bytes": 0,
+      "sha256": "PENDING_UPLOAD",
+      "tier": "default",
+      "lang": "multi",
+      "license_url": "https://www.llama.com/llama3_2/license/",
+      "license_id": "llama-3.2-community",
+      "license_text_sha256": "PENDING_UPLOAD",
+      "object_key": "Llama-3.2-3B-Instruct/Q4_K_M/llm.gguf"
+    }
+  ]
+}

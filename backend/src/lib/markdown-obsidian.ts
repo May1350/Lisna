@@ -391,8 +391,8 @@ function frontmatter(o: Outline, ctx: ExportContext): string[] {
   // node aggregating every lecture where curator couldn't extract these
   // fields — actively pollutes the knowledge graph. Better to omit the
   // field entirely so unknown lectures stay unconnected to any hub.
-  if (isMeaningful(o.course))   lines.push(`course: "[[${sanitiseWikilink(o.course!)}]]"`)
-  if (isMeaningful(o.lecturer)) lines.push(`lecturer: "[[${sanitiseWikilink(o.lecturer!)}]]"`)
+  if (isMeaningful(o.course))   lines.push(`course: ${yamlScalar(`[[${sanitiseWikilink(o.course!)}]]`)}`)
+  if (isMeaningful(o.lecturer)) lines.push(`lecturer: ${yamlScalar(`[[${sanitiseWikilink(o.lecturer!)}]]`)}`)
   lines.push(`date: ${date}`)
   if (ctx.durationSec) lines.push(`duration: "${formatHHMMSS(ctx.durationSec)}"`)
   lines.push(`source: "${ctx.sourceUrl}"`)
@@ -408,7 +408,7 @@ function frontmatter(o: Outline, ctx: ExportContext): string[] {
   const keyTerms = collectTerms(o)
   if (keyTerms.length > 0) {
     lines.push(`key_terms:`)
-    for (const t of keyTerms) lines.push(`  - "[[${sanitiseWikilink(t)}]]"`)
+    for (const t of keyTerms) lines.push(`  - ${yamlScalar(`[[${sanitiseWikilink(t)}]]`)}`)
   }
   lines.push(`tags: [${tags.map(t => quoteIfNeeded(t)).join(', ')}]`)
   lines.push(`generated_by: study-helper`)
@@ -418,7 +418,17 @@ function frontmatter(o: Outline, ctx: ExportContext): string[] {
 }
 
 function quoteIfNeeded(s: string): string {
-  return /^[a-zA-Z0-9_-]+$/.test(s) ? s : `"${s.replace(/"/g, '\\"')}"`
+  return /^[a-zA-Z0-9_-]+$/.test(s) ? s : yamlScalar(s)
+}
+
+// YAML double-quoted scalar: wraps `s` in `"…"` and escapes `\` and
+// `"`. Order matters — backslash first (matching JSON.stringify), so
+// the `\` introduced by the quote-escape pass isn't re-escaped. Use
+// for any string interpolated into a `"…"` YAML scalar: a stray `"`
+// terminates the scalar early, and a stray `\` becomes an undefined
+// escape sequence (or, when trailing, swallows the closing `"`).
+function yamlScalar(s: string): string {
+  return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
 }
 
 function collectImportantPoints(o: Outline, sourceUrl: string): string[] {

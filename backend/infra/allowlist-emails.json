@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "users": [
+    { "email": "takgun.jr@gmail.com", "added_at": "2026-05-26", "holdout": false }
+  ]
+}
