@@ -1,6 +1,6 @@
 # Lisna — Session Handoff
 
-**Last updated**: 2026-05-24 (i18n parity PR)
+**Last updated**: 2026-05-27 (v2 Phase 0 spikes — Amendment 1 + Spike 0.2 Path E)
 **Purpose**: Bring a new session up to speed in <5 min. Read top → bottom in order.
 **Reader**: future-self (or another Claude). Skip what you already know.
 
@@ -92,6 +92,20 @@ segments). Curator: OpenAI gpt-4o-mini. Auth: JWT issued from Google OAuth.
 | #32 | **Legal-pad design system on marketing surfaces.** `.pad-paper` page surface (cream + printed red margin + ruled lines), `<Postit>` yellow screenshot frame (V2-B drop-shadow, em-scaled, square / wide / portrait), `#pencil-rough` SVG filter shared at root layout (used by hero circle, marginalia arrow, pricing star), Caveat handwriting font (marginalia + post-it captions only), tokens `pencil.red` / `print.red` / `postit.*` / `fontFamily.hand`. Full spec in `.claude/rules/web-design.md`. |
 | #33 | **Burgundy NavBar binding.** `#6e1e1e` solid (no gradient/staples), `LocaleSwitcher` decoupled to `text-inherit` so it stays neutral on both NavBar (dark) and auth-shell (light). Same red family as `print.red` / `pencil.red` — header is the darkest value, hierarchy: header > margin line > pencil accents. |
 | (this PR) | **EN/JA/KO i18n parity.** ~60% of marketing copy was untranslated (features.privacy/notes/export/marginalia, privacyEmphasis, pricingSection, faq, ctaStrip). Filled JA + KO. Extracted hardcoded strings from `footer`, `signin/page.tsx`, `download/page.tsx`, `pricing/page.tsx`, `compare/page.tsx` into new namespaces (`footer.links`, `auth`, `downloadPage`, `pricingPage`, `comparePage`). Added `web/src/i18n/brand-vocabulary.ts` as single source of truth for never-translate tokens (Lisna, Whisper, Llama, Obsidian, competitors, ¥/$, license codes) + the value-parity / hardcoded-CJK allowlists. Legal pages: privacy/terms/refunds now have EN + JA blocks in the same file, switched via `ENGLISH_LOCALES` (`en` + `ko` → EN, `ja` → JA, per design decision pending KO legal review); tokusho stays JA-only. New: `web/scripts/check-i18n.mjs` (key parity HARD, value parity + hardcoded CJK WARN; `--strict` upgrades to FAIL), wired into pre-commit (warn) + CI (strict). New rule file `.claude/rules/i18n.md` + skill `.claude/skills/i18n-check`. CLAUDE.md gained rule 17b. |
+
+### What landed since (2026-05-26 → 2026-05-27, v2 Phase 0 spikes, separate session track)
+
+v2 desktop spike work on `spec/v2-note-creation-design` branch. Independent of the extension freeze (which still stands).
+
+| Commit | What |
+|---|---|
+| (multiple) | **Spike 0.1 zod-to-gbnf.** Iter-1..3 failed at N=10 (best 8/10, mode-A array runaway + mode-B char-escape loop). Founder selected Path 2 (retry contract). Take-4 PASSed 5/5 within ≤ 2 attempts at N=5 reduced scope. Take-5 1B Q4_K_M co-validated same retry profile (2.4× faster wall). |
+| `43d1f73` | **New `(spike-llm)` pitfall rule** — pinned post-mortem of two M3-8GB kernel panics from sustained 3B Llama inference. Bans `run_in_background:true` for heavy LLM; mandates `afterAll`/`ps`/`kill -9` survivor cleanup. |
+| `9eda9b1` | **Plan Amendment 1 + memo title alignment** — Plan + decision memo updated to reflect N=10→5 hardware-reduced acceptance that already shipped silently in `251c1fc` + `46ed08a`. |
+| `060d1fd` | **Ultra-review fix-up (5 reviewers across 2 passes)** — Spec §7.4 also amended, `round-trip.test.ts` header rewritten, Amendment 1 expiry clause added ("STANDS until founder commit raises N"), Path 2.A/B/C concrete procedures appended to memo, take-N artifact mapping table disambiguated logs vs commits, Maxwell sample-index remap footnote added, HANDOFF §5 two new entries (Spike 0.1 N=5 envelope + Spike 0.2 latency MIXED). New `(test-headers)` pitfall rule. |
+| `44e546d` | **Phase 0 verdict memo** — Spike 0.1 PASS (N=5) / 0.2 MIXED / 0.3 BLOCKED (founder JA fixtures gate) / 0.4 PASS. Plan 2 (Foundation) green-lit with 7 carry-forward items including the load-bearing retry-loop wrapper mandate. |
+| `d9d333d` | **Spike 0.2 Path E per-phase timing** — empirically split the 72 s/chunk wall: prompt eval 54% @ 3.93 ms/tok, generation 43% @ 46.54 ms/tok (12× slower per token; grammar mask = dominant amplifier, ~3.1× vs no-grammar baseline). Both phases co-dominate → Path B/D de-prioritized. New Path F (1B re-spike, ~30 s/chunk estimate, lands spec) + Path G (output cap / `.max(N)` bound) as strongest single-step candidates. |
+| (this commit) | **Session handoff** — 3 new `/learn` rules (dispatch trust-but-verify, dispatch send artifact ref, test-headers pair-update), decision record `2026-05-27-spike-0.1-amendment-1-n5-envelope`, REFACTOR_BACKLOG 3 new items, HANDOFF top date + §2 + §8. |
 
 ### Operational guards on GitHub (added 2026-05-24)
 
@@ -376,6 +390,10 @@ See `DEPLOYMENT.md` for the complete operator runbook.
 ## 8. Where to start the next session
 
 Most likely next priorities (pick what matches user's current ask):
+
+0. **v2 Spike 0.2 Path F (1B re-spike)** — `cd desktop && SPIKE_LLM_MODEL_PATH=~/.lisna-test-models/Llama-3.2-1B-Instruct-Q4_K_M.gguf pnpm exec tsx spikes/phase-0/02-3b-lecture-grammar/run-spike.ts` for i=0,1,2 (foreground, ~30 s each, ~90 s sustained — within new spike-llm envelope). If ≤30 s/chunk with comparable slot emergence → Spike 0.2 PASS, picker default flips to 1B on ≤12 GB Macs. Else fall back to Path A (accept) + Path G (output cap on 3B). Memo: `desktop/spikes/phase-0/02-3b-lecture-grammar/decision-0.2-latency.md` §Path E + Recommendation.
+
+0.5. **Plan 2 (Foundation) spec/plan writing** — invoke `superpowers:writing-plans` with the 7 carry-forward items from `44e546d` verdict memo, including the load-bearing retry contract (`maxAttempts=3`, fresh seed `+100×(attempt-1)`, catch→retry, surface `attemptsUsed`/`reason` in logs) that today is paper mandate only. Failing-test enforcement of wrapper = first task.
 
 1. **Test the today's fixes** with a real K-LMS lecture: stop button → final curate → export, slide detection multiple slide changes, .zip unpacking into Obsidian vault.
 

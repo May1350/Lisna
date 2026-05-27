@@ -31,3 +31,8 @@ PR / commit / branch / migration / deploy conventions.
 - [2026-05-12] (deploy) Backend: `pnpm cdk deploy --all --require-approval never`. Single stack: `pnpm cdk deploy StudyHelperApi`. Reason: stack list lives in `infra/lib/`. last-cited: 2026-05-12
 - [2026-05-12] (deploy) Extension: `cd extension && pnpm build` → `dist/` → Chrome `Load unpacked`. For Web Store: bump version in `manifest.config.ts`. Reason: Web Store rejects duplicate versions. last-cited: 2026-05-12
 - [2026-05-12] (deploy) After Chrome Web Store publish: lock CORS via `pnpm cdk deploy StudyHelperApi -c allowedCorsOrigins=chrome-extension://<id>`. Reason: pre-publish CORS is `*`. last-cited: 2026-05-12
+
+## Reviewers / agent dispatch
+
+- [2026-05-27] (dispatch) Before dispatching a reviewer / sub-agent OR before treating an uncommitted file as "my prior draft," re-verify state with `git status` + `git diff HEAD` + `git log -5`. Stale-snapshot reasoning has caused redundant reviewer cycles (spike-0.1 R1/R2 both received obsolete drafts; decision memo Resolution section read 2nd time after fact-check). Reason: time-passed + agent-dispatched contexts invalidate the mental cache. last-cited: 2026-05-27
+- [2026-05-27] (dispatch) When dispatching reviewers on an artifact, send the CURRENT artifact path + git HEAD SHA, not pasted draft text. Reviewer value = artifact-vs-evidence comparison, not narrative-vs-evidence. Reason: pasted prose drifts from the committed file the moment a follow-up commit lands. last-cited: 2026-05-27

@@ -1,6 +1,6 @@
 # Refactor backlog
 
-**Last updated**: 2026-05-23
+**Last updated**: 2026-05-27
 **Last synced** (`/backlog-sync`): 2026-05-23
 
 Living queue of maintenance / refactor / tech-debt items. NOT the
@@ -22,7 +22,10 @@ product roadmap — that lives in `docs/PRD.md` and `docs/HANDOFF.md` §4.
 
 _(Top priority — actively planned this sprint. Keep ≤ 5 items.)_
 
+- [P1] **Spike 0.2 Path F — 1B re-spike** — controller-recommended next after Path E (commit `d9d333d`). Run 3-sample sweep at `SPIKE_LLM_MODEL_PATH=…/Llama-3.2-1B-Instruct-Q4_K_M.gguf`; if ≤30 s/chunk with comparable slot emergence → Spike 0.2 PASS + picker default 1B on ≤12 GB Macs. Touches: `desktop/spikes/phase-0/02-3b-lecture-grammar/run-spike.ts` (env-only), `decision-0.2-latency.md`. Effort: S (~15 min).
+- [P1] **Plan 2 wrapper failing-test enforcement** — paper mandate today (`decision-0.1-fail.md` line 236-243). First Plan 2 task = failing test asserting `maxAttempts`, fresh-seed contract, JSON+Zod catch→retry, surface `attemptsUsed`/`reason`. Without it the same failure modes hit production unchanged. Touches: `desktop/src/main/sidecar/wrapper.test.ts` (new), `wrapper.ts` (new). Effort: M.
 - [P1] **Lock CORS post-publish** — both API GW and Function URL still `*`. Run `cdk deploy -c allowedCorsOrigins=chrome-extension://<id>` after Web Store publish. Touches: `infra/lib/api-stack.ts`, `infra/lib/curate-stack.ts`. Effort: S.
+- [P2] **Per-attempt wall-time cap (90-120 s) + UI retry counter** — alpha-gate mitigation for triple-runaway 24-min UI hang (U2 production-risk reviewer). Cap stops a single mode-B exhaustion from burning the full budget; renderer shows "Retrying 2/3…" so spinner doesn't read as broken. Pair with Plan 2 wrapper. Touches: Plan 2 wrapper + `desktop/src/renderer/...`. Effort: M.
 - [P2] **Anthropic SDK static import in SessCurateFn** — bundle bloat for a dormant `CURATOR_PROVIDER='anthropic'` branch. Move to dynamic import before flipping the env. Touches: `backend/src/lib/curator.ts`. Effort: S.
 - [P2] **Drop legacy `notes` JSONB column** — new handlers don't write; UI ignores. Two-deploy migration (stop reading first, then DROP). Touches: `backend/src/migrations/`, `handlers/session-get.ts`. Effort: M.
 
