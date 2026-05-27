@@ -143,3 +143,65 @@ Plan 2 (Foundation) is green-lit for design and implementation work, with the 7 
 Spike 0.3 remains founder-blocked. No work on it possible until WAV fixtures + ground-truth land.
 
 The HARD GATE is cleared. Decision on whether to push the branch (Plan 1 Task 19) is a separate founder gate — see that task.
+
+---
+
+## Plan 3 (Lecture pipeline) — Tasks 8-10 + 13-16 LANDED (2026-05-27, late session)
+
+Plan: `docs/superpowers/plans/2026-05-27-v2-plan-3-lecture-pipeline.md`. Tasks 11-12 (renderer + UI) forked to the **app-design** worktree on `design/v2-lecture-ui` per `v2_plan3_fork_decision_2026-05-27.md`.
+
+### Tasks completed this session
+
+| Task | Scope | Commits |
+|---|---|---|
+| 8 | Post-decode pipeline (5 stages per spec §5.2) + `ForwardIncompatNoteError` | `aa41821` + polish `7946137` |
+| 9 | Orchestrator `finalizeLecture` (chunk → grammar-call → post-decode → merge → final parse → telemetry) | `b1009a7` + fix `5a683b6` + polish `9c3f03d` |
+| 10 | `session/finalize` IPC channel (Lecture live; Meeting/Interview/Brainstorm throw `FAMILY_NOT_IMPLEMENTED:*`) + `SessionOrchestrator.exposedSegments` getter | `f36ac47` + polish `a62dca5` |
+| 13 | `loadNote()` + Lecture v1 migration chain runner (while-loop, not plan's buggy for-loop) + `v1-fixture.json` + `Migration` type | `4f80bc5` (preceded by refactor `d5b5867` lifting `ForwardIncompatNoteError` to shared) + fix `d6906ff` (null shape-guard + CURRENT_SCHEMA_VERSION consolidation) |
+| 14 | Spike 0.2 v0 baseline (`run-2026-05-27T03-10-32-548Z-i0.json`, 4 sections / 4 slots, formula extras stripped per Path F) registered + minimal `eval-baselines.ts` registry | `ef34d6d` |
+| 15 | Hardware-gated E2E **scaffold only** — `describe.skipIf(!LISNA_LLM_INTEGRATION)` + JA 30-s fixture + `buildE2ESidecar()` throws `E2E_NOT_RUNTIME_WIRED` until production sidecar gains `generateWithGrammar` | `22f5be3` |
+| 16 | Verification gate (this section) — typecheck + lecture sweep + spike regression | _this commit_ |
+
+### Verification gate results (Task 16)
+
+- **Typecheck:** `pnpm exec tsc --noEmit` → exit 0
+- **Lecture test sweep:** 77/77 PASS across 11 files (Lecture schema/slots/prompts/core/merge + post-decode/pipeline/deterministic-merge + main/sidecar lecture-orchestrator + ipc session-finalize + load-note + eval-baselines)
+- **Spike non-LLM regression:** 15/15 PASS (`zod-to-gbnf.test.ts` + `chunking.test.ts` + `synth.test.ts`)
+- **Spike hardware-gated:** Spike 0.1 `round-trip.test.ts` NOT exercised in this gate (per pitfalls.md `vitest-scope` — accidental scope inclusion was killed mid-run; founder-only)
+- **Task 15 E2E:** SKIPPED by design (no `LISNA_LLM_INTEGRATION` env set)
+
+### Deferred wiring (carry-forward to a future plan or follow-up)
+
+| Item | Where | Why deferred | First call site |
+|---|---|---|---|
+| `SidecarClient.generateWithGrammar` + `grammar` field on `SidecarRequest.generate` IPC envelope + C++ side | `desktop/src/main/sidecar/client.ts` + `desktop/src/shared/ipc-protocol.ts` + `desktop/sidecar/src/...` | Out of Plan 3 scope (TS-only; spike used parallel `runLlamaCli` binary harness). The dormant `as unknown as GrammarCapableSidecar` cast at `ipc.ts:170` is safe because no preload bridge exposes `session/finalize` yet. | Task 15 E2E will go live the moment this lands |
+| Renderer + UI (`LectureRenderer` + `Recording → FamilyPicker → progress → NoteView` integration) | `desktop/.claude/worktrees/app-design` (sibling worktree on `design/v2-lecture-ui`) | Plan 3 Tasks 11-12 forked — frozen contracts at HEAD `9cc3edf` (Tasks 1-7); Plan 3 Phase C deliverables here are now also part of the stable contract from app-design's POV | App-design session |
+| `LECTURE_ERROR_CODES` const catalog | `desktop/src/shared/note-schema/` (new file when 3rd call site lands) | TODO in `load-note.ts` documents the deferral. Today only `load-note.ts` and `session-finalize.ts` throw these — wait for the 3rd call site (renderer's error-handling code) per the codebase's "3+ call sites" abstraction rule | Future Plan |
+| `ValidatedNote` discriminated union | `desktop/src/shared/note-schema/load-note.ts` return type | Today `loadNote` returns `NoteBase`. When Plans 5/6 add `MeetingNote` / `InterviewNote` / `BrainstormNote` schemas, promote to `LectureNote \| MeetingNote \| ...` so callers can `switch (note.family)` for type narrowing | Plan 5 |
+
+### Notable plan-vs-actual deviations (applied during execution)
+
+1. **Plan Task 8 walker** had an operator-precedence bug (`A && B && C || D || E`); corrected to `A && B && (C || D || E)` per controller pre-spec.
+2. **Plan Task 8 import** referenced non-existent `FamilyDefinition` + `hydratePostDecode`; corrected to `FamilyCoreDefinition` from `@shared/families` + dropped the non-existent import.
+3. **Plan Task 9 LLM call** used non-existent `runGrammarCallWithRetry`; rewrote against the real Plan 2 deliverable `callWithGrammar` (`grammar-call.ts`) with a `JSON.stringify(result.value)` bridge into `runPostDecodePipeline` (acceptable round-trip cost for chunk-sized JSON).
+4. **Plan Task 9 prompts access** used `prompts[id]` and `prompt.system`; corrected to `selectPromptVariant(prompts, defaultId, opts?)` helper + `prompt.systemTemplate`.
+5. **Plan Task 9 telemetry** initial impl hardcoded `totalTokensIn: 0`; spec reviewer flagged → fixed to `chunks.reduce(...estimateTokens(rendered)...)` (prompt-side is knowable; `totalTokensOut` stays 0 until sidecar plumbing).
+6. **Plan Task 10 file layout** prescribed `desktop/src/main/sidecar/ipc/{index.ts, session-finalize.ts}`; existing IPC pattern centralizes in `main/ipc.ts`. Compromise: new `sidecar/ipc/session-finalize.ts` registered via closure from `main/ipc.ts::registerIpc`. Adapter `adaptToV2Transcript` plumbs legacy `TranscriptSegment` (`startSec`/`endSec`) → v2 `SessionTranscript` (`ts`/`endTs`/`speakerId: 0`/`meta.noSpeechProb?`).
+7. **Plan Task 13 migration runner** used a for-loop that wouldn't advance `currentV` for multi-step chains; corrected to a `while (currentV < CURRENT)` loop with `NO_MIGRATION_FROM` + `MIGRATION_NO_PROGRESS` guards.
+8. **Plan Task 13 fixture** template omitted `from: 'transcript'|'inferred'` on every leaf; added per leaf because `loadNote` calls `schema.parse()` directly (no post-decode hydration on the load path — that's only on the decode path).
+9. **Plan Task 15 hardware-gated test** is scaffold-only because of the deferred `SidecarClient.generateWithGrammar` wiring noted above. `buildE2ESidecar()` throws `E2E_NOT_RUNTIME_WIRED` with a clear activation contract.
+
+### Mid-session safety incident
+
+During Task 16 Step 3 spike regression, the controller accidentally invoked `pnpm exec vitest run spikes/phase-0/01-zod-to-gbnf/` which picked up `round-trip.test.ts` (hardware-gated, ~16 min real-LLM, M3/8GB OOM risk). Caught + force-killed within ~2 minutes (one chunk of LLM inference completed before kill: seeds 1000, 1100, 1200 — process IDs 76018, 76401, 76423 all `kill -9`'d). `ps -ef | grep llama-completion` confirms clean post-kill state.
+
+Lesson reinforced from `pitfalls.md (vitest-scope)`: explicit per-test-file paths for verification gates, never directory globs that might pick up hardware-gated tests. Task 16's spike regression now runs `spikes/phase-0/01-zod-to-gbnf/zod-to-gbnf.test.ts` + `spikes/phase-0/04-chunking/{chunking,synth}.test.ts` explicitly.
+
+### Status — Plan 3 LANDED (Phase C); Phase D forked to app-design
+
+Plan 3 Phase C (Tasks 8-10 + 13-16) is complete on this branch. Phase D (Tasks 11-12, renderer + UI) is in flight on the app-design worktree. Plan 5 (Meeting) + Plan 6 (Interview/Brainstorm) can now proceed because:
+- The post-decode pipeline + orchestrator branch dispatch are pattern-stable.
+- The `Migration` interface + `loadNote` runner work for any family that wires `migrations: ReadonlyArray<Migration>`.
+- The `session/finalize` IPC channel already routes Meeting/Interview/Brainstorm to clear `FAMILY_NOT_IMPLEMENTED:*` throws; the renderer can wire against the channel today.
+
+Push of `spec/v2-note-creation-design` to origin (currently at HEAD `22f5be3`, ~16 ahead) remains a founder gate.
