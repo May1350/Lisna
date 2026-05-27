@@ -16,6 +16,7 @@ import { LlamaCppLLM } from './engines/llama-cpp-llm';
 import { isMacAudioLoopbackSupported } from './platform/hardware-check';
 import { log, sessionLog } from './log';
 import { loadToken } from './auth/keychain';
+import { registerSessionFinalize } from './sidecar/ipc/session-finalize';
 
 export const CHANNELS = {
   startRecording: 'recording/start',
@@ -53,6 +54,10 @@ export const CHANNELS = {
   /** main → renderer: broadcast after `handleAuthCallback` successfully
    *  redeems an exchange code and stores the device token. */
   authSignedIn: 'auth/signed-in',
+  /** renderer → main: v2 finalize replacing session/stop (Task 10).
+   *  Lecture branch dispatches finalizeLecture; other families throw
+   *  FAMILY_NOT_IMPLEMENTED:<family>:<future-plan>. */
+  sessionFinalize: 'session/finalize',
 } as const;
 
 export interface IpcDeps {
@@ -146,6 +151,26 @@ export function registerIpc(deps: IpcDeps) {
     w.webContents.send(channel, payload);
   }
   _safeSend = safeSend;
+
+  // ── session/finalize: v2 family-routed note generation (Task 10) ──────────
+  registerSessionFinalize({
+    getCurrentSession: () => {
+      if (!current) return null;
+      const paths = deps.getModelPaths();
+      const client = deps.supervisor.getClient();
+      if (!paths || !client) return null;
+      return {
+        sessionId: 'live',   // placeholder — real session-ID assignment lands in Task 13
+        segments: current.exposedSegments,
+        llmModelPath: paths.llmPath,
+        // The production SidecarClient does NOT yet have generateWithGrammar
+        // (Plan 3 deferred per grammar-call.ts:113 comment). The Lecture path
+        // will fail at the first grammar call until the C++ side lands. Tests
+        // exercise this with a mock SessionContext, not the real cast.
+        sidecar: client as unknown as import('./sidecar/ipc/session-finalize').SessionContext['sidecar'],
+      };
+    },
+  });
 
   ipcMain.handle(CHANNELS.sessionStart, async (_e, { language }: SessionStartPayload) => {
     if (_sidecarGaveUp) throw new Error('SIDECAR_GAVE_UP');

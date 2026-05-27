@@ -72,6 +72,13 @@ export class SessionOrchestrator {
   private segments: TranscriptSegment[] = [];
   constructor(private opts: Opts) {}
 
+  /**
+   * Read-only view of accumulated transcript segments. Used by the
+   * `session/finalize` IPC handler (Task 10) to build a SessionTranscript
+   * without exposing the mutable internal array.
+   */
+  get exposedSegments(): readonly TranscriptSegment[] { return this.segments; }
+
   async start(): Promise<void> {
     this.segments = [];
     // Cap STT cold load. 60s budget covers TCC mic-permission prompt + GGUF
