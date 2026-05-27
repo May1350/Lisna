@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { z } from 'zod';
 import {
   callWithGrammar,
+  makeSidecarGenerator,
   type LlmGenerator,
   type GrammarCallSuccess,
   type GrammarCallFailure,
@@ -199,5 +200,45 @@ describe('callWithGrammar — generator throw is captured as failed attempt', ()
       expect(out.attempts[0].ok).toBe(false);
       expect(out.attempts[0].reason).toMatch(/ECONNRESET/);
     }
+  });
+});
+
+describe('makeSidecarGenerator', () => {
+  it('translates wrapper opts → SidecarClient.generate call with grammar attached', async () => {
+    // Mock SidecarClient surface — only `generate` matters for the factory.
+    const fakeClient = {
+      generateWithGrammar: vi.fn(async (req: {
+        prompt: string;
+        grammar: string;
+        seed: number;
+        temperature: number;
+        maxTokens: number;
+      }) => ({ text: JSON.stringify({ name: 'x', n: 1 }), seed: req.seed })),
+    };
+    const generator = makeSidecarGenerator(fakeClient as unknown as {
+      generateWithGrammar: (req: {
+        prompt: string;
+        grammar: string;
+        seed: number;
+        temperature: number;
+        maxTokens: number;
+      }) => Promise<{ text: string; seed: number }>;
+    });
+    const r = await generator({
+      prompt: 'P',
+      grammar: 'G',
+      seed: 42,
+      temperature: 0.5,
+      maxTokens: 100,
+    });
+    expect(r.text).toContain('"name":"x"');
+    expect(r.seed).toBe(42);
+    expect(fakeClient.generateWithGrammar).toHaveBeenCalledWith({
+      prompt: 'P',
+      grammar: 'G',
+      seed: 42,
+      temperature: 0.5,
+      maxTokens: 100,
+    });
   });
 });

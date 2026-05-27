@@ -103,3 +103,29 @@ export async function callWithGrammar<T>(
 
   return { ok: false, attempts, finalReason: lastReason };
 }
+
+/**
+ * Minimal sidecar surface the wrapper needs. The real `SidecarClient`
+ * grows a `generateWithGrammar` method in Plan 3 (touches C++ to add a
+ * `grammar` field to the generate IPC envelope). Until then, this
+ * factory exists as a typed seam so Plan 2 can publish a stable API.
+ */
+export interface GrammarCapableSidecar {
+  generateWithGrammar(req: {
+    prompt: string;
+    grammar: string;
+    seed: number;
+    temperature: number;
+    maxTokens: number;
+  }): Promise<{ text: string; seed: number }>;
+}
+
+/**
+ * Bind `callWithGrammar`'s LlmGenerator to a SidecarClient that supports
+ * grammar-constrained generation. Plan 3 will add `generateWithGrammar`
+ * to the real client.
+ */
+export function makeSidecarGenerator(client: GrammarCapableSidecar): LlmGenerator {
+  return async ({ prompt, grammar, seed, temperature, maxTokens }) =>
+    client.generateWithGrammar({ prompt, grammar, seed, temperature, maxTokens });
+}
