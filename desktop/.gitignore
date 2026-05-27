@@ -14,3 +14,7 @@ docs/last-smoke-note.txt
 spikes/phase-0/results/
 spikes/phase-0/**/results/
 spikes/phase-0/03-diarization-ja/fixtures/*.wav
+
+# v2 eval harness — large baseline snapshots are ephemeral
+eval/baselines/*.json
+!eval/baselines/.gitkeep
