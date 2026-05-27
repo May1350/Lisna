@@ -44,17 +44,18 @@ describe('chunkTranscript (v2 shape)', () => {
 
   it('splits at silence > 1.5s within slack window (I-1 tightening)', () => {
     // Layout:
-    //   seg0: ts=0, text=あ×5000 (3000 tokens — exceeds 2500 budget alone)
-    //   seg1: ts=20, text='B'    (1 token)
-    //   seg2: ts=30, text='C'    (1 token)   ← 9.93s silence before this
-    //   seg3: ts=32, text='D'    (1 token)
+    //   seg0: ts=0, endTs=9.9, text=あ×5000 (3000 tokens — exceeds 2500 budget alone)
+    //   seg1: ts=20, endTs=20.5, text='B' (1 token)  ← 10.1s silence before this
+    //   seg2: ts=30, endTs=30.5, text='C' (1 token)
+    //   seg3: ts=32, endTs=32.5, text='D' (1 token)
     //
     // Soft boundary after seg0 (budget exceeded at seg1). softEndTs=0.
-    // Silence search window: [-30, +30]. The text-length heuristic for seg0
-    // (5000 chars × 0.07 = 350s) makes the seg0→seg1 gap negative, so it is
-    // skipped. The seg1→seg2 gap (20.07→30, ~9.93s) IS within [-30, 30] and
-    // ≥ 1.5s, so the algorithm snaps the split to that gap: chunk[0] ends at
-    // ts=20 (segs 0+1), chunk[1] starts at ts=30 (segs 2+3).
+    // Silence search window: [-30, +30]. With I-3 fix (Task 8) using endTs:
+    //   gap seg0→seg1: 20 - min(9.9, 20) = 10.1s ≥ 1.5s, gapStart=9.9 — VALID
+    //   gap seg1→seg2: 30 - min(20.5, 30) =  9.5s ≥ 1.5s, gapStart=20.5 — VALID
+    // Algorithm picks the candidate closest to softEndTs (=0):
+    //   |9.9 - 0| = 9.9 < |20.5 - 0| = 20.5 → seg0→seg1 wins.
+    // best.endTs = 20 → hardEndIdx = 0 → chunk[0]=[seg0], chunk[1]=[seg1,seg2,seg3].
     const t = mkTranscript([
       { ts: 0, endTs: 9.9, text: 'あ'.repeat(5000) },   // exceeds 2500 budget on its own
       { ts: 20, endTs: 20.5, text: 'B' },
@@ -64,11 +65,11 @@ describe('chunkTranscript (v2 shape)', () => {
     const chunks = chunkTranscript(t, 2500, 30);
 
     // I-1 tightening: not just "more than one chunk" — the chunk boundary
-    // must land AT the silence gap (chunk[0] last seg ts=20, chunk[1] first
-    // seg ts=30, confirming the 9.93s gap was used as the split point).
+    // must land AT the silence gap (chunk[0] last seg ts=0, chunk[1] first
+    // seg ts=20, confirming the 10.1s seg0→seg1 gap was used as the split point).
     expect(chunks.length).toBeGreaterThan(1);
-    expect(chunks[0].transcriptSegments.at(-1)?.ts).toBe(20);
-    expect(chunks[1].transcriptSegments[0].ts).toBe(30);
+    expect(chunks[0].transcriptSegments.at(-1)?.ts).toBe(0);
+    expect(chunks[1].transcriptSegments[0].ts).toBe(20);
   });
 
   it('hard-cuts at token budget when no silence in slack window', () => {
@@ -81,6 +82,46 @@ describe('chunkTranscript (v2 shape)', () => {
       const totalChars = c.transcriptSegments.reduce((s, x) => s + x.text.length, 0);
       expect(totalChars).toBeLessThan(2500);
     }
+  });
+
+  it('silence branch is exercised when endTs is well-defined (I-3 fix)', () => {
+    // 200 segments at 5s each (each 4.9s of audio), with a 3-second silence
+    // between seg[99] (ts=495, endTs=499.9) and seg[100] (ts=503).
+    //
+    // Each segment = 'あ'×150 = 90 tokens. Budget = 9000 tokens → soft
+    // boundary at seg[99] (100 segs × 90 = 9000).
+    //
+    // Without I-3 fix (text-length heuristic for seg[99]):
+    //   segLastWord = 495 + 150 × 0.07 = 505.5, which OVERFLOWS past
+    //   seg[100].ts=503. gapEnd(503) - gapStart(505.5) = -2.5 → negative
+    //   duration → silence branch skipped → hard-cut only.
+    //
+    // With I-3 fix (use endTs):
+    //   segLastWord = min(499.9, 503) = 499.9. gapDuration = 503-499.9 = 3.1s
+    //   ≥ 1.5s, gapStart=499.9 within [465, 525] → silence snap fires.
+    const segs: Array<{ ts: number; endTs: number; text: string }> = [];
+    for (let i = 0; i < 200; i++) {
+      const ts = i < 100 ? i * 5 : i * 5 + 3;       // 3s offset after seg[99]
+      segs.push({
+        ts,
+        endTs: ts + 4.9,                              // each seg = 4.9s of audio
+        text: 'あ'.repeat(150),                      // 90 tokens each
+      });
+    }
+    const t = mkTranscript(segs);
+    // Budget = 9000 tokens (= 100 segs × 90 tok). Soft boundary hits seg[99].
+    const chunks = chunkTranscript(t, 9000, 30);
+    expect(chunks.length).toBeGreaterThan(1);
+
+    // The silence-snap must land at the 3-s gap: chunk ending at seg[99]
+    // (ts=495) and next chunk starting at seg[100] (ts=503).
+    const splitFound = chunks.some(
+      (c, i) =>
+        i + 1 < chunks.length &&
+        c.transcriptSegments.at(-1)?.ts === 99 * 5 &&
+        chunks[i + 1].transcriptSegments[0].ts === 100 * 5 + 3,
+    );
+    expect(splitFound).toBe(true);
   });
 });
 

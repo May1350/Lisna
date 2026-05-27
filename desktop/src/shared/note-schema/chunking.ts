@@ -8,8 +8,8 @@
 //     (v2 shape — `ts` + `endTs` + `speakerId` + `meta?`, not the spike's
 //     local `ts` + `text` + `speakerId`).
 //   - estimateTokens comes from ./tokens (extended CJK regex).
-//   - findSilenceGaps STILL uses the text-length heuristic in THIS task
-//     (Task 7). Task 8 swaps it for `endTs` (I-3 fix).
+//   - findSilenceGaps uses seg.endTs instead of the text-length heuristic
+//     (Task 8 I-3 fix — heuristic overflowed on STT-bucket-shaped fixtures).
 
 import type { SessionTranscript, TranscriptSegment } from './transcript';
 import { estimateTokens } from './tokens';
@@ -25,8 +25,9 @@ interface SilenceGap {
  * AND the gap-start lies within [windowStart, windowEnd]. Returns the gaps
  * for the caller's snap logic.
  *
- * Task 7: text-length heuristic (segLastWord = ts + text.length * 0.07).
- * Task 8: swap to seg.endTs (now that v2 segments carry it).
+ * Uses whisper-emitted endTs as the segment-end anchor; clamps to next-seg
+ * `ts` so degenerate input (endTs >= next.ts) doesn't make every gap
+ * negative-duration and disable the silence branch.
  */
 function findSilenceGaps(
   segs: TranscriptSegment[],
@@ -36,7 +37,11 @@ function findSilenceGaps(
 ): SilenceGap[] {
   const gaps: SilenceGap[] = [];
   for (let i = 0; i < segs.length - 1; i++) {
-    const segLastWord = segs[i].ts + segs[i].text.length * 0.07;
+    // Use whisper's per-segment endTs (plumbed from whisper_full_get_segment_t1
+    // at desktop/sidecar/src/stt/whisper_engine.cpp:59 + json_protocol.cpp:111).
+    // Clamp to segs[i+1].ts to handle degenerate input where a stale path
+    // hands us endTs >= next.ts (would mark every gap negative-duration).
+    const segLastWord = Math.min(segs[i].endTs, segs[i + 1].ts);
     const gapStart = Math.max(segLastWord, segs[i].ts);
     const gapEnd = segs[i + 1].ts;
     const gapDuration = gapEnd - gapStart;
