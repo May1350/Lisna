@@ -16,6 +16,7 @@ expensive-to-debug logic; we don't unit-test everything.
 - [2026-05-12] (fixtures) New STT/curator features need a fixture transcript + a baseline. Add to `tests/fixtures/transcripts/` and freeze baseline via `pnpm tsx scripts/eval-curator.ts --baseline <name>`. Reason: regression detection. last-cited: 2026-05-12
 - [2026-05-12] (db) DB tests use the dev pool (`max:2`). Don't bump pool size for tests — masks the real production constraint. Reason: prod parity. last-cited: 2026-05-12
 - [2026-05-12] (network) Don't mock at the Lambda handler level. Mock the boundary library (`stt.ts`, `s3-presigned.ts`, etc.). Reason: handler logic worth testing is what's left after the boundary mock. last-cited: 2026-05-12
+- [2026-05-27] (regression-fixture) Regression test fixtures MUST be empirically verified to FAIL on the buggy code BEFORE the fix lands. Plan-prescribed fixture values can look plausible but not actually trigger the bug (Plan 2 Task 8 I-3: spec fixture placed softEndIdx far from the planted silence and passed both before and after fix — zero coverage). Verify fail-first in the implementer task, not as a post-commit check. Reason: false-confidence test ships and the bug class goes undetected on next regression. last-cited: 2026-05-27
 
 ## When skipping a test is fine
 

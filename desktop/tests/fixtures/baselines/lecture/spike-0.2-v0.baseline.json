@@ -1,0 +1,89 @@
+{
+  "_meta": {
+    "source": "desktop/spikes/phase-0/02-3b-lecture-grammar/results/run-2026-05-27T03-10-32-548Z-i0.json",
+    "spikeRunSeed": 2000,
+    "spikeRunIndex": 0,
+    "extractedAt": "2026-05-27T03:10:32.548Z",
+    "modifications": "Added NoteBase fields (generatedAt/generatedBy/language/durationSec); added empty points/examples arrays per section where missing; stripped placeholder formula extras (E=mc^2 and F=qE) from all section-level extras arrays — replaced with empty extras:[] per anti-parroting requirement (Path F).",
+    "purpose": "Lecture v0 baseline — floor for Plan 7 ContractTest + judge. Regressions producing fewer sections / fewer slots / parroted formulas should be caught. Chosen because: PASS validation, 4 sections with populated key_terms (from:inferred), 4 slotsEmerged — best quality among all Spike 0.2 PASS runs."
+  },
+  "note": {
+    "schemaVersion": 1,
+    "family": "lecture",
+    "title": "電磁規約入",
+    "language": "ja",
+    "generatedAt": "2026-05-27T03:10:32.548Z",
+    "generatedBy": {
+      "model": "llama-3.2-3b-q4-km",
+      "promptVersion": 1
+    },
+    "durationSec": 600,
+    "tldr": "静電ポテンシャルは電荷によって生じる電場のpotential energyです。電磁規約は電荷によって生じる電場のrulesです。",
+    "sections": [
+      {
+        "heading": "静電ポテンシャル",
+        "ts": 0,
+        "summary": "静電ポテンシャルとは?",
+        "key_terms": [
+          {
+            "term": "静電ポテンシャル",
+            "definition": "電荷によって生じる電場の potential energy",
+            "ts": 0,
+            "from": "inferred"
+          }
+        ],
+        "points": [],
+        "examples": [],
+        "extras": []
+      },
+      {
+        "heading": "電磁規約",
+        "ts": 10,
+        "summary": "電磁規約とは?",
+        "key_terms": [
+          {
+            "term": "電磁規約",
+            "definition": "電荷によって生じる電場の rules",
+            "ts": 10,
+            "from": "inferred"
+          }
+        ],
+        "points": [],
+        "examples": [],
+        "extras": []
+      },
+      {
+        "heading": "静電ポテンシャル",
+        "ts": 20,
+        "summary": "静電ポテンシャルとは?",
+        "key_terms": [
+          {
+            "term": "静電ポテンシャル",
+            "definition": "電荷によって生じる電場の potential energy",
+            "ts": 20,
+            "from": "inferred"
+          }
+        ],
+        "points": [],
+        "examples": [],
+        "extras": []
+      },
+      {
+        "heading": "電磁規約",
+        "ts": 30,
+        "summary": "電磁規約とは?",
+        "key_terms": [
+          {
+            "term": "電磁規約",
+            "definition": "電荷によって生じる電場の rules",
+            "ts": 30,
+            "from": "inferred"
+          }
+        ],
+        "points": [],
+        "examples": [],
+        "extras": []
+      }
+    ]
+  }
+}

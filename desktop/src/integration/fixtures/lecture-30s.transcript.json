@@ -1,0 +1,11 @@
+{
+  "sessionId": "e2e-test-lecture-30s",
+  "speakers": [{ "id": 0, "name": "lecturer" }],
+  "transcriptSegments": [
+    { "ts": 0,  "endTs": 5,  "text": "今日は静電ポテンシャルについて説明します。", "speakerId": 0 },
+    { "ts": 5,  "endTs": 12, "text": "静電ポテンシャルは電荷によって作られる電場のエネルギーを表す量です。", "speakerId": 0 },
+    { "ts": 12, "endTs": 20, "text": "単位はボルト、つまりジュール毎クーロンです。", "speakerId": 0 },
+    { "ts": 20, "endTs": 28, "text": "例えば点電荷の周りでは、距離の逆数に比例します。", "speakerId": 0 },
+    { "ts": 28, "endTs": 30, "text": "次にクーロンの法則を見ていきましょう。", "speakerId": 0 }
+  ]
+}
