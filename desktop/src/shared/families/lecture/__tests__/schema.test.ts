@@ -92,4 +92,47 @@ describe('LectureNoteSchema', () => {
       bogusField: 'reject me',
     })).toThrow();
   });
+
+  it('accepts a section with extras: [procedure_steps]', () => {
+    const note = {
+      schemaVersion: 1, family: 'lecture', title: 't',
+      generatedAt: '2026-05-27T12:00:00.000Z',
+      generatedBy: { model: 'm', promptVersion: 1 },
+      language: 'ja', durationSec: 1,
+      sections: [{
+        heading: 'h', ts: 0, summary: '',
+        key_terms: [], examples: [], points: [],
+        extras: [{
+          type: 'procedure_steps',
+          steps: [
+            { order: 1, text: 'a', ts: 0, from: 'transcript' },
+            { order: 2, text: 'b', ts: 1, from: 'transcript' },
+          ],
+        }],
+      }],
+    };
+    expect(() => LectureNoteSchema.parse(note)).not.toThrow();
+  });
+
+  it('enforces .max(8) on extras per section (Path G)', () => {
+    const makeStep = (i: number) => ({
+      type: 'procedure_steps',
+      steps: [
+        { order: 1, text: `a${i}`, ts: 0, from: 'transcript' },
+        { order: 2, text: `b${i}`, ts: 1, from: 'transcript' },
+      ],
+    });
+    const note = {
+      schemaVersion: 1, family: 'lecture', title: 't',
+      generatedAt: '2026-05-27T12:00:00.000Z',
+      generatedBy: { model: 'm', promptVersion: 1 },
+      language: 'ja', durationSec: 1,
+      sections: [{
+        heading: 'h', ts: 0, summary: '',
+        key_terms: [], examples: [], points: [],
+        extras: Array.from({ length: 9 }, (_, i) => makeStep(i)),
+      }],
+    };
+    expect(() => LectureNoteSchema.parse(note)).toThrow(/extras/i);
+  });
 });

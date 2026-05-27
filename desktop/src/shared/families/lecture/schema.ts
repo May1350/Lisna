@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { NoteBaseSchema, ProvenanceSchema } from '@shared/note-schema';
+import { LectureSlotInstanceSchema } from './slots';
 
 // Bounds calibrated per spec §3.5/§3.6 + Path G memo (real Lecture
 // content, not arbitrary). See `decision-0.2-path-f.md` for the
@@ -9,15 +10,16 @@ const MAX_KEY_TERMS_PER_SECTION = 12;
 const MAX_EXAMPLES_PER_SECTION = 10;
 const MAX_POINTS_PER_SECTION = 20;
 const MAX_HEADING_CHARS = 120;
+const MAX_EXTRAS_PER_SECTION = 8;
 
 export const LectureSectionSchema = z.object({
   heading: z.string().min(1).max(MAX_HEADING_CHARS),
   ts: z.number().nonnegative(),
-  summary: z.string().min(0),
+  summary: z.string(),
   takeaway: z.string().optional(),
   key_terms: z.array(z.object({
     term: z.string().min(1),
-    definition: z.string().min(0),
+    definition: z.string(),
     ts: z.number().nonnegative(),
     from: ProvenanceSchema,
   })).max(MAX_KEY_TERMS_PER_SECTION),
@@ -32,6 +34,7 @@ export const LectureSectionSchema = z.object({
     important: z.boolean(),
     from: ProvenanceSchema,
   })).max(MAX_POINTS_PER_SECTION),
+  extras: z.array(LectureSlotInstanceSchema).max(MAX_EXTRAS_PER_SECTION).optional(),
 });
 
 export const LectureNoteSchema = NoteBaseSchema.extend({
