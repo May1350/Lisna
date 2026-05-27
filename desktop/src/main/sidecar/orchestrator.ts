@@ -5,6 +5,19 @@ import { withTimeout } from '@shared/with-timeout';
 import { buildJaNoteV1Prompt } from './prompts/ja-note-v1';
 import { TIMEOUTS, TIMEOUT_CODES } from './timeouts';
 
+// ─── finalizeLecture imports ──────────────────────────────────────────────────
+import type { SessionTranscript } from '@shared/note-schema/transcript';
+import type { ModelProfile } from '@shared/models/profiles';
+import type { GenerationTelemetry } from '@shared/note-schema/telemetry';
+import type { LectureNote } from '@shared/families/lecture/schema';
+import { z } from 'zod';
+import { familyCoreRegistry, selectPromptVariant } from '@shared/families';
+import { zodToGbnf } from '@shared/note-schema/zod-to-gbnf';
+import { chunkTranscript } from '@shared/note-schema/chunking';
+import { runPostDecodePipeline } from '@shared/post-decode/pipeline';
+import { deterministicMerge } from '@shared/post-decode/deterministic-merge';
+import { callWithGrammar, makeSidecarGenerator, type GrammarCapableSidecar } from './grammar-call';
+
 interface Opts {
   stt: STTEngine;
   llm: LLMEngine;
@@ -145,4 +158,156 @@ export class SessionOrchestrator {
       ).catch(() => {});
     }
   }
+}
+
+// ─── finalizeLecture ─────────────────────────────────────────────────────────
+//
+// Pure async function: SessionTranscript + GrammarCapableSidecar + ModelProfile
+// → LectureNote + GenerationTelemetry.
+//
+// Task 10 will wire this behind the `session/finalize` IPC channel. No
+// Electron IPC in this file.
+
+export interface FinalizeLectureArgs {
+  sessionId: string;
+  transcript: SessionTranscript;
+  sidecar: GrammarCapableSidecar;
+  modelProfile: ModelProfile;
+  promptVariantId?: string;
+  onProgress?: (e:
+    | { phase: 'chunk'; chunkIndex: number; totalChunks: number }
+    | { phase: 'merge' }
+    | { phase: 'persist' }
+  ) => void;
+}
+
+export interface FinalizeLectureResult {
+  note: LectureNote;
+  telemetry: GenerationTelemetry;
+}
+
+/**
+ * Finalize a lecture session: chunk the transcript, call the LLM once per chunk
+ * with a grammar-constrained decode, run each chunk through the post-decode
+ * pipeline, then deterministically merge all partials into a single LectureNote.
+ *
+ * No Electron IPC — this is a pure async function. Task 10 wires the IPC layer.
+ */
+export async function finalizeLecture(
+  args: FinalizeLectureArgs,
+): Promise<FinalizeLectureResult> {
+  const generationStartedAt = new Date().toISOString();
+  const t0 = Date.now();
+
+  // ── Correction D: family lookup via registry ──────────────────────────────
+  // Side-effect import in callers (or beforeEach in tests) ensures the lecture
+  // family is registered before we reach here.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const fam = familyCoreRegistry['lecture'];
+  if (!fam) throw new Error('LECTURE_FAMILY_NOT_REGISTERED');
+
+  // ── Correction B/E: grammar as string, prompt selection ───────────────────
+  const grammar = zodToGbnf(fam.schema, 'LectureNote');
+
+  const prompt = selectPromptVariant(
+    fam.prompts,
+    fam.defaultPromptVariant,
+    args.promptVariantId ? { userPreference: args.promptVariantId } : undefined,
+  );
+
+  // ── Correction J: chunk the transcript ────────────────────────────────────
+  const tuning = args.modelProfile.perFamily['lecture'];
+  const chunks = chunkTranscript(args.transcript, tuning.recommendedChunkTokens);
+
+  if (chunks.length === 0) {
+    throw new Error('EMPTY_TRANSCRIPT');
+  }
+
+  const generator = makeSidecarGenerator(args.sidecar);
+  const partials: Array<Partial<LectureNote>> = [];
+  let totalAttemptsUsed = 0;
+
+  // ── Per-chunk: call LLM + post-decode pipeline ────────────────────────────
+  for (let i = 0; i < chunks.length; i++) {
+    args.onProgress?.({ phase: 'chunk', chunkIndex: i, totalChunks: chunks.length });
+
+    // ── Correction F: systemTemplate (not system) ──────────────────────────
+    const userPrompt = prompt.chunkUserTemplate({
+      chunkIndex: i,
+      totalChunks: chunks.length,
+      transcript: renderTranscriptChunk(chunks[i]!),
+    });
+    const combinedPrompt = `${prompt.systemTemplate}\n\n${userPrompt}`;
+
+    // ── Correction A: callWithGrammar with z.unknown() pass-through ────────
+    const result = await callWithGrammar<unknown>({
+      prompt: combinedPrompt,
+      schema: z.unknown(),
+      grammar,
+      baseSeed: 5000 + i,
+      temperature: tuning.temperature,
+      maxAttempts: 3,
+      maxTokens: tuning.maxGenTokens,
+      generator,
+    });
+
+    if (!result.ok) {
+      throw new Error(`CHUNK_FAILED:${i}:${result.finalReason}`);
+    }
+    totalAttemptsUsed += result.attemptsUsed;
+
+    // ── Correction C: re-serialize → runPostDecodePipeline ─────────────────
+    // callWithGrammar parses JSON internally (with z.unknown(), it passes through).
+    // runPostDecodePipeline expects a raw JSON string — the double round-trip
+    // is acceptable for chunk-sized JSON (a few KB) and keeps Task 8's pipeline
+    // contract unchanged (per task spec: do NOT refactor pipeline to accept object).
+    const rawJson = JSON.stringify(result.value);
+    const validated = runPostDecodePipeline(rawJson, fam, args.transcript);
+    partials.push(validated as Partial<LectureNote>);
+  }
+
+  // ── Merge partials ────────────────────────────────────────────────────────
+  args.onProgress?.({ phase: 'merge' });
+  const merged = deterministicMerge<Record<string, unknown>>(
+    partials as Array<Partial<Record<string, unknown>>>,
+    fam.mergeStrategy,
+  );
+
+  // Re-parse the merged object through the family schema for final validation
+  const note = fam.schema.parse(merged) as LectureNote;
+
+  // ── Build telemetry ───────────────────────────────────────────────────────
+  // totalTokensOut is 0 — the sidecar doesn't surface token counts yet.
+  // Future: expose token count from generateWithGrammar response (Minor).
+  const telemetry: GenerationTelemetry = {
+    noteId: args.sessionId,          // Task 13 / persistence assigns the real note ID
+    modelId: args.modelProfile.id,
+    promptVariantId: prompt.variantId,
+    schemaVersion: 1,
+    generationStartedAt,
+    generationDurationMs: Date.now() - t0,
+    chunkCount: chunks.length,
+    totalTokensIn: 0,               // sidecar doesn't expose token counts yet (Minor)
+    totalTokensOut: 0,              // same
+    validationWarnings: [],
+    dedupHits: [],
+    postDecodeMutations: [],
+  };
+
+  return { note, telemetry };
+}
+
+// ─── file-local helpers ───────────────────────────────────────────────────────
+
+/** Render a chunk's segments as a timestamp-prefixed transcript string. */
+function renderTranscriptChunk(chunk: SessionTranscript): string {
+  return chunk.transcriptSegments
+    .map(s => `[${formatTs(s.ts)}] ${s.text}`)
+    .join('\n');
+}
+
+function formatTs(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
 }
