@@ -89,10 +89,10 @@ Per `docs/superpowers/specs/2026-05-26-v2-structured-note-creation-design.md` §
 
 | Spike | Acceptance | Result | Notes |
 |---|---|---|---|
-| 0.1 zod-to-gbnf | 10/10 round-trip + grammar parses + < 100ms first-call | PENDING | HARD GATE |
+| 0.1 zod-to-gbnf | N/N round-trip within ≤ 3 attempts + grammar parses + < 100ms first-call (N=5 per Amendment 1, hardware-reduced from original 10/10) | **PASS** (take-4 2026-05-27: 5/5 in 5.79 min wall; attempt-1=4, attempt-2=1; mean 1.20 attempts; 3B Q4_K_M) | HARD GATE cleared via Path 2 retry loop. See `01-zod-to-gbnf/decision-0.1-fail.md`. |
 | 0.2 3B Lecture | Zod validates + ≥1 slot emergence + < 30s per chunk | PENDING | Depends on 0.1 |
 | 0.3 Diarization JA | DER < 15% + warm-up < 30s + chunk latency < 1s | PENDING | Founder fixtures needed |
-| 0.4 Chunking | All 4 edge cases pass + 90-min synth bounded | PENDING | Independent |
+| 0.4 Chunking | All 4 edge cases pass + 90-min synth bounded | **PASS** (5 edge-case tests pass; 153-min synth → 5 chunks ∈ [4, 12], all ≤ 9600 tokens, 907/907 segments preserved) | Independent |
 
 **On failure**: see spec §7 fallback ladder. Write `decision-<spike-id>.md` next to results.
 ```
@@ -118,11 +118,28 @@ git commit -m "chore(spikes): scaffold Phase 0 spike workspace"
 
 ## Spike 0.1: `zod-to-gbnf` converter — HARD GATE
 
-**Goal:** Produce a converter that takes Zod schemas (covering ALL constructs the 4 family schemas use) and emits GBNF that (a) `llama_grammar_init` accepts, (b) round-trips: schema → grammar → LLM output → parse via original schema, 10/10 samples.
+> **Amendment 1 (2026-05-27, founder decision)** — Acceptance reduced from
+> `10/10 samples` to `N/N samples within ≤ 3 attempts each`, where N is
+> the largest sample count that fits the development hardware's safe
+> sustained-load envelope. Currently **N=5** on the M3-8GB dev machine
+> (per `.claude/rules/pitfalls.md (spike-llm)` kernel-panic post-mortem).
+> Take-4 PASSed at 5/5 within ≤ 2 attempts (commit `46ed08a`). Take-5
+> (1B Q4_K_M co-validation) PASSed 5/5 at the same retry profile.
+> Full 10/10 validation on i=5..9 (esp. iter-3 failure-mode-B sample
+> "Maxwell" at i=8) is **deferred** — production risk acknowledged and
+> covered by the mandatory retry budget per Plan 2 wrapper mandate (see
+> `01-zod-to-gbnf/decision-0.1-fail.md` Resolution + Capability-floor
+> sections). All `10/10` text in this Spike 0.1 section below is the
+> historic-N context; the operational gate is **N/N at the current N**.
+> Recovery path to full 10/10 also documented in the decision memo
+> (Path 2.A foreground isolated rig / Path 2.B relocate ≥16GB machine
+> / Path 2.C combine with Path 1 bounded-array grammar).
 
-**Acceptance** (from spec §7.4):
+**Goal:** Produce a converter that takes Zod schemas (covering ALL constructs the 4 family schemas use) and emits GBNF that (a) `llama_grammar_init` accepts, (b) round-trips: schema → grammar → LLM output → parse via original schema, N/N samples (see Amendment 1).
+
+**Acceptance** (from spec §7.4, as amended):
 - `llama_grammar_init` succeeds on every test grammar
-- 10 LLM samples, 100% Zod-parse pass
+- N LLM samples, 100% Zod-parse pass within ≤ 3 attempts each (N=5 per Amendment 1)
 - Converter < 100ms first-call, < 10ms cached, per family
 
 **Zod constructs to support** (derived from spec §3 schemas):

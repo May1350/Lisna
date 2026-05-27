@@ -1,16 +1,43 @@
-# Spike 0.1 — HARD GATE verdict: **BLOCKED** (3 iterations exhausted)
+# Spike 0.1 — HARD GATE verdict: **PASS at N=5** (Iter-4, Path 2 retry contract)
 
-Per Plan 1 Task 8 acceptance: 10/10 LLM-generated outputs must round-trip
-Zod-parse cleanly. After three iterations escalating `maxTokens` and
-sweeping `--temp`, the best result was **8/10**; iteration 3 with a
-lower-temperature spread actually regressed to **7/10** with a new
+> **Current state (2026-05-27):** Spike 0.1 PASS at the **N=5 reduced
+> scope** codified by Plan Amendment 1 (`2026-05-26-v2-note-creation-phase-0-spikes.md`,
+> Spike 0.1 section). Take-4 cleared 5/5 within ≤ 2 attempts; take-5
+> co-validated 1B Q4_K_M at the same profile. See **Resolution** and
+> **Capability-floor measurement** sections at the bottom of this file
+> for the take-4 / take-5 numbers and the Plan 2 wrapper mandate.
+>
+> **Historic context preserved below:** the original BLOCKED escalation
+> (Iter-1..3, 8/10 best at N=10) and the four-path recommendation that
+> founder used to select Path 2 (retry contract). Read top-to-bottom
+> for the full trail.
+>
+> **Production risk acknowledged:** full N=10 (esp. i=8 Maxwell,
+> iter-3 failure-mode-B sample) is NOT empirically verified at this
+> scope. The retry budget per Plan 2 wrapper mandate is the sole
+> defense against mode B in production until Path 2.A (isolated
+> foreground rig) or Path 2.B (≥16GB machine) lands. Sample-0
+> photosynthesis at iter-4 temp=0.6 also revealed a NEW first-attempt
+> failure (recovered by retry) that did not appear at iter-1..3's
+> lower temps — temp=0.6 is a one-prompt regression that the retry
+> budget masks. This makes the retry contract load-bearing, not
+> optional.
+
+---
+
+## Original BLOCKED escalation (Iter-1..3, N=10, pre-Path-2)
+
+Per Plan 1 Task 8 original acceptance (pre-Amendment 1): 10/10 LLM-generated
+outputs must round-trip Zod-parse cleanly. After three iterations escalating
+`maxTokens` and sweeping `--temp`, the best result was **8/10**; iteration 3
+with a lower-temperature spread actually regressed to **7/10** with a new
 failure mode.
 
-**Verdict:** Spike 0.1 does NOT pass. Per the HARD GATE rule
-(`docs/superpowers/plans/2026-05-26-v2-note-creation-phase-0-spikes.md`
-Task 8 Step 4), Spike 0.2 is NOT green-lit. Escalate to the founder via
-the controller for a scope decision (see "Recommended next steps"
-below).
+**Verdict (historic):** Spike 0.1 did NOT pass at N=10. Per the HARD GATE
+rule, Spike 0.2 was NOT green-lit. Escalated to the founder via the
+controller for a scope decision (see "Recommended next steps" below);
+founder selected Path 2 (retry contract) on 2026-05-26. See "Resolution"
+section for the post-Path-2 outcome.
 
 ## Iteration log
 
