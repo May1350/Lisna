@@ -1,22 +1,8 @@
 import { registerFamilyCore, type FamilyCoreDefinition } from '@shared/families';
-import type { PromptVariant } from '@shared/families';
 import type { MergeStrategy } from '@shared/families';
 import { LectureNoteSchema, type LectureNote } from './schema';
 import { LECTURE_SLOTS } from './slots';
-
-// Placeholder PromptVariant — Task 4 lands the real v1 prompt with the
-// anti-parroting rule + slot trigger hints. The shape matches Plan 2
-// PromptVariant exactly so the family can be registered before prompts
-// are authored, unblocking Tasks 5/6/7 that consume the registry.
-const lecturePromptStub: PromptVariant = {
-  version: 1,
-  variantId: 'lecture-v1',
-  systemTemplate: '',          // filled by Task 4
-  chunkUserTemplate: '',       // filled by Task 4
-  mergeUserTemplate: '',       // Lecture uses deterministic merge; stays empty
-  recommendedTemp: 0.4,
-  notes: 'Placeholder — real prompt lands in Plan 3 Task 4 (anti-parroting + slot hints).',
-};
+import { lecturePromptsV1 } from './prompts/v1';
 
 // Placeholder MergeStrategy — Task 6 lands the real concat-dedup + sections
 // concat-only strategy per spec §5.2b. This stub matches the type and lets
@@ -30,7 +16,7 @@ const lectureMergeStub: MergeStrategy = {
 export const LectureFamilyCore: FamilyCoreDefinition<LectureNote> = {
   id: 'lecture',
   schema: LectureNoteSchema,
-  prompts: [lecturePromptStub],
+  prompts: [lecturePromptsV1],
   defaultPromptVariant: 'lecture-v1',
   picker: {
     labelKey: 'family.lecture.label',

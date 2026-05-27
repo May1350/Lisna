@@ -1,12 +1,24 @@
 import type { ChatMessage } from '@shared/ipc-protocol';
 
+/** Inputs to chunkUserTemplate — per spec §5.2 chunk-render. */
+export interface ChunkContext {
+  chunkIndex: number;
+  totalChunks: number;
+  transcript: string;
+}
+
+/** Inputs to mergeUserTemplate — per spec §5.2c merge-LLM. Lecture has no merge call; this type exists for Meeting/Interview/Brainstorm variants. */
+export interface MergeContext {
+  partials: ReadonlyArray<unknown>;
+}
+
 /** Per spec §4.0. A versioned prompt artifact. */
 export interface PromptVariant {
   version: number;
   variantId: string;
   systemTemplate: string;
-  chunkUserTemplate: string;
-  mergeUserTemplate: string;
+  chunkUserTemplate: (ctx: ChunkContext) => string;
+  mergeUserTemplate?: (ctx: MergeContext) => string;
   exemplars?: ChatMessage[];
   recommendedTemp: number;
   notes: string;
