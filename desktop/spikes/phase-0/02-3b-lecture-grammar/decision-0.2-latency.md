@@ -68,3 +68,113 @@ Path E first (30 min, no risk) to disambiguate cost source, then choose between 
 $ ps -ef | grep -E "llama-completion|tsx" | grep -v grep || echo "(clean)"
 (clean — no survivors)
 ```
+
+---
+
+## Path E result — per-phase timing breakdown (2026-05-27)
+
+Per the recommendation in the prior section, re-ran `i=0` (seed=2000,
+identical to the original first-take) with one source edit:
+`run-spike.ts:135` `stderrTail.slice(-500)` → `slice(-1800)` to keep
+llama.cpp's `common_perf_print` block in the captured result JSON
+(the 500-byte tail was truncating to the `common_memory_breakdown_print`
+footer, hiding the per-phase numbers).
+
+Wall reproducibility: this re-run = **72,073 ms** vs the original
+i=0 take = **73,776 ms** (sub-second drift, single-call jitter).
+
+### llama.cpp internal timing block
+
+This is the model's own `common_perf_print` clock — excludes node spawn
++ stdout drain (which account for the ~7 s gap to the wall clock):
+
+| Phase | Time | Tokens | Per-token | Share of perf total |
+|---|---|---|---|---|
+| Load (model + Metal init) | 36,195 ms | — | — | (initialization, runs in parallel with prompt setup; not in `total` below) |
+| **Prompt eval** | **35,010 ms** | 8,900 | **3.93 ms** | **54 %** |
+| **Generation (`eval`)** | **28,299 ms** | 608 | **46.54 ms** | **43 %** |
+| Sampling | 632 ms | 9,509 | 0.066 ms | 1 % |
+| Unaccounted | 1,236 ms | — | — | 1.9 % |
+| **perf total** | **65,178 ms** | 9,508 | — | — |
+| Wall (`Date.now()` diff) | 72,073 ms | — | — | (perf + node spawn + IPC overhead ≈ 7 s) |
+
+### Per-token reading
+
+- **Prompt eval: 3.93 ms/tok @ 254 tok/s** — Metal flash attention,
+  scales linearly with prompt length.
+- **Generation: 46.54 ms/tok @ 21.5 tok/s** — **12 × slower per token**
+  than prompt eval. This is where the grammar-constrained sampling
+  cost lands: each emitted token is masked against the GBNF rule
+  alphabet before the next sample.
+
+### Grammar overhead estimate (vs Spike 0.1 baseline)
+
+Spike 0.1 take-4 sample 1 (Newton's laws, same 3B Q4_K_M, temp=0.4-0.6,
+~30-char EN prompt, ~1100 emitted tokens) finished in 16,455 ms wall —
+generation-phase ≈ 15 ms/tok amortized over 1100 tokens. Our Spike 0.2
+grammar-constrained generation at 46.54 ms/tok is **~3.1 × slower per
+emitted token** than that lighter-grammar baseline. **The grammar mask
+is the dominant cost amplifier on the generation phase.**
+
+### Cost source — both phases co-dominate
+
+- Prompt eval (35 s) is a function of input size (8 K JA tokens).
+- Generation (28 s) is a function of (output size × grammar overhead).
+
+Neither alone explains the 3 × spec miss; **both must shrink** for the
+≤ 30 s/chunk target.
+
+### Path recommendation update (post-E)
+
+Now that the cost source is empirically split, the original A-D options
+re-evaluate as follows:
+
+- **Path A (accept 90 s/chunk)** — viable for casual users; UI MUST
+  surface "Processing… X/N chunks" else a 5-min hang on a 90-min
+  lecture reads as broken (related HANDOFF.md §5 entry on retry UI).
+- **Path B (smaller chunk, e.g. 4 K tokens)** — halves prompt eval
+  (35 → ~17 s), generation unchanged (output-bound). Result:
+  ~45 s/chunk but 2 × chunk count → end-to-end NOT materially better.
+  **De-prioritize.**
+- **Path C (Qwen 2.5 3B)** — same architecture class, similar gen cost
+  expected; needs empirical re-spike. Defer until A/F fail UX gate.
+- **Path D (tiered hardware)** — 8 GB stays at current 65-90 s; 16 GB
+  could run 7B with same prompt → maybe 2 × slower per token =
+  ~130 s/chunk but larger prompt budget → fewer chunks. Marginal.
+  **De-prioritize.**
+
+Two new candidates that Path E's per-phase data make visible:
+
+- **Path F (swap to 1B Q4_K_M, capability-floor path from Spike 0.1
+  take-5)** — Spike 0.1 take-5 1B = 2.39 min wall on N=5 prompts vs
+  3B's 5.79 min (~2.4 × faster generation per token). Applied to
+  Spike 0.2: estimated generation 28 / 2.4 ≈ 12 s, prompt eval ~2 ×
+  faster on 1B's smaller attention ≈ 17 s. **Total ~30 s/chunk →
+  lands at spec threshold.** Quality unverified (Spike 0.2 has not
+  run on 1B). **Strongest single-step candidate.** Estimated effort:
+  15 min for `SPIKE_LLM_MODEL_PATH=…/Llama-3.2-1B-Instruct-Q4_K_M.gguf`
+  re-run of i=0,1,2; subject to 8 GB hardware envelope (3 sequential
+  calls × ~30 s = ~90 s sustained — within current envelope).
+- **Path G (token cap / `.max(N)` bound on schema)** — 608 emitted
+  tokens for a 4-section Lecture is verbose. If MAX_TOKENS is reduced
+  to e.g. 1024, OR `LectureMiniSchema` arrays gain `.max(N)` (which
+  also unlocks Spike 0.1 Path 2.C bounded grammar), generation phase
+  shrinks proportionally. Combined with Path F → potentially
+  ≤ 20 s/chunk. **Promising, low-risk, untested.**
+
+### Recommendation (post-E, controller decision)
+
+**Run Spike 0.2 on 1B (Path F) before committing to A/B/C/D.** If 1B
+hits ≤ 30 s with comparable slot emergence, picker can default to 1B
+on ≤ 12 GB Macs (Spike 0.1 take-5 already established directional
+preference) and Spike 0.2 verdict flips to PASS. If 1B's slot
+emergence is materially worse, fall back to **Path A + Path G**
+(accept 65-90 s on 3B + tighten output cap to claw back generation
+phase). Path B/C/D queued only on Path F+G failure.
+
+### Post-run cleanup verification
+
+```
+$ ps -ef | grep -E "llama-completion|tsx.*spike" | grep -v grep || echo "(clean)"
+(clean — no survivors)
+```
