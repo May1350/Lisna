@@ -2,13 +2,13 @@ import type { FamilyCoreDefinition } from '../families';
 import type { NoteBase } from '../note-schema/base';
 import type { SessionTranscript } from '../note-schema/transcript';
 import { computeProvenance } from '../note-schema/provenance';
-import { ForwardIncompatNoteError } from '../note-schema/forward-incompat';
+import {
+  ForwardIncompatNoteError,
+  CURRENT_SCHEMA_VERSION,
+} from '../note-schema/forward-incompat';
 
 // Re-export for backwards compat — existing callers import from this module.
-export { ForwardIncompatNoteError } from '../note-schema/forward-incompat';
-
-/** The highest schemaVersion this app build can read. */
-export const CURRENT_SCHEMA_VERSION = 1;
+export { ForwardIncompatNoteError, CURRENT_SCHEMA_VERSION };
 
 /**
  * Run the 5-stage post-decode pipeline per spec §5.2.

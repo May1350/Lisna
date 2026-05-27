@@ -84,4 +84,15 @@ describe('loadNote', () => {
     });
     expect(() => loadNote(noFamily)).toThrow('MISSING_FAMILY');
   });
+
+  it('8. throws INVALID_NOTE_SHAPE on JSON.parse returning null / array / primitive', () => {
+    expect(() => loadNote('null')).toThrow('INVALID_NOTE_SHAPE');
+    expect(() => loadNote('[]')).toThrow('INVALID_NOTE_SHAPE');
+    expect(() => loadNote('"hello"')).toThrow('INVALID_NOTE_SHAPE');
+    expect(() => loadNote('42')).toThrow('INVALID_NOTE_SHAPE');
+  });
+
+  it('9. lets JSON.parse SyntaxError propagate (caller distinguishes malformed JSON)', () => {
+    expect(() => loadNote('this is not json {')).toThrow(SyntaxError);
+  });
 });

@@ -1,3 +1,10 @@
+/** The current schema version this app supports. Bump when introducing
+ *  a breaking change to any family schema. `loadNote` runs migrations
+ *  to bring older notes up to this version; notes with a higher
+ *  schemaVersion throw `ForwardIncompatNoteError`.
+ */
+export const CURRENT_SCHEMA_VERSION = 1;
+
 /**
  * Thrown when a persisted note has a schemaVersion newer than this app
  * build supports. The user needs to update Lisna before opening the note.
