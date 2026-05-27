@@ -91,6 +91,55 @@ for h in $NEW_HANDLERS; do
   fi
 done
 
+# 7. Lane boundary soft warning. Reads `.claude/lanes.md` parseable block.
+# Warns (does NOT block) when staged files fall outside the current
+# worktree's owned dirs AND outside shared seams. See .claude/lanes.md.
+LANES_FILE=".claude/lanes.md"
+if [ -f "$LANES_FILE" ]; then
+  MAIN_PATH="$(git worktree list --porcelain | awk '/^worktree / {print $2; exit}')"
+  CURRENT_PATH="$(pwd)"
+  if [ "$MAIN_PATH" = "$CURRENT_PATH" ]; then
+    CURRENT_WT="."
+  else
+    CURRENT_WT="${CURRENT_PATH#$MAIN_PATH/}"
+  fi
+
+  PARSEABLE="$(awk '/^<!-- BEGIN PARSEABLE -->/,/^<!-- END PARSEABLE -->/' "$LANES_FILE" | sed '1d;$d')"
+  LANE_ROW="$(echo "$PARSEABLE" | awk -F'|' -v wt="$CURRENT_WT" '$1 == wt {print; exit}')"
+  SEAMS_LINE="$(echo "$PARSEABLE" | grep '^seams: ' | sed 's/^seams: //')"
+
+  if [ -z "$LANE_ROW" ]; then
+    echo "WARN: worktree '$CURRENT_WT' not listed in .claude/lanes.md — add an entry before pushing."
+  else
+    OWNED="$(echo "$LANE_ROW" | awk -F'|' '{print $2}')"
+    LANE_NAME="$(echo "$LANE_ROW" | awk -F'|' '{print $3}')"
+    OUT_OF_LANE=""
+    for f in $STAGED; do
+      IN_OWNED=0
+      for dir in $OWNED; do
+        case "$f" in "$dir"*) IN_OWNED=1; break;; esac
+      done
+      IN_SEAM=0
+      for seam in $SEAMS_LINE; do
+        case "$f" in "$seam"*) IN_SEAM=1; break;; esac
+      done
+      if [ "$IN_OWNED" -eq 0 ] && [ "$IN_SEAM" -eq 0 ]; then
+        OUT_OF_LANE="$OUT_OF_LANE $f"
+      fi
+    done
+    if [ -n "$OUT_OF_LANE" ]; then
+      # Skip warning if commit subject is already cross-lane tagged.
+      # The hook can't see the message at PreCommitUse time, so just
+      # show the warning every time; founder ignores when intentional.
+      echo "WARN: lane '$LANE_NAME' (worktree '$CURRENT_WT') — staged files outside owned dirs:"
+      for f in $OUT_OF_LANE; do echo "  $f"; done
+      echo "      Either add a 'Cross-lane: $LANE_NAME → <target>' trailer to commit body,"
+      echo "      or move work to the correct lane's worktree."
+      echo "      See .claude/lanes.md for ownership."
+    fi
+  fi
+fi
+
 if [ "$FAIL" -eq 0 ]; then
   echo "pre-commit-check: ok"
 fi
