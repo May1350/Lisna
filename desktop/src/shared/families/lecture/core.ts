@@ -3,6 +3,7 @@ import { LectureNoteSchema, type LectureNote } from './schema';
 import { LECTURE_SLOTS } from './slots';
 import { lecturePromptsV1 } from './prompts/v1';
 import { lectureMergeStrategy } from './merge';
+import { lectureMigrations } from './migrations';
 
 export const LectureFamilyCore: FamilyCoreDefinition<LectureNote> = {
   id: 'lecture',
@@ -19,6 +20,7 @@ export const LectureFamilyCore: FamilyCoreDefinition<LectureNote> = {
   requiresDiarization: false,                // single-speaker; orchestrator skips diarization
   slots: LECTURE_SLOTS,
   mergeStrategy: lectureMergeStrategy,
+  migrations: lectureMigrations,
 };
 
 registerFamilyCore(LectureFamilyCore);

@@ -11,6 +11,24 @@ export type { PromptVariant } from './util/prompts';
 export { selectPromptVariant } from './util/prompts';
 export type { SlotSchemaDefinition } from './util/slot';
 
+/**
+ * Schema-version migration step. A family's migrations form a chain from
+ * older `schemaVersion` to current. `loadNote()` walks this chain until
+ * the note's schemaVersion matches `CURRENT_SCHEMA_VERSION`.
+ *
+ * Each migration: `fromVersion` → `toVersion`. Migrations are ordered by
+ * the family's registered array (typically `fromVersion` ascending).
+ *
+ * Type parameter is intentionally `unknown` — migrations operate on
+ * raw parsed JSON, NOT on Zod-validated notes. The output is fed back
+ * into the next migration or into `family.schema.parse()`.
+ */
+export interface Migration {
+  fromVersion: number;
+  toVersion: number;
+  run: (note: unknown) => unknown;
+}
+
 /** Per spec §5.2b. Per-family default strategies land in Plans 3-6 alongside each schema. */
 export interface MergeStrategy {
   scalarPolicy: 'longest' | 'first' | 'merge-llm';
@@ -65,6 +83,8 @@ export interface FamilyCoreDefinition<T extends NoteBase> {
   requiresDiarization: boolean;
   slots?: ReadonlyArray<SlotSchemaDefinition<unknown>>;
   mergeStrategy: MergeStrategy;
+  /** Schema-version migrations. v1-only families omit this. */
+  migrations?: ReadonlyArray<Migration>;
 }
 
 /**

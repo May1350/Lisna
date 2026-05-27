@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "family": "lecture",
+  "title": "v1 fixture — static electricity intro",
+  "generatedAt": "2026-05-27T00:00:00.000Z",
+  "generatedBy": { "model": "llama-3.2-3b-q4-km", "promptVersion": 1 },
+  "language": "ja",
+  "durationSec": 600,
+  "course": "Physics 101",
+  "sections": [
+    {
+      "heading": "Coulomb's law",
+      "ts": 0,
+      "summary": "Force between two point charges is proportional to product over distance squared.",
+      "key_terms": [
+        { "term": "Coulomb constant", "definition": "k_e ≈ 8.99e9 N·m²/C²", "ts": 30, "from": "transcript" }
+      ],
+      "examples": [
+        { "text": "Two electrons at 1 nm — repulsive force ≈ 0.23 nN", "ts": 60, "from": "inferred" }
+      ],
+      "points": [
+        { "text": "Sign of charges determines attractive vs repulsive", "ts": 90, "important": true, "from": "transcript" }
+      ]
+    }
+  ]
+}
