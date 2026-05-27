@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import {
   FixtureMetaSchema,
   FixtureGroundTruthSchema,
+  FixtureTranscriptSchema,
   type FixtureMeta,
 } from './_schema';
 
@@ -48,5 +49,32 @@ describe('FixtureMetaSchema', () => {
       participantCount: 4,
     };
     expect(FixtureGroundTruthSchema.safeParse(gt).success).toBe(true);
+  });
+});
+
+describe('FixtureTranscriptSchema', () => {
+  it('parses a minimal transcript and applies speakerId default of 0', () => {
+    const t = {
+      bucket_seconds: 10,
+      transcripts: [
+        { ts: 0, text: 'hello' },
+        { ts: 10, text: 'world' },
+      ],
+    };
+    const parsed = FixtureTranscriptSchema.safeParse(t);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.transcripts[0].speakerId).toBe(0);
+      expect(parsed.data.transcripts[1].speakerId).toBe(0);
+      expect(parsed.data.speakers).toEqual([{ id: 0 }]);
+    }
+  });
+
+  it('rejects transcript bucket with empty text', () => {
+    const t = {
+      bucket_seconds: 10,
+      transcripts: [{ ts: 0, text: '' }],
+    };
+    expect(FixtureTranscriptSchema.safeParse(t).success).toBe(false);
   });
 });
