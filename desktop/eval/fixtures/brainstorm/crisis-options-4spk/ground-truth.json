@@ -1,0 +1,6 @@
+{
+  "fixtureId": "crisis-options-4spk",
+  "themes": ["monitoring", "rollback-mechanism", "cost-constraint"],
+  "ideaCount": 7,
+  "participantCount": 4
+}

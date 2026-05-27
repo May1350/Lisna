@@ -1,0 +1,21 @@
+{
+  "sessionId": "design-review-3spk",
+  "speakers": [
+    { "id": 0, "name": "Lead Designer" },
+    { "id": 1, "name": "Eng" },
+    { "id": 2, "name": "PM" }
+  ],
+  "bucket_seconds": 10,
+  "transcripts": [
+    { "ts": 0, "text": "Lead Designer: 新しいオンボーディングフローのレビューを始めます。", "speakerId": 0 },
+    { "ts": 10, "text": "Eng: ステップ2のアニメーションは実装コストが高いです。CSSのみで代替を提案します。", "speakerId": 1 },
+    { "ts": 20, "text": "Lead Designer: CSSのみで質感が出るなら受け入れます。", "speakerId": 0 },
+    { "ts": 30, "text": "PM: ステップ4のチュートリアル動画は、今四半期は見送ります。", "speakerId": 2 },
+    { "ts": 40, "text": "Eng: 了解。動画なしでテキスト案内のみで進めます。", "speakerId": 1 },
+    { "ts": 50, "text": "Lead Designer: アイコンセットの統一について議論しましょう。", "speakerId": 0 },
+    { "ts": 60, "text": "PM: Lucide を全面採用で確定します。既存のFontAwesomeは段階的に削除。", "speakerId": 2 },
+    { "ts": 70, "text": "Eng: マイグレーションは2スプリントで完了予定です。", "speakerId": 1 },
+    { "ts": 80, "text": "Lead Designer: アクセシビリティのコントラスト比、AA以上を必須にします。", "speakerId": 0 },
+    { "ts": 90, "text": "PM: 全員同意。CIにaxe-coreで自動チェックを追加します。", "speakerId": 2 }
+  ]
+}

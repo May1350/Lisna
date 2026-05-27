@@ -1,0 +1,12 @@
+{
+  "fixtureId": "customer-success-2spk",
+  "qaPairs": [
+    { "q": "利用状況", "a": "週次レポート生成、エクスポート遅い" },
+    { "q": "エクスポート時間", "a": "大きいレポート30秒" },
+    { "q": "他の困りごと", "a": "ユーザー管理画面フィルタ不具合" },
+    { "q": "再現条件", "a": "100人以上のリスト" },
+    { "q": "ロードマップ", "a": "来月両方対処" }
+  ],
+  "themes": ["export-performance", "filter-bug", "roadmap-commitment"],
+  "participantCount": 2
+}

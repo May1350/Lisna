@@ -1,0 +1,22 @@
+{
+  "sessionId": "crisis-options-4spk",
+  "speakers": [
+    { "id": 0, "name": "CEO" },
+    { "id": 1, "name": "CTO" },
+    { "id": 2, "name": "Lead" },
+    { "id": 3, "name": "PM" }
+  ],
+  "bucket_seconds": 10,
+  "transcripts": [
+    { "ts": 0, "text": "CEO: 本番障害が3時間続いた。再発防止のオプションをすべて並べましょう。", "speakerId": 0 },
+    { "ts": 10, "text": "CTO: 監視ダッシュボードを24時間体制、オンコールローテで。", "speakerId": 1 },
+    { "ts": 20, "text": "Lead: ステージング環境を本番と同じスケールに。", "speakerId": 2 },
+    { "ts": 30, "text": "PM: 顧客通知の自動化、ステータスページも整備。", "speakerId": 3 },
+    { "ts": 40, "text": "CTO: カオステストを月次で導入。", "speakerId": 1 },
+    { "ts": 50, "text": "Lead: マルチリージョン構成への移行検討。", "speakerId": 2 },
+    { "ts": 60, "text": "PM: 障害発生時のロールバック手順を1ボタン化。", "speakerId": 3 },
+    { "ts": 70, "text": "CEO: コスト面も気にする必要がある。", "speakerId": 0 },
+    { "ts": 80, "text": "CTO: 段階的導入で月次予算100万円以内に収める案。", "speakerId": 1 },
+    { "ts": 90, "text": "Lead: パークロット、外部監査の導入は来年に検討。", "speakerId": 2 }
+  ]
+}

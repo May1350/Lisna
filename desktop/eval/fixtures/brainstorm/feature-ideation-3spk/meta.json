@@ -1,0 +1,11 @@
+{
+  "fixtureId": "feature-ideation-3spk",
+  "family": "brainstorm",
+  "language": "ja",
+  "durationSec": 100,
+  "bucketSeconds": 10,
+  "scenarioTags": ["feature-ideation", "3-speaker", "multi-cluster"],
+  "expectedSlots": [],
+  "sourceUrl": null,
+  "notes": "Synthetic. 2 idea clusters (speed + share), 8+ ideas total. Tests cluster boundary detection."
+}

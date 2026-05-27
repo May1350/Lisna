@@ -1,0 +1,11 @@
+{
+  "fixtureId": "roadmap-2026-q3-5spk",
+  "family": "brainstorm",
+  "language": "ja",
+  "durationSec": 100,
+  "bucketSeconds": 10,
+  "scenarioTags": ["roadmap", "5-speaker", "multi-cluster"],
+  "expectedSlots": [],
+  "sourceUrl": null,
+  "notes": "Stress for 5-speaker brainstorm. 2 cluster themes (quality + new-features), tests multi-speaker attribution."
+}

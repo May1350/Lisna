@@ -1,0 +1,11 @@
+{
+  "fixtureId": "customer-success-2spk",
+  "family": "interview",
+  "language": "ja",
+  "durationSec": 100,
+  "bucketSeconds": 10,
+  "scenarioTags": ["customer-success", "2-speaker", "support"],
+  "expectedSlots": [],
+  "sourceUrl": null,
+  "notes": "CSM check-in. Tests bug-report QA pair extraction + roadmap commitments as action-items."
+}

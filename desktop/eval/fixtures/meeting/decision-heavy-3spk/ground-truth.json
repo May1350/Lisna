@@ -1,0 +1,13 @@
+{
+  "fixtureId": "decision-heavy-3spk",
+  "decisions": [
+    { "text": "マーケティング予算 20% 増額", "mustAppear": true },
+    { "text": "新オフィス契約延期", "mustAppear": true },
+    { "text": "SaaS 年間契約切り替え", "mustAppear": true },
+    { "text": "人事評価四半期毎", "mustAppear": true }
+  ],
+  "actionItems": [
+    { "text": "CFO 新評価制度予算影響資料", "mustAppear": true }
+  ],
+  "participantCount": 3
+}

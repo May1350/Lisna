@@ -1,0 +1,12 @@
+{
+  "fixtureId": "design-review-3spk",
+  "decisions": [
+    { "text": "Lucide アイコンセット全面採用", "mustAppear": true },
+    { "text": "コントラスト比 AA 以上を必須化", "mustAppear": true }
+  ],
+  "actionItems": [
+    { "text": "FontAwesome 段階的削除 (2スプリント)", "mustAppear": true },
+    { "text": "axe-core CI 統合", "mustAppear": true }
+  ],
+  "participantCount": 3
+}

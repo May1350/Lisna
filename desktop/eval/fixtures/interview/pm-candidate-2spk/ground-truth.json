@@ -1,0 +1,12 @@
+{
+  "fixtureId": "pm-candidate-2spk",
+  "qaPairs": [
+    { "q": "プロダクト失敗体験", "a": "ユーザー調査不足で新機能unused" },
+    { "q": "そこからの学び", "a": "ローンチ前ユーザーインタビュー必須化" },
+    { "q": "チーム対立対処", "a": "1on1で背景聞く→全体議論" },
+    { "q": "データ vs 直感", "a": "初期直感、規模出てからデータ" },
+    { "q": "5年後の目標", "a": "B2B SaaS VP/CPO" }
+  ],
+  "themes": ["past-failure", "learning", "conflict-resolution", "decision-style", "career-goal"],
+  "participantCount": 2
+}

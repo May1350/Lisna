@@ -1,0 +1,20 @@
+{
+  "sessionId": "pm-candidate-2spk",
+  "speakers": [
+    { "id": 0, "name": "Interviewer" },
+    { "id": 1, "name": "Candidate" }
+  ],
+  "bucket_seconds": 10,
+  "transcripts": [
+    { "ts": 0, "text": "Interviewer: 一番大きなプロダクトの失敗体験を教えてください。", "speakerId": 0 },
+    { "ts": 10, "text": "Candidate: 前職で新機能をリリースしたが、ユーザー調査不足でほぼ使われませんでした。", "speakerId": 1 },
+    { "ts": 20, "text": "Interviewer: そこから何を学びましたか?", "speakerId": 0 },
+    { "ts": 30, "text": "Candidate: ローンチ前のユーザーインタビューを必須化することです。", "speakerId": 1 },
+    { "ts": 40, "text": "Interviewer: チーム内対立をどう扱いますか?", "speakerId": 0 },
+    { "ts": 50, "text": "Candidate: 個別1on1で背景を聞いてから、全体で議論を持ちます。", "speakerId": 1 },
+    { "ts": 60, "text": "Interviewer: データドリブンとユーザーの直感、どちらを優先しますか?", "speakerId": 0 },
+    { "ts": 70, "text": "Candidate: 段階で異なります。初期は直感、規模が出たらデータです。", "speakerId": 1 },
+    { "ts": 80, "text": "Interviewer: 5年後に達成したいことは?", "speakerId": 0 },
+    { "ts": 90, "text": "Candidate: B2B SaaSのVPまたはCPOになりたいです。", "speakerId": 1 }
+  ]
+}

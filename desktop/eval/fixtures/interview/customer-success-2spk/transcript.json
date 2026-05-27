@@ -1,0 +1,20 @@
+{
+  "sessionId": "customer-success-2spk",
+  "speakers": [
+    { "id": 0, "name": "CSM" },
+    { "id": 1, "name": "Customer" }
+  ],
+  "bucket_seconds": 10,
+  "transcripts": [
+    { "ts": 0, "text": "CSM: 直近のご利用状況について教えてください。", "speakerId": 0 },
+    { "ts": 10, "text": "Customer: 週次でレポート生成機能を使っていますが、エクスポートが遅いです。", "speakerId": 1 },
+    { "ts": 20, "text": "CSM: 具体的にどのくらいかかりますか?", "speakerId": 0 },
+    { "ts": 30, "text": "Customer: 大きいレポートで30秒、不満です。", "speakerId": 1 },
+    { "ts": 40, "text": "CSM: 他に困っていることは?", "speakerId": 0 },
+    { "ts": 50, "text": "Customer: ユーザー管理画面でフィルタが効かない時があります。", "speakerId": 1 },
+    { "ts": 60, "text": "CSM: 再現条件を共有いただけますか?", "speakerId": 0 },
+    { "ts": 70, "text": "Customer: 100人以上のリストで再現します。スクショ送ります。", "speakerId": 1 },
+    { "ts": 80, "text": "CSM: 来月のロードマップで両方とも対処予定です。", "speakerId": 0 },
+    { "ts": 90, "text": "Customer: ありがとうございます。引き続き使い続けます。", "speakerId": 1 }
+  ]
+}
