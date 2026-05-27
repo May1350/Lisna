@@ -31,9 +31,9 @@ describe('callWithGrammar — happy path', () => {
       expect(out.attemptsUsed).toBe(1);
       expect(out.attempts).toHaveLength(1);
       expect(out.value).toEqual({ name: 'ok', n: 7 });
-      expect(out.attempts[0].seed).toBe(1000);
-      expect(out.attempts[0].ok).toBe(true);
-      expect(typeof out.attempts[0].latencyMs).toBe('number');
+      expect(out.attempts[0]!.seed).toBe(1000);
+      expect(out.attempts[0]!.ok).toBe(true);
+      expect(typeof out.attempts[0]!.latencyMs).toBe('number');
     }
     expect(generator).toHaveBeenCalledTimes(1);
   });
@@ -57,7 +57,7 @@ describe('callWithGrammar — surfaces seed + latencyMs per attempt', () => {
     });
     expect(out.ok).toBe(true);
     if (out.ok) {
-      const a = out.attempts[0];
+      const a = out.attempts[0]!;
       expect(a).toMatchObject({ attempt: 1, seed: 2000, ok: true });
       expect(a.latencyMs).toBeGreaterThanOrEqual(0);
     }
@@ -86,11 +86,11 @@ describe('callWithGrammar — retry on JSON.parse failure', () => {
     if (out.ok) {
       expect(out.attemptsUsed).toBe(2);
       expect(out.attempts).toHaveLength(2);
-      expect(out.attempts[0].ok).toBe(false);
-      expect(out.attempts[0].reason).toMatch(/JSON|Unexpected/i);
-      expect(out.attempts[1].ok).toBe(true);
-      expect(out.attempts[0].seed).toBe(1000);
-      expect(out.attempts[1].seed).toBe(1100);                  // fresh seed
+      expect(out.attempts[0]!.ok).toBe(false);
+      expect(out.attempts[0]!.reason).toMatch(/JSON|Unexpected/i);
+      expect(out.attempts[1]!.ok).toBe(true);
+      expect(out.attempts[0]!.seed).toBe(1000);
+      expect(out.attempts[1]!.seed).toBe(1100);                  // fresh seed
     }
   });
 });
@@ -119,10 +119,10 @@ describe('callWithGrammar — retry on Zod failure', () => {
     expect(out.ok).toBe(true);
     if (out.ok) {
       expect(out.attemptsUsed).toBe(2);
-      expect(out.attempts[0].ok).toBe(false);
+      expect(out.attempts[0]!.ok).toBe(false);
       // ZodError messages mention "Expected" / "number"
-      expect(out.attempts[0].reason).toBeDefined();
-      expect(out.attempts[1].seed).toBe(600);                      // 500 + 100
+      expect(out.attempts[0]!.reason).toBeDefined();
+      expect(out.attempts[1]!.seed).toBe(600);                      // 500 + 100
     }
   });
 });
@@ -146,10 +146,10 @@ describe('callWithGrammar — exhaustion', () => {
     expect(out.ok).toBe(false);
     if (!out.ok) {
       expect(out.attempts).toHaveLength(3);
-      expect(out.attempts[0].seed).toBe(100);
-      expect(out.attempts[1].seed).toBe(200);
-      expect(out.attempts[2].seed).toBe(300);
-      expect(out.finalReason).toBe(out.attempts[2].reason);
+      expect(out.attempts[0]!.seed).toBe(100);
+      expect(out.attempts[1]!.seed).toBe(200);
+      expect(out.attempts[2]!.seed).toBe(300);
+      expect(out.finalReason).toBe(out.attempts[2]!.reason);
       expect(out.finalReason).toMatch(/JSON|Unexpected/i);
     }
     expect(generator).toHaveBeenCalledTimes(3);
@@ -197,8 +197,8 @@ describe('callWithGrammar — generator throw is captured as failed attempt', ()
     });
     expect(out.ok).toBe(true);
     if (out.ok) {
-      expect(out.attempts[0].ok).toBe(false);
-      expect(out.attempts[0].reason).toMatch(/ECONNRESET/);
+      expect(out.attempts[0]!.ok).toBe(false);
+      expect(out.attempts[0]!.reason).toMatch(/ECONNRESET/);
     }
   });
 });

@@ -68,8 +68,8 @@ describe('chunkTranscript (v2 shape)', () => {
     // must land AT the silence gap (chunk[0] last seg ts=0, chunk[1] first
     // seg ts=20, confirming the 10.1s seg0→seg1 gap was used as the split point).
     expect(chunks.length).toBeGreaterThan(1);
-    expect(chunks[0].transcriptSegments.at(-1)?.ts).toBe(0);
-    expect(chunks[1].transcriptSegments[0].ts).toBe(20);
+    expect(chunks[0]!.transcriptSegments.at(-1)?.ts).toBe(0);
+    expect(chunks[1]!.transcriptSegments[0]!.ts).toBe(20);
   });
 
   it('hard-cuts at token budget when no silence in slack window', () => {
@@ -119,7 +119,7 @@ describe('chunkTranscript (v2 shape)', () => {
       (c, i) =>
         i + 1 < chunks.length &&
         c.transcriptSegments.at(-1)?.ts === 99 * 5 &&
-        chunks[i + 1].transcriptSegments[0].ts === 100 * 5 + 3,
+        chunks[i + 1]!.transcriptSegments[0]!.ts === 100 * 5 + 3,
     );
     expect(splitFound).toBe(true);
   });

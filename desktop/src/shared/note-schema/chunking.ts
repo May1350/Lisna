@@ -41,9 +41,9 @@ function findSilenceGaps(
     // at desktop/sidecar/src/stt/whisper_engine.cpp:59 + json_protocol.cpp:111).
     // Clamp to segs[i+1].ts to handle degenerate input where a stale path
     // hands us endTs >= next.ts (would mark every gap negative-duration).
-    const segLastWord = Math.min(segs[i].endTs, segs[i + 1].ts);
-    const gapStart = Math.max(segLastWord, segs[i].ts);
-    const gapEnd = segs[i + 1].ts;
+    const segLastWord = Math.min(segs[i]!.endTs, segs[i + 1]!.ts);
+    const gapStart = Math.max(segLastWord, segs[i]!.ts);
+    const gapEnd = segs[i + 1]!.ts;
     const gapDuration = gapEnd - gapStart;
     if (gapDuration >= minGapSec && gapStart >= windowStart && gapStart <= windowEnd) {
       gaps.push({ startTs: gapStart, endTs: gapEnd, durationSec: gapDuration });
@@ -71,7 +71,7 @@ export function chunkTranscript(
     let tokens = 0;
     let softEndIdx = cursorIdx;
     for (let i = cursorIdx; i < segs.length; i++) {
-      const segTokens = estimateTokens(segs[i].text);
+      const segTokens = estimateTokens(segs[i]!.text);
       if (tokens + segTokens > maxTokens && i > cursorIdx) {
         softEndIdx = i - 1;
         break;
@@ -85,7 +85,7 @@ export function chunkTranscript(
       break;
     }
 
-    const softEndTs = segs[softEndIdx].ts;
+    const softEndTs = segs[softEndIdx]!.ts;
     const candidates = findSilenceGaps(segs, softEndTs - slackSec, softEndTs + slackSec, 1.5);
     let hardEndIdx: number;
     if (candidates.length > 0) {

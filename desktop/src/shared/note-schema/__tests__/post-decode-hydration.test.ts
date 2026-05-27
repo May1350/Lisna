@@ -37,8 +37,8 @@ describe('hydratePostDecode', () => {
       ],
     };
     hydratePostDecode(obj, transcript);
-    expect((obj.sections[0].key_terms[0] as any).from).toBe('transcript');
-    expect((obj.sections[0].key_terms[1] as any).from).toBe('inferred');
+    expect((obj.sections[0]!.key_terms[0] as any).from).toBe('transcript');
+    expect((obj.sections[0]!.key_terms[1] as any).from).toBe('inferred');
   });
 
   it('does NOT overwrite an explicit `from` already present', () => {
