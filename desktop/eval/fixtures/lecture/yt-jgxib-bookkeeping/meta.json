@@ -1,0 +1,11 @@
+{
+  "fixtureId": "yt-jgxib-bookkeeping",
+  "family": "lecture",
+  "language": "ja",
+  "durationSec": 2660,
+  "bucketSeconds": 10,
+  "scenarioTags": ["bookkeeping", "procedural", "accounting"],
+  "expectedSlots": ["procedure_steps", "formula"],
+  "sourceUrl": "https://www.youtube.com/watch?v=JGXIB-dJCMM",
+  "notes": "v1 baseline file is `v5-gpt4omini.json` — useful when comparing v2 3B output to v1 production."
+}

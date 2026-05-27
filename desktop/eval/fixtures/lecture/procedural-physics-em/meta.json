@@ -1,0 +1,11 @@
+{
+  "fixtureId": "procedural-physics-em",
+  "family": "lecture",
+  "language": "ja",
+  "durationSec": 3220,
+  "bucketSeconds": 10,
+  "scenarioTags": ["physics", "procedural", "electromagnetics"],
+  "expectedSlots": ["formula"],
+  "sourceUrl": "https://www.youtube.com/watch?v=Qx1n-U1ciD0",
+  "notes": "Same fixture used by Spike 0.2 — Task 26 scores Spike 0.2 result JSONs against this entry as the v0 baseline."
+}

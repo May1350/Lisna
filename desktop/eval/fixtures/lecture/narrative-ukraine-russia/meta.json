@@ -1,0 +1,11 @@
+{
+  "fixtureId": "narrative-ukraine-russia",
+  "family": "lecture",
+  "language": "ja",
+  "durationSec": 3190,
+  "bucketSeconds": 10,
+  "scenarioTags": ["narrative", "history", "geopolitics"],
+  "expectedSlots": ["timeline"],
+  "sourceUrl": null,
+  "notes": "Narrative-style Lecture — timeline slot trigger expected; argument_chain may also emerge."
+}
