@@ -15,7 +15,10 @@
     "test:e2e": "playwright test",
     "package": "pnpm build:sidecar && pnpm build && electron-builder --mac --publish never",
     "smoke:main": "tsx ci/smoke-main-boot.ts",
-    "verify": "tsx ci/gates.ts && pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm smoke:main"
+    "verify": "tsx ci/gates.ts && pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm smoke:main",
+    "eval:notes": "tsx scripts/eval-notes.ts",
+    "eval:judge-swap": "tsx scripts/eval-judge-swap.ts",
+    "eval:spike-0.2": "tsx scripts/score-spike-0.2.ts"
   },
   "devDependencies": {
     "@types/node": "^20",
