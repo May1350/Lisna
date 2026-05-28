@@ -91,6 +91,22 @@ recording whose transcript exceeds ~12.3K tokens (~20 min dense JA) → truncati
 or `llama_decode` failure TODAY. The fix (chunked finalize) exists but is unwired.
 Worth a separate task.
 
+### Follow-up re-verified on current main `8228c49` (2026-05-28)
+Independent re-check after #60 (Plan 5 Meeting) landed: **conclusion unchanged.**
+- Renderer still calls `window.lisna.stopSession()` (`Recording.tsx:133`) → `session/stop`
+  → `orchestrator.stop()` (all segments, `maxTokens 4096`); `preload/index.ts` still has no
+  `finalize` binding.
+- #60 ADDED `finalizeLecture` + `finalizeMeeting` (chunked) to `orchestrator.ts` but did NOT
+  wire them to the renderer — `session/finalize` is dead from the UI's view.
+- Lecture finalize is also not production-ready: it "fails at the first grammar call until
+  the C++ side lands" (`ipc.ts:164-166`).
+
+So the overflow risk persists and n_ctx reduction remains unsafe. A safe trim needs, in
+order: (1) production grammar-constrained generation lands (C++ sidecar), (2) chunked
+finalize wired to the renderer (Plan 3 Task 10), then (3) n_ctx can drop. This is
+**contended feature work** (orchestrator/finalize is actively changing — #60 just landed
+there); coordinate with the Plan 3 lane rather than editing it from an unrelated worktree.
+
 ## Recovery (if this session dies)
 
 ```bash
