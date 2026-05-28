@@ -183,7 +183,14 @@ async function main(): Promise<void> {
 
   const fam = familyCoreRegistry['interview'];
   if (!fam) throw new Error('INTERVIEW_FAMILY_NOT_REGISTERED');
-  const grammar = zodToGbnf(fam.schema, 'InterviewNote');
+  // SPIKE FIX + FINDING: zodToGbnf's scalar `char` rule is `[^"\\] | "\\" ["\\/bfnrt]`,
+  // which PERMITS raw control chars (0x00-0x1F) inside JSON strings. On longer
+  // outputs the model emits one (seed 3000 chunk 1 failed 3/3 with "bad control
+  // character in string literal"). Tighten to the official llama.cpp json.gbnf
+  // char class so the grammar masks control-char tokens inside strings.
+  // → Production zod-to-gbnf.ts scalarRules has the SAME gap (ALL families) → Plan 2 amendment.
+  const tightChar = String.raw`char ::= [^"\\\x7F\x00-\x1F] | "\\" (["\\/bfnrt] | "u" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F])`;
+  const grammar = zodToGbnf(fam.schema, 'InterviewNote').replace(/^char ::=.*$/m, tightChar);
   const prompt = selectPromptVariant(fam.prompts, fam.defaultPromptVariant);
   const generator = makeRigGenerator();
 
