@@ -83,4 +83,21 @@ describe('meetingMergeStrategy with deterministicMerge', () => {
     // concat-only retains both even though they are byte-identical.
     expect(out.discussions).toHaveLength(2);
   });
+
+  it('discussions sortByTs: reversed-ts_start chunks reorder ascending by ts_start', () => {
+    // discussions key their timestamp on `ts_start` (schema.ts), NOT `ts`, and
+    // are concat-only under meetingMergeStrategy. deterministicMerge's sorter
+    // must read `ts_start ?? ts`; a `.ts`-only comparator returns 0 for these
+    // items and leaves them in chunk-encounter order. Regression guard for the
+    // merge-sort fix (engine-level twin lives in post-decode merge tests).
+    const out = deterministicMerge<{ discussions: Array<{ summary: string; ts_start: number }> }>(
+      [
+        { discussions: [{ summary: 'Later topic', ts_start: 120 }] },
+        { discussions: [{ summary: 'Earlier topic', ts_start: 10 }] },
+      ],
+      meetingMergeStrategy,
+    );
+    // sortByTs orders concat-only discussions ascending by ts_start across chunks.
+    expect(out.discussions.map((d) => d.ts_start)).toEqual([10, 120]);
+  });
 });
