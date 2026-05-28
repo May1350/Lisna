@@ -41,6 +41,18 @@ describe('meetingMergeStrategy with deterministicMerge', () => {
     expect(out.executive_summary).toBe('A much longer executive summary that won.');
   });
 
+  it('proposals concat-dedup: near-identical proposal texts collapse to one', () => {
+    const out = deterministicMerge<{ proposals: Array<{ text: string }> }>(
+      [
+        { proposals: [{ text: 'Adopt a weekly release cadence' }] },
+        { proposals: [{ text: 'Adopt a weekly release cadence.' }] }, // trailing dot — trigram Jaccard > 0.7
+      ],
+      meetingMergeStrategy,
+    );
+    // concat-dedup: near-duplicate collapsed to 1 (mirrors decisions).
+    expect(out.proposals).toHaveLength(1);
+  });
+
   it('next_steps concat-dedup: duplicate action texts collapsed', () => {
     const out = deterministicMerge<{ next_steps: Array<{ text: string }> }>(
       [
@@ -54,15 +66,21 @@ describe('meetingMergeStrategy with deterministicMerge', () => {
     expect(out.next_steps).toHaveLength(2);
   });
 
-  it('discussions concat-only: distinct discussions retained without dedup', () => {
+  it('discussions concat-only: byte-identical discussions are both retained', () => {
+    // discussions carry no `text` field, so dedupArrayByTextField (used by
+    // concat-dedup) falls back to JSON.stringify equality. Two byte-identical
+    // discussion objects WOULD collapse to 1 under concat-dedup. concat-only
+    // never dedups — asserting both are retained is the discriminating test
+    // that FAILS if the policy were wrongly concat-dedup.
+    const identical = { summary: 'Budget discussion', ts_start: 120 };
     const out = deterministicMerge<{ discussions: Array<{ summary: string; ts_start: number }> }>(
       [
-        { discussions: [{ summary: 'Budget discussion', ts_start: 120 }] },
-        { discussions: [{ summary: 'Budget discussion follow-up', ts_start: 300 }] },
+        { discussions: [{ ...identical }] },
+        { discussions: [{ ...identical }] },
       ],
       meetingMergeStrategy,
     );
-    // concat-only: both retained (no dedup even if texts are similar).
+    // concat-only retains both even though they are byte-identical.
     expect(out.discussions).toHaveLength(2);
   });
 });
