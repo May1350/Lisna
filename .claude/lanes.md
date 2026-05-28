@@ -92,17 +92,6 @@ human/agent-initiated edits.
 
 - **Owns:** `extension/`
 
-### Overflow chunking fix (transient — 2026-05-28)
-Live-note silent-overflow fix → lossless plain-text chunking. AI-infra-flavored;
-merges to main via PR, then this worktree + branch are deleted. Spec/plan commits
-carry `Cross-lane: ai-infra → spec-docs`.
-
-- **Worktree:** `.claude/worktrees/fix+live-overflow-chunked-note`
-- **Branch:** `worktree-fix+live-overflow-chunked-note`
-- **Owns:**
-  - `desktop/src/main/sidecar/`
-  - `desktop/src/shared/note-schema/`
-
 ## Shared seams (no owner — any lane may edit without a cross-lane tag)
 
 - `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`
@@ -176,6 +165,7 @@ Format per line — fields separated by `|`:
 .|desktop/src/main/ desktop/src/shared/ desktop/sidecar/ desktop/__tests__/ desktop/spikes/|ai-infra
 .claude/worktrees/meeting|desktop/src/main/ desktop/src/shared/ desktop/src/integration/|ai-infra
 .claude/worktrees/interview-brainstorm|desktop/src/main/ desktop/src/shared/ desktop/src/integration/|ai-infra
+.claude/worktrees/fix+live-overflow-chunked-note|desktop/src/main/sidecar/ desktop/src/shared/note-schema/|ai-infra
 .claude/worktrees/spec-docs|docs/ .claude/commands/ .claude/skills/ .claude/hooks/ .claude/launch.json .claude/worktrees/|spec-docs
 .claude/worktrees/app-design|desktop/src/renderer/ desktop/src/preload/|app-design
 .claude/worktrees/eval|desktop/eval/ desktop/scripts/eval-|eval
