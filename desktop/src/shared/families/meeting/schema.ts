@@ -3,7 +3,6 @@ import { ProvenanceSchema, SpeakerRefSchema } from '@shared/note-schema';
 import { PurposeDrivenNoteSchema } from '../util/purpose-driven';
 
 // Bounds calibrated per spec §3.4 MeetingNote.
-// Mirror lecture/schema.ts style: MAX_* constants above the schema.
 const MAX_PARTICIPANTS = 12;
 const MAX_TOPIC_ARC = 30;
 const MAX_DISCUSSIONS = 25;

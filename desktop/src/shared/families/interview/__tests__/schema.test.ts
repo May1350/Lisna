@@ -38,7 +38,7 @@ describe('InterviewNoteSchema', () => {
     expect(() => InterviewNoteSchema.parse({ ...validInterviewFixture(), family: 'brainstorm' })).toThrow();
   });
 
-  it('allows asked_by === answered_by (schema-permissive; Plan 7 contract rejects it later)', () => {
+  it('allows asked_by === answered_by (schema-permissive; a higher-level diarization-quality contract rejects it later)', () => {
     expect(() => InterviewNoteSchema.parse({ ...validInterviewFixture(), qa_pairs: [{ question: 'Q', answer: 'A', ts: 1, asked_by: 0, answered_by: 0, from: 'transcript' as const }] })).not.toThrow();
   });
 
@@ -54,6 +54,11 @@ describe('InterviewNoteSchema — v1-fixture roundtrip', () => {
 });
 
 describe('InterviewNoteSchema — Path G budget locks (fail loud if a future PR widens a bound)', () => {
+  it('participants max is 8', () => {
+    const mk = (n: number) => ({ ...validInterviewFixture(), participants: Array.from({ length: n }, () => ({ speakerRef: 0, role: 'interviewer' as const })) });
+    expect(() => InterviewNoteSchema.parse(mk(8))).not.toThrow();
+    expect(() => InterviewNoteSchema.parse(mk(9))).toThrow();
+  });
   it('qa_pairs max is 80', () => {
     const mk = (n: number) => ({ ...validInterviewFixture(), qa_pairs: Array.from({ length: n }, (_, i) => ({ question: 'Q', answer: 'A', ts: i, asked_by: 0, answered_by: 1, from: 'transcript' as const })) });
     expect(() => InterviewNoteSchema.parse(mk(80))).not.toThrow();

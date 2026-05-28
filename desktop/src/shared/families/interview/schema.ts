@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { PurposeDrivenNoteSchema } from '../util/purpose-driven';
 import { ProvenanceSchema, SpeakerRefSchema } from '@shared/note-schema';
+import { PurposeDrivenNoteSchema } from '../util/purpose-driven';
 
 // Bounds calibrated per spec §3.5 + Path G budget locks.
 const MAX_QA_PAIRS = 80;
@@ -14,7 +14,7 @@ const MAX_PARTICIPANTS = 8;
 /** Spec §3.5. InterviewNote overlay on PurposeDrivenNote. .max(N) bounds = Path G budget locks. */
 export const InterviewNoteSchema = PurposeDrivenNoteSchema.extend({
   family: z.literal('interview'),
-  subject_summary: z.string().max(3000),
+  subject_summary: z.string().min(1).max(3000),
   participants: z
     .array(
       z.object({
