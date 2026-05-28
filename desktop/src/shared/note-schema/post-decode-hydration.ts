@@ -61,7 +61,7 @@ export function assignBrainstormIdeaIds(rawNote: Record<string, unknown>): Recor
           if (!idea || typeof idea !== 'object') return idea;
           const id = (idea as Record<string, unknown>).id;
           if (typeof id === 'string' && id.length > 0) return idea;
-          return { ...(idea as object), id: randomUUID() };
+          return { ...(idea as Record<string, unknown>), id: randomUUID() };
         }),
       };
     }),

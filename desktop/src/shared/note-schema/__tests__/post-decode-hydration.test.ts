@@ -107,6 +107,13 @@ describe('assignBrainstormIdeaIds', () => {
     expect(clusters[0]!.ideas[0]!.id).toBe(existingId);
   });
 
+  it('preserves a malformed (non-UUID) id string — schema parse is what rejects it', () => {
+    const raw = { family: 'brainstorm', idea_clusters: [{ theme: 'T', ideas: [{ id: 'not-a-uuid', text: 'x', ts: 1 }] }] };
+    const out = assignBrainstormIdeaIds(raw);
+    const clusters = (out as { idea_clusters: Array<{ ideas: Array<{ id: string }> }> }).idea_clusters;
+    expect(clusters[0]!.ideas[0]!.id).toBe('not-a-uuid'); // preserved as-is; BrainstormNoteSchema.parse rejects it downstream
+  });
+
   it('is a no-op for non-brainstorm family', () => {
     const raw: Record<string, unknown> = {
       family: 'lecture',
