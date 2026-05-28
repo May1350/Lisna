@@ -14,6 +14,7 @@ import path from 'node:path';
 import { ipcMain } from 'electron';
 import type { TranscriptSegment as LegacySegment } from '@shared/types';
 import type { SessionTranscript, TranscriptSegment as V2Segment } from '@shared/note-schema/transcript';
+import { adaptToV2Transcript } from '@shared/note-schema';
 import type { NoteBase, NoteFamily } from '@shared/note-schema';
 import type { GrammarCapableSidecar } from '../grammar-call';
 import { finalizeLecture, finalizeMeeting, finalizeInterview, finalizeBrainstorm } from '../orchestrator';
@@ -236,30 +237,4 @@ async function routeBrainstorm(
   });
 
   return { noteId: result.telemetry.noteId, note: result.note };
-}
-
-// ─── adapter ──────────────────────────────────────────────────────────────────
-
-/**
- * Convert legacy TranscriptSegment[] (startSec/endSec/text/noSpeechProb?)
- * into a v2 SessionTranscript (ts/endTs/text/speakerId/meta?).
- *
- * Lecture is single-speaker → all segments get speakerId=0.
- */
-function adaptToV2Transcript(
-  legacySegs: readonly LegacySegment[],
-  sessionId: string,
-): SessionTranscript {
-  const v2Segs: V2Segment[] = legacySegs.map((s) => ({
-    ts: s.startSec,
-    endTs: s.endSec,
-    text: s.text,
-    speakerId: 0,
-    meta: typeof s.noSpeechProb === 'number' ? { noSpeechProb: s.noSpeechProb } : undefined,
-  }));
-  return {
-    sessionId,
-    speakers: [{ id: 0 }],
-    transcriptSegments: v2Segs,
-  };
 }
