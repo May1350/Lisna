@@ -2834,3 +2834,32 @@ Run this after all tasks land before declaring Plan 4 complete.
 > 4. DI-18 verdict memo + scorecard update.
 > 5. If DI-18 PASS: `DIARIZATION_ENABLED = true` and tiered UX enters alpha.
 > 6. If DI-18 FAIL all rungs: spec revision required before Plan 5/6 freeze.
+
+---
+
+## Phase A frozen contracts — AS LANDED (2026-05-28)
+
+Phase A executed against a codebase that had drifted forward of this plan's
+pseudo-code: Plans 2 + 3 had already landed `SpeakerRef`, `SpeakerLabeledSegment`,
+the `Speaker {id,name?}` shape, and the `requiresDiarization` flag. So Phase A
+reduced to four genuinely-missing pieces. **These are the authoritative paths —
+the per-task pseudo-code above (DI-01 Step 3, DI-22 Step 4 example) named
+pre-drift locations and is superseded by this table.**
+
+| Contract | Status at exec | Authoritative location |
+|---|---|---|
+| `DiarizationEngine` interface | NEW | `desktop/src/shared/diarization.ts` (NOT engine-interfaces.ts — that file is pinned to the legacy `types.ts` segment shape; diarization needs the v2 segment) |
+| `SpeakerLabeledSegment` | already existed (Plan 2/3) | `desktop/src/shared/pipeline-hooks.ts` — v2 `TranscriptSegment` + `tentative?`. Imported by `diarization.ts`; not redefined. |
+| `ModelSlot` 4-slot + `CoreModelSlot` | NEW (`seg`/`emb` added) | `desktop/src/shared/ipc-protocol.ts`. `ModelStatus`/boot-resolver stay 2-slot via `CoreModelSlot` until Phase C surfaces seg/emb. The DI-02 `ALL_/CORE_/DIARIZATION_MODEL_SLOTS` runtime const arrays were DEFERRED to Phase C (T-DI-09 resolver iteration is their only consumer — landing them now would be unused dead code per CLAUDE.md #6/#9). |
+| `NoOpDiarization` | NEW | `desktop/src/main/sidecar/noop-diarization.ts` — forces `speakerId: 0`, no `tentative`. |
+| `SpeakerRef = number` | already existed (Plan 2) | `desktop/src/shared/note-schema/base.ts` (re-exported via `note-schema/index.ts`). NOT redefined in speaker-resolve.ts. |
+| `resolveSpeakerLabel(ref, transcript)` | NEW | `desktop/src/shared/families/util/speaker-resolve.ts` |
+| `requiresDiarization: boolean` | already existed (Plan 2/3) | `FamilyCoreDefinition<T>` in `desktop/src/shared/families/index.ts` (the interface is `FamilyCoreDefinition`, not `FamilyDefinition`). Lecture sets `false`. |
+| `SessionTranscript.speakers: { id; name? }[]` | already existed (Plan 2) | `desktop/src/shared/note-schema/transcript.ts` |
+
+Plan 5 (Meeting) and Plan 6 (Interview/Brainstorm) MAY begin now. Schema fields
+referring to speakers (`MeetingNote.decisions[].made_by`,
+`InterviewNote.qa_pairs[].asked_by`,
+`BrainstormNote.idea_clusters[].ideas[].contributed_by`) use `SpeakerRef` from
+`note-schema/base.ts`. Phase B-G (native sidecar + picker UX + orchestrator wire
++ Spike 0.3 runtime) remain unstarted and founder-gated as documented above.
