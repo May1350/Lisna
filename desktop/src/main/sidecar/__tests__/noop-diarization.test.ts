@@ -5,7 +5,7 @@ import type { TranscriptSegment } from '@shared/note-schema/transcript';
 describe('NoOpDiarization', () => {
   it('loadModel / unloadModel resolve immediately', async () => {
     const d = new NoOpDiarization();
-    await expect(d.loadModel('seg.onnx', 'emb.onnx')).resolves.toBeUndefined();
+    await expect(d.loadModel()).resolves.toBeUndefined();
     await expect(d.unloadModel()).resolves.toBeUndefined();
   });
 

@@ -16,8 +16,9 @@ import type { TranscriptSegment } from '@shared/note-schema/transcript';
  * savings"; per section 7.1 it is also the terminal fallback.
  */
 export class NoOpDiarization implements DiarizationEngine {
-  async loadModel(_segmentationPath: string, _embeddingPath: string): Promise<void> {
-    // intentional no-op
+  async loadModel(): Promise<void> {
+    // intentional no-op — implements DiarizationEngine.loadModel(seg, emb) but
+    // loads nothing; single-speaker needs no segmentation/embedding models.
   }
 
   async unloadModel(): Promise<void> {
