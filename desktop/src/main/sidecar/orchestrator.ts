@@ -19,7 +19,7 @@ import { estimateTokens } from '@shared/note-schema/tokens';
 import { runPostDecodePipeline } from '@shared/post-decode/pipeline';
 import { deterministicMerge } from '@shared/post-decode/deterministic-merge';
 import { callWithGrammar, makeSidecarGenerator, type GrammarCapableSidecar } from './grammar-call';
-import { degradeToSingleSpeaker, SINGLE_SPEAKER_WARNING } from '@shared/families/meeting/degrade-to-single-speaker';
+import { degradeToSingleSpeaker } from '@shared/families/meeting/degrade-to-single-speaker';
 
 interface Opts {
   stt: STTEngine;
