@@ -98,3 +98,25 @@ describe('generateChunkedNote — single pass', () => {
     expect(out).toBe('【要点】\n・x');
   });
 });
+
+describe('generateChunkedNote — chunked branch', () => {
+  it('chunks an over-threshold transcript, generates per chunk, and merges', async () => {
+    // ~60 segments × ~400 JA chars × 0.6 t/char ≈ 14400 est tokens > 10788 → chunked.
+    const big = Array.from({ length: 60 }, (_, i) => seg(i, 'あ'.repeat(400)));
+    let n = 0;
+    const { gen, calls } = fakeGenerate(() => {
+      n += 1;
+      return `【要点】\n・point${n}`;
+    });
+    const out = await generateChunkedNote({
+      segments: big,
+      language: 'ja',
+      buildPrompt: testBuildPrompt,
+      generate: gen,
+    });
+    expect(calls.length).toBeGreaterThanOrEqual(2); // multiple chunks
+    expect(out.match(/【要点】/g)).toHaveLength(1); // merged to one header
+    expect(out).toContain('・point1');
+    expect(out).toContain(`・point${calls.length}`); // every chunk's bullet survived
+  });
+});
