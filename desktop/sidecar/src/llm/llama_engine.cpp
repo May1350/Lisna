@@ -98,12 +98,13 @@ bool LlamaEngine::load(const std::string& path) {
   if (!impl_->model) return false;
 
   llama_context_params cp = llama_context_default_params();
-  // 16K. Previously 131072 (128K) and then 32768, both of which caused
-  // `llama_decode failed ret=-3` for 3B Q4_K_M on M1 8GB (Metal compute
-  // graph couldn't allocate). 16K still covers ~1.5hrs of JA transcription
-  // at ~10 tokens/sec, well past the longest plausible single recording.
-  // 2026-05-15 smoke confirmed 3B succeeds at 16K; bump only on profiled need.
-  cp.n_ctx = 16384;
+  // 13312 (13K). The LLM sees ONE ~8K-token chunk at a time (prompt ~8.9K +
+  // gen ~3K ≈ 12K, measured in Spike 0.2), not the whole transcript — so the
+  // prior 16K was over-provisioned. 13K trims the KV cache ~19% (~1.8GB→1.5GB
+  // f16; eases 8GB-Mac swap pressure) with ~1.3K tokens of headroom. Still far
+  // below the 32K/128K that caused `llama_decode ret=-3` (Metal alloc) on 8GB.
+  // (q8_0 KV + flash-attn tried 2026-05-28, reverted: ~8x slower on this Metal build.)
+  cp.n_ctx = 13312;
   impl_->ctx = llama_init_from_model(impl_->model, cp);
   if (!impl_->ctx) {
     llama_model_free(impl_->model);
