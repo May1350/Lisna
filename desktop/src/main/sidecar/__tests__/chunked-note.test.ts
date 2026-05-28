@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { mergeChunkNotes, splitTextHalf } from '../chunked-note';
+import { mergeChunkNotes, splitTextHalf, generateChunkedNote } from '../chunked-note';
+import type { Language, TranscriptSegment, ChatMessage } from '@shared/engine-interfaces';
 
 describe('mergeChunkNotes', () => {
   it('returns the single note unchanged when given one chunk', () => {
@@ -56,5 +57,44 @@ describe('splitTextHalf', () => {
 
   it('returns a single element for trivially short text', () => {
     expect(splitTextHalf('あ')).toEqual(['あ']);
+  });
+});
+
+// ─── shared test helpers (single-pass / chunked / subsplit / regression) ───
+
+// A buildPrompt whose content length tracks the transcript so estimateTokens
+// reflects size: one short system line + the joined transcript text.
+const testBuildPrompt = (_lang: Language, segs: TranscriptSegment[]): ChatMessage[] => [
+  { role: 'system', content: 'sys' },
+  { role: 'user', content: segs.map((s) => s.text).join('\n') },
+];
+
+// A fake streaming generate that records calls and returns a canned note.
+function fakeGenerate(reply: (m: ChatMessage[]) => string) {
+  const calls: ChatMessage[][] = [];
+  const gen = async function* (m: ChatMessage[]): AsyncIterable<string> {
+    calls.push(m);
+    yield reply(m);
+  };
+  return { gen, calls };
+}
+
+const seg = (i: number, text: string): TranscriptSegment => ({
+  startSec: i * 10,
+  endSec: i * 10 + 10,
+  text,
+});
+
+describe('generateChunkedNote — single pass', () => {
+  it('does exactly ONE pass and returns raw output when under the threshold', async () => {
+    const { gen, calls } = fakeGenerate(() => '【要点】\n・x');
+    const out = await generateChunkedNote({
+      segments: [seg(0, 'みじかい')],
+      language: 'ja',
+      buildPrompt: testBuildPrompt,
+      generate: gen,
+    });
+    expect(calls).toHaveLength(1);
+    expect(out).toBe('【要点】\n・x');
   });
 });

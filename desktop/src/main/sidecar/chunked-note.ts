@@ -13,7 +13,7 @@
  *
  * Spec: docs/superpowers/specs/2026-05-28-live-note-overflow-chunking-design.md
  */
-import type { ChatMessage } from '@shared/engine-interfaces';
+import type { Language, TranscriptSegment, ChatMessage } from '@shared/engine-interfaces';
 import { estimateTokens } from '@shared/note-schema';
 
 // Budget constants. MIRROR desktop/sidecar/src/llm/llama_engine.cpp:106
@@ -85,4 +85,33 @@ export function splitTextHalf(text: string): string[] {
   }
   const mid = Math.floor(t.length / 2);
   return [t.slice(0, mid), t.slice(mid)];
+}
+
+export interface GenerateChunkedNoteArgs {
+  segments: TranscriptSegment[];
+  language: Language;
+  buildPrompt: (language: Language, segments: TranscriptSegment[]) => ChatMessage[];
+  /** Pre-bound generate (the caller binds maxTokens/temperature). */
+  generate: (messages: ChatMessage[]) => AsyncIterable<string>;
+}
+
+async function drain(stream: AsyncIterable<string>): Promise<string> {
+  let out = '';
+  for await (const tok of stream) out += tok;
+  return out;
+}
+
+export async function generateChunkedNote(args: GenerateChunkedNoteArgs): Promise<string> {
+  const { segments, language, buildPrompt, generate } = args;
+
+  // 1) Single-pass fast path — byte-identical to the legacy behavior when it fits.
+  const fullPrompt = buildPrompt(language, segments);
+  if (estimatePromptTokens(fullPrompt) <= SINGLE_PASS_MAX_EST) {
+    const single = await drain(generate(fullPrompt));
+    if (single.trim().length > 0) return single; // RAW — MUST NOT route through mergeChunkNotes
+    // else: overflow despite a low estimate → fall through (chunked branch, Task 4).
+  }
+
+  // Chunked branch added in Task 4.
+  return '';
 }
