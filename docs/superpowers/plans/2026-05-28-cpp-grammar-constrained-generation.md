@@ -628,10 +628,12 @@ export function makeOffline3bRunner(opts: { sidecarBin: string; llmModelPath: st
         const proxy = countingProxy(makeGrammarSidecar(client));
         const st = fixtureToSessionTranscript(transcript, meta);
 
-        const perChunk: number[] = [];
-        let last = 0;
+        // Per-chunk attempts: chunk progress fires BEFORE that chunk's call(s),
+        // so snapshot the call count at each chunk start; chunk i's attempts =
+        // (next chunk's start, or the final count) − chunk i's start.
+        const chunkStarts: number[] = [];
         const onProgress = (e: { phase: string }) => {
-          if (e.phase === 'chunk') { perChunk.push(proxy.total() - last); last = proxy.total(); }
+          if (e.phase === 'chunk') chunkStarts.push(proxy.total());
         };
 
         let note: unknown;
@@ -644,11 +646,11 @@ export function makeOffline3bRunner(opts: { sidecarBin: string; llmModelPath: st
               sidecar: proxy.sidecar, modelProfile: profile, diarizationStatus: 'disabled', onProgress }));
           }
         } finally {
-          // Final chunk's attempts (the counter advanced after the last chunk event).
-          if (proxy.total() > last) perChunk.push(proxy.total() - last);
           await llm.unloadModel().catch(() => {});
         }
-        return { note, retryAttempts: perChunk, runMs: Date.now() - t0 };
+        const finalCount = proxy.total();
+        const retryAttempts = chunkStarts.map((start, i) => (chunkStarts[i + 1] ?? finalCount) - start);
+        return { note, retryAttempts, runMs: Date.now() - t0 };
       } finally {
         proc.kill('SIGKILL');
       }
