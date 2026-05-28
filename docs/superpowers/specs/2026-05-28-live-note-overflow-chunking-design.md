@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-28
 **Author:** Lisna v2 founder + Claude (Opus 4.7)
-**Status:** Draft — architecture review round 1 returned "Revise" (material issues); revisions integrated below; pending final sign-off.
+**Status:** Reviewed — round 1 "Revise" (material) + round 2 final sign-off "Approve with minor fixes"; all findings integrated (sections 3.1/3.4 wording tightened per round 2). Ready for the implementation plan.
 **Branch:** `worktree-fix+live-overflow-chunked-note` (worktree `.claude/worktrees/fix+live-overflow-chunked-note`, off `origin/main` `b8afbd2`)
 **Lane:** ai-infra (code under `desktop/src/main/sidecar/` + a lift into `desktop/src/shared/note-schema/`). This doc lives in the spec-docs lane → committed with a `Cross-lane: ai-infra → spec-docs` trailer.
 **Scope:** the LIVE `session/stop` note path ONLY. Out of scope: the v2 structured `finalizeLecture`/`finalizeMeeting` path, grammar-constrained generation, C++ sidecar changes, renderer/preload/Note-type changes.
@@ -84,7 +84,7 @@ generateChunkedNote(args: {
 
 `stop()` replaces its current `:147-152` (prompt build + generate loop) with a single call to this helper, injecting `this.opts.llm.generate` (bound to `maxTokens 4096, temperature 0.4`) and `this.opts.buildPrompt ?? defaultPrompt`. Everything else in `stop()` (model load/unload, timeouts, empty-transcript guard, the returned `Note` shape) is unchanged. Because the helper is pure and takes `generate` as a parameter, it is **unit-testable without Electron or a real model.**
 
-**Single-pass fast path (no regression):** if `estimateTokens(builtPrompt) ≤ SINGLE_PASS_MAX_EST` (3.5), the helper does exactly one `generate` pass and returns its output **byte-identical to today** (preserving the `[Xs] text` transcript format that downstream eval tooling parses). Only over-threshold transcripts enter the chunked branch.
+**Single-pass fast path (no regression):** if `estimateTokens(builtPrompt) ≤ SINGLE_PASS_MAX_EST` (3.5), the helper does exactly one `generate` pass and **returns that raw output directly — it MUST NOT route through the section 3.4 merge** (the merge would re-emit/reorder `【】` headers and break byte-identity). This keeps the output **byte-identical to today**, preserving the `[Xs] text` transcript format that downstream eval tooling parses. Only over-threshold transcripts enter the chunked branch. (The 3.2 backstop still applies: if this single pass returns empty — overflow despite a low estimate — fall through to the chunked branch, which is strictly better than today's silent empty note.)
 
 ### 3.2 Overflow safety is REACTIVE, not estimate-dependent (load-bearing)
 
@@ -111,7 +111,7 @@ Reuse `chunkTranscript` (silence-aware) for the initial split. The helper holds 
 
 `buildJaNoteV1Prompt` instructs the model to emit sections headed by `【要点】` / `【次のアクション】` / `【決定事項】` with `・` bullets (`prompts/ja-note-v1.ts`). Merge N chunk-notes:
 
-1. **Parse:** split each chunk note into sections on lines matching `/^【.+】$/`. Lines before the first header and any non-bullet prose are retained under their preceding header (no content dropped).
+1. **Parse:** split each chunk note into sections on lines matching `/^【.+】$/`. Any preamble lines *before* the first header (the prompt forbids preamble, so this is the rare off-format case) are attached to the **first section that appears**, in first-seen order; non-bullet prose *after* a header stays under that header. No content is dropped.
 2. **Group:** concatenate the lines under each header across all chunks, in first-seen header order; emit one note with each header once.
 3. **Fallback (precise trigger):** if **zero** lines match `/^【.+】$/` across **all** chunk notes (model produced no recognizable headers), skip parsing and **raw-concatenate** the chunk outputs with a thin separator. Output is never empty.
 
