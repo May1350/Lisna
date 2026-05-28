@@ -4,8 +4,10 @@ import {
   splitTextHalf,
   generateChunkedNote,
   generateChunkWithSubsplit,
+  estimatePromptTokens,
 } from '../chunked-note';
 import type { Language, TranscriptSegment, ChatMessage } from '@shared/engine-interfaces';
+import { buildJaNoteV1Prompt } from '../prompts/ja-note-v1';
 
 describe('mergeChunkNotes', () => {
   it('returns the single note unchanged when given one chunk', () => {
@@ -159,5 +161,37 @@ describe('generateChunkWithSubsplit — reactive overflow backstop', () => {
     // lossless: stripping the [ts] markers + whitespace reconstructs the original text
     const reconstructed = out.replace(/\[\d+\.\d+s\]\s*/g, '').replace(/\s+/g, '');
     expect(reconstructed).toContain('これは消えてはいけない本文');
+  });
+});
+
+describe('overflow regression — fail-first demonstration', () => {
+  // Simulate the sidecar: empty output once the prompt exceeds the context.
+  const SIM_CTX_EST = 12000;
+  const simGenerate = async function* (m: ChatMessage[]): AsyncIterable<string> {
+    if (estimatePromptTokens(m) > SIM_CTX_EST) {
+      yield ''; // silent overflow — matches llama_engine.cpp:201 (break, emits nothing)
+      return;
+    }
+    yield '【要点】\n・ok';
+  };
+
+  // ~80 segments × 400 JA chars → est ≈ 19200 tokens in a single pass (> SIM_CTX_EST).
+  const big = Array.from({ length: 80 }, (_, i) => seg(i, 'あ'.repeat(400)));
+
+  it('OLD single-pass strategy produces an EMPTY note (the bug)', async () => {
+    let oldOut = '';
+    for await (const tok of simGenerate(buildJaNoteV1Prompt('ja', big))) oldOut += tok;
+    expect(oldOut.trim()).toBe(''); // empirical fail-first: today's path loses everything
+  });
+
+  it('NEW generateChunkedNote produces a COMPLETE note', async () => {
+    const out = await generateChunkedNote({
+      segments: big,
+      language: 'ja',
+      buildPrompt: buildJaNoteV1Prompt,
+      generate: simGenerate,
+    });
+    expect(out.trim().length).toBeGreaterThan(0);
+    expect(out).toContain('・ok');
   });
 });
