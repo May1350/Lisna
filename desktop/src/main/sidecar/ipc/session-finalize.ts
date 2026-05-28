@@ -16,8 +16,15 @@ import type { TranscriptSegment as LegacySegment } from '@shared/types';
 import type { SessionTranscript, TranscriptSegment as V2Segment } from '@shared/note-schema/transcript';
 import type { NoteFamily } from '@shared/note-schema';
 import type { GrammarCapableSidecar } from '../grammar-call';
-import { finalizeLecture } from '../orchestrator';
+import { finalizeLecture, finalizeMeeting } from '../orchestrator';
 import { modelProfiles } from '@shared/models/profiles';
+
+// Side-effect imports: register family cores so familyCoreRegistry is populated
+// when route handlers call finalizeLecture / finalizeMeeting at runtime.
+// Note: lecture/core has the same gap — no production caller imported it before
+// this file. Both families are registered here as the natural wiring point.
+import '@shared/families/lecture/core';
+import '@shared/families/meeting/core';
 
 // ─── public types ────────────────────────────────────────────────────────────
 
@@ -62,7 +69,7 @@ export function registerSessionFinalize(deps: SessionFinalizeDeps): void {
     if (family === 'lecture') {
       return routeLecture(deps, promptVariant);
     }
-    if (family === 'meeting') throw new Error('FAMILY_NOT_IMPLEMENTED:meeting:plan-5');
+    if (family === 'meeting') return routeMeeting(deps, promptVariant);
     if (family === 'interview') throw new Error('FAMILY_NOT_IMPLEMENTED:interview:plan-6');
     if (family === 'brainstorm') throw new Error('FAMILY_NOT_IMPLEMENTED:brainstorm:plan-6');
 
@@ -107,6 +114,46 @@ async function routeLecture(
   // result.note.title because the title is content (user-visible text that
   // may collide). Task 13 assigns the real persistence ID; that propagates
   // through telemetry.noteId here without touching this line.
+  return { noteId: result.telemetry.noteId };
+}
+
+// ─── meeting route ────────────────────────────────────────────────────────────
+
+async function routeMeeting(
+  deps: SessionFinalizeDeps,
+  promptVariantId: string | undefined,
+): Promise<{ noteId: string }> {
+  // 1. Read live session
+  const session = deps.getCurrentSession();
+  if (!session) throw new Error('NO_ACTIVE_SESSION');
+
+  // 2. Adapt legacy segments → v2 SessionTranscript.
+  //    adaptToV2Transcript assigns speakerId=0 — fine for the alpha path because
+  //    diarizationStatus='disabled' collapses to single-speaker anyway.
+  const transcript = adaptToV2Transcript(session.segments, session.sessionId);
+
+  // 3. Look up ModelProfile by llmModelPath filename
+  const basename = path.basename(session.llmModelPath);
+  const modelProfile = Object.values(modelProfiles).find(
+    (p) => p.filename === basename,
+  );
+  if (!modelProfile) throw new Error('UNKNOWN_MODEL_PROFILE');
+
+  // 4. Delegate to finalizeMeeting.
+  //    diarizationStatus: 'disabled' — Plan 4 Phase B native diarization is not
+  //    yet plumbed into SessionContext, so the alpha meeting path collapses to
+  //    single-speaker and emits SINGLE_SPEAKER_WARNING into validation_warnings.
+  //    When Plan 4 B lands, SessionContext gains diarized turns and this flips
+  //    to 'ok'.
+  const result = await finalizeMeeting({
+    sessionId: session.sessionId,
+    transcript,
+    sidecar: session.sidecar,
+    modelProfile,
+    promptVariantId,
+    diarizationStatus: 'disabled',
+  });
+
   return { noteId: result.telemetry.noteId };
 }
 

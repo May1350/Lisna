@@ -5,11 +5,12 @@ import { withTimeout } from '@shared/with-timeout';
 import { buildJaNoteV1Prompt } from './prompts/ja-note-v1';
 import { TIMEOUTS, TIMEOUT_CODES } from './timeouts';
 
-// ─── finalizeLecture imports ──────────────────────────────────────────────────
+// ─── finalizeLecture / finalizeMeeting imports ───────────────────────────────
 import type { SessionTranscript } from '@shared/note-schema/transcript';
 import type { ModelProfile } from '@shared/models/profiles';
 import type { GenerationTelemetry } from '@shared/note-schema/telemetry';
 import type { LectureNote } from '@shared/families/lecture/schema';
+import type { MeetingNote } from '@shared/families/meeting/schema';
 import { z } from 'zod';
 import { familyCoreRegistry, selectPromptVariant } from '@shared/families';
 import { zodToGbnf } from '@shared/note-schema/zod-to-gbnf';
@@ -18,6 +19,7 @@ import { estimateTokens } from '@shared/note-schema/tokens';
 import { runPostDecodePipeline } from '@shared/post-decode/pipeline';
 import { deterministicMerge } from '@shared/post-decode/deterministic-merge';
 import { callWithGrammar, makeSidecarGenerator, type GrammarCapableSidecar } from './grammar-call';
+import { degradeToSingleSpeaker, SINGLE_SPEAKER_WARNING } from '@shared/families/meeting/degrade-to-single-speaker';
 
 interface Opts {
   stt: STTEngine;
@@ -308,6 +310,147 @@ export async function finalizeLecture(
   return { note, telemetry };
 }
 
+// ─── finalizeMeeting ──────────────────────────────────────────────────────────
+
+export interface FinalizeMeetingArgs {
+  sessionId: string;
+  transcript: SessionTranscript;
+  sidecar: GrammarCapableSidecar;
+  modelProfile: ModelProfile;
+  promptVariantId?: string;
+  /** 'ok' = transcript already carries real diarized speakerIds; 'fallback'/'disabled' = collapse to single speaker + warn. */
+  diarizationStatus: 'ok' | 'fallback' | 'disabled';
+  onProgress?: (e:
+    | { phase: 'chunk'; chunkIndex: number; totalChunks: number }
+    | { phase: 'merge' }
+    | { phase: 'persist' }
+  ) => void;
+}
+
+export interface FinalizeMeetingResult {
+  note: MeetingNote;
+  telemetry: GenerationTelemetry;
+}
+
+/**
+ * Finalize a meeting session: optionally collapse to single-speaker when
+ * diarization is unavailable, chunk the transcript, call the LLM once per
+ * chunk with grammar-constrained decode, run the post-decode pipeline, then
+ * deterministically merge all partials into a single MeetingNote.
+ *
+ * No Electron IPC — pure async function. session-finalize.ts wires the IPC.
+ *
+ * Plan 4 Phase B note: diarizationStatus='disabled' is the alpha path because
+ * SessionContext does not yet carry diarized turns. When Plan 4 B lands and
+ * SessionContext gains real speakerIds, the caller flips this to 'ok'.
+ */
+export async function finalizeMeeting(
+  args: FinalizeMeetingArgs,
+): Promise<FinalizeMeetingResult> {
+  const generationStartedAt = new Date().toISOString();
+  const t0 = Date.now();
+
+  const fam = familyCoreRegistry['meeting'];
+  if (!fam) throw new Error('MEETING_FAMILY_NOT_REGISTERED');
+
+  const grammar = zodToGbnf(fam.schema, 'MeetingNote');
+
+  const prompt = selectPromptVariant(
+    fam.prompts,
+    fam.defaultPromptVariant,
+    args.promptVariantId ? { userPreference: args.promptVariantId } : undefined,
+  );
+
+  // ── Diarization fallback BEFORE chunking ──────────────────────────────────
+  // When Plan 4 diarization is unavailable, collapse all segments to speaker 0
+  // and record the warning so users know attributions are unreliable.
+  let activeTranscript = args.transcript;
+  const validationWarnings: string[] = [];
+  if (args.diarizationStatus !== 'ok') {
+    const degraded = degradeToSingleSpeaker(args.transcript);
+    activeTranscript = degraded.transcript;
+    validationWarnings.push(degraded.warning);
+  }
+
+  const tuning = args.modelProfile.perFamily['meeting'];
+  const chunks = chunkTranscript(activeTranscript, tuning.recommendedChunkTokens);
+
+  if (chunks.length === 0) {
+    throw new Error('EMPTY_TRANSCRIPT');
+  }
+
+  const generator = makeSidecarGenerator(args.sidecar);
+  const partials: Array<Partial<MeetingNote>> = [];
+
+  for (let i = 0; i < chunks.length; i++) {
+    args.onProgress?.({ phase: 'chunk', chunkIndex: i, totalChunks: chunks.length });
+
+    const userPrompt = prompt.chunkUserTemplate({
+      chunkIndex: i,
+      totalChunks: chunks.length,
+      transcript: renderTranscriptWithSpeakers(chunks[i]!, activeTranscript.speakers),
+    });
+    const combinedPrompt = `${prompt.systemTemplate}\n\n${userPrompt}`;
+
+    // baseSeed 6000 (lecture uses 5000) keeps seeds distinct across families.
+    const result = await callWithGrammar<unknown>({
+      prompt: combinedPrompt,
+      schema: z.unknown(),
+      grammar,
+      baseSeed: 6000 + i,
+      temperature: tuning.temperature,
+      maxAttempts: 3,
+      maxTokens: tuning.maxGenTokens,
+      generator,
+    });
+
+    if (!result.ok) {
+      throw new Error(`CHUNK_FAILED:${i}:${result.finalReason}`);
+    }
+
+    const rawJson = JSON.stringify(result.value);
+    const validated = runPostDecodePipeline(rawJson, fam, activeTranscript);
+    partials.push(validated as Partial<MeetingNote>);
+  }
+
+  args.onProgress?.({ phase: 'merge' });
+  const merged = deterministicMerge<Record<string, unknown>>(
+    partials as Array<Partial<Record<string, unknown>>>,
+    fam.mergeStrategy,
+  );
+
+  // Bubble the diarization warning into the merged note before schema parse.
+  if (validationWarnings.length > 0) {
+    merged.validation_warnings = [
+      ...((merged.validation_warnings as string[] | undefined) ?? []),
+      ...validationWarnings,
+    ];
+  }
+
+  const note = fam.schema.parse(merged) as MeetingNote;
+
+  const telemetry: GenerationTelemetry = {
+    noteId: args.sessionId,
+    modelId: args.modelProfile.id,
+    promptVariantId: prompt.variantId,
+    schemaVersion: 1,
+    generationStartedAt,
+    generationDurationMs: Date.now() - t0,
+    chunkCount: chunks.length,
+    totalTokensIn: chunks.reduce(
+      (sum, chunk) => sum + estimateTokens(renderTranscriptWithSpeakers(chunk, activeTranscript.speakers)),
+      0,
+    ),
+    totalTokensOut: 0,
+    validationWarnings: [...validationWarnings],
+    dedupHits: [],
+    postDecodeMutations: [],
+  };
+
+  args.onProgress?.({ phase: 'persist' });
+  return { note, telemetry };
+}
+
 // ─── file-local helpers ───────────────────────────────────────────────────────
 
 /** Render a chunk's segments as a timestamp-prefixed transcript string. */
@@ -321,4 +464,26 @@ function formatTs(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
   return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+/**
+ * Render a meeting transcript chunk with a speaker map header and per-line
+ * speaker prefix. The speaker map lets the LLM reverse-look-up name→SpeakerRef
+ * for integer fields like decisions.made_by and next_steps.owner.
+ *
+ * Format:
+ *   Speaker map: Speaker 0 = 佐藤, Speaker 1 = 山田
+ *
+ *   [0:05] [佐藤] 本日はよろしくお願いします。
+ */
+function renderTranscriptWithSpeakers(
+  chunk: SessionTranscript,
+  speakers: SessionTranscript['speakers'],
+): string {
+  const lookup = new Map(speakers.map((s) => [s.id, s.name ?? `話者${s.id}`]));
+  const speakerMap = speakers.map((s) => `Speaker ${s.id} = ${s.name ?? `話者${s.id}`}`).join(', ');
+  const lines = chunk.transcriptSegments
+    .map((s) => `[${formatTs(s.ts)}] [${lookup.get(s.speakerId) ?? `Speaker ${s.speakerId}`}] ${s.text}`)
+    .join('\n');
+  return `Speaker map: ${speakerMap}\n\n${lines}`;
 }
