@@ -20,11 +20,16 @@ import { finalizeLecture, finalizeMeeting } from '../orchestrator';
 import { modelProfiles } from '@shared/models/profiles';
 
 // Side-effect imports: register family cores so familyCoreRegistry is populated
-// when route handlers call finalizeLecture / finalizeMeeting at runtime.
-// Note: lecture/core has the same gap — no production caller imported it before
-// this file. Both families are registered here as the natural wiring point.
+// at app boot. lecture + meeting are routable below; interview + brainstorm are
+// registered so the family picker + loadNote() can read their schema / picker /
+// migrations, but their finalize ROUTING still throws FAMILY_NOT_IMPLEMENTED
+// (see below) until the orchestrator merge branch lands (Plan 6 Task 13, gated
+// on the merge-LLM spike). This is the natural wiring point — no production
+// caller imported these cores before this file.
 import '@shared/families/lecture/core';
 import '@shared/families/meeting/core';
+import '@shared/families/interview/core';
+import '@shared/families/brainstorm/core';
 
 // ─── public types ────────────────────────────────────────────────────────────
 

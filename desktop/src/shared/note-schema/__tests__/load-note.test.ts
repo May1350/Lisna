@@ -3,16 +3,22 @@ import { loadNote } from '../load-note';
 import { ForwardIncompatNoteError } from '../forward-incompat';
 import fixtureJson from '../../families/lecture/migrations/v1-fixture.json';
 import meetingFixtureJson from '../../families/meeting/migrations/v1-fixture.json';
+import interviewFixtureJson from '../../families/interview/migrations/v1-fixture.json';
+import brainstormFixtureJson from '../../families/brainstorm/migrations/v1-fixture.json';
 
 // Side-effect imports seed the familyCoreRegistry.
 // Same pattern as pipeline.test.ts and orchestrator tests.
 beforeAll(async () => {
   await import('../../families/lecture/core');
   await import('../../families/meeting/core');
+  await import('../../families/interview/core');
+  await import('../../families/brainstorm/core');
 });
 
 const FIXTURE_STR = JSON.stringify(fixtureJson);
 const MEETING_FIXTURE_STR = JSON.stringify(meetingFixtureJson);
+const INTERVIEW_FIXTURE_STR = JSON.stringify(interviewFixtureJson);
+const BRAINSTORM_FIXTURE_STR = JSON.stringify(brainstormFixtureJson);
 
 describe('loadNote', () => {
   it('1. loads a v1 Lecture fixture without throwing', () => {
@@ -126,6 +132,46 @@ describe('loadNote', () => {
 
   it('14. throws ForwardIncompatNoteError on schemaVersion: 2 for meeting (future version)', () => {
     const mutated = JSON.stringify({ ...meetingFixtureJson, schemaVersion: 2 });
+    expect(() => loadNote(mutated)).toThrow(ForwardIncompatNoteError);
+  });
+
+  // Interview family dispatch — mirrors meeting cases above.
+  it('15. loads a v1 Interview fixture without throwing', () => {
+    expect(() => loadNote(INTERVIEW_FIXTURE_STR)).not.toThrow();
+  });
+
+  it('16. returns a note with family === "interview"', () => {
+    const note = loadNote(INTERVIEW_FIXTURE_STR) as { family: string };
+    expect(note.family).toBe('interview');
+  });
+
+  it('17. interview: empty migrations array is a no-op — schemaVersion 1 loads as-is', () => {
+    const note = loadNote(INTERVIEW_FIXTURE_STR);
+    expect(note.schemaVersion).toBe(1);
+  });
+
+  it('18. throws ForwardIncompatNoteError on schemaVersion: 2 for interview (future version)', () => {
+    const mutated = JSON.stringify({ ...interviewFixtureJson, schemaVersion: 2 });
+    expect(() => loadNote(mutated)).toThrow(ForwardIncompatNoteError);
+  });
+
+  // Brainstorm family dispatch — mirrors meeting cases above.
+  it('19. loads a v1 Brainstorm fixture without throwing', () => {
+    expect(() => loadNote(BRAINSTORM_FIXTURE_STR)).not.toThrow();
+  });
+
+  it('20. returns a note with family === "brainstorm"', () => {
+    const note = loadNote(BRAINSTORM_FIXTURE_STR) as { family: string };
+    expect(note.family).toBe('brainstorm');
+  });
+
+  it('21. brainstorm: empty migrations array is a no-op — schemaVersion 1 loads as-is', () => {
+    const note = loadNote(BRAINSTORM_FIXTURE_STR);
+    expect(note.schemaVersion).toBe(1);
+  });
+
+  it('22. throws ForwardIncompatNoteError on schemaVersion: 2 for brainstorm (future version)', () => {
+    const mutated = JSON.stringify({ ...brainstormFixtureJson, schemaVersion: 2 });
     expect(() => loadNote(mutated)).toThrow(ForwardIncompatNoteError);
   });
 });
