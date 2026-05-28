@@ -16,7 +16,8 @@ export { ForwardIncompatNoteError, CURRENT_SCHEMA_VERSION };
  * Stage 1 — JSON.parse (throws SyntaxError on malformed input — no wrap)
  * Stage 2 — Fill ids (Brainstorm only; all other families are a no-op here)
  * Stage 3 — Fill provenance (walk recursively, fill `from` on every
- *            provenance-bearing leaf that has a `ts` but no `from`)
+ *            provenance-bearing leaf missing `from` — resolved via `ts`
+ *            when present, else `'inferred'`)
  * Stage 4 — Zod parse with referential closure (delegates to family.schema.parse)
  * Stage 5 — Deterministic dedup (Lecture is a no-op; dedup is field-level
  *            inside MergeStrategy at the merge stage, not per-chunk)
