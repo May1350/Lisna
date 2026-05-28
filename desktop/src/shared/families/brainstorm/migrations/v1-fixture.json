@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "family": "brainstorm",
+  "title": "新規機能アイデア出しセッション — 2026-05-28",
+  "generatedAt": "2026-05-28T10:00:00.000Z",
+  "generatedBy": { "model": "llama-3.2-3b-q4-km", "promptVersion": 0 },
+  "language": "ja",
+  "durationSec": 2700,
+  "purpose": "次四半期の主要機能候補を洗い出し、優先順位を検討するためのブレインストーミング",
+  "atmosphere": "energetic",
+  "idea_clusters": [
+    {
+      "theme": "オフライン体験の強化",
+      "ideas": [
+        {
+          "id": "550e8400-e29b-41d4-a716-446655440001",
+          "text": "ネットワーク接続なしでもノート閲覧・検索できるオフラインモード",
+          "contributed_by": 0,
+          "ts": 120,
+          "from": "transcript"
+        },
+        {
+          "id": "550e8400-e29b-41d4-a716-446655440002",
+          "text": "録音データをローカルに保持し、後でバックグラウンド同期する仕組み",
+          "contributed_by": 1,
+          "ts": 210,
+          "from": "transcript"
+        },
+        {
+          "id": "550e8400-e29b-41d4-a716-446655440003",
+          "text": "機内モード対応のためのiCloud Drive自動フォールバック",
+          "contributed_by": 0,
+          "ts": 330,
+          "from": "inferred"
+        }
+      ]
+    },
+    {
+      "theme": "ノート品質のフィードバックループ",
+      "ideas": [
+        {
+          "id": "550e8400-e29b-41d4-a716-446655440004",
+          "text": "ユーザーが各アイデアクラスターに★評価を付け、LLMプロンプト改善に活用する仕組み",
+          "contributed_by": 1,
+          "ts": 600,
+          "from": "transcript"
+        },
+        {
+          "id": "550e8400-e29b-41d4-a716-446655440005",
+          "text": "「このまとめは間違っている」ボタンで即座にフラグを立て、再生成を促す",
+          "contributed_by": 2,
+          "ts": 720,
+          "from": "transcript"
+        }
+      ]
+    },
+    {
+      "theme": "コラボレーション機能",
+      "ideas": [
+        {
+          "id": "550e8400-e29b-41d4-a716-446655440006",
+          "text": "ノートに対してチームメンバーがコメントを付けられるShared Noteモード",
+          "contributed_by": 0,
+          "ts": 1080,
+          "from": "transcript"
+        },
+        {
+          "id": "550e8400-e29b-41d4-a716-446655440007",
+          "text": "Slackチャンネルへのサマリー自動ポスト機能",
+          "contributed_by": 1,
+          "ts": 1200,
+          "from": "transcript"
+        },
+        {
+          "id": "550e8400-e29b-41d4-a716-446655440008",
+          "text": "NotionデータベースへのOne-click エクスポート",
+          "contributed_by": 2,
+          "ts": 1350,
+          "from": "inferred"
+        }
+      ]
+    }
+  ],
+  "parking_lot": [
+    {
+      "text": "Windowsサポートの優先度はいつ検討するか — 今期はmacOS専念",
+      "ts": 1800,
+      "from": "transcript"
+    },
+    {
+      "text": "音声からリアルタイムで図を生成するビジュアルノート機能 — 技術的な実現性が不明",
+      "ts": 2100,
+      "from": "inferred"
+    }
+  ],
+  "conclusions": [
+    {
+      "text": "オフライン機能とフィードバックループが最も実現可能性が高く、次四半期の候補として有力",
+      "ts": 2550,
+      "from": "inferred"
+    }
+  ],
+  "next_steps": [
+    {
+      "text": "オフラインモードの技術スパイクを今週中に実施してフィジビリティを確認する",
+      "owner": 1,
+      "due": "2026-06-04",
+      "ts": 2640,
+      "from": "transcript"
+    },
+    {
+      "text": "ユーザーフィードバック収集の設計案をプロダクトチームにレビュー依頼する",
+      "owner": 0,
+      "ts": 2670,
+      "from": "inferred"
+    }
+  ]
+}

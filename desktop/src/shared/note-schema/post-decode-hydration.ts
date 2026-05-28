@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { computeProvenance, DEFAULT_PROVENANCE_CONFIG, type ProvenanceConfig } from './provenance';
 import type { SessionTranscript } from './transcript';
 
@@ -36,4 +37,33 @@ export function hydratePostDecode(
       hydratePostDecode(obj[k], transcript, config);
     }
   }
+}
+
+/**
+ * Spec §3.6 + §5.2. Assigns a UUID v4 to each idea_clusters[].ideas[] lacking an `id`;
+ * preserves existing ids. Typed as Record<string,unknown> to avoid a families→note-schema
+ * dep arrow; the schema parse validates id shape at the next stage.
+ */
+export function assignBrainstormIdeaIds(rawNote: Record<string, unknown>): Record<string, unknown> {
+  if (rawNote.family !== 'brainstorm') return rawNote;
+  const clusters = rawNote.idea_clusters;
+  if (!Array.isArray(clusters)) return rawNote;
+  return {
+    ...rawNote,
+    idea_clusters: clusters.map((c) => {
+      if (!c || typeof c !== 'object') return c;
+      const cluster = c as Record<string, unknown>;
+      const ideas = cluster.ideas;
+      if (!Array.isArray(ideas)) return cluster;
+      return {
+        ...cluster,
+        ideas: ideas.map((idea) => {
+          if (!idea || typeof idea !== 'object') return idea;
+          const id = (idea as Record<string, unknown>).id;
+          if (typeof id === 'string' && id.length > 0) return idea;
+          return { ...(idea as object), id: randomUUID() };
+        }),
+      };
+    }),
+  };
 }
