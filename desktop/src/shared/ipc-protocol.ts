@@ -132,11 +132,31 @@ export interface SessionErrorPayload {
 
 // --- Step 5 §5.1 — first-run model resolver ---
 
-export type ModelSlot = 'stt' | 'llm';
+/**
+ * Model slot identifier. Four slots for v2:
+ *   stt  — Whisper STT GGML
+ *   llm  — Llama LLM GGUF
+ *   seg  — Pyannote segmentation 3.0 ONNX (diarization)
+ *   emb  — Speaker embedding ONNX (3D-Speaker eres2net / NeMo TitaNet / WeSpeaker)
+ *
+ * `seg` and `emb` are only surfaced in the picker when the diarization feature
+ * toggle is enabled (Plan 4 Phase C `DIARIZATION_ENABLED`). Boot-time model
+ * resolution skips them when disabled, so legacy 2-slot installations remain
+ * bit-identical. The `ModelStatus.ready` shape stays 2-slot (sttPath/llmPath)
+ * until the resolver grows seg/emb paths in Plan 4 Phase B (T-DI-08).
+ */
+export type ModelSlot = 'stt' | 'llm' | 'seg' | 'emb';
+
+/**
+ * The two always-required core slots. The boot resolver + first-run picker
+ * operate on these until Plan 4 Phase C surfaces seg/emb behind the toggle —
+ * keeping `ModelStatus` 2-slot means legacy installs stay bit-identical.
+ */
+export type CoreModelSlot = 'stt' | 'llm';
 
 export type ModelStatus =
   | { kind: 'ready'; sttPath: string; llmPath: string }
-  | { kind: 'needs-setup'; missing: ModelSlot[] };  // sorted: 'stt' before 'llm'
+  | { kind: 'needs-setup'; missing: CoreModelSlot[] };  // sorted: 'stt' before 'llm'
 
 /** Internal alias for main/model-resolver.ts. Same shape as ModelStatus — named
  *  separately so resolver-internal types can evolve without a renderer break. */

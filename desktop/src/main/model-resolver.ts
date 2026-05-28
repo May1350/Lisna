@@ -12,7 +12,7 @@ import { promises as fs } from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
 import path from 'node:path';
 import { ipcMain, dialog, type BrowserWindow } from 'electron';
-import type { ModelSlot, ResolveResult, ModelStatus, PickResult, ModelPickPayload } from '@shared/ipc-protocol';
+import type { ModelSlot, CoreModelSlot, ResolveResult, ModelStatus, PickResult, ModelPickPayload } from '@shared/ipc-protocol';
 import { CHANNELS } from './ipc';
 import { log, redactPath } from './log';
 
@@ -173,7 +173,7 @@ export async function resolveModels(opts: ResolveOptions): Promise<ResolveResult
   ]);
   const [sttResult, llmResult] = resolved;
 
-  const missing: ModelSlot[] = [];
+  const missing: CoreModelSlot[] = [];
   if (!sttResult.ok) missing.push('stt');
   if (!llmResult.ok) missing.push('llm');
 
