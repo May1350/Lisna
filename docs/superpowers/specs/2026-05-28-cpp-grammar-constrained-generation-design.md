@@ -180,16 +180,29 @@ export function makeGrammarSidecar(client: SidecarClient): GrammarCapableSidecar
 **`desktop/src/main/ipc.ts`** `getCurrentSession` — replace the `as unknown`
 cast with `sidecar: makeGrammarSidecar(client)`. No cast remains.
 
+Module note: `makeGrammarSidecar` lives next to the interface in
+`grammar-call.ts`, which today imports only `zod`; it gains a type import of
+`SidecarClient` (`./client`) and `TIMEOUTS` (`./timeouts`). eslint (gated by
+`desktop-ci`, Section 8) catches a missed import.
+
 ### Gap D (scorer) — `offline-3b` eval runner (lane: eval)
 
 New `desktop/eval/runners/offline-3b.ts` implementing `PipelineRunner`
 (`run({meta, transcript}) => {note, retryAttempts, runMs}`):
 - Spawn the sidecar, `waitForReady`, **load the 3B LLM model** (the runner owns
   model load — see Section 9), build `SessionTranscript` from the eval
-  `FixtureTranscript` via a small local adapter (`{ts,text,speakerId}[]` →
-  `transcriptSegments[]`, `endTs` = next segment's `ts` or `ts + bucket_seconds`),
-  then call the real `finalizeLecture` / `finalizeMeeting` with
-  `makeGrammarSidecar(client)`. Unload + kill the sidecar in `finally`.
+  `FixtureTranscript` via a small local adapter: `{ts,text,speakerId}[]` →
+  `transcriptSegments[]` with `endTs` = next segment's `ts` or `ts +
+  bucket_seconds`, `speakers` carried through, and a synthesized
+  `sessionId = transcript.sessionId ?? meta.fixtureId` (`SessionTranscript.sessionId`
+  is required; `FixtureTranscript.sessionId` is optional and `FixtureMeta` exposes
+  `fixtureId`, not `sessionId`).
+- Branch on `meta.family`: `'lecture'` → `finalizeLecture`, `'meeting'` →
+  `finalizeMeeting`, `'interview'`/`'brainstorm'` → throw
+  `UNSUPPORTED_FAMILY_FOR_OFFLINE_RUNNER:<family>` (no finalize path until Plan 6;
+  the real-run gate uses a lecture fixture, so this is scope-consistent). Pass
+  the sidecar as `makeGrammarSidecar(client)` wrapped in the counting proxy below.
+  Unload + kill the sidecar in `finally`.
 - **`retryAttempts` without editing `orchestrator.ts`:** wrap the sidecar in a
   counting proxy that tallies `generateWithGrammar` calls, delimited by
   `finalizeLecture`'s existing `onProgress({phase:'chunk', chunkIndex})` events →
