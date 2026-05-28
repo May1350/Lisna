@@ -1,0 +1,21 @@
+{
+  "sessionId": "decision-heavy-3spk",
+  "speakers": [
+    { "id": 0, "name": "CEO" },
+    { "id": 1, "name": "COO" },
+    { "id": 2, "name": "CFO" }
+  ],
+  "bucket_seconds": 10,
+  "transcripts": [
+    { "ts": 0, "text": "CEO: 今期の予算配分について4つの決定を進めます。", "speakerId": 0 },
+    { "ts": 10, "text": "CFO: 第一に、マーケティング予算を20%増額します。", "speakerId": 2 },
+    { "ts": 20, "text": "CEO: 承認します。", "speakerId": 0 },
+    { "ts": 30, "text": "COO: 第二に、新オフィス契約は来年に延期します。", "speakerId": 1 },
+    { "ts": 40, "text": "CEO: 承認、リモート継続を前提に。", "speakerId": 0 },
+    { "ts": 50, "text": "CFO: 第三に、SaaS のサブスクを年間契約に切り替えてコスト削減。", "speakerId": 2 },
+    { "ts": 60, "text": "CEO: 承認。", "speakerId": 0 },
+    { "ts": 70, "text": "COO: 第四に、人事評価制度を四半期毎に変更します。", "speakerId": 1 },
+    { "ts": 80, "text": "CEO: 承認。CFO、新制度の予算影響をまとめてください。", "speakerId": 0 },
+    { "ts": 90, "text": "CFO: 来週までに資料を出します。", "speakerId": 2 }
+  ]
+}

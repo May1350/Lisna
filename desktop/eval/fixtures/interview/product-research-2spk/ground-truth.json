@@ -1,0 +1,12 @@
+{
+  "fixtureId": "product-research-2spk",
+  "qaPairs": [
+    { "q": "普段のノート作成ワークフロー", "a": "会議中Notion+後でCursor" },
+    { "q": "一番時間がかかる工程", "a": "構造化30分" },
+    { "q": "AI自動構造化使う?", "a": "出力の質と編集次第" },
+    { "q": "プライバシー懸念", "a": "クラウドNG、オンデバイスOK" },
+    { "q": "月額予算", "a": "2000-3000円" }
+  ],
+  "themes": ["workflow", "pricing", "privacy", "editing", "structuring"],
+  "participantCount": 2
+}

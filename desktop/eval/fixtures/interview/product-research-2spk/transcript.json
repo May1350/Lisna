@@ -1,0 +1,20 @@
+{
+  "sessionId": "product-research-2spk",
+  "speakers": [
+    { "id": 0, "name": "Interviewer" },
+    { "id": 1, "name": "User" }
+  ],
+  "bucket_seconds": 10,
+  "transcripts": [
+    { "ts": 0, "text": "Interviewer: 普段のノート作成ワークフローを教えてください。", "speakerId": 0 },
+    { "ts": 10, "text": "User: 会議中はNotionに手書き、後でCursorでまとめます。", "speakerId": 1 },
+    { "ts": 20, "text": "Interviewer: 一番時間がかかる工程はどこですか?", "speakerId": 0 },
+    { "ts": 30, "text": "User: 終わってから情報を構造化する部分です。30分かかります。", "speakerId": 1 },
+    { "ts": 40, "text": "Interviewer: もしAIが自動的に構造化したら使いますか?", "speakerId": 0 },
+    { "ts": 50, "text": "User: 出力の質と編集のしやすさ次第です。生成だけして編集できないと困ります。", "speakerId": 1 },
+    { "ts": 60, "text": "Interviewer: プライバシーについて懸念はありますか?", "speakerId": 0 },
+    { "ts": 70, "text": "User: クラウド送信は絶対NG、オンデバイスなら問題なし。", "speakerId": 1 },
+    { "ts": 80, "text": "Interviewer: 月額いくらまで払えますか?", "speakerId": 0 },
+    { "ts": 90, "text": "User: 構造化と編集を含めて 2000-3000円が上限です。", "speakerId": 1 }
+  ]
+}

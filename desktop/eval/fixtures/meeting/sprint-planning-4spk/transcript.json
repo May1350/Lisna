@@ -1,0 +1,22 @@
+{
+  "sessionId": "sprint-planning-4spk",
+  "speakers": [
+    { "id": 0, "name": "PM" },
+    { "id": 1, "name": "Eng Lead" },
+    { "id": 2, "name": "Designer" },
+    { "id": 3, "name": "QA" }
+  ],
+  "bucket_seconds": 10,
+  "transcripts": [
+    { "ts": 0, "text": "PM: 今日のスプリント計画を始めます。最初に、Q3で出荷予定の支払いリファクタについて。", "speakerId": 0 },
+    { "ts": 10, "text": "Eng Lead: バックエンド側はあと2週間です。RFC は田中が金曜までに書きます。", "speakerId": 1 },
+    { "ts": 20, "text": "Designer: UI モックは来週月曜に共有します。", "speakerId": 2 },
+    { "ts": 30, "text": "QA: 自動テストの範囲を広げる必要があります。", "speakerId": 3 },
+    { "ts": 40, "text": "PM: では、支払いリファクタはQ3末に出荷で確定します。", "speakerId": 0 },
+    { "ts": 50, "text": "Eng Lead: 了解。RFC、UIモック、テスト拡張、3点で進めます。", "speakerId": 1 },
+    { "ts": 60, "text": "PM: 次のトピック、デプロイパイプラインの遅延について議論します。", "speakerId": 0 },
+    { "ts": 70, "text": "Eng Lead: 主な原因はCDKの再ビルドです。hotswap で15分→3秒に短縮できます。", "speakerId": 1 },
+    { "ts": 80, "text": "QA: 監視は誰が責任を持ちますか?", "speakerId": 3 },
+    { "ts": 90, "text": "PM: 監視は私が引き受けます。来週までにダッシュボードを作ります。", "speakerId": 0 }
+  ]
+}

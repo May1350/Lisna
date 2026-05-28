@@ -1,0 +1,21 @@
+{
+  "sessionId": "feature-ideation-3spk",
+  "speakers": [
+    { "id": 0, "name": "PM" },
+    { "id": 1, "name": "Eng" },
+    { "id": 2, "name": "Designer" }
+  ],
+  "bucket_seconds": 10,
+  "transcripts": [
+    { "ts": 0, "text": "PM: 次の四半期のテーマは「速さ」です。アイデアをどんどん出しましょう。", "speakerId": 0 },
+    { "ts": 10, "text": "Eng: ノート生成を5秒以内に。プログレッシブ表示で。", "speakerId": 1 },
+    { "ts": 20, "text": "Designer: スタートアップ時間も含めて全体5秒、それ以外は要らないとしましょう。", "speakerId": 2 },
+    { "ts": 30, "text": "PM: 編集のスピードも重要。キーボードショートカット網羅。", "speakerId": 0 },
+    { "ts": 40, "text": "Eng: 検索を全文インデックスで瞬時に。", "speakerId": 1 },
+    { "ts": 50, "text": "Designer: ノートのテンプレート表示も0.5秒以内に。", "speakerId": 2 },
+    { "ts": 60, "text": "PM: 別テーマ、「シェア」について。", "speakerId": 0 },
+    { "ts": 70, "text": "Eng: 一方向リンクで匿名共有、コメントだけ可能なモード。", "speakerId": 1 },
+    { "ts": 80, "text": "Designer: チーム空間、ノートをドラッグで他人に渡せる感覚。", "speakerId": 2 },
+    { "ts": 90, "text": "PM: Slack/Discord にワンクリック投稿。", "speakerId": 0 }
+  ]
+}

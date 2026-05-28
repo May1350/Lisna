@@ -1,0 +1,11 @@
+{
+  "fixtureId": "crisis-options-4spk",
+  "family": "brainstorm",
+  "language": "ja",
+  "durationSec": 100,
+  "bucketSeconds": 10,
+  "scenarioTags": ["crisis-response", "4-speaker", "parking-lot"],
+  "expectedSlots": [],
+  "sourceUrl": null,
+  "notes": "Tests parking_lot extraction (外部監査 deferred). 1-2 idea clusters, cost constraint context."
+}

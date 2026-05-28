@@ -1,0 +1,11 @@
+{
+  "fixtureId": "sprint-planning-4spk",
+  "family": "meeting",
+  "language": "ja",
+  "durationSec": 100,
+  "bucketSeconds": 10,
+  "scenarioTags": ["planning", "4-speaker", "decision-bearing"],
+  "expectedSlots": [],
+  "sourceUrl": null,
+  "notes": "Synthetic stub — replace with real recording in Plan 5 follow-up."
+}

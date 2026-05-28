@@ -1,0 +1,11 @@
+{
+  "fixtureId": "design-review-3spk",
+  "family": "meeting",
+  "language": "ja",
+  "durationSec": 100,
+  "bucketSeconds": 10,
+  "scenarioTags": ["design-review", "3-speaker", "proposal-heavy"],
+  "expectedSlots": [],
+  "sourceUrl": null,
+  "notes": "Synthetic stub. Tests proposals with accepted/deferred outcomes + cross-functional decisions."
+}

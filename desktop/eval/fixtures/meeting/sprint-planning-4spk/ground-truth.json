@@ -1,0 +1,12 @@
+{
+  "fixtureId": "sprint-planning-4spk",
+  "decisions": [
+    { "text": "支払いリファクタはQ3末に出荷", "mustAppear": true }
+  ],
+  "actionItems": [
+    { "text": "RFC を田中が金曜までに書く", "mustAppear": true },
+    { "text": "UI モック共有 (来週月曜)", "mustAppear": true },
+    { "text": "監視ダッシュボード作成 (PM)", "mustAppear": true }
+  ],
+  "participantCount": 4
+}

@@ -1,0 +1,23 @@
+{
+  "sessionId": "roadmap-2026-q3-5spk",
+  "speakers": [
+    { "id": 0, "name": "PM" },
+    { "id": 1, "name": "Eng A" },
+    { "id": 2, "name": "Eng B" },
+    { "id": 3, "name": "Designer" },
+    { "id": 4, "name": "QA" }
+  ],
+  "bucket_seconds": 10,
+  "transcripts": [
+    { "ts": 0, "text": "PM: Q3 ロードマップを白紙から考えます。優先テーマを出してください。", "speakerId": 0 },
+    { "ts": 10, "text": "Eng A: パフォーマンスの大幅な改善、特に起動時間。", "speakerId": 1 },
+    { "ts": 20, "text": "Eng B: 既存バグの一斉清算、月の中盤を当てる。", "speakerId": 2 },
+    { "ts": 30, "text": "Designer: オンボーディングUXの全面刷新。", "speakerId": 3 },
+    { "ts": 40, "text": "QA: 自動テストカバレッジを70%まで上げる。", "speakerId": 4 },
+    { "ts": 50, "text": "PM: 新機能側だと?", "speakerId": 0 },
+    { "ts": 60, "text": "Eng A: チーム共有モード、ノートをリンクで配布。", "speakerId": 1 },
+    { "ts": 70, "text": "Designer: モバイル版を試作で出す。", "speakerId": 3 },
+    { "ts": 80, "text": "Eng B: AI モデルの自動アップデートメカニズム。", "speakerId": 2 },
+    { "ts": 90, "text": "QA: 国際化、最初は英語と中国語に絞って。", "speakerId": 4 }
+  ]
+}

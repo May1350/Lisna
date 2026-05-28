@@ -1,0 +1,11 @@
+{
+  "fixtureId": "product-research-2spk",
+  "family": "interview",
+  "language": "ja",
+  "durationSec": 100,
+  "bucketSeconds": 10,
+  "scenarioTags": ["product-research", "2-speaker", "theme-rich"],
+  "expectedSlots": [],
+  "sourceUrl": null,
+  "notes": "Synthetic. 5 distinct QA pairs, themes (workflow / pricing / privacy)."
+}

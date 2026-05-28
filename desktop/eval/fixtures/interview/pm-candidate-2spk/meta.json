@@ -1,0 +1,11 @@
+{
+  "fixtureId": "pm-candidate-2spk",
+  "family": "interview",
+  "language": "ja",
+  "durationSec": 100,
+  "bucketSeconds": 10,
+  "scenarioTags": ["hiring", "2-speaker", "behavioral"],
+  "expectedSlots": [],
+  "sourceUrl": null,
+  "notes": "PM hiring loop. 5 QA pairs, themes around past failure, conflict, decision style, career goal."
+}

@@ -1,0 +1,11 @@
+{
+  "fixtureId": "decision-heavy-3spk",
+  "family": "meeting",
+  "language": "ja",
+  "durationSec": 100,
+  "bucketSeconds": 10,
+  "scenarioTags": ["board", "decision-heavy", "3-speaker"],
+  "expectedSlots": [],
+  "sourceUrl": null,
+  "notes": "Stress-test for decision extraction. 4 explicit decisions, all approved, with clear made-by attribution."
+}
