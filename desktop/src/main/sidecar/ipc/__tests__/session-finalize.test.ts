@@ -1,17 +1,18 @@
 /**
- * Tests for registerSessionFinalize (Task 10).
+ * Tests for registerSessionFinalize (Task 10, updated Task 6).
  *
  * Mocks `electron.ipcMain.handle` to capture the registered handler, then
  * invokes it directly. No Electron binary required.
  *
  * Test cases:
- *   (a) family: 'meeting'    → throws FAMILY_NOT_IMPLEMENTED:meeting:plan-5
+ *   (a) family: 'meeting', valid session + mock sidecar → resolves { noteId: string }
  *   (b) family: 'interview'  → throws FAMILY_NOT_IMPLEMENTED:interview:plan-6
  *   (c) family: 'brainstorm' → throws FAMILY_NOT_IMPLEMENTED:brainstorm:plan-6
  *   (d) family: 'lecture', getCurrentSession()===null → throws NO_ACTIVE_SESSION
  *   (e) family: 'lecture', valid session + mock sidecar → resolves { noteId: string }
  *   (f) family: 'lecture', unknown llmModelPath       → throws UNKNOWN_MODEL_PROFILE
  *   (g) unknown family (e.g. 'garbage' as any)        → throws /^UNKNOWN_FAMILY:/
+ *   (h) family: 'meeting', no active session          → throws NO_ACTIVE_SESSION
  */
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import type { SessionFinalizeArgs, SessionFinalizeDeps, SessionContext } from '../session-finalize';
@@ -67,6 +68,27 @@ function makeMockSidecar(response: string): GrammarCapableSidecar {
   };
 }
 
+/**
+ * Minimal valid MeetingNote JSON. Pipeline fills `from` post-hoc, so we omit it.
+ */
+function makeMeetingNoteJson(): string {
+  return JSON.stringify({
+    schemaVersion: 1,
+    family: 'meeting',
+    title: 'テスト会議',
+    generatedAt: new Date().toISOString(),
+    generatedBy: { model: 'llama-3.2-3b-q4-km', promptVersion: 1 },
+    language: 'ja',
+    durationSec: 60,
+    purpose: 'プロジェクトの進捗確認',
+    executive_summary: 'プロジェクトは順調です。',
+    topic_arc: [{ topic: '進捗確認', ts: 0, speakers_involved: [] }],
+    discussions: [{ topic: '進捗', ts_start: 0, summary: '報告がありました。' }],
+    decisions: [],
+    open_questions: [],
+  });
+}
+
 /** Build a valid SessionContext with `count` short ASCII segments. */
 function makeSessionContext(
   opts: {
@@ -91,9 +113,10 @@ function makeSessionContext(
 
 // ─── registration ──────────────────────────────────────────────────────────
 
-// Register the lecture family once so finalizeLecture can find it
+// Register lecture + meeting families once so finalizeLecture/finalizeMeeting can find them
 beforeAll(async () => {
   await import('@shared/families/lecture/core');
+  await import('@shared/families/meeting/core');
 });
 
 let registerSessionFinalize: (deps: SessionFinalizeDeps) => void;
@@ -116,11 +139,16 @@ function setup(getCurrentSession: () => SessionContext | null) {
 // ─── tests ─────────────────────────────────────────────────────────────────
 
 describe('registerSessionFinalize', () => {
-  // (a) meeting → not implemented
-  it('(a) family meeting → throws FAMILY_NOT_IMPLEMENTED:meeting:plan-5', async () => {
-    const handler = setup(() => null);
-    await expect(handler({}, { family: 'meeting' }))
-      .rejects.toThrow('FAMILY_NOT_IMPLEMENTED:meeting:plan-5');
+  // (a) meeting + valid session → resolves { noteId: string }
+  it('(a) family meeting, valid session → resolves { noteId: string }', async () => {
+    const sidecar = makeMockSidecar(makeMeetingNoteJson());
+    const ctx = makeSessionContext({ sidecar });
+    const handler = setup(() => ctx);
+    const result = await handler({}, { family: 'meeting' });
+    expect(result).toHaveProperty('noteId');
+    expect(typeof result.noteId).toBe('string');
+    // sidecar was called at least once
+    expect((sidecar.generateWithGrammar as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
   });
 
   // (b) interview → not implemented
@@ -189,5 +217,12 @@ describe('registerSessionFinalize', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await expect(handler({}, { family: 'garbage' as any }))
       .rejects.toThrow(/^UNKNOWN_FAMILY:/);
+  });
+
+  // (h) meeting + no active session → NO_ACTIVE_SESSION
+  it('(h) family meeting, no active session → throws NO_ACTIVE_SESSION', async () => {
+    const handler = setup(() => null);
+    await expect(handler({}, { family: 'meeting' }))
+      .rejects.toThrow('NO_ACTIVE_SESSION');
   });
 });

@@ -2,14 +2,17 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { loadNote } from '../load-note';
 import { ForwardIncompatNoteError } from '../forward-incompat';
 import fixtureJson from '../../families/lecture/migrations/v1-fixture.json';
+import meetingFixtureJson from '../../families/meeting/migrations/v1-fixture.json';
 
-// Side-effect import seeds the familyCoreRegistry with LectureFamilyCore.
+// Side-effect imports seed the familyCoreRegistry.
 // Same pattern as pipeline.test.ts and orchestrator tests.
 beforeAll(async () => {
   await import('../../families/lecture/core');
+  await import('../../families/meeting/core');
 });
 
 const FIXTURE_STR = JSON.stringify(fixtureJson);
+const MEETING_FIXTURE_STR = JSON.stringify(meetingFixtureJson);
 
 describe('loadNote', () => {
   it('1. loads a v1 Lecture fixture without throwing', () => {
@@ -94,5 +97,35 @@ describe('loadNote', () => {
 
   it('9. lets JSON.parse SyntaxError propagate (caller distinguishes malformed JSON)', () => {
     expect(() => loadNote('this is not json {')).toThrow(SyntaxError);
+  });
+
+  // Meeting family dispatch — mirrors lecture cases above.
+  it('10. loads a v1 Meeting fixture without throwing', () => {
+    expect(() => loadNote(MEETING_FIXTURE_STR)).not.toThrow();
+  });
+
+  it('11. returns a note with family === "meeting"', () => {
+    const note = loadNote(MEETING_FIXTURE_STR) as { family: string };
+    expect(note.family).toBe('meeting');
+  });
+
+  it('12. meeting fixture: title and decisions length are as expected', () => {
+    const note = loadNote(MEETING_FIXTURE_STR) as unknown as {
+      family: string;
+      title: string;
+      decisions: unknown[];
+    };
+    expect(note.title).toBe('スプリント計画ミーティング — 2026-05-28');
+    expect(note.decisions).toHaveLength(3);
+  });
+
+  it('13. meeting: empty migrations array is a no-op — schemaVersion 1 loads as-is', () => {
+    const note = loadNote(MEETING_FIXTURE_STR);
+    expect(note.schemaVersion).toBe(1);
+  });
+
+  it('14. throws ForwardIncompatNoteError on schemaVersion: 2 for meeting (future version)', () => {
+    const mutated = JSON.stringify({ ...meetingFixtureJson, schemaVersion: 2 });
+    expect(() => loadNote(mutated)).toThrow(ForwardIncompatNoteError);
   });
 });

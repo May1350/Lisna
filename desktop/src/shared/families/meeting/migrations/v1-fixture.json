@@ -1,0 +1,111 @@
+{
+  "schemaVersion": 1,
+  "family": "meeting",
+  "title": "スプリント計画ミーティング — 2026-05-28",
+  "generatedAt": "2026-05-28T09:30:00.000Z",
+  "generatedBy": { "model": "llama-3.2-3b-q4-km", "promptVersion": 1 },
+  "language": "ja",
+  "durationSec": 1800,
+  "purpose": "2週間スプリントのバックログ優先順位付けとタスクアサインを確定する",
+  "executive_summary": "チームはスプリント目標としてノート検索機能の完成とパフォーマンス改善を設定した。3件の決定事項と4件のネクストステップが合意された。",
+  "atmosphere": "collaborative",
+  "topic_arc": [
+    { "topic": "前回スプリントのレビュー", "ts": 0, "speakers_involved": [0, 1] },
+    { "topic": "バックログ優先順位の確認", "ts": 420, "speakers_involved": [0, 1] },
+    { "topic": "タスクアサインと見積もり", "ts": 1020, "speakers_involved": [0, 1] }
+  ],
+  "discussions": [
+    {
+      "topic": "前回スプリントのレビュー",
+      "ts_start": 0,
+      "ts_end": 420,
+      "summary": "前回スプリントでは音声キャプチャのバグ修正が完了。ノート作成フローは70%完成。",
+      "key_points": [
+        "音声バッファオーバーフロー問題を解消",
+        "ノート作成のレイテンシが平均2.3秒に改善"
+      ]
+    },
+    {
+      "topic": "バックログ優先順位の確認",
+      "ts_start": 420,
+      "ts_end": 1020,
+      "summary": "検索機能を最優先とし、UI改善は次スプリントに回す方針を確認。",
+      "key_points": [
+        "検索インデックス構築がブロッカー",
+        "ユーザーからのフィードバックで検索が最重要要件と確認"
+      ]
+    }
+  ],
+  "decisions": [
+    {
+      "text": "今スプリントの最優先タスクはノート全文検索機能の実装とする",
+      "rationale": "ユーザーインタビューで最多要望だったため",
+      "ts": 480,
+      "made_by": 0,
+      "from": "transcript"
+    },
+    {
+      "text": "パフォーマンス計測ツールはDatadog APMではなくOpenTelemetryを採用する",
+      "ts": 720,
+      "from": "transcript"
+    },
+    {
+      "text": "スプリントレビューは隔週金曜日15時に固定する",
+      "ts": 1620,
+      "made_by": 1,
+      "from": "inferred"
+    }
+  ],
+  "open_questions": [
+    {
+      "text": "全文検索のバックエンドはElasticsearchとPostgres FTSどちらを採用するか？",
+      "ts": 540,
+      "asked_by": 1,
+      "from": "transcript"
+    },
+    {
+      "text": "モバイルアプリ対応の優先度はいつ決定するか？",
+      "ts": 900,
+      "from": "inferred"
+    }
+  ],
+  "next_steps": [
+    {
+      "text": "全文検索のPoCブランチを作成してベンチマーク結果をSlackに共有する",
+      "owner": 1,
+      "due": "2026-06-04",
+      "ts": 1080,
+      "from": "transcript"
+    },
+    {
+      "text": "OpenTelemetryのセットアップドキュメントを更新する",
+      "owner": 0,
+      "ts": 1260,
+      "from": "transcript"
+    },
+    {
+      "text": "バックログのストーリーポイント見積もりを完成させてJiraに反映する",
+      "owner": 0,
+      "ts": 1440,
+      "from": "inferred"
+    },
+    {
+      "text": "次回スプリントレビューのアジェンダを作成する",
+      "owner": 1,
+      "ts": 1680,
+      "from": "inferred"
+    }
+  ],
+  "risks_or_concerns": [
+    {
+      "text": "全文検索の実装が2週間スプリントに収まらない可能性がある",
+      "raised_by": 1,
+      "ts": 630,
+      "from": "transcript"
+    }
+  ],
+  "participants": [
+    { "speakerRef": 0, "role": "プロダクトマネージャー" },
+    { "speakerRef": 1, "role": "エンジニア" }
+  ]
+}
