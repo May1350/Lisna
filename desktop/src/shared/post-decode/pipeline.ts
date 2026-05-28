@@ -85,23 +85,32 @@ function fillBrainstormIdeaIds(parsed: Record<string, unknown>): void {
  * Walk the parsed note tree recursively and fill `from` on every leaf
  * that:
  *   1. Is a plain object (not an array)
- *   2. Has a numeric `ts` field
- *   3. Has `from === undefined` (not yet set)
- *   4. Has at least one discriminator field indicating it's a
+ *   2. Has `from === undefined` (not yet set)
+ *   3. Has at least one discriminator field indicating it's a
  *      provenance-bearing leaf: `text`, `term`, or `expression`
  *
- * Discriminator rationale (verified against current slot schemas):
- *   - LectureSectionSchema.key_terms[]:    has `term`
- *   - LectureSectionSchema.examples[]:     has `text`
- *   - LectureSectionSchema.points[]:       has `text`
- *   - FormulaSchema:                       has `expression`
- *   - ProcedureStepsSchema.steps[]:        has `text`
- *   - ArgumentChainSchema.claims[]:        has `text`
- *   - TimelineSchema.events[]:             has `text`
+ * `ts` is NO LONGER required for Stage 3 to act. When `ts` is absent
+ * (e.g. MeetingNoteSchema.conclusions[] where ts is optional),
+ * `computeProvenance` returns `'inferred'`. When `ts` is present it
+ * resolves against the transcript as before.
  *
- * Objects that do NOT have any of these fields (e.g. the outer section
- * object, the note root) are skipped — we do not add `from` to objects that
- * don't declare it in their Zod schema.
+ * Discriminator rationale (verified against Lecture + Meeting schemas
+ * and all slot schemas — every object carrying text/term/expression
+ * also declares a `from` field, so this fill never injects `from` into
+ * a schema that doesn't expect it):
+ *   - LectureSectionSchema.key_terms[]:    has `term`   + ts (required)
+ *   - LectureSectionSchema.examples[]:     has `text`   + ts (required)
+ *   - LectureSectionSchema.points[]:       has `text`   + ts (required)
+ *   - FormulaSchema:                       has `expression` + ts (required)
+ *   - ProcedureStepsSchema.steps[]:        has `text`   + ts (required)
+ *   - ArgumentChainSchema.claims[]:        has `text`   + ts (required)
+ *   - TimelineSchema.events[]:             has `text`   + ts (required)
+ *   - MeetingNoteSchema.conclusions[]:     has `text`   + ts (OPTIONAL) — the gap this fix closes
+ *   - MeetingNoteSchema.next_steps[]/decisions[]/proposals[]/
+ *     open_questions[]/risks_or_concerns[]: has `text`  + ts (required)
+ *
+ * Objects without any discriminator field (outer section, note root, etc.)
+ * are skipped — we do not add `from` to objects that don't declare it.
  */
 function fillProvenanceRecursive(
   obj: unknown,
@@ -117,7 +126,6 @@ function fillProvenanceRecursive(
   const o = obj as Record<string, unknown>;
 
   if (
-    typeof o['ts'] === 'number' &&
     o['from'] === undefined &&
     (
       'text' in o ||
@@ -125,7 +133,9 @@ function fillProvenanceRecursive(
       'expression' in o
     )
   ) {
-    o['from'] = computeProvenance(o as { ts: number }, transcript);
+    // Pass o as { ts?: number } — computeProvenance returns 'inferred' when
+    // ts is undefined, and resolves against transcript when ts is present.
+    o['from'] = computeProvenance(o as { ts?: number }, transcript);
   }
 
   for (const key of Object.keys(o)) {

@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
+import { z } from 'zod';
 import { runPostDecodePipeline, ForwardIncompatNoteError } from '../pipeline';
 import { LectureFamilyCore } from '../../families/lecture/core';
+import { ProvenanceSchema, NoteBaseSchema } from '../../note-schema';
+import type { FamilyCoreDefinition } from '../../families';
+import type { NoteBase } from '../../note-schema/base';
 import type { SessionTranscript } from '../../note-schema/transcript';
 
 // Minimal valid LectureNote JSON (schemaVersion=1)
@@ -196,5 +200,83 @@ describe('runPostDecodePipeline (Lecture)', () => {
     expect(() =>
       runPostDecodePipeline(raw, LectureFamilyCore, EMPTY_TRANSCRIPT),
     ).toThrow(ForwardIncompatNoteError);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Stage 3 — ts-less leaves (meeting conclusions pattern)
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal fake family for testing provenance fill on ts-optional leaves.
+ * Uses 'lecture' as the family id so Stage 2 (brainstorm id-fill) is a
+ * no-op. Schema is a small z.object that mirrors the meeting conclusions
+ * shape: text (required), ts (optional), from (required ProvenanceSchema).
+ */
+const fakeItemSchema = z.object({
+  text: z.string().min(1),
+  ts: z.number().nonnegative().optional(),
+  from: ProvenanceSchema,
+});
+
+const fakeFamilySchema = NoteBaseSchema.extend({
+  family: z.literal('lecture'),
+  items: z.array(fakeItemSchema),
+}).strict();
+
+const fakeFamilyCore = {
+  id: 'lecture',
+  schema: fakeFamilySchema,
+  prompts: [],
+  defaultPromptVariant: 'default',
+  picker: { labelKey: '', iconPath: '', descriptionKey: '', visibility: 'experimental' },
+  evalBaselines: [],
+  requiresDiarization: false,
+  mergeStrategy: { scalarPolicy: 'first', arrayPolicy: 'concat-dedup' },
+} as unknown as FamilyCoreDefinition<NoteBase>;
+
+function makeFakeRaw(items: Array<{ text: string; ts?: number }>): string {
+  return JSON.stringify({
+    schemaVersion: 1,
+    family: 'lecture',
+    title: 'Test',
+    generatedAt: '2026-05-28T00:00:00.000Z',
+    generatedBy: { model: 'test', promptVersion: 1 },
+    language: 'ja',
+    durationSec: 60,
+    items,
+  });
+}
+
+describe('Stage 3 — provenance fill on ts-less leaves (meeting conclusions pattern)', () => {
+  it('FAIL-FIRST: ts-absent leaf gets from=inferred (currently fails due to skip in pipeline)', () => {
+    // Leaf has text but no ts — Stage 3 currently skips it →
+    // Zod parse fails because from is required but missing.
+    const raw = makeFakeRaw([{ text: 'a conclusion without ts' }]);
+    const note = runPostDecodePipeline(raw, fakeFamilyCore, EMPTY_TRANSCRIPT) as {
+      items: Array<{ text: string; from: string }>;
+    };
+    expect(note.items[0]!.from).toBe('inferred');
+  });
+
+  it('leaf WITH numeric ts matching transcript segment gets from=transcript', () => {
+    const raw = makeFakeRaw([{ text: 'conclusion with ts', ts: 5 }]);
+    const note = runPostDecodePipeline(
+      raw,
+      fakeFamilyCore,
+      TRANSCRIPT_WITH_TS5,
+    ) as { items: Array<{ from: string }> };
+    // ts=5 matches the segment at ts=5 (within ±3s window)
+    expect(note.items[0]!.from).toBe('transcript');
+  });
+
+  it('leaf WITH numeric ts that does NOT match any segment gets from=inferred', () => {
+    const raw = makeFakeRaw([{ text: 'conclusion far from transcript', ts: 999 }]);
+    const note = runPostDecodePipeline(
+      raw,
+      fakeFamilyCore,
+      TRANSCRIPT_WITH_TS5,
+    ) as { items: Array<{ from: string }> };
+    expect(note.items[0]!.from).toBe('inferred');
   });
 });
