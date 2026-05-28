@@ -46,11 +46,20 @@ function concatArrays(partials: Array<Record<string, unknown>>, key: string): un
   return partials.flatMap(p => Array.isArray(p[key]) ? (p[key] as unknown[]) : []);
 }
 
+// Note-array items key their timestamp on `ts` (NAMING.md), except ranged
+// items that carry a start/end pair — Meeting `discussions[]` use `ts_start`
+// (families/meeting/schema.ts). Read `ts_start ?? ts` so concat-only fields
+// with `sortByTs` order temporally regardless of which key the family uses.
+function itemTs(x: unknown): number | undefined {
+  const o = x as { ts_start?: number; ts?: number } | null;
+  return o?.ts_start ?? o?.ts;
+}
+
 function sortMaybe<T>(arr: T[], sortByTs: boolean | undefined): T[] {
   if (!sortByTs) return arr;
   return arr.slice().sort((a, b) => {
-    const at = (a as { ts?: number } | null)?.ts;
-    const bt = (b as { ts?: number } | null)?.ts;
+    const at = itemTs(a);
+    const bt = itemTs(b);
     return (typeof at === 'number' && typeof bt === 'number') ? at - bt : 0;
   });
 }
