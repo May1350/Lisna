@@ -391,9 +391,7 @@ See `DEPLOYMENT.md` for the complete operator runbook.
 
 Most likely next priorities (pick what matches user's current ask):
 
-0. **v2 Spike 0.2 Path F (1B re-spike)** — `cd desktop && SPIKE_LLM_MODEL_PATH=~/.lisna-test-models/Llama-3.2-1B-Instruct-Q4_K_M.gguf pnpm exec tsx spikes/phase-0/02-3b-lecture-grammar/run-spike.ts` for i=0,1,2 (foreground, ~30 s each, ~90 s sustained — within new spike-llm envelope). If ≤30 s/chunk with comparable slot emergence → Spike 0.2 PASS, picker default flips to 1B on ≤12 GB Macs. Else fall back to Path A (accept) + Path G (output cap on 3B). Memo: `desktop/spikes/phase-0/02-3b-lecture-grammar/decision-0.2-latency.md` §Path E + Recommendation.
-
-0.5. **Plan 2 (Foundation) spec/plan writing** — invoke `superpowers:writing-plans` with the 7 carry-forward items from `44e546d` verdict memo, including the load-bearing retry contract (`maxAttempts=3`, fresh seed `+100×(attempt-1)`, catch→retry, surface `attemptsUsed`/`reason` in logs) that today is paper mandate only. Failing-test enforcement of wrapper = first task.
+0. **v2 note pipeline: land C++ grammar-constrained generation** — Plans 2–7 are merged but the pipeline can't run end-to-end: C++ `generate` has no GBNF sampler and `GenOpts` lacks `seed`/`grammar`; `SidecarClient.generateWithGrammar` is unimplemented (interface + mocks only); `session/finalize` is registered but not wired to the renderer. This is the critical path that unblocks Lecture/Meeting note generation + real eval scoring (today the eval harness scores a deterministic stub). Detail + file refs in `REFACTOR_BACKLOG.md` "Now" [P0]. Active overlap: the `fix+live-overflow-chunked-note` lane (chunked finalize). _(Resolved since this section last claimed otherwise: Spike 0.2 Path F — see `decision-0.2-path-f.md`; Plan 2 Foundation — written + merged as `desktop/src/main/sidecar/grammar-call.ts`.)_
 
 1. **Test the today's fixes** with a real K-LMS lecture: stop button → final curate → export, slide detection multiple slide changes, .zip unpacking into Obsidian vault.
 
