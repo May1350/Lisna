@@ -1,0 +1,36 @@
+{
+  "sessionId": "spike-1.1-2chunk-interview",
+  "speakers": [
+    { "id": 0, "name": "面接官" },
+    { "id": 1, "name": "候補者" }
+  ],
+  "chunks": [
+    {
+      "chunkIndex": 0,
+      "transcriptSegments": [
+        { "ts": 12, "endTs": 28, "speakerId": 0, "text": "本日はお時間いただきありがとうございます。まずはじめに、これまで最も困難だった意思決定について教えてください。" },
+        { "ts": 30, "endTs": 65, "speakerId": 1, "text": "5年前にローンチタイミングの判断で意見が割れた件です。データは強行を支持していましたが、品質チームが反対していました。私は2週間延期を決断しました。" },
+        { "ts": 68, "endTs": 78, "speakerId": 0, "text": "その判断の決め手は何でしたか?" },
+        { "ts": 80, "endTs": 130, "speakerId": 1, "text": "決断が重いほど、後から振り返れる材料を残すようにしています。データだけでなく品質チームの定性的な懸念も無視できなかったです。" },
+        { "ts": 132, "endTs": 145, "speakerId": 0, "text": "ステークホルダー調整はどう進めましたか?" },
+        { "ts": 150, "endTs": 220, "speakerId": 1, "text": "まず品質チームの懸念を文書化して全員で合意してから、CEOに延期提案を上げました。CEOには合意の形を見せることが重要です。" },
+        { "ts": 225, "endTs": 240, "speakerId": 0, "text": "結果はどうなりましたか?" },
+        { "ts": 245, "endTs": 290, "speakerId": 1, "text": "2週間延期して品質を担保しました。後から見れば正解でしたが、当時は決断が重かったです。" }
+      ]
+    },
+    {
+      "chunkIndex": 1,
+      "transcriptSegments": [
+        { "ts": 1820, "endTs": 1840, "speakerId": 0, "text": "先ほどおっしゃった意思決定の話で、もし今同じ状況なら別の選択をしますか?" },
+        { "ts": 1845, "endTs": 1900, "speakerId": 1, "text": "プロセスは変えませんが、ステークホルダーへの伝え方を早めます。延期決定そのものは同じです。" },
+        { "ts": 1905, "endTs": 1920, "speakerId": 0, "text": "プロダクト戦略の優先順位はどう判断していますか?" },
+        { "ts": 1925, "endTs": 1990, "speakerId": 1, "text": "ユーザーの課題深さと事業へのインパクトの二軸でマトリクスを作っています。深さは定性、インパクトは数値化を意識します。" },
+        { "ts": 1995, "endTs": 2008, "speakerId": 0, "text": "数値化が難しい場合はどうしますか?" },
+        { "ts": 2012, "endTs": 2080, "speakerId": 1, "text": "プロキシ指標を仮置きします。完璧な数字より、議論を進められる粗い数字を優先します。" },
+        { "ts": 2085, "endTs": 2098, "speakerId": 0, "text": "最後に、PMとして最も大切にしている価値観を一言で。" },
+        { "ts": 2105, "endTs": 2160, "speakerId": 1, "text": "判断の根拠を残すことです。決断が重いほど、後から振り返れる材料を残します。" }
+      ],
+      "_design_notes": "Line 9 (ts=2105) is a near-paraphrase of chunk 0 line 4 (ts=80) — merge call should treat as one quotable_line, not two. Line 1 (ts=1820) explicitly references chunk 0 ('先ほど') — captures cross-chunk follow-up. Lines 3-7 introduce 'プロダクト戦略' theme that chunk 0 does NOT have — merge should preserve it."
+    }
+  ]
+}
