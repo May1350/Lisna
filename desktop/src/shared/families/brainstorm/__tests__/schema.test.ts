@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { assignBrainstormIdeaIds } from '@shared/note-schema';
 import { BrainstormNoteSchema, type BrainstormNote } from '../schema';
 import fixtureJson from '../migrations/v1-fixture.json';
 
@@ -118,5 +119,84 @@ describe('BrainstormNoteSchema', () => {
 describe('BrainstormNoteSchema — v1-fixture roundtrip', () => {
   it('parses the v1 migration fixture without throwing', () => {
     expect(() => BrainstormNoteSchema.parse(fixtureJson)).not.toThrow();
+  });
+});
+
+describe('BrainstormNoteSchema — Path G budget locks (fail loud if a future PR widens a bound)', () => {
+  it('idea_clusters max is 15 (15 passes, 16 throws)', () => {
+    const mk = (n: number) => ({
+      ...validBrainstormFixture(),
+      idea_clusters: Array.from({ length: n }, (_, i) => ({
+        theme: `T${i}`,
+        ideas: [{ id: `550e8400-e29b-41d4-a716-44665544${String(i).padStart(4, '0')}`, text: 'i', ts: i, from: 'transcript' as const }],
+      })),
+    });
+    expect(() => BrainstormNoteSchema.parse(mk(15))).not.toThrow();
+    expect(() => BrainstormNoteSchema.parse(mk(16))).toThrow();
+  });
+
+  it('ideas per cluster max is 30 (30 passes, 31 throws)', () => {
+    const mkIdeas = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({
+        id: `550e8400-e29b-41d4-a716-44665544${String(i).padStart(4, '0')}`,
+        text: `idea ${i}`,
+        ts: i,
+        from: 'transcript' as const,
+      }));
+    const mk = (n: number) => ({ ...validBrainstormFixture(), idea_clusters: [{ theme: 'T', ideas: mkIdeas(n) }] });
+    expect(() => BrainstormNoteSchema.parse(mk(30))).not.toThrow();
+    expect(() => BrainstormNoteSchema.parse(mk(31))).toThrow();
+  });
+
+  it('parking_lot max is 20 (20 passes)', () => {
+    const parking_lot = Array.from({ length: 20 }, (_, i) => ({
+      text: `item ${i}`,
+      ts: i,
+      from: 'inferred' as const,
+    }));
+    expect(() => BrainstormNoteSchema.parse({ ...validBrainstormFixture(), parking_lot })).not.toThrow();
+  });
+});
+
+describe('BrainstormNoteSchema — UUID hydration round-trip', () => {
+  it('assignBrainstormIdeaIds fills ids so BrainstormNoteSchema.parse succeeds with valid UUIDs', () => {
+    // LLM shape: ideas WITHOUT id, reconciled base fields matching actual NoteBaseSchema
+    const llmShape: Record<string, unknown> = {
+      schemaVersion: 1,
+      family: 'brainstorm',
+      title: 'Round-trip test',
+      generatedAt: '2026-05-27T00:00:00.000Z',
+      generatedBy: { model: 'llama-3.2-3b-q4-km', promptVersion: 0 },
+      language: 'ja',
+      durationSec: 600,
+      purpose: 'test',
+      idea_clusters: [
+        {
+          theme: 'T1',
+          ideas: [
+            { text: 'idea A', ts: 10 },
+            { text: 'idea B', ts: 20 },
+          ],
+        },
+      ],
+    };
+
+    // Step 1: assign UUIDs
+    const hydrated = assignBrainstormIdeaIds(llmShape);
+
+    // Step 2: hand-fill `from` on ideas (computeProvenance is a separate stage)
+    const clusters = (hydrated.idea_clusters as Array<{ theme: string; ideas: Array<Record<string, unknown>> }>);
+    clusters[0]!.ideas[0]!.from = 'transcript';
+    clusters[0]!.ideas[1]!.from = 'transcript';
+
+    // Step 3: parse — must succeed
+    const parsed = BrainstormNoteSchema.parse(hydrated);
+    expect(parsed.family).toBe('brainstorm');
+    const idA = parsed.idea_clusters[0]!.ideas[0]!.id;
+    const idB = parsed.idea_clusters[0]!.ideas[1]!.id;
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+    expect(idA).toMatch(UUID_RE);
+    expect(idB).toMatch(UUID_RE);
+    expect(idA).not.toBe(idB);
   });
 });
