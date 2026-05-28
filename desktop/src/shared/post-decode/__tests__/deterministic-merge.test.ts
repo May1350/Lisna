@@ -44,6 +44,29 @@ describe('deterministicMerge', () => {
     expect((out.items as Array<{ text: string; ts: number }>).map(i => i.text)).toEqual(['A', 'B']);
   });
 
+  it('sortByTs orders ts_start-keyed items (meeting discussions shape) ascending across chunks', () => {
+    // Meeting `discussions[]` key their timestamp on `ts_start`, not `ts`
+    // (families/meeting/schema.ts). meetingMergeStrategy declares
+    // `discussions: { policy: 'concat-only' }` + global `sortByTs: true`, so
+    // the engine must order discussions temporally across chunks. Encounter
+    // order below is reversed from ts_start order; a comparator that reads
+    // only `.ts` returns 0 and leaves chunk-encounter order intact (the bug).
+    const strategy: MergeStrategy = {
+      scalarPolicy: 'longest',
+      arrayPolicy: 'concat-dedup',
+      sortByTs: true,
+      fieldOverrides: { discussions: { policy: 'concat-only' } },
+    };
+    const out = deterministicMerge<{ discussions: Array<{ topic: string; ts_start: number }> }>(
+      [
+        { discussions: [{ topic: 'budget', ts_start: 120 }] },
+        { discussions: [{ topic: 'intro', ts_start: 10 }] },
+      ],
+      strategy,
+    );
+    expect(out.discussions.map(d => d.ts_start)).toEqual([10, 120]);
+  });
+
   it('fieldOverrides take precedence over arrayPolicy', () => {
     const strategy: MergeStrategy = {
       scalarPolicy: 'longest',
