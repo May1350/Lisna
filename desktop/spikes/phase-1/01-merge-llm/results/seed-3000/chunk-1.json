@@ -1,0 +1,7 @@
+{
+  "chunkIndex": 1,
+  "ok": false,
+  "latencyMs": 386423,
+  "attemptsUsed": 3,
+  "parseErrorReason": "Bad control character in string literal in JSON at position 6672 (line 112 column 4394)"
+}

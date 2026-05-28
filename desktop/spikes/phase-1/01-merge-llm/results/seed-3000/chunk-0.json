@@ -1,0 +1,112 @@
+{
+  "chunkIndex": 0,
+  "ok": true,
+  "latencyMs": 37909,
+  "attemptsUsed": 1,
+  "note": {
+    "schemaVersion": 2,
+    "family": "interview",
+    "title": "",
+    "generatedAt": "2023-03-09T15:30:00.000Z",
+    "generatedBy": {
+      "model": "JapaneseInterviewer",
+      "promptVersion": 1
+    },
+    "language": "ja",
+    "durationSec": 4,
+    "purpose": "このインタビューの目的は、面接官が候補者がどのように意思決定を行うかを理解することです。",
+    "conclusions": [
+      {
+        "text": "このインタビューは、面接官が候補者がどのように意思決定を行うかを理解することの重要性を強調しています。",
+        "from": "inferred"
+      }
+    ],
+    "next_steps": [
+      {
+        "text": "面接官は、候補者が意思決定プロセスについてより深く理解する必要があります。さらに、品質管理とステークホルダー調整の重要性を強調する必要があります。",
+        "ts": 4,
+        "from": "inferred"
+      }
+    ],
+    "subject_summary": "面接官：面接官、候補者。候補者：5年前にローンチタイミングの判断で意見が割れた件で、データを支持し、品質チームを反対した。面接官：その判断の決め手は何だったか?",
+    "participants": [
+      {
+        "speakerRef": 0,
+        "role": "interviewer"
+      },
+      {
+        "speakerRef": 1,
+        "role": "interviewee"
+      }
+    ],
+    "qa_pairs": [
+      {
+        "question": "[面接官] 本日はお時間いただきありがとうございます。まずはじめに、これまで最も困難だった意思決定について教えてください。",
+        "answer": "[候補者] 5年前にローンチタイミングの判断で意見が割れた件です。データは強行を支持していましたが、品質チームが反対していました。私は2週間延期を決断しました。",
+        "ts": 0,
+        "asked_by": 0,
+        "answered_by": 1,
+        "from": "inferred"
+      },
+      {
+        "question": "[面接官] その判断の決め手は何でしたか?",
+        "answer": "[候補者] ��断が重いほど、後から振り返れる材料を残すようにしています。データだけでなく品質チームの定性的な��念も無視できなかったです。",
+        "ts": 1,
+        "asked_by": 0,
+        "answered_by": 1,
+        "from": "inferred"
+      },
+      {
+        "question": "[面接官] ステークホルダー調整はどう進めましたか?",
+        "answer": "[候補者] まず品質チームの��念を文書化して全員で合意してから、CEOに延期提案を上げました。CEOには合意の形を見せることが重要です。",
+        "ts": 2,
+        "asked_by": 0,
+        "answered_by": 1,
+        "from": "inferred"
+      },
+      {
+        "question": "[面接官] 結果はどうなりましたか?",
+        "answer": "[候補者] 2週間延期して品質を担保しました。後から見れば正解でしたが、当時は決断が重かったです。",
+        "ts": 3,
+        "asked_by": 0,
+        "answered_by": 1,
+        "from": "inferred"
+      }
+    ],
+    "themes": [
+      {
+        "name": "意思決定",
+        "appears_at_ts": [
+          0,
+          1,
+          2,
+          3
+        ]
+      },
+      {
+        "name": "品質管理",
+        "appears_at_ts": [
+          1,
+          3
+        ]
+      }
+    ],
+    "quotable_lines": [
+      {
+        "text": "決断が重いほど、後から振り返れる材料を残すようにしています。データだけでなく品質チームの定性的な��念も無視できなかったです。",
+        "speakerRef": 1,
+        "ts": 1
+      }
+    ],
+    "key_takeaways": [
+      {
+        "text": "意思決定は品質管理とステークホルダー調整に密接に関係することがわかりました。",
+        "from": "inferred"
+      },
+      {
+        "text": "品質管理は意思決定の重要な側面です。",
+        "from": "inferred"
+      }
+    ]
+  }
+}
