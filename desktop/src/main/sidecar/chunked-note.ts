@@ -75,7 +75,11 @@ export function mergeChunkNotes(chunkOutputs: string[]): string {
   return out.join('\n').trimEnd();
 }
 
-/** Split one segment's text near the middle — prefer a 。 sentence boundary. */
+/**
+ * Split one segment's text near the middle — prefer a 。 sentence boundary.
+ * Trims first: surrounding whitespace is insignificant for JA plain-text notes,
+ * so dropping it at a sub-segment split point loses no meaningful content.
+ */
 export function splitTextHalf(text: string): string[] {
   const t = text.trim();
   if (t.length < 2) return [t];
