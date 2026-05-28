@@ -104,12 +104,6 @@ bool LlamaEngine::load(const std::string& path) {
   // at ~10 tokens/sec, well past the longest plausible single recording.
   // 2026-05-15 smoke confirmed 3B succeeds at 16K; bump only on profiled need.
   cp.n_ctx = 16384;
-  // KV cache f16 → q8_0 + flash attention: ~halves KV memory (eases the 8GB-Mac
-  // swap pressure that loses sessions during 3B lecture runs) at near-zero
-  // quality cost. Gated on Spike 0.2 baseline parity — revert if quality drops.
-  cp.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;
-  cp.type_k = GGML_TYPE_Q8_0;
-  cp.type_v = GGML_TYPE_Q8_0; // q8 V-cache requires flash attention (enabled above)
   impl_->ctx = llama_init_from_model(impl_->model, cp);
   if (!impl_->ctx) {
     llama_model_free(impl_->model);
