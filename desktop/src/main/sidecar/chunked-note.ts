@@ -14,7 +14,7 @@
  * Spec: docs/superpowers/specs/2026-05-28-live-note-overflow-chunking-design.md
  */
 import type { Language, TranscriptSegment, ChatMessage } from '@shared/engine-interfaces';
-import { estimateTokens } from '@shared/note-schema';
+import { estimateTokens, chunkTranscript, adaptToV2Transcript } from '@shared/note-schema';
 
 // Budget constants. MIRROR desktop/sidecar/src/llm/llama_engine.cpp:106
 // (cp.n_ctx = 16384). If n_ctx changes there, revisit these.
@@ -112,6 +112,17 @@ export async function generateChunkedNote(args: GenerateChunkedNoteArgs): Promis
     // else: overflow despite a low estimate → fall through (chunked branch, Task 4).
   }
 
-  // Chunked branch added in Task 4.
-  return '';
+  // 2) Chunked branch: silence-aware chunks → per-chunk note → merge.
+  const v2 = adaptToV2Transcript(segments, 'live');
+  const chunks = chunkTranscript(v2, CHUNK_BUDGET_EST);
+  const chunkOutputs: string[] = [];
+  for (const chunk of chunks) {
+    const legacySegs: TranscriptSegment[] = chunk.transcriptSegments.map((s) => ({
+      startSec: s.ts,
+      endSec: s.endTs,
+      text: s.text,
+    }));
+    chunkOutputs.push(await drain(generate(buildPrompt(language, legacySegs))));
+  }
+  return mergeChunkNotes(chunkOutputs);
 }
