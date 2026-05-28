@@ -52,12 +52,26 @@ only on baseline parity.
 
 ## Stages
 
-- [ ] **S1** Plan doc (this file) committed — recovery anchor
-- [ ] **S2** Edit `llama_engine.cpp` (3 lines) + commit `perf(sidecar): ...`
-- [ ] **S3** Rebuild `JOBS=1 ./scripts/build.sh`; MD5-verify binary → `desktop/resources/sidecar`
-- [ ] **S4** Eval vs baseline (foreground, pkill after); capture RSS + slot/validation
-- [ ] **S5** Decision gate: baseline parity → keep + memo; any regression → revert
-- [ ] **S6** Push branch + PR to main (founder-gated merge; ruleset blocks direct push)
+- [x] **S1** Plan doc committed — recovery anchor (`83b8492`)
+- [x] **S2** q8_0 KV + flash-attn edit (`4c070fd`) — later reverted (see Verdict)
+- [~] **S3** Local rebuild SKIPPED — worktree submodule empty; verified the effect via the spike CLI (env-injection) instead; compile-check deferred to `desktop-ci`
+- [x] **S4** Eval (foreground, 1 sample, pkill) — q8+FA @ ctx 16384 vs f16 baseline
+- [x] **S5** Decision gate → REVERT q8+FA (`b424405`) + apply n_ctx 16384→13312 (`e99864a`)
+- [ ] **S6** Push branch + PR to main (founder-gated)
+
+## Verdict (2026-05-28)
+
+**q8_0 KV + flash attention: REJECTED** (founder bar = no quality loss).
+- Memory ✓: KV cache 2240 MiB (f16 @ ~20K) → **952 MiB** (q8 @ 16K), measured.
+- Quality ✗: validation FAIL — invalid JSON (control char), 0 slots (baseline 4/2/4).
+- Latency ✗: **753s** vs ~90s baseline (~8×). flash-attn + quantized KV → CPU-attention
+  fallback on this M3 Metal build. N=1 caveat (quality could be a stochastic runaway),
+  but the 8× latency is a stable per-token property and is decisive on its own.
+
+**Shipped instead: n_ctx 16384 → 13312** (`e99864a`) — pure KV trim ~19%
+(~1.79 GB → ~1.46 GB f16), zero quality/latency risk (generation unchanged; ctx still
+exceeds prompt+gen ≈ 12K). The "KV is the reducible half" premise was validated —
+q8+FA was simply the wrong lever for this Metal build.
 
 ## Recovery (if this session dies)
 
