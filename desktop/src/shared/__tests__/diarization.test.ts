@@ -6,7 +6,7 @@ import type { TranscriptSegment } from '../note-schema/transcript';
 describe('DiarizationEngine interface', () => {
   it('exposes loadModel / unloadModel / processChunk', async () => {
     const stub: DiarizationEngine = {
-      async loadModel(_seg: string, _emb: string) {},
+      async loadModel() {},
       async unloadModel() {},
       async processChunk(_audio: Float32Array, segs: TranscriptSegment[]) {
         return segs.map((s) => ({ ...s, tentative: false }));

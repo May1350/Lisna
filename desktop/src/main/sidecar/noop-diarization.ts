@@ -16,6 +16,7 @@ import type { TranscriptSegment } from '@shared/note-schema/transcript';
  * savings"; per section 7.1 it is also the terminal fallback.
  */
 export class NoOpDiarization implements DiarizationEngine {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- NoOp ignores the model paths the interface requires
   async loadModel(_segmentationPath: string, _embeddingPath: string): Promise<void> {
     // intentional no-op
   }
