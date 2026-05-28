@@ -230,6 +230,21 @@ describe('finalizeMeeting', () => {
     expect(transcriptSection).not.toMatch(/Speaker 1 =/);
   });
 
+  it('diarization fallback: status fallback also triggers single-speaker warning', async () => {
+    // 'fallback' and 'disabled' share the same !== 'ok' degrade branch; assert
+    // 'fallback' explicitly so a future split of the branch can't silently drop it.
+    const sidecar = mockSidecar({ responses: [makeMeetingNoteJson(0)] });
+    const result = await finalizeMeeting({
+      sessionId: 'test',
+      transcript: makeMultiSpeakerTranscript(),
+      sidecar,
+      modelProfile,
+      diarizationStatus: 'fallback',
+    });
+    expect(result.note.validation_warnings).toContain(SINGLE_SPEAKER_WARNING);
+    expect(result.telemetry.validationWarnings).toContain(SINGLE_SPEAKER_WARNING);
+  });
+
   it('speaker-map injection: prompt contains Speaker map: and [Name] prefixes', async () => {
     const response = makeMeetingNoteJson(0);
     const sidecar = mockSidecar({ responses: [response] });
@@ -245,14 +260,22 @@ describe('finalizeMeeting', () => {
 
     const prompt = sidecar.calls[0]!.prompt;
 
-    // Speaker map header must be present
-    expect(prompt).toContain('Speaker map:');
-    expect(prompt).toContain('Speaker 0 = 佐藤');
-    expect(prompt).toContain('Speaker 1 = 山田');
+    // Isolate the rendered transcript block: the meeting SYSTEM prompt itself
+    // contains an example "Speaker 0 = 佐藤, Speaker 1 = 山田", so asserting on the
+    // full combined prompt would false-pass even if renderTranscriptWithSpeakers
+    // produced an empty map. Split on the chunkUserTemplate's 'Transcript:\n'
+    // marker and assert only within the transcript section.
+    const transcriptSection = prompt.split('Transcript:\n')[1] ?? '';
+    expect(transcriptSection).not.toBe('');
+
+    // Speaker map header rendered by renderTranscriptWithSpeakers
+    expect(transcriptSection).toContain('Speaker map:');
+    expect(transcriptSection).toContain('Speaker 0 = 佐藤');
+    expect(transcriptSection).toContain('Speaker 1 = 山田');
 
     // Per-line speaker name prefix (renderTranscriptWithSpeakers format)
-    expect(prompt).toContain('[佐藤]');
-    expect(prompt).toContain('[山田]');
+    expect(transcriptSection).toContain('[佐藤]');
+    expect(transcriptSection).toContain('[山田]');
   });
 
   it('empty transcript → throws EMPTY_TRANSCRIPT', async () => {
