@@ -68,10 +68,28 @@ only on baseline parity.
   fallback on this M3 Metal build. N=1 caveat (quality could be a stochastic runaway),
   but the 8× latency is a stable per-token property and is decisive on its own.
 
-**Shipped instead: n_ctx 16384 → 13312** (`e99864a`) — pure KV trim ~19%
-(~1.79 GB → ~1.46 GB f16), zero quality/latency risk (generation unchanged; ctx still
-exceeds prompt+gen ≈ 12K). The "KV is the reducible half" premise was validated —
-q8+FA was simply the wrong lever for this Metal build.
+**n_ctx 16384 → 13312 was tried (`e99864a`) then REVERTED (`f520bc7`)** after
+independent review caught a regression: the renderer-wired path is
+`session/stop → orchestrator.stop() → buildJaNoteV1Prompt(ALL segments, uncapped)`
++ maxTokens 4096 (`preload/index.ts` exposes no `finalize` binding). The chunked
+`finalizeLecture` path — which the 13312 rationale assumed — is built but NOT wired
+to the renderer. So 13312 would cut the usable transcript from ~12.3K to ~9.2K
+tokens before context overflow → truncation / `llama_decode` failure on longer
+recordings = quality loss. Restored 16384.
+
+## Net outcome: NO safe quick lever ships today
+
+Both levers failed verification (q8+FA latency, n_ctx truncation). `llama_engine.cpp`
+is now identical to `main`. The "KV is the reducible half" premise is real, but
+safely realizing it requires the **chunked `finalizeLecture` path wired to the
+renderer (Plan 3 Task 10)**: once each LLM call sees one ~8K chunk (not the whole
+transcript), n_ctx can drop to ~13K safely AND the latent bug below is fixed.
+
+### Latent bug surfaced (independent of this task)
+At the current 16384, the live uncapped `session/stop` path overflows for any
+recording whose transcript exceeds ~12.3K tokens (~20 min dense JA) → truncation
+or `llama_decode` failure TODAY. The fix (chunked finalize) exists but is unwired.
+Worth a separate task.
 
 ## Recovery (if this session dies)
 
