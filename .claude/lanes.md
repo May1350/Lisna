@@ -164,6 +164,7 @@ Format per line — fields separated by `|`:
 <!-- BEGIN PARSEABLE -->
 .|desktop/src/main/ desktop/src/shared/ desktop/sidecar/ desktop/__tests__/ desktop/spikes/|ai-infra
 .claude/worktrees/meeting|desktop/src/main/ desktop/src/shared/ desktop/src/integration/|ai-infra
+.claude/worktrees/interview-brainstorm|desktop/src/main/ desktop/src/shared/ desktop/src/integration/|ai-infra
 .claude/worktrees/spec-docs|docs/ .claude/commands/ .claude/skills/ .claude/hooks/ .claude/launch.json .claude/worktrees/|spec-docs
 .claude/worktrees/app-design|desktop/src/renderer/ desktop/src/preload/|app-design
 .claude/worktrees/eval|desktop/eval/ desktop/scripts/eval-|eval
