@@ -23,6 +23,7 @@ const GEN_RESERVE = 4096;     // matches the maxTokens stop() requests
 const SAFETY_MARGIN = 1500;   // estimateTokens is a heuristic — leave headroom
 export const SINGLE_PASS_MAX_EST = CONTEXT_WINDOW - GEN_RESERVE - SAFETY_MARGIN; // 10788
 export const CHUNK_BUDGET_EST = Math.floor((CONTEXT_WINDOW - GEN_RESERVE) / 2);  // 6144
+const SUBSPLIT_MAX_DEPTH = 6;
 
 const HEADER_RE = /^【.+】$/;
 
@@ -87,6 +88,43 @@ export function splitTextHalf(text: string): string[] {
   return [t.slice(0, mid), t.slice(mid)];
 }
 
+function renderRaw(segs: TranscriptSegment[]): string {
+  return segs.map((s) => `[${s.startSec.toFixed(1)}s] ${s.text}`).join('\n');
+}
+
+/**
+ * Generate a note for one chunk with the reactive overflow backstop: a
+ * non-empty input that yields empty output is the silent-overflow signature
+ * (llama_engine.cpp:201) → subsplit + retry. Terminates at SUBSPLIT_MAX_DEPTH
+ * by emitting the raw transcript text (lossless; pure string op, no LLM call).
+ */
+export async function generateChunkWithSubsplit(
+  segs: TranscriptSegment[],
+  runPass: (s: TranscriptSegment[]) => Promise<string>,
+  depth: number,
+): Promise<string> {
+  if (segs.length === 0) return '';
+  const out = (await runPass(segs)).trim();
+  if (out.length > 0) return out;
+
+  if (depth >= SUBSPLIT_MAX_DEPTH) return renderRaw(segs);
+
+  if (segs.length >= 2) {
+    const mid = Math.floor(segs.length / 2);
+    const left = await generateChunkWithSubsplit(segs.slice(0, mid), runPass, depth + 1);
+    const right = await generateChunkWithSubsplit(segs.slice(mid), runPass, depth + 1);
+    return [left, right].filter((s) => s.trim().length > 0).join('\n\n');
+  }
+
+  // Single oversized segment → split its text.
+  const s0 = segs[0]!;
+  const halves = splitTextHalf(s0.text);
+  if (halves.length < 2) return renderRaw(segs);
+  const left = await generateChunkWithSubsplit([{ ...s0, text: halves[0]! }], runPass, depth + 1);
+  const right = await generateChunkWithSubsplit([{ ...s0, text: halves[1]! }], runPass, depth + 1);
+  return [left, right].filter((s) => s.trim().length > 0).join('\n\n');
+}
+
 export interface GenerateChunkedNoteArgs {
   segments: TranscriptSegment[];
   language: Language;
@@ -115,6 +153,8 @@ export async function generateChunkedNote(args: GenerateChunkedNoteArgs): Promis
   // 2) Chunked branch: silence-aware chunks → per-chunk note → merge.
   const v2 = adaptToV2Transcript(segments, 'live');
   const chunks = chunkTranscript(v2, CHUNK_BUDGET_EST);
+  const runPass = (s: TranscriptSegment[]): Promise<string> =>
+    drain(generate(buildPrompt(language, s)));
   const chunkOutputs: string[] = [];
   for (const chunk of chunks) {
     const legacySegs: TranscriptSegment[] = chunk.transcriptSegments.map((s) => ({
@@ -122,7 +162,7 @@ export async function generateChunkedNote(args: GenerateChunkedNoteArgs): Promis
       endSec: s.endTs,
       text: s.text,
     }));
-    chunkOutputs.push(await drain(generate(buildPrompt(language, legacySegs))));
+    chunkOutputs.push(await generateChunkWithSubsplit(legacySegs, runPass, 0));
   }
   return mergeChunkNotes(chunkOutputs);
 }

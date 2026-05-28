@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { mergeChunkNotes, splitTextHalf, generateChunkedNote } from '../chunked-note';
+import {
+  mergeChunkNotes,
+  splitTextHalf,
+  generateChunkedNote,
+  generateChunkWithSubsplit,
+} from '../chunked-note';
 import type { Language, TranscriptSegment, ChatMessage } from '@shared/engine-interfaces';
 
 describe('mergeChunkNotes', () => {
@@ -118,5 +123,41 @@ describe('generateChunkedNote — chunked branch', () => {
     expect(out.match(/【要点】/g)).toHaveLength(1); // merged to one header
     expect(out).toContain('・point1');
     expect(out).toContain(`・point${calls.length}`); // every chunk's bullet survived
+  });
+});
+
+describe('generateChunkWithSubsplit — reactive overflow backstop', () => {
+  it('subsplits when a chunk returns empty, until halves fit', async () => {
+    const seen: number[] = [];
+    const runPass = async (segs: TranscriptSegment[]): Promise<string> => {
+      seen.push(segs.length);
+      return segs.length > 4 ? '' : `【要点】\n・${segs.length}seg`; // "overflow" if >4 segs
+    };
+    const eight = Array.from({ length: 8 }, (_, i) => seg(i, 'x'));
+    const out = await generateChunkWithSubsplit(eight, runPass, 0);
+    expect(seen).toEqual([8, 4, 4]); // 8 overflowed → split into 4 + 4, both fit
+    expect(out).toContain('・4seg');
+  });
+
+  it('splits a single oversized segment by its text', async () => {
+    const runPass = async (segs: TranscriptSegment[]): Promise<string> =>
+      segs[0]!.text.length > 10 ? '' : `【要点】\n・${segs[0]!.text}`;
+    const out = await generateChunkWithSubsplit(
+      [seg(0, '一文目。二文目。三文目。四文目。')], // 16 chars > 10 → overflow
+      runPass,
+      0,
+    );
+    expect(out).toContain('一文目。二文目。');
+    expect(out).toContain('三文目。四文目。');
+  });
+
+  it('falls back to raw transcript text at the depth cap (lossless, never empty)', async () => {
+    const runPass = async (): Promise<string> => ''; // always "overflow"
+    const out = await generateChunkWithSubsplit([seg(0, 'これは消えてはいけない本文')], runPass, 0);
+    expect(out.trim().length).toBeGreaterThan(0); // never empty
+    expect(out).toContain('[0.0s]'); // fell back to raw verbatim
+    // lossless: stripping the [ts] markers + whitespace reconstructs the original text
+    const reconstructed = out.replace(/\[\d+\.\d+s\]\s*/g, '').replace(/\s+/g, '');
+    expect(reconstructed).toContain('これは消えてはいけない本文');
   });
 });
