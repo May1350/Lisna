@@ -22,12 +22,17 @@ describe('Interview family core registration', () => {
     expect(fam.defaultPromptVariant).toBe('interview-v1');
     expect(selectPromptVariant(fam.prompts, fam.defaultPromptVariant)).toBeDefined();
   });
-  it('mergeStrategy: themes merge-llm + qa_pairs concat-only, default concat-dedup', () => {
+  it('mergeStrategy (Task 7 hybrid): structured fields custom/deterministic, derived prose merge-llm', () => {
     const fam = familyCoreRegistry['interview']!;
     expect(fam.mergeStrategy).toBe(interviewMergeStrategy);
     expect(fam.mergeStrategy.arrayPolicy).toBe('concat-dedup');
+    // Structured/extractive — merged deterministically (spike 1.1 MIXED: a 3B drops turns).
+    expect(fam.mergeStrategy.fieldOverrides?.qa_pairs?.policy).toBe('custom');
+    expect(fam.mergeStrategy.fieldOverrides?.participants?.policy).toBe('custom');
+    // Derived prose — synthesized by the merge LLM (merge-llm.ts).
     expect(fam.mergeStrategy.fieldOverrides?.themes?.policy).toBe('merge-llm');
-    expect(fam.mergeStrategy.fieldOverrides?.qa_pairs?.policy).toBe('concat-only');
+    expect(fam.mergeStrategy.fieldOverrides?.key_takeaways?.policy).toBe('merge-llm');
+    expect(fam.mergeStrategy.fieldOverrides?.subject_summary?.policy).toBe('merge-llm');
   });
   it('picker config has i18n keys + production visibility', () => {
     const fam = familyCoreRegistry['interview']!;
