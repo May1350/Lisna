@@ -151,18 +151,27 @@ std::string dispatch(const std::string& jsonLine) {
     } else {
       return err("missing_field", "messages or prompt required");
     }
+    // grammar/seed shape guards live here (before the engine-state check) so a
+    // wrong-type field surfaces a shape error regardless of load state.
+    if (req.contains("grammar") && !req["grammar"].is_string())
+      return err("invalid_type", "grammar must be string");
+    if (req.contains("seed") && !req["seed"].is_number_integer())
+      return err("invalid_type", "seed must be integer");
     // Engine-state check runs AFTER shape validation so callers get accurate
     // diagnostics regardless of order.
     if (!g_llm || !g_llm->loaded()) return err("not_loaded", "llm not loaded");
     lisna::llm::GenOpts opts;
     opts.maxTokens = req.value("maxTokens", 1024);
     opts.temperature = req.value("temperature", 0.4f);
-    g_llm->generate(msgs, opts,
+    opts.grammar = req.value("grammar", std::string{});
+    if (req.contains("seed")) opts.seed = req["seed"].get<uint32_t>();
+    const bool ok = g_llm->generate(msgs, opts,
                     [&](const std::string& tok) {
       emit_event(nlohmann::json{
           {"id", id}, {"type", "token"}, {"token", tok}
       }.dump());
     });
+    if (!ok) return err("grammar_setup", "generation setup failed (see prior log line)");
     return nlohmann::json{{"id", id}, {"type", "done"}}.dump();
   }
 

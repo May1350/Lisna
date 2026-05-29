@@ -275,3 +275,17 @@ TEST(JsonProtocol, GenerateMessagesNonStringContentReturnsMissingField) {
   EXPECT_EQ(r["type"], "error");
   EXPECT_EQ(r["code"], "missing_field");
 }
+
+TEST(JsonProtocol, GenerateNonStringGrammarReturnsInvalidType) {
+  auto r = nlohmann::json::parse(lisna::ipc::dispatch(
+      R"({"id":"g1","type":"generate","messages":[{"role":"user","content":"hi"}],"grammar":123})"));
+  EXPECT_EQ(r["type"], "error");
+  EXPECT_EQ(r["code"], "invalid_type");
+}
+
+TEST(JsonProtocol, GenerateNonIntegerSeedReturnsInvalidType) {
+  auto r = nlohmann::json::parse(lisna::ipc::dispatch(
+      R"({"id":"g2","type":"generate","messages":[{"role":"user","content":"hi"}],"seed":"x"})"));
+  EXPECT_EQ(r["type"], "error");
+  EXPECT_EQ(r["code"], "invalid_type");
+}
