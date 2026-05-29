@@ -149,9 +149,9 @@ void LlamaEngine::unload() {
   lisna::memory::advise_release_and_wait(nullptr, 0, target, 2000);
 }
 
-void LlamaEngine::generate(const std::vector<ChatMessage>& messages, const GenOpts& opts,
+bool LlamaEngine::generate(const std::vector<ChatMessage>& messages, const GenOpts& opts,
                            const std::function<void(const std::string&)>& onToken) {
-  if (!impl_->ctx || !impl_->vocab || messages.empty()) return;
+  if (!impl_->ctx || !impl_->vocab || messages.empty()) return false;
 
   // Apply chat template (or fallback). Single source of truth for whether the
   // template was actually applied — pre-fix this came from a second
@@ -174,7 +174,7 @@ void LlamaEngine::generate(const std::vector<ChatMessage>& messages, const GenOp
   const int n_prompt = llama_tokenize(
       impl_->vocab, prompt.c_str(), static_cast<int32_t>(prompt.size()),
       tokens.data(), n_prompt_probe, add_special, true);
-  if (n_prompt < 0) return;
+  if (n_prompt < 0) return false;
   tokens.resize(n_prompt);
 
   // Sampler chain. Order matters: penalties header says "apply top-k or top-p
@@ -190,11 +190,28 @@ void LlamaEngine::generate(const std::vector<ChatMessage>& messages, const GenOp
   // - temp / dist: standard tail of the chain.
   llama_sampler_chain_params sparams = llama_sampler_chain_default_params();
   llama_sampler* smpl = llama_sampler_chain_init(sparams);
+
+  // Grammar-first: mask grammar-invalid tokens BEFORE the truncation samplers,
+  // so top_k/top_p/penalties operate only on the grammar-valid set. This is the
+  // safe single-pass form (the candidate set can't be emptied; grammar state
+  // advances via the chain's accept). Empty grammar = plain path (no sampler).
+  if (!opts.grammar.empty()) {
+    llama_sampler* grmr = llama_sampler_init_grammar(impl_->vocab, opts.grammar.c_str(), "root");
+    if (!grmr) {
+      lisna::ipc::emit_event(nlohmann::json{
+          {"type", "log"}, {"level", "error"}, {"source", "system"},
+          {"message", "grammar_parse_failed — llama grammar parser rejected the GBNF"}
+      }.dump());
+      llama_sampler_free(smpl);
+      return false;   // protocol layer emits a stream error → callWithGrammar retries → CHUNK_FAILED
+    }
+    llama_sampler_chain_add(smpl, grmr);
+  }
   llama_sampler_chain_add(smpl, llama_sampler_init_top_k(50));
   llama_sampler_chain_add(smpl, llama_sampler_init_top_p(0.9f, 1));
   llama_sampler_chain_add(smpl, llama_sampler_init_penalties(64, 1.1f, 0.0f, 0.0f));
   llama_sampler_chain_add(smpl, llama_sampler_init_temp(opts.temperature));
-  llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+  llama_sampler_chain_add(smpl, llama_sampler_init_dist(opts.seed));   // was LLAMA_DEFAULT_SEED
 
   llama_batch batch = llama_batch_get_one(tokens.data(), static_cast<int32_t>(tokens.size()));
   int generated = 0;
@@ -217,6 +234,7 @@ void LlamaEngine::generate(const std::vector<ChatMessage>& messages, const GenOp
   }
 
   llama_sampler_free(smpl);
+  return true;
 }
 
 } // namespace lisna::llm
