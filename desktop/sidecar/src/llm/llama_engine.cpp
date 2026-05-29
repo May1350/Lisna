@@ -12,6 +12,10 @@
 
 namespace lisna::llm {
 
+static_assert(0xFFFFFFFFu == LLAMA_DEFAULT_SEED,
+              "GenOpts.seed default (llama_engine.h) must equal LLAMA_DEFAULT_SEED; "
+              "llama.cpp changed the constant — update the header default.");
+
 namespace {
 
 // Shared fallback for both the tmpl==nullptr and `needed < 0` paths.

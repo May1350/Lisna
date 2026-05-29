@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
@@ -9,6 +10,9 @@ namespace lisna::llm {
 struct GenOpts {
   int maxTokens = 1024;
   float temperature = 0.4f;
+  std::string grammar = "";       // GBNF source; empty = no grammar sampler (plain path)
+  uint32_t seed = 0xFFFFFFFFu;    // == LLAMA_DEFAULT_SEED (random). Literal here so this
+                                  // header need not include <llama.h> (see header note above).
 };
 
 /**
