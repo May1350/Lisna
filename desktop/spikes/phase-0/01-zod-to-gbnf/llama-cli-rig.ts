@@ -54,6 +54,17 @@ export interface RunLlamaResult {
 }
 
 /**
+ * Decode a full stdout/stderr byte stream as UTF-8 in ONE pass.
+ * Concatenating raw Buffers BEFORE decoding is mandatory: calling
+ * `chunk.toString('utf8')` per `data` event emits U+FFFD whenever a multi-byte
+ * character straddles a chunk boundary — rampant on CJK output (seed-3000
+ * chunk-0 mangled 決断 → ��断, 8× U+FFFD). See llama-cli-rig.test.ts.
+ */
+export function decodeStreamChunks(chunks: Buffer[]): string {
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+/**
  * Slice from the first `{` to the matching closing `}` via brace-depth scan,
  * skipping braces inside JSON strings (those preceded by an unescaped `"`).
  * Returns null if no balanced object found.
@@ -105,14 +116,17 @@ export async function runLlamaCli(opts: RunLlamaOptions): Promise<RunLlamaResult
   const t0 = Date.now();
   return await new Promise((resolveP, rejectP) => {
     const proc = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    let out = '';
-    let err = '';
-    proc.stdout.on('data', (d) => (out += d.toString()));
-    proc.stderr.on('data', (d) => (err += d.toString()));
+    const outChunks: Buffer[] = [];
+    const errChunks: Buffer[] = [];
+    // Collect raw Buffers and decode ONCE at close (decodeStreamChunks).
+    // Per-chunk `d.toString()` splits multi-byte UTF-8 at chunk boundaries.
+    proc.stdout.on('data', (d: Buffer) => outChunks.push(d));
+    proc.stderr.on('data', (d: Buffer) => errChunks.push(d));
     proc.on('error', (e) => rejectP(e));
     proc.on('close', (code) => {
       const elapsedMs = Date.now() - t0;
-      const stderrTail = err.slice(-4000);
+      const out = decodeStreamChunks(outChunks);
+      const stderrTail = decodeStreamChunks(errChunks).slice(-4000);
       if (code !== 0) {
         rejectP(new Error(`llama-completion exit ${code}\nstderr tail:\n${stderrTail}`));
         return;
