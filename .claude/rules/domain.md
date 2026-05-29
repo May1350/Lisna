@@ -16,6 +16,7 @@ re-read the relevant rule.
 - [2026-05-12] (curator) `gpt-4o-mini` is default. `CURATOR_PROVIDER='anthropic'` switches; `@anthropic-ai/sdk` is currently a static import (lives in Lambda bundle). Convert to dynamic import before flipping the env. Reason: bundle bloat for a dormant branch. last-cited: 2026-05-12
 - [2026-05-12] (curator) Long lectures (60 min) curate in 50-90s. This MUST stay behind a Function URL — API GW 30s ceiling. Reason: physics. last-cited: 2026-05-12
 - [2026-05-12] (curator) Cooldown: 30s free / 5s pro, tracked in DB column `last_curated_at`. Don't lower without re-measuring per-user LLM cost. Reason: cost. last-cited: 2026-05-12
+- [2026-05-29] (llm-merge) A small (3B) model asked to MERGE structured lists across chunk partials (e.g. interview `qa_pairs`) drops items — worst case a whole chunk's worth (spike union 8/8, 7/8, 4/8). Union enumerable/structured fields DETERMINISTICALLY (dedup by `ts` + key/trigram); let the LLM synthesize only derived prose (themes, takeaways, summary, quotable_lines). Reason: pure-LLM merge of turns is lossy at small models (Plan 6 Phase B, decision-1.1-verdict.md). last-cited: 2026-05-29
 
 ## Quota
 
