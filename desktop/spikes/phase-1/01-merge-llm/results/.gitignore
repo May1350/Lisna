@@ -1,0 +1,3 @@
+# Per-call raw model-output dumps (debug aid written by run-merge-spike.ts).
+# Regenerated on every run; not part of the committed verdict evidence.
+text-call-*.txt

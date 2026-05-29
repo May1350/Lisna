@@ -1,0 +1,55 @@
+{
+  "verdict": "MIXED",
+  "scorecards": [
+    {
+      "seed": 3000,
+      "c1_zodValid": true,
+      "c2_themeCrossChunk": true,
+      "c3_qaNoDup": true,
+      "c4_tsOrdered": true,
+      "c5_noFabrication": true,
+      "c6_latencyOk": false,
+      "passCount": 5,
+      "latencyTotal": 159859,
+      "latencyMerge": 78594,
+      "notes": []
+    },
+    {
+      "seed": 3001,
+      "c1_zodValid": true,
+      "c2_themeCrossChunk": true,
+      "c3_qaNoDup": false,
+      "c4_tsOrdered": true,
+      "c5_noFabrication": true,
+      "c6_latencyOk": false,
+      "passCount": 4,
+      "latencyTotal": 126921,
+      "latencyMerge": 60297,
+      "notes": [
+        "C3 fail: merged Q count 7 vs distinct 8"
+      ]
+    },
+    {
+      "seed": 3002,
+      "c1_zodValid": true,
+      "c2_themeCrossChunk": true,
+      "c3_qaNoDup": false,
+      "c4_tsOrdered": true,
+      "c5_noFabrication": true,
+      "c6_latencyOk": false,
+      "passCount": 4,
+      "latencyTotal": 266566,
+      "latencyMerge": 48839,
+      "notes": [
+        "C3 fail: merged Q count 4 vs distinct 8"
+      ]
+    }
+  ],
+  "summary": {
+    "runsClean": 0,
+    "runsAcceptable": 3,
+    "runsFailed": 0,
+    "meanTotalLatencyMs": 184449,
+    "meanMergeLatencyMs": 62577
+  }
+}

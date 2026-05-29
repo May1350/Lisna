@@ -1,7 +1,143 @@
 {
   "chunkIndex": 1,
-  "ok": false,
-  "latencyMs": 386423,
-  "attemptsUsed": 3,
-  "parseErrorReason": "Bad control character in string literal in JSON at position 6672 (line 112 column 4394)"
+  "ok": true,
+  "latencyMs": 46854,
+  "attemptsUsed": 1,
+  "note": {
+    "schemaVersion": 1,
+    "family": "interview",
+    "title": "面接官と候補者の対話",
+    "generatedAt": "2023-12-31",
+    "generatedBy": {
+      "model": "Japanese",
+      "promptVersion": 2
+    },
+    "language": "ja",
+    "durationSec": 45,
+    "purpose": "面接官と候補者の対話の目的と内容を理解する",
+    "conclusions": [
+      {
+        "text": "面接官と候補者の対話は、意思決定のプロセスとステークホルダーへの伝え方について重要な洞察を提供します。",
+        "from": "inferred"
+      }
+    ],
+    "next_steps": [
+      {
+        "text": "面接官がステークホルダーへの伝え方を早めに実行すること。または、プロダクト戦略の優先順位を判断するためのマトリクスを作ること。判断の根拠を残すことも重要です。",
+        "due": "2023-12-31",
+        "ts": 35,
+        "from": "inferred"
+      }
+    ],
+    "subject_summary": "面接官と候補者の対話で、面接官が意思決定の話について候補者に質問し、候補者がプロセスやステークホルダーへの伝え方について回答します。面接官はプロダクト戦略の優先順位についても質問し、候補者はその回答を提供します。",
+    "qa_pairs": [
+      {
+        "question": "[面接官] 先ほどおっしゃった意思決定の話で、もし今同じ状況なら別の選択をしますか?",
+        "answer": "[候補者] プロセスは変えませんが、ステークホルダーへの伝え方を早めます。延期決定そのものは同じです。",
+        "ts": 30,
+        "asked_by": 0,
+        "answered_by": 1,
+        "from": "transcript"
+      },
+      {
+        "question": "[面接官] プロダクト戦略の優先順位はどう判断していますか?",
+        "answer": "[候補者] ユーザーの課題深さと事業へのインパクトの二軸でマトリクスを作っています。深さは定性、インパクトは数値化を意識します。",
+        "ts": 31,
+        "asked_by": 0,
+        "answered_by": 1,
+        "from": "transcript"
+      },
+      {
+        "question": "[面接官] 数値化が難しい場合はどうしますか?",
+        "answer": "[候補者] プロキシ指標を仮置きします。完璧な数字より、議論を進められる粗い数字を優先します。",
+        "ts": 33,
+        "asked_by": 0,
+        "answered_by": 1,
+        "from": "transcript"
+      },
+      {
+        "question": "[面接官] 最後に、PMとして最も大切にしている価値観を一言で。",
+        "answer": "[候補者] 判断の根拠を残すことです。決断が重いほど、後から振り返れる材料を残します。",
+        "ts": 34,
+        "asked_by": 0,
+        "answered_by": 1,
+        "from": "inferred"
+      }
+    ],
+    "themes": [
+      {
+        "name": "意思決定",
+        "appears_at_ts": [
+          30,
+          31,
+          33,
+          34
+        ]
+      },
+      {
+        "name": "ステークホルダーへの伝え方",
+        "appears_at_ts": [
+          30,
+          31
+        ]
+      },
+      {
+        "name": "プロダクト戦略",
+        "appears_at_ts": [
+          31,
+          33
+        ]
+      },
+      {
+        "name": "判断の根拠",
+        "appears_at_ts": [
+          34
+        ]
+      }
+    ],
+    "quotable_lines": [
+      {
+        "text": "[候補者] プロセスは変えませんが、ステークホルダーへの伝え方を早めます。延期決定そのものは同じです。",
+        "speakerRef": 1,
+        "ts": 30,
+        "why_notable": "早めにステークホルダーへの伝え方を実行すること"
+      },
+      {
+        "text": "[候補者] ユーザーの課題深さと事業へのインパクトの二軸でマトリクスを作っています。深さは定性、インパクトは数値化を意識します。",
+        "speakerRef": 1,
+        "ts": 31,
+        "why_notable": "ユーザーの課題深さと事業へのインパクトの二軸でマトリクスを作ること"
+      },
+      {
+        "text": "[候補者] プロキシ指標を仮置きします。完璧な数字より、議論を進められる粗い数字を優先します。",
+        "speakerRef": 1,
+        "ts": 33,
+        "why_notable": "粗い数字を優先すること"
+      },
+      {
+        "text": "[候補者] 判断の根拠を残すことです。決断が重いほど、後から振り返れる材料を残します。",
+        "speakerRef": 1,
+        "ts": 34,
+        "why_notable": "判断の根拠を残すこと"
+      }
+    ],
+    "key_takeaways": [
+      {
+        "text": "早めにステークホルダーへの伝え方を実行すること",
+        "from": "inferred"
+      },
+      {
+        "text": "ユーザーの課題深さと事業へのインパクトの二軸でマトリクスを作ること",
+        "from": "inferred"
+      },
+      {
+        "text": "粗い数字を優先すること",
+        "from": "inferred"
+      },
+      {
+        "text": "判断の根拠を残すこと",
+        "from": "inferred"
+      }
+    ]
+  }
 }
