@@ -40,6 +40,17 @@ export interface RunLlamaOptions {
   seed?: number;
   modelPath?: string;
   binPath?: string;
+  /**
+   * When true, apply the model's embedded chat template via `--jinja`:
+   * `prompt` is the USER message and `systemPrompt` the system message.
+   * Mirrors the production sidecar and keeps the instruct model
+   * in-distribution (emits <|eot_id|> → terminates instead of running on
+   * until maxTokens truncates the JSON). When false/undefined, `prompt` is
+   * sent raw via `-p` (legacy phase-0 behavior).
+   */
+  chatTemplate?: boolean;
+  /** System message; used only when chatTemplate is true. */
+  systemPrompt?: string;
 }
 
 export interface RunLlamaResult {
@@ -107,10 +118,18 @@ export async function runLlamaCli(opts: RunLlamaOptions): Promise<RunLlamaResult
     '--grammar-file', opts.grammarPath,
     '-n', String(opts.maxTokens),
     '--temp', String(opts.temperature),
-    '-p', opts.prompt,
     '--no-display-prompt',
     '--no-warmup',
   ];
+  // chatTemplate: wrap via the model's embedded template (--jinja) so the
+  // instruct model stays in-distribution and stops at <|eot_id|>. Verified that
+  // --no-display-prompt still suppresses the templated prompt echo, so
+  // extractJsonObject is not confused by `{` inside the prompt.
+  if (opts.chatTemplate) {
+    args.push('--jinja');
+    if (opts.systemPrompt !== undefined) args.push('-sys', opts.systemPrompt);
+  }
+  args.push('-p', opts.prompt);
   if (opts.seed !== undefined) args.push('-s', String(opts.seed));
 
   const t0 = Date.now();
@@ -131,9 +150,17 @@ export async function runLlamaCli(opts: RunLlamaOptions): Promise<RunLlamaResult
         rejectP(new Error(`llama-completion exit ${code}\nstderr tail:\n${stderrTail}`));
         return;
       }
-      const json = extractJsonObject(out);
+      // Strip llama-completion's trailing `> EOF by user` epilogue BEFORE
+      // extraction. On a truncated (unterminated-string) generation the
+      // epilogue newline lands inside the still-open string and JSON.parse
+      // reports a misleading "Bad control character"; stripping it surfaces the
+      // honest "Unexpected end of JSON input" (truncation). rawStdout keeps the
+      // full output for debugging.
+      const eofIdx = out.lastIndexOf('> EOF by user');
+      const body = eofIdx >= 0 ? out.slice(0, eofIdx) : out;
+      const json = extractJsonObject(body);
       resolveP({
-        text: json ?? out.trim(),
+        text: json ?? body.trim(),
         rawStdout: out,
         stderrTail,
         elapsedMs,

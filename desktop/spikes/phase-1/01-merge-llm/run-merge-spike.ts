@@ -35,10 +35,16 @@
 //       local Interview-aware hydrator so the verdict measures MODEL merge
 //       quality, not this pipeline gap. → FINDING: Task 13 must extend the
 //       production provenance fill before wiring finalizeInterview.
-//   (2) RAW PROMPT: runLlamaCli sends `systemTemplate\n\nuserPrompt` raw via
-//       `-p` (no GGUF chat template). Production applies the Llama-3.2 template
-//       in the sidecar. The spike is therefore a conservative LOWER BOUND on
-//       quality. → caveat in the verdict memo.
+//   (2) CHAT TEMPLATE (changed 2026-05-29): the rig applies the model's
+//       embedded Llama-3.2 template via `--jinja` (systemTemplate → -sys,
+//       userPrompt → -p), mirroring the production sidecar (TS builds messages,
+//       C++ applies the template). Earlier the spike sent a raw combined prompt
+//       with no template, which pushed the instruct model out-of-distribution:
+//       it failed to emit <|eot_id|> and ran on until maxTokens truncated the
+//       JSON mid-string (the seed-3000 chunk-1 "Bad control character" was that
+//       truncation's epilogue newline, NOT a grammar gap). Templating restores
+//       in-distribution generation + EOS, so the spike now measures the
+//       production path rather than a pessimistic lower bound.
 //   (3) PER-CALL COLD LOAD: each call reloads the model (fresh subprocess), so
 //       C6 latency INCLUDES cold model load. Production amortizes one load
 //       across chunks+merge. → a C6 latency fail in the spike does not by itself
@@ -138,21 +144,28 @@ function sleep(ms: number): Promise<void> {
 }
 
 /** Build the callWithGrammar generator over the real `llama-completion` rig. */
-function makeRigGenerator(): LlmGenerator {
+function makeRigGenerator(runDir: string, systemPrompt: string): LlmGenerator {
   let grammarPath: string | null = null;
+  let callIndex = 0;
   return async ({ prompt, grammar, seed, temperature, maxTokens }) => {
     if (!grammarPath) {
       grammarPath = resolve(tmpdir(), `merge-spike-grammar-${process.pid}.gbnf`);
       writeFileSync(grammarPath, grammar);
     }
     const r = await runLlamaCli({
-      prompt,
+      prompt, // USER message; system supplied separately so --jinja can template
+      systemPrompt,
+      chatTemplate: true,
       grammarPath,
       maxTokens,
       temperature,
       seed,
       binPath: LLAMA_BIN,
     });
+    // Persist the exact bytes handed to JSON.parse so a failing attempt is
+    // inspectable (e.g. a control char the grammar should have masked → H2).
+    callIndex += 1;
+    writeFileSync(resolve(runDir, `text-call-${callIndex}-seed-${seed}.txt`), r.text);
     return { text: r.text, seed };
   };
 }
@@ -192,7 +205,7 @@ async function main(): Promise<void> {
   const tightChar = String.raw`char ::= [^"\\\x7F\x00-\x1F] | "\\" (["\\/bfnrt] | "u" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F])`;
   const grammar = zodToGbnf(fam.schema, 'InterviewNote').replace(/^char ::=.*$/m, tightChar);
   const prompt = selectPromptVariant(fam.prompts, fam.defaultPromptVariant);
-  const generator = makeRigGenerator();
+  const generator = makeRigGenerator(runDir, prompt.systemTemplate);
 
   console.log(`\n=== Spike 1.1 run (seed=${SEED}) ===`);
   console.log(`grammar=${grammar.length} chars · prompt=${prompt.variantId} · bin=${LLAMA_BIN ?? '(rig default)'}`);
@@ -208,10 +221,9 @@ async function main(): Promise<void> {
       totalChunks: fixture.chunks.length,
       transcript: renderChunkWithSpeakers(chunk, fixture.speakers),
     });
-    const combinedPrompt = `${prompt.systemTemplate}\n\n${userPrompt}`;
 
     const result = await callWithGrammar<unknown>({
-      prompt: combinedPrompt,
+      prompt: userPrompt,
       schema: z.unknown(),
       grammar,
       baseSeed: SEED,
@@ -249,9 +261,8 @@ async function main(): Promise<void> {
   let mergeResult: MergeRunResult;
   if (partials.length === fixture.chunks.length && prompt.mergeUserTemplate) {
     const mergeUser = prompt.mergeUserTemplate({ partials });
-    const combinedMerge = `${prompt.systemTemplate}\n\n${mergeUser}`;
     const r = await callWithGrammar<unknown>({
-      prompt: combinedMerge,
+      prompt: mergeUser,
       schema: z.unknown(),
       grammar,
       baseSeed: SEED + MERGE_SEED_OFFSET,
