@@ -5,14 +5,14 @@
  * invokes it directly. No Electron binary required.
  *
  * Test cases:
- *   (a) family: 'meeting', valid session + mock sidecar → resolves { noteId, note: MeetingNote }
- *   (b) family: 'interview'  → throws FAMILY_NOT_IMPLEMENTED:interview:plan-6
- *   (c) family: 'brainstorm' → throws FAMILY_NOT_IMPLEMENTED:brainstorm:plan-6
- *   (d) family: 'lecture', getCurrentSession()===null → throws NO_ACTIVE_SESSION
- *   (e) family: 'lecture', valid session + mock sidecar → resolves { noteId, note: LectureNote }
- *   (f) family: 'lecture', unknown llmModelPath       → throws UNKNOWN_MODEL_PROFILE
- *   (g) unknown family (e.g. 'garbage' as any)        → throws /^UNKNOWN_FAMILY:/
- *   (h) family: 'meeting', no active session          → throws NO_ACTIVE_SESSION
+ *   (a) family: 'meeting', valid session + mock sidecar    → resolves { noteId, note: MeetingNote }
+ *   (b) family: 'interview', valid session + mock sidecar  → resolves { noteId, note: InterviewNote }
+ *   (c) family: 'brainstorm', valid session + mock sidecar → resolves { noteId, note: BrainstormNote }
+ *   (d) family: 'lecture', getCurrentSession()===null      → throws NO_ACTIVE_SESSION
+ *   (e) family: 'lecture', valid session + mock sidecar    → resolves { noteId, note: LectureNote }
+ *   (f) family: 'lecture', unknown llmModelPath            → throws UNKNOWN_MODEL_PROFILE
+ *   (g) unknown family (e.g. 'garbage' as any)             → throws /^UNKNOWN_FAMILY:/
+ *   (h) family: 'meeting', no active session               → throws NO_ACTIVE_SESSION
  */
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import type { SessionFinalizeArgs, SessionFinalizeDeps, SessionContext } from '../session-finalize';
@@ -89,6 +89,40 @@ function makeMeetingNoteJson(): string {
   });
 }
 
+/** Minimal valid InterviewNote JSON. qa_pairs omit `from` (pipeline fills it). */
+function makeInterviewNoteJson(): string {
+  return JSON.stringify({
+    schemaVersion: 1,
+    family: 'interview',
+    title: 'テスト面談',
+    generatedAt: new Date().toISOString(),
+    generatedBy: { model: 'llama-3.2-3b-q4-km', promptVersion: 1 },
+    language: 'ja',
+    durationSec: 60,
+    purpose: 'インタビューの目的',
+    subject_summary: '被取材者の概要です。',
+    qa_pairs: [{ question: '質問', answer: '回答', ts: 0, asked_by: 0, answered_by: 1 }],
+    themes: [],
+    quotable_lines: [],
+    key_takeaways: [],
+  });
+}
+
+/** Minimal valid BrainstormNote JSON. ideas omit `id` (UUID) + `from` (post-decode). */
+function makeBrainstormNoteJson(): string {
+  return JSON.stringify({
+    schemaVersion: 1,
+    family: 'brainstorm',
+    title: 'テストブレスト',
+    generatedAt: new Date().toISOString(),
+    generatedBy: { model: 'llama-3.2-3b-q4-km', promptVersion: 1 },
+    language: 'ja',
+    durationSec: 60,
+    purpose: 'ブレインストーミングの目的',
+    idea_clusters: [{ theme: 'テーマ', ideas: [{ text: 'アイデア', ts: 0 }] }],
+  });
+}
+
 /** Build a valid SessionContext with `count` short ASCII segments. */
 function makeSessionContext(
   opts: {
@@ -113,10 +147,12 @@ function makeSessionContext(
 
 // ─── registration ──────────────────────────────────────────────────────────
 
-// Register lecture + meeting families once so finalizeLecture/finalizeMeeting can find them
+// Register families once so the finalize* functions can find them in the registry
 beforeAll(async () => {
   await import('@shared/families/lecture/core');
   await import('@shared/families/meeting/core');
+  await import('@shared/families/interview/core');
+  await import('@shared/families/brainstorm/core');
 });
 
 let registerSessionFinalize: (deps: SessionFinalizeDeps) => void;
@@ -156,18 +192,30 @@ describe('registerSessionFinalize', () => {
     expect((sidecar.generateWithGrammar as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
   });
 
-  // (b) interview → not implemented
-  it('(b) family interview → throws FAMILY_NOT_IMPLEMENTED:interview:plan-6', async () => {
-    const handler = setup(() => null);
-    await expect(handler({}, { family: 'interview' }))
-      .rejects.toThrow('FAMILY_NOT_IMPLEMENTED:interview:plan-6');
+  // (b) interview + valid session → resolves { noteId, note: InterviewNote }
+  it('(b) family interview, valid session → resolves { noteId, note: InterviewNote }', async () => {
+    const sidecar = makeMockSidecar(makeInterviewNoteJson());
+    const ctx = makeSessionContext({ sidecar });
+    const handler = setup(() => ctx);
+    const result = await handler({}, { family: 'interview' });
+    expect(result).toHaveProperty('noteId');
+    expect(typeof result.noteId).toBe('string');
+    expect(result).toHaveProperty('note');
+    expect(result.note).toMatchObject({ family: 'interview', schemaVersion: 1 });
+    expect((sidecar.generateWithGrammar as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
   });
 
-  // (c) brainstorm → not implemented
-  it('(c) family brainstorm → throws FAMILY_NOT_IMPLEMENTED:brainstorm:plan-6', async () => {
-    const handler = setup(() => null);
-    await expect(handler({}, { family: 'brainstorm' }))
-      .rejects.toThrow('FAMILY_NOT_IMPLEMENTED:brainstorm:plan-6');
+  // (c) brainstorm + valid session → resolves { noteId, note: BrainstormNote }
+  it('(c) family brainstorm, valid session → resolves { noteId, note: BrainstormNote }', async () => {
+    const sidecar = makeMockSidecar(makeBrainstormNoteJson());
+    const ctx = makeSessionContext({ sidecar });
+    const handler = setup(() => ctx);
+    const result = await handler({}, { family: 'brainstorm' });
+    expect(result).toHaveProperty('noteId');
+    expect(typeof result.noteId).toBe('string');
+    expect(result).toHaveProperty('note');
+    expect(result.note).toMatchObject({ family: 'brainstorm', schemaVersion: 1 });
+    expect((sidecar.generateWithGrammar as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
   });
 
   // (d) lecture + null session → NO_ACTIVE_SESSION

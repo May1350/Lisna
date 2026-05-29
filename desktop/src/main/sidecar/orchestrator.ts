@@ -11,6 +11,8 @@ import type { ModelProfile } from '@shared/models/profiles';
 import type { GenerationTelemetry } from '@shared/note-schema/telemetry';
 import type { LectureNote } from '@shared/families/lecture/schema';
 import type { MeetingNote } from '@shared/families/meeting/schema';
+import type { InterviewNote } from '@shared/families/interview/schema';
+import type { BrainstormNote } from '@shared/families/brainstorm/schema';
 import { z } from 'zod';
 import { familyCoreRegistry, selectPromptVariant } from '@shared/families';
 import { zodToGbnf } from '@shared/note-schema/zod-to-gbnf';
@@ -18,6 +20,7 @@ import { chunkTranscript } from '@shared/note-schema/chunking';
 import { estimateTokens } from '@shared/note-schema/tokens';
 import { runPostDecodePipeline } from '@shared/post-decode/pipeline';
 import { deterministicMerge } from '@shared/post-decode/deterministic-merge';
+import { runMergeLLMCall } from './merge-llm';
 import { callWithGrammar, makeSidecarGenerator, type GrammarCapableSidecar } from './grammar-call';
 import { degradeToSingleSpeaker } from '@shared/families/meeting/degrade-to-single-speaker';
 
@@ -503,6 +506,311 @@ export async function finalizeMeeting(
     ),
     totalTokensOut: 0,
     validationWarnings: [...validationWarnings],
+    dedupHits: [],
+    postDecodeMutations: [],
+  };
+
+  args.onProgress?.({ phase: 'persist' });
+  return { note, telemetry };
+}
+
+// ─── finalizeInterview ──────────────────────────────────────────────────────────
+
+export interface FinalizeInterviewArgs {
+  sessionId: string;
+  transcript: SessionTranscript;
+  sidecar: GrammarCapableSidecar;
+  modelProfile: ModelProfile;
+  promptVariantId?: string;
+  /** 'ok' = transcript already carries real diarized speakerIds; 'fallback'/'disabled' = collapse to single speaker + warn. */
+  diarizationStatus: 'ok' | 'fallback' | 'disabled';
+  onProgress?: (e:
+    | { phase: 'chunk'; chunkIndex: number; totalChunks: number }
+    | { phase: 'merge' }
+    | { phase: 'persist' }
+  ) => void;
+}
+
+export interface FinalizeInterviewResult {
+  note: InterviewNote;
+  telemetry: GenerationTelemetry;
+}
+
+/**
+ * Finalize an interview session. Like finalizeMeeting (interview also
+ * requiresDiarization: interviewer + interviewee), but the cross-chunk merge is
+ * the HYBRID runMergeLLMCall (Task 7): qa_pairs + participants are unioned
+ * deterministically (a 3B drops structured turns — spike 1.1 MIXED), only the
+ * derived prose (themes / key_takeaways / subject_summary) comes from the merge
+ * LLM. On merge-LLM failure we fall back to a fully deterministic merge that
+ * still preserves every qa_pair.
+ *
+ * No Electron IPC — pure async function. session-finalize.ts wires the IPC.
+ */
+export async function finalizeInterview(
+  args: FinalizeInterviewArgs,
+): Promise<FinalizeInterviewResult> {
+  const generationStartedAt = new Date().toISOString();
+  const t0 = Date.now();
+
+  const fam = familyCoreRegistry['interview'];
+  if (!fam) throw new Error('INTERVIEW_FAMILY_NOT_REGISTERED');
+
+  const grammar = zodToGbnf(fam.schema, 'InterviewNote');
+
+  const prompt = selectPromptVariant(
+    fam.prompts,
+    fam.defaultPromptVariant,
+    args.promptVariantId ? { userPreference: args.promptVariantId } : undefined,
+  );
+
+  // Diarization fallback BEFORE chunking (interview requiresDiarization=true).
+  let activeTranscript = args.transcript;
+  const validationWarnings: string[] = [];
+  if (args.diarizationStatus !== 'ok') {
+    const degraded = degradeToSingleSpeaker(args.transcript);
+    activeTranscript = degraded.transcript;
+    validationWarnings.push(degraded.warning);
+  }
+
+  const tuning = args.modelProfile.perFamily['interview'];
+  const chunks = chunkTranscript(activeTranscript, tuning.recommendedChunkTokens);
+
+  if (chunks.length === 0) {
+    throw new Error('EMPTY_TRANSCRIPT');
+  }
+
+  const generator = makeSidecarGenerator(args.sidecar);
+  const partials: Array<Record<string, unknown>> = [];
+
+  for (let i = 0; i < chunks.length; i++) {
+    args.onProgress?.({ phase: 'chunk', chunkIndex: i, totalChunks: chunks.length });
+
+    const userPrompt = prompt.chunkUserTemplate({
+      chunkIndex: i,
+      totalChunks: chunks.length,
+      transcript: renderTranscriptWithSpeakers(chunks[i]!, activeTranscript.speakers),
+    });
+    const combinedPrompt = `${prompt.systemTemplate}\n\n${userPrompt}`;
+
+    // baseSeed 7000 (lecture 5000, meeting 6000) keeps seeds distinct across families.
+    const result = await callWithGrammar<unknown>({
+      prompt: combinedPrompt,
+      schema: z.unknown(),
+      grammar,
+      baseSeed: 7000 + i,
+      temperature: tuning.temperature,
+      maxAttempts: 3,
+      maxTokens: tuning.maxGenTokens,
+      generator,
+    });
+
+    if (!result.ok) {
+      throw new Error(`CHUNK_FAILED:${i}:${result.finalReason}`);
+    }
+
+    const rawJson = JSON.stringify(result.value);
+    const validated = runPostDecodePipeline(rawJson, fam, activeTranscript);
+    partials.push(validated as Record<string, unknown>);
+  }
+
+  // ── Merge ───────────────────────────────────────────────────────────────────
+  // Single chunk → pass-through (already validated by the per-chunk pipeline).
+  // Multi-chunk → hybrid merge-LLM; on failure, deterministic fallback that
+  // still preserves every qa_pair.
+  let merged: Record<string, unknown>;
+  const mergeWarnings: string[] = [];
+  if (partials.length === 1) {
+    merged = partials[0]!;
+  } else {
+    args.onProgress?.({ phase: 'merge' });
+    const r = await runMergeLLMCall({
+      family: 'interview',
+      partials,
+      transcript: activeTranscript,
+      baseSeed: 7500,
+      generator,
+    });
+    if (r.ok) {
+      merged = r.merged as unknown as Record<string, unknown>;
+      mergeWarnings.push(...r.validationWarnings);
+    } else {
+      merged = deterministicMerge<Record<string, unknown>>(partials, fam.mergeStrategy);
+      mergeWarnings.push(
+        `merge: LLM merge failed (${r.finalReason}); fell back to deterministic merge (derived fields from first chunk only)`,
+      );
+    }
+  }
+
+  const allWarnings = [...validationWarnings, ...mergeWarnings];
+  if (allWarnings.length > 0) {
+    merged.validation_warnings = [
+      ...((merged.validation_warnings as string[] | undefined) ?? []),
+      ...allWarnings,
+    ];
+  }
+
+  const note = fam.schema.parse(merged) as InterviewNote;
+
+  const telemetry: GenerationTelemetry = {
+    noteId: args.sessionId,
+    modelId: args.modelProfile.id,
+    promptVariantId: prompt.variantId,
+    schemaVersion: 1,
+    generationStartedAt,
+    generationDurationMs: Date.now() - t0,
+    chunkCount: chunks.length,
+    totalTokensIn: chunks.reduce(
+      (sum, chunk) => sum + estimateTokens(renderTranscriptWithSpeakers(chunk, activeTranscript.speakers)),
+      0,
+    ),
+    totalTokensOut: 0,
+    validationWarnings: allWarnings,
+    dedupHits: [],
+    postDecodeMutations: [],
+  };
+
+  args.onProgress?.({ phase: 'persist' });
+  return { note, telemetry };
+}
+
+// ─── finalizeBrainstorm ─────────────────────────────────────────────────────────
+
+export interface FinalizeBrainstormArgs {
+  sessionId: string;
+  transcript: SessionTranscript;
+  sidecar: GrammarCapableSidecar;
+  modelProfile: ModelProfile;
+  promptVariantId?: string;
+  onProgress?: (e:
+    | { phase: 'chunk'; chunkIndex: number; totalChunks: number }
+    | { phase: 'merge' }
+    | { phase: 'persist' }
+  ) => void;
+}
+
+export interface FinalizeBrainstormResult {
+  note: BrainstormNote;
+  telemetry: GenerationTelemetry;
+}
+
+/**
+ * Finalize a brainstorm session. Brainstorm requiresDiarization=false (treated
+ * single-speaker), so there is no diarization fallback — unlike finalizeMeeting/
+ * finalizeInterview. The cross-chunk merge is the HYBRID runMergeLLMCall (Task
+ * 7): idea_clusters are synthesized by the merge LLM (semantically unifying
+ * cross-chunk themes), and idea UUIDs are assigned by the post-decode pipeline.
+ * On merge-LLM failure we fall back to a deterministic merge (first-chunk
+ * clusters; parking_lot/conclusions/next_steps concatenated).
+ *
+ * No Electron IPC — pure async function. session-finalize.ts wires the IPC.
+ */
+export async function finalizeBrainstorm(
+  args: FinalizeBrainstormArgs,
+): Promise<FinalizeBrainstormResult> {
+  const generationStartedAt = new Date().toISOString();
+  const t0 = Date.now();
+
+  const fam = familyCoreRegistry['brainstorm'];
+  if (!fam) throw new Error('BRAINSTORM_FAMILY_NOT_REGISTERED');
+
+  const grammar = zodToGbnf(fam.schema, 'BrainstormNote');
+
+  const prompt = selectPromptVariant(
+    fam.prompts,
+    fam.defaultPromptVariant,
+    args.promptVariantId ? { userPreference: args.promptVariantId } : undefined,
+  );
+
+  const tuning = args.modelProfile.perFamily['brainstorm'];
+  const chunks = chunkTranscript(args.transcript, tuning.recommendedChunkTokens);
+
+  if (chunks.length === 0) {
+    throw new Error('EMPTY_TRANSCRIPT');
+  }
+
+  const generator = makeSidecarGenerator(args.sidecar);
+  const partials: Array<Record<string, unknown>> = [];
+
+  for (let i = 0; i < chunks.length; i++) {
+    args.onProgress?.({ phase: 'chunk', chunkIndex: i, totalChunks: chunks.length });
+
+    const userPrompt = prompt.chunkUserTemplate({
+      chunkIndex: i,
+      totalChunks: chunks.length,
+      transcript: renderTranscriptWithSpeakers(chunks[i]!, args.transcript.speakers),
+    });
+    const combinedPrompt = `${prompt.systemTemplate}\n\n${userPrompt}`;
+
+    // baseSeed 8000 (lecture 5000, meeting 6000, interview 7000) keeps seeds distinct.
+    const result = await callWithGrammar<unknown>({
+      prompt: combinedPrompt,
+      schema: z.unknown(),
+      grammar,
+      baseSeed: 8000 + i,
+      temperature: tuning.temperature,
+      maxAttempts: 3,
+      maxTokens: tuning.maxGenTokens,
+      generator,
+    });
+
+    if (!result.ok) {
+      throw new Error(`CHUNK_FAILED:${i}:${result.finalReason}`);
+    }
+
+    const rawJson = JSON.stringify(result.value);
+    const validated = runPostDecodePipeline(rawJson, fam, args.transcript);
+    partials.push(validated as Record<string, unknown>);
+  }
+
+  // ── Merge ───────────────────────────────────────────────────────────────────
+  let merged: Record<string, unknown>;
+  const warnings: string[] = [];
+  if (partials.length === 1) {
+    merged = partials[0]!;
+  } else {
+    args.onProgress?.({ phase: 'merge' });
+    const r = await runMergeLLMCall({
+      family: 'brainstorm',
+      partials,
+      transcript: args.transcript,
+      baseSeed: 8500,
+      generator,
+    });
+    if (r.ok) {
+      merged = r.merged as unknown as Record<string, unknown>;
+      warnings.push(...r.validationWarnings);
+    } else {
+      merged = deterministicMerge<Record<string, unknown>>(partials, fam.mergeStrategy);
+      warnings.push(
+        `merge: LLM merge failed (${r.finalReason}); fell back to deterministic merge (idea_clusters from first chunk only)`,
+      );
+    }
+  }
+
+  if (warnings.length > 0) {
+    merged.validation_warnings = [
+      ...((merged.validation_warnings as string[] | undefined) ?? []),
+      ...warnings,
+    ];
+  }
+
+  const note = fam.schema.parse(merged) as BrainstormNote;
+
+  const telemetry: GenerationTelemetry = {
+    noteId: args.sessionId,
+    modelId: args.modelProfile.id,
+    promptVariantId: prompt.variantId,
+    schemaVersion: 1,
+    generationStartedAt,
+    generationDurationMs: Date.now() - t0,
+    chunkCount: chunks.length,
+    totalTokensIn: chunks.reduce(
+      (sum, chunk) => sum + estimateTokens(renderTranscriptWithSpeakers(chunk, args.transcript.speakers)),
+      0,
+    ),
+    totalTokensOut: 0,
+    validationWarnings: warnings,
     dedupHits: [],
     postDecodeMutations: [],
   };
