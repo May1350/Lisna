@@ -97,6 +97,13 @@ export interface IpcDeps {
 let current: SessionOrchestrator | null = null;
 let recording = false;
 let _appQuitting = false;
+// Tracks the orchestrator instance whose LLM has been loaded for the v2
+// session/finalize path. Spec §9 — IPC finalize needs an explicit unload-STT
+// + load-LLM prep step (unlike orchestrator.stop(), which loads inline).
+// When `current !== _llmLoadedForCurrent`, the next finalize call performs
+// the load + caches; subsequent calls within the same session are no-ops.
+// Reset everywhere `current` is reset (session end / sidecar exit / give-up).
+let _llmLoadedForCurrent: SessionOrchestrator | null = null;
 // True after supervisor.onCrash fires (2 consecutive sidecar crashes; respawn
 // abandoned). Stays true until lifecycle/restart relaunches the app. Gates
 // session/start ahead of the sidecar-getClient check so the user sees a
@@ -155,20 +162,33 @@ export function registerIpc(deps: IpcDeps) {
 
   // ── session/finalize: v2 family-routed note generation (Task 10) ──────────
   registerSessionFinalize({
-    getCurrentSession: () => {
+    getCurrentSession: async () => {
       if (!current) return null;
       const paths = deps.getModelPaths();
       const client = deps.supervisor.getClient();
       if (!paths || !client) return null;
+
+      // Spec §9 — the v2 finalize path needs the LLM loaded before
+      // generateWithGrammar can succeed (else `not_loaded`). Mirror the
+      // 8GB-safe sequence orchestrator.stop() uses internally:
+      // unload STT → load LLM. STT unload is idempotent (catch+ignore)
+      // so a session that never recorded chunks isn't penalized. Cached
+      // per-orchestrator via _llmLoadedForCurrent.
+      if (_llmLoadedForCurrent !== current) {
+        const stt = new WhisperCppSTT(client);
+        const llm = new LlamaCppLLM(client);
+        await stt.unloadModel().catch(() => {
+          // STT may not have been loaded (no recording happened, or already
+          // unloaded by a prior finalize). Either way, proceed to LLM load.
+        });
+        await llm.loadModel(paths.llmPath);
+        _llmLoadedForCurrent = current;
+      }
+
       return {
         sessionId: 'live',   // placeholder — real session-ID assignment lands in Task 13
         segments: current.exposedSegments,
         llmModelPath: paths.llmPath,
-        // Real grammar-capable sidecar (Task 5). NOTE: the LLM model is NOT
-        // loaded on this IPC path — the renderer/finalize wiring (app-design
-        // lane) must load it before invoking session/finalize, or the first
-        // grammar call returns `not_loaded`. The offline-3b eval runner loads
-        // the model itself, so it is the only end-to-end consumer today.
         sidecar: makeGrammarSidecar(client),
       };
     },
@@ -211,6 +231,7 @@ export function registerIpc(deps: IpcDeps) {
       sessionLog.error(code);
       log.error('[session] start failed', err);
       current = null;
+      _llmLoadedForCurrent = null;
       throw err;
     } finally {
       _sessionHandlerInFlight = false;
@@ -312,6 +333,7 @@ export function registerIpc(deps: IpcDeps) {
       throw err;
     } finally {
       current = null;
+      _llmLoadedForCurrent = null;
       _sessionHandlerInFlight = false;
     }
   });
@@ -349,6 +371,7 @@ export function handleSidecarExit() {
   if (!current && !recording) return;
   const wasHandlerInFlight = _sessionHandlerInFlight;
   current = null;
+  _llmLoadedForCurrent = null;
   recording = false;
   if (wasHandlerInFlight) return;  // IPC rejection handles renderer transition
   // Code-only payload — renderer maps it to JA copy via `toFriendlyJa`.
@@ -383,6 +406,7 @@ export function handleSidecarExit() {
 export function handleSidecarGiveUp() {
   _sidecarGaveUp = true;
   current = null;
+  _llmLoadedForCurrent = null;
   recording = false;
   // Code-only payload like handleSidecarExit. ErrorView's `permanent` branch
   // forces the SIDECAR_GAVE_UP JA copy regardless of `message`, but emitting

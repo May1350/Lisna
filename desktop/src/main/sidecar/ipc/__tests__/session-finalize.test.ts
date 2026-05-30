@@ -131,7 +131,10 @@ beforeEach(async () => {
 
 // Helper: register with a given getCurrentSession getter and return the handler
 function setup(getCurrentSession: () => SessionContext | null) {
-  registerSessionFinalize({ getCurrentSession });
+  // SessionFinalizeDeps.getCurrentSession is now async (spec §9 LLM-load
+  // happens in the real impl). Adapt sync test getters to that shape.
+  const async_get = async () => getCurrentSession();
+  registerSessionFinalize({ getCurrentSession: async_get });
   if (!capturedHandler) throw new Error('Handler not registered — ipcMain.handle mock not capturing session/finalize');
   return capturedHandler;
 }

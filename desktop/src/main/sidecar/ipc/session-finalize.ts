@@ -63,8 +63,13 @@ export interface SessionFinalizeDeps {
   /**
    * Returns the current session context or null if no session is active.
    * Called once per IPC invocation — NOT captured at registration time.
+   *
+   * Async because the implementation in `main/ipc.ts` performs the spec §9
+   * model-load step (unload STT, load LLM) on the first invocation per
+   * session. Subsequent invocations resolve immediately from the cached
+   * "already loaded for this orchestrator" flag.
    */
-  getCurrentSession: () => SessionContext | null;
+  getCurrentSession: () => Promise<SessionContext | null>;
 }
 
 // ─── channel constant (mirrors CHANNELS in ipc.ts) ───────────────────────────
@@ -100,8 +105,8 @@ async function routeLecture(
   deps: SessionFinalizeDeps,
   promptVariantId: string | undefined,
 ): Promise<SessionFinalizeResult> {
-  // 1. Read live session
-  const session = deps.getCurrentSession();
+  // 1. Read live session (this awaits the spec §9 LLM-load step)
+  const session = await deps.getCurrentSession();
   if (!session) throw new Error('NO_ACTIVE_SESSION');
 
   // 2. Adapt legacy segments → v2 SessionTranscript
@@ -137,8 +142,8 @@ async function routeMeeting(
   deps: SessionFinalizeDeps,
   promptVariantId: string | undefined,
 ): Promise<SessionFinalizeResult> {
-  // 1. Read live session
-  const session = deps.getCurrentSession();
+  // 1. Read live session (this awaits the spec §9 LLM-load step)
+  const session = await deps.getCurrentSession();
   if (!session) throw new Error('NO_ACTIVE_SESSION');
 
   // 2. Adapt legacy segments → v2 SessionTranscript.
