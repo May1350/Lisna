@@ -253,6 +253,36 @@ grammar-last-resample path, so the per-attempt success/quality profile is
   (`grammar_first=false` + resample) for exact spike parity. This is the
   heavier-but-proven path, held in reserve.
 
+**Gate outcome (2026-05-30).** Sidecar rebuilt with the grammar-first sampler;
+real-3B JA-lecture smoke fixture ran in 24 s (single LLM call, no infinite
+loop, no decode assert). The sampler is structurally healthy — JSON parsed
+fine. **Gate FAILED** at `runPostDecodePipeline → family.schema.parse` with
+`ZodError: sections[0].heading too_small (min 1)`. The model emitted an empty
+string for the first section heading.
+
+The documented `common_sampler` fallback (above) is **NOT** taken, because the
+gap is *upstream of the sampler choice* — both samplers would produce a
+grammar-valid empty string. Two pre-existing layers are the actual root cause:
+
+1. **Zod→GBNF constraint propagation gap.** The grammar permitted an empty
+   string for `heading`, but the family schema requires `min(1)`. The
+   Spike-0.1 `zod-to-gbnf` translation almost certainly does not emit a
+   non-empty repetition for `z.string().min(N)`. Fix lives in the generator,
+   not the sampler.
+
+2. **Chunked-note retry path bypassed.** `orchestrator.ts` passes `z.unknown()`
+   to `callWithGrammar` ("callWithGrammar parses JSON internally (with
+   `z.unknown()`, it passes through)" — orchestrator.ts comment near the
+   `runPostDecodePipeline` call). The per-attempt validator therefore
+   accepts anything, so `callWithGrammar`'s Spike-0.1 retry-on-Zod-rejection
+   contract never fires for the *real* family schema. The real check runs
+   AFTER, in `runPostDecodePipeline`, where a `ZodError` propagates with no
+   recovery.
+
+The plan's 8 implementation commits remain correct as-is — the sidecar engine
++ IPC + adapter + eval runner are end-to-end ready for the moment the two
+upstream gaps close. Both are filed as P0 follow-ups in HANDOFF §8 item 0.
+
 ## 6. Data flow (end-to-end, the in-scope eval path)
 
 ```
