@@ -1,4 +1,6 @@
 import type { z } from 'zod';
+import type { SidecarClient } from './client';
+import { TIMEOUTS } from './timeouts';
 
 /**
  * Caller-supplied function that runs ONE grammar-constrained LLM call.
@@ -128,4 +130,33 @@ export interface GrammarCapableSidecar {
 export function makeSidecarGenerator(client: GrammarCapableSidecar): LlmGenerator {
   return async ({ prompt, grammar, seed, temperature, maxTokens }) =>
     client.generateWithGrammar({ prompt, grammar, seed, temperature, maxTokens });
+}
+
+/**
+ * Concrete GrammarCapableSidecar backed by a SidecarClient. Wraps the combined
+ * prompt as a single `user` message (so the GGUF chat template applies; avoids
+ * the legacy `prompt`-field path), streams the grammar-constrained generation,
+ * and accumulates tokens. Echoes the input seed (the C++ side does not return it;
+ * callWithGrammar uses its own seed regardless).
+ */
+export function makeGrammarSidecar(client: SidecarClient): GrammarCapableSidecar {
+  return {
+    async generateWithGrammar({ prompt, grammar, seed, temperature, maxTokens }) {
+      let text = '';
+      for await (const tok of client.sendStream(
+        {
+          type: 'generate',
+          messages: [{ role: 'user', content: prompt }],
+          grammar,
+          seed,
+          temperature,
+          maxTokens,
+        },
+        { timeoutMs: TIMEOUTS.GENERATE_NO_PROGRESS_MS },
+      )) {
+        text += tok;
+      }
+      return { text, seed };
+    },
+  };
 }

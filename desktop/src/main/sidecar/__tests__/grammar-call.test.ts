@@ -1,10 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
+import { spawn } from 'node:child_process';
 import { z } from 'zod';
 import {
   callWithGrammar,
   makeSidecarGenerator,
+  makeGrammarSidecar,
   type LlmGenerator,
 } from '../grammar-call';
+import { SidecarClient } from '../client';
 
 const SimpleSchema = z.object({ name: z.string(), n: z.number() });
 
@@ -238,5 +241,36 @@ describe('makeSidecarGenerator', () => {
       temperature: 0.5,
       maxTokens: 100,
     });
+  });
+});
+
+describe('makeGrammarSidecar.generateWithGrammar (against /bin/cat)', () => {
+  it('sends grammar+seed as a single user message and accumulates tokens into {text, seed}', async () => {
+    const proc = spawn('cat', [], { stdio: ['pipe', 'pipe', 'pipe'] });
+    try {
+      const client = new SidecarClient(proc);
+      const sidecar = makeGrammarSidecar(client);
+      let sent: Record<string, unknown> | null = null;
+      client.onRawLine((line) => {
+        let obj: Record<string, unknown>;
+        try { obj = JSON.parse(line) as Record<string, unknown>; } catch { return; }
+        if (obj.type !== 'generate') return;   // ignore cat's echo of our token/done lines
+        sent = obj;
+        proc.stdin!.write(JSON.stringify({ id: obj.id, type: 'token', token: '{"a":' }) + '\n');
+        proc.stdin!.write(JSON.stringify({ id: obj.id, type: 'token', token: '1}' }) + '\n');
+        proc.stdin!.write(JSON.stringify({ id: obj.id, type: 'done' }) + '\n');
+      });
+      const out = await sidecar.generateWithGrammar({
+        prompt: 'P', grammar: 'root ::= "{"', seed: 4242, temperature: 0.4, maxTokens: 256,
+      });
+      expect(out).toEqual({ text: '{"a":1}', seed: 4242 });
+      expect(sent).not.toBeNull();
+      expect(sent!.messages).toEqual([{ role: 'user', content: 'P' }]);
+      expect(sent!.grammar).toBe('root ::= "{"');
+      expect(sent!.seed).toBe(4242);
+      expect(sent!.maxTokens).toBe(256);
+    } finally {
+      proc.kill('SIGKILL');
+    }
   });
 });
