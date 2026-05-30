@@ -4,10 +4,10 @@ import type { NoteFamily } from '@shared/note-schema';
 /**
  * Family picker shown after Stop is clicked, before finalize runs.
  *
- * Lists all four note families. Lecture + Meeting are enabled today
- * (Plan 3/5). Interview + Brainstorm land in Plan 6 — kept visible in
- * the picker (with a "coming soon" hint) so the founder/early users see
- * the roadmap, but selecting them is blocked.
+ * Lists all four note families. Lecture + Meeting + Interview +
+ * Brainstorm are all enabled. Renderers for each are registered as
+ * side-effect imports in `main.tsx`; cores are registered on the
+ * orchestrator side (see `session-finalize.ts`).
  *
  * State is local: user picks a family, then clicks 続行 to commit.
  * Default selection is Lecture (the alpha-supported, single-speaker
@@ -35,13 +35,13 @@ const FAMILIES: ReadonlyArray<{
     id: 'interview',
     label: 'インタビュー (Interview)',
     desc: 'Q/A・テーマ・引用',
-    disabled: true,
+    disabled: false,
   },
   {
     id: 'brainstorm',
     label: 'ブレスト (Brainstorm)',
     desc: 'アイデア・クラスタ',
-    disabled: true,
+    disabled: false,
   },
 ];
 
