@@ -21,6 +21,23 @@ import { deterministicMerge } from '@shared/post-decode/deterministic-merge';
 import { callWithGrammar, makeSidecarGenerator, type GrammarCapableSidecar } from './grammar-call';
 import { degradeToSingleSpeaker } from '@shared/families/meeting/degrade-to-single-speaker';
 
+// ─── P0b: per-chunk outer retry around callWithGrammar + post-decode ─────────
+// `callWithGrammar` receives `schema: z.unknown()` so its per-attempt
+// retry-on-Zod contract no-ops for the real family shape. The real
+// `family.schema.parse()` runs inside `runPostDecodePipeline` Stage 4, AFTER
+// `callWithGrammar` returned ok=true. Without an outer wrap, a single bad
+// emission burns the whole chunk and propagates `ZodError` out of
+// `finalize*` with no recovery. The constants below bound a small outer
+// retry loop in both `finalizeLecture` and `finalizeMeeting`.
+
+/** Max outer attempts (inclusive of the first try). With inner `maxAttempts: 3`,
+ *  worst-case 2×3=6 generations per chunk (~2 min on the 8GB box). */
+const POST_DECODE_OUTER_ATTEMPTS = 2;
+/** Seed-block size per outer attempt. Strictly larger than `callWithGrammar`'s
+ *  inner retry stride (`baseSeed + 0/+100/+200`), so outer attempts cannot
+ *  collide with each other's inner retries — independent random pulls. */
+const POST_DECODE_SEED_OFFSET = 10000;
+
 interface Opts {
   stt: STTEngine;
   llm: LLMEngine;
@@ -247,29 +264,50 @@ export async function finalizeLecture(
     });
     const combinedPrompt = `${prompt.systemTemplate}\n\n${userPrompt}`;
 
-    // ── Correction A: callWithGrammar with z.unknown() pass-through ────────
-    const result = await callWithGrammar<unknown>({
-      prompt: combinedPrompt,
-      schema: z.unknown(),
-      grammar,
-      baseSeed: 5000 + i,
-      temperature: tuning.temperature,
-      maxAttempts: 3,
-      maxTokens: tuning.maxGenTokens,
-      generator,
-    });
+    // ── Correction A + A2 (P0b): callWithGrammar (z.unknown() pass-through)
+    //    wrapped in an outer retry loop on post-decode ZodError. See file-top
+    //    constants for budget + seed-block rationale.
+    let validated: unknown;
+    let lastZodError: z.ZodError | undefined;
+    for (let outerAttempt = 0; outerAttempt < POST_DECODE_OUTER_ATTEMPTS; outerAttempt++) {
+      const result = await callWithGrammar<unknown>({
+        prompt: combinedPrompt,
+        schema: z.unknown(),
+        grammar,
+        baseSeed: 5000 + i + outerAttempt * POST_DECODE_SEED_OFFSET,
+        temperature: tuning.temperature,
+        maxAttempts: 3,
+        maxTokens: tuning.maxGenTokens,
+        generator,
+      });
 
-    if (!result.ok) {
-      throw new Error(`CHUNK_FAILED:${i}:${result.finalReason}`);
+      if (!result.ok) {
+        throw new Error(`CHUNK_FAILED:${i}:${result.finalReason}`);
+      }
+
+      // ── Correction C: re-serialize → runPostDecodePipeline ───────────────
+      // callWithGrammar parses JSON internally (with z.unknown(), it passes
+      // through). runPostDecodePipeline expects a raw JSON string — the
+      // double round-trip is acceptable for chunk-sized JSON (a few KB) and
+      // keeps Task 8's pipeline contract unchanged (per task spec: do NOT
+      // refactor pipeline to accept object).
+      const rawJson = JSON.stringify(result.value);
+      try {
+        validated = runPostDecodePipeline(rawJson, fam, args.transcript);
+        break;
+      } catch (e) {
+        if (e instanceof z.ZodError) {
+          lastZodError = e;
+          continue;
+        }
+        throw e;  // ForwardIncompatNoteError / SyntaxError / etc. — not retriable
+      }
     }
-
-    // ── Correction C: re-serialize → runPostDecodePipeline ─────────────────
-    // callWithGrammar parses JSON internally (with z.unknown(), it passes through).
-    // runPostDecodePipeline expects a raw JSON string — the double round-trip
-    // is acceptable for chunk-sized JSON (a few KB) and keeps Task 8's pipeline
-    // contract unchanged (per task spec: do NOT refactor pipeline to accept object).
-    const rawJson = JSON.stringify(result.value);
-    const validated = runPostDecodePipeline(rawJson, fam, args.transcript);
+    if (validated === undefined) {
+      throw new Error(
+        `CHUNK_FAILED:${i}:POST_DECODE_ZOD_EXHAUSTED:${lastZodError?.issues[0]?.message ?? 'unknown'}`,
+      );
+    }
     partials.push(validated as Partial<LectureNote>);
   }
 
@@ -392,24 +430,46 @@ export async function finalizeMeeting(
     });
     const combinedPrompt = `${prompt.systemTemplate}\n\n${userPrompt}`;
 
-    // baseSeed 6000 (lecture uses 5000) keeps seeds distinct across families.
-    const result = await callWithGrammar<unknown>({
-      prompt: combinedPrompt,
-      schema: z.unknown(),
-      grammar,
-      baseSeed: 6000 + i,
-      temperature: tuning.temperature,
-      maxAttempts: 3,
-      maxTokens: tuning.maxGenTokens,
-      generator,
-    });
+    // P0b: outer retry around callWithGrammar + post-decode (same shape as
+    // finalizeLecture; see file-top constants). baseSeed 6000 (lecture uses
+    // 5000) keeps seeds distinct across families; with POST_DECODE_SEED_OFFSET
+    // 10000, lecture outer 1 (15000+i) and meeting outer 1 (16000+i) stay
+    // disjoint for any plausible chunk count.
+    let validated: unknown;
+    let lastZodError: z.ZodError | undefined;
+    for (let outerAttempt = 0; outerAttempt < POST_DECODE_OUTER_ATTEMPTS; outerAttempt++) {
+      const result = await callWithGrammar<unknown>({
+        prompt: combinedPrompt,
+        schema: z.unknown(),
+        grammar,
+        baseSeed: 6000 + i + outerAttempt * POST_DECODE_SEED_OFFSET,
+        temperature: tuning.temperature,
+        maxAttempts: 3,
+        maxTokens: tuning.maxGenTokens,
+        generator,
+      });
 
-    if (!result.ok) {
-      throw new Error(`CHUNK_FAILED:${i}:${result.finalReason}`);
+      if (!result.ok) {
+        throw new Error(`CHUNK_FAILED:${i}:${result.finalReason}`);
+      }
+
+      const rawJson = JSON.stringify(result.value);
+      try {
+        validated = runPostDecodePipeline(rawJson, fam, activeTranscript);
+        break;
+      } catch (e) {
+        if (e instanceof z.ZodError) {
+          lastZodError = e;
+          continue;
+        }
+        throw e;
+      }
     }
-
-    const rawJson = JSON.stringify(result.value);
-    const validated = runPostDecodePipeline(rawJson, fam, activeTranscript);
+    if (validated === undefined) {
+      throw new Error(
+        `CHUNK_FAILED:${i}:POST_DECODE_ZOD_EXHAUSTED:${lastZodError?.issues[0]?.message ?? 'unknown'}`,
+      );
+    }
     partials.push(validated as Partial<MeetingNote>);
   }
 

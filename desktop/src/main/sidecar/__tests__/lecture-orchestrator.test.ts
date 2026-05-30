@@ -252,4 +252,75 @@ describe('finalizeLecture', () => {
     expect(result.telemetry.dedupHits).toEqual([]);
     expect(result.telemetry.postDecodeMutations).toEqual([]);
   });
+
+  // ─── P0b: outer retry on post-decode ZodError ────────────────────────────────
+  // callWithGrammar receives `schema: z.unknown()` (pass-through), so its
+  // per-attempt retry-on-Zod contract no-ops for the real family shape. The
+  // family.schema.parse() runs inside runPostDecodePipeline (Stage 4) AFTER
+  // callWithGrammar returns ok=true. Without an outer retry, a single bad
+  // emission burns the whole chunk and propagates ZodError out of
+  // finalizeLecture with no recovery. P0b wraps the per-chunk pair in a small
+  // outer retry loop with a disjoint seed-block per attempt.
+
+  it('retries chunk with fresh seed when runPostDecodePipeline throws ZodError (P0b)', async () => {
+    // Well-formed JSON missing the required `sections` field — JSON.parse
+    // succeeds (callWithGrammar's z.unknown() passes through), but
+    // family.schema.parse() inside runPostDecodePipeline Stage 4 throws
+    // ZodError. The orchestrator's outer retry must catch this and re-call
+    // callWithGrammar with a fresh seed block.
+    const invalidJson = JSON.stringify({
+      schemaVersion: 1,
+      family: 'lecture',
+      title: 'タイトル',
+      generatedAt: new Date().toISOString(),
+      generatedBy: { model: 'llama-3.2-3b-q4-km', promptVersion: 1 },
+      language: 'ja',
+      durationSec: 60,
+      // missing: sections (required) — Stage 4 will throw ZodError
+    });
+    const validJson = makeLectureNoteJson('セクション', 0);
+    const sidecar = mockSidecar({ responses: [invalidJson, validJson] });
+
+    const result = await finalizeLecture({
+      sessionId: 'p0b-retry',
+      transcript: makeTranscript(3),  // 3 segs at default budget → 1 chunk
+      sidecar,
+      modelProfile,
+    });
+
+    // Two sidecar calls: outer attempt 0 produced invalid JSON, outer attempt 1 valid.
+    expect(sidecar.calls).toHaveLength(2);
+    // The outer retry advances baseSeed by a block strictly larger than
+    // callWithGrammar's inner stride (+0/+100/+200), so the second outer
+    // attempt's first inner seed cannot collide with the first attempt's
+    // inner retries. >200 is the load-bearing guarantee.
+    expect(sidecar.calls[1]!.seed).toBeGreaterThan(sidecar.calls[0]!.seed + 200);
+    expect(result.note.family).toBe('lecture');
+    expect(result.note.sections.length).toBe(1);
+  });
+
+  it('throws CHUNK_FAILED:POST_DECODE_ZOD_EXHAUSTED when post-decode fails on both outer attempts', async () => {
+    const invalidJson = JSON.stringify({
+      schemaVersion: 1,
+      family: 'lecture',
+      title: 'タイトル',
+      generatedAt: new Date().toISOString(),
+      generatedBy: { model: 'llama-3.2-3b-q4-km', promptVersion: 1 },
+      language: 'ja',
+      durationSec: 60,
+      // missing: sections
+    });
+    const sidecar = mockSidecar({ responses: [invalidJson, invalidJson] });
+
+    await expect(
+      finalizeLecture({
+        sessionId: 'p0b-exhaust',
+        transcript: makeTranscript(1),
+        sidecar,
+        modelProfile,
+      }),
+    ).rejects.toThrow(/^CHUNK_FAILED:0:POST_DECODE_ZOD_EXHAUSTED/);
+
+    expect(sidecar.calls).toHaveLength(2);
+  });
 });
