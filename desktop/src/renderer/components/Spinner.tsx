@@ -9,8 +9,7 @@
  * React Strict Mode) checks for the existing style element first.
  *
  * Step 5 §3.3 — Loading progress affordance. Used inline next to the
- * "Loading model…" label in Recording.tsx and the phase label in
- * FinalizingView.tsx.
+ * "Loading model…" label in Recording.tsx.
  */
 const SPINNER_STYLE_ID = 'lisna-spinner-style';
 

@@ -1,6 +1,6 @@
 # Lisna — Session Handoff
 
-**Last updated**: 2026-05-27 (v2 Phase 0 spikes — Amendment 1 + Spike 0.2 Path E)
+**Last updated**: 2026-05-30 (v2 stack reachable from app UI — #73 grammar-gen + #74 renderer wiring + #76 Meeting renderer)
 **Purpose**: Bring a new session up to speed in <5 min. Read top → bottom in order.
 **Reader**: future-self (or another Claude). Skip what you already know.
 
@@ -106,6 +106,17 @@ v2 desktop spike work on `spec/v2-note-creation-design` branch. Independent of t
 | `44e546d` | **Phase 0 verdict memo** — Spike 0.1 PASS (N=5) / 0.2 MIXED / 0.3 BLOCKED (founder JA fixtures gate) / 0.4 PASS. Plan 2 (Foundation) green-lit with 7 carry-forward items including the load-bearing retry-loop wrapper mandate. |
 | `d9d333d` | **Spike 0.2 Path E per-phase timing** — empirically split the 72 s/chunk wall: prompt eval 54% @ 3.93 ms/tok, generation 43% @ 46.54 ms/tok (12× slower per token; grammar mask = dominant amplifier, ~3.1× vs no-grammar baseline). Both phases co-dominate → Path B/D de-prioritized. New Path F (1B re-spike, ~30 s/chunk estimate, lands spec) + Path G (output cap / `.max(N)` bound) as strongest single-step candidates. |
 | (this commit) | **Session handoff** — 3 new `/learn` rules (dispatch trust-but-verify, dispatch send artifact ref, test-headers pair-update), decision record `2026-05-27-spike-0.1-amendment-1-n5-envelope`, REFACTOR_BACKLOG 3 new items, HANDOFF top date + §2 + §8. |
+
+### What landed since (2026-05-28 → 2026-05-30, v2 stack reaches the app)
+
+The v2 on-device structured note pipeline is now reachable from the app's Stop button end-to-end, with Lecture + Meeting renderers shipped.
+
+| PR | What |
+|---|---|
+| #73 | **C++ grammar-constrained generation + spike-0.1 pipeline-unblock.** `GenOpts` gains `seed` + `grammar`; sampler fed both (grammar-first chain). `makeGrammarSidecar(client)` adapter on TS side. Initial real-3B gate FAILED at `runPostDecodePipeline → ZodError sections[0].heading too_small` — root cause traced to two upstream gaps, both fixed: **P0a** `zod-to-gbnf` emits `json-string-nonempty` for `.min(N>=1)` (no more grammar-valid empty strings); **P0b** orchestrator wraps per-chunk `callWithGrammar + runPostDecodePipeline` in outer 2-attempt retry on ZodError (POST_DECODE_SEED_OFFSET=10000). `common_sampler` fallback intentionally NOT taken — both samplers would have emitted the empty string. Re-gate PASS: schema-valid LectureNote, `retryAttempts/chunk:[1]`, 20.5 s wall. |
+| #74 | **v2 renderer wiring — Plan 3 Tasks 11–12 + spec §9.** Stop → FamilyPicker → finalize → NoteView vertical slice. 7 commits: session/finalize IPC now returns `{noteId, note}` (was dropping note); `getCurrentSession` async + lazy LLM-load (spec §9 — unload STT, load LLM, cached per-orchestrator); preload `window.lisna.finalize`; `LectureRenderer` + slot dispatch + registerFamilyRenderer; FamilyPickerStep + NoteRenderProgress components; App.tsx FSM gains `familyPicking` + `curatingV2` states + drops dead `finalizing` view; double-click guard on 続行. |
+| #75 | **Cleanup: orphaned FinalizingView + min-display.** PR #74 left FinalizingView.tsx + min-display.ts (with test) + a stale Spinner.tsx JSDoc reference. Removed per CLAUDE.md rule #9 (don't keep dead code). |
+| #76 | **MeetingRenderer** — Plan 5 renderer follow-up. Mirrors LectureRenderer (pure {note}=>JSX, registerFamilyRenderer at module load). No `slotRenderers` — Meeting has no typed-extras `slots`. SpeakerRef tag hides when ref===0 (alpha runs with `diarizationStatus:'disabled'`, all refs collapse to 0). Side-effect import added in main.tsx. Caught a React gotcha in TDD — `ref` is reserved on function components; `SpeakerTag` uses `speakerRef`. New `(react-reserved-props)` pitfall rule pinned. |
 
 ### Operational guards on GitHub (added 2026-05-24)
 
@@ -391,17 +402,13 @@ See `DEPLOYMENT.md` for the complete operator runbook.
 
 Most likely next priorities (pick what matches user's current ask):
 
-0. **v2 note pipeline: pipeline unblocked — P0a + P0b landed + gate PASS.** PR #73 (`worktree-feat-cpp-grammar-gen` ref, off `origin/main` `6fa795f`) now carries 16 commits: the original 9 implementation commits (C++ engine + IPC + TS adapter + eval runner — full list in PR #73 body) plus the gate-FAIL diagnosis (`acaed8e`) and the two pipeline-unblock fixes:
+0. **v2 stack reaches the app end-to-end — alpha.** PR #73 (C++ grammar-gen + P0a + P0b) and #74 (renderer wiring + spec §9) MERGED to main. #75 (orphan-cleanup) and #76 (MeetingRenderer) OPEN awaiting CI + merge. After #76 merges, Stop → FamilyPicker → finalize → MeetingNote/LectureNote renders end-to-end. See §2 "What landed since (2026-05-28 → 2026-05-30)" for the per-PR detail.
 
-   - **P0a (`7f5085c fix(shared): zod-to-gbnf emits json-string-nonempty for .min(N>=1)`)** — scans `ZodString._def.checks` for `kind === 'min', value >= 1`; emits a new `json-string-nonempty ::= "\"" char+ "\""` prelude rule in place of `json-string`. Covers `heading`, `term`, two `text` fields in lecture + any future family with `z.string().min(N>=1)`. TDD; RED-before-GREEN verified.
+   **Next vertical (app-design):** Plan 6 (Interview/Brainstorm) renderer follow-up. PR #72 (`feat/v2-interview-brainstorm`) ai-infra core was pushed 2026-05-29 but is now **CONFLICTING/DIRTY** against main (rebase needed — #73/#74 landed underneath). Sequence: (a) rebase #72 onto main, resolve conflicts (likely `orchestrator.ts` + `ipc.ts`); (b) add `desktop/src/shared/families/{interview,brainstorm}/renderer.tsx` + tests + side-effect imports in `main.tsx`; (c) flip Interview + Brainstorm from `disabled: true` to enabled in `FamilyPickerStep.tsx`. The same React `(react-reserved-props)` pitfall rule applies — use `speakerRef` not `ref` for any speaker-index prop.
 
-   - **P0b (`d0a5a02 fix(orchestrator): outer retry on post-decode ZodError`)** — wraps per-chunk `callWithGrammar + runPostDecodePipeline` in an outer retry loop. `POST_DECODE_OUTER_ATTEMPTS=2`, `POST_DECODE_SEED_OFFSET=10000` (strictly larger than callWithGrammar's inner +0/+100/+200 stride, so outer attempts stay seed-disjoint from each other AND from the lecture/meeting families). Only `ZodError` triggers retry; `ForwardIncompatNoteError`/`SyntaxError` propagate; exhaustion surfaces `CHUNK_FAILED:i:POST_DECODE_ZOD_EXHAUSTED:<msg>`. Same wrap on lecture (baseSeed 5000+i) and meeting (baseSeed 6000+i). TDD; 3 new tests.
-
-   **Real-3B gate at HEAD `d0a5a02`: PASS.** Schema-valid `LectureNote` with ≥1 section; `[gate] retryAttempts/chunk: [ 1 ]` (P0a alone was sufficient; P0b stays as defense-in-depth); 20.5s wall; sidecar process tree clean after `pkill`. Independent expert review (round 2 of 2; opus, reviewer ≠ author) **APPROVED for push**.
-
-   `common_sampler` fallback intentionally NOT taken — the root cause was upstream of the sampler choice (both samplers would emit grammar-valid empty strings under the original GBNF).
-
-   **Now-unblocked follow-ups:** renderer wiring (app-design lane, Plan 3 Tasks 11–12 — preload `finalize` binding + `Recording.tsx` + structured `NoteView`) and the `session/finalize` IPC model-load step per design spec §9. The structured pipeline is *runnable and proven via eval end-to-end*; the app's Stop button still doesn't reach it (separate app-design effort).
+   **Backlog mitigations (next safe wins):**
+   - P2 wall-time cap (90–120 s per attempt) + UI retry counter — alpha-gate mitigation against the triple-runaway 24-min hang. Touches `callWithGrammar` + renderer.
+   - Legacy `session/stop` IPC handler in `main/ipc.ts` is registered with no UI consumer post-#74. Safe to drop AFTER #72 lands (all 4 families have v2 finalize paths).
 
 1. **Test the today's fixes** with a real K-LMS lecture: stop button → final curate → export, slide detection multiple slide changes, .zip unpacking into Obsidian vault.
 
