@@ -25,7 +25,7 @@ describe('FamilyPickerStep', () => {
     expect(html).not.toMatch(/data-testid="family-radio-meeting"[^>]*checked/);
   });
 
-  it('disables interview + brainstorm radios (Plan 6, coming soon)', () => {
+  it('enables all 4 family radios (Plan 6 cores + renderers landed)', () => {
     const html = renderToStaticMarkup(<FamilyPickerStep onPick={() => {}} />);
     // React renders attrs in declaration order; `disabled` can land before
     // `data-testid` in the markup, so assert both attrs are present in the
@@ -35,17 +35,19 @@ describe('FamilyPickerStep', () => {
       if (!m) throw new Error(`No input tag for value=${id}`);
       return m[0];
     };
-    expect(inputTag('interview')).toContain('disabled');
-    expect(inputTag('brainstorm')).toContain('disabled');
     expect(inputTag('lecture')).not.toContain('disabled');
     expect(inputTag('meeting')).not.toContain('disabled');
+    expect(inputTag('interview')).not.toContain('disabled');
+    expect(inputTag('brainstorm')).not.toContain('disabled');
   });
 
-  it('shows the "(coming soon)" hint exactly on disabled families', () => {
+  it('does not show the "(coming soon)" hint after Plan 6 lands', () => {
     const html = renderToStaticMarkup(<FamilyPickerStep onPick={() => {}} />);
-    // The hint appears twice — once each for interview + brainstorm.
+    // The `{f.disabled && <small>(coming soon)</small>}` JSX clause stays
+    // so a future temporary disable surfaces the hint, but with all
+    // families enabled it must render zero times.
     const matches = html.match(/\(coming soon\)/g) ?? [];
-    expect(matches.length).toBe(2);
+    expect(matches.length).toBe(0);
   });
 
   it('exposes a continue button labelled 続行', () => {
