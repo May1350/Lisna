@@ -135,29 +135,31 @@ LOOP_DETECTION_THRESHOLD = 3   # attempts per tree SHA
 os.makedirs(PRECOMMIT_MARKER_DIR, exist_ok=True)
 
 
-# === Tier 1: command parsing (shlex, not regex) ===
+# === Tier 1: command parsing (regex at boundary + shlex on args) ===
+# Mirror of prepush gate's _PUSH_RE — catches `cd path && git commit -am ...`,
+# `FOO=bar git commit ...`, etc. Pure shlex (tokens[0]=="git") missed these.
+import re as _re
+_COMMIT_RE = _re.compile(
+    r'(?:^|[\n;|]|&&|\|\|)\s*'
+    r'(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*'
+    r'git\b(?:\s+(?:-C\s+\S+|-[^\s]+))*\s+commit(?:\s|$)'
+)
 
 def parse_git_commit(command):
     """Return (is_git_commit, uses_all_flag)."""
+    m = _COMMIT_RE.search(command or "")
+    if not m:
+        return False, False
+    # Extract args after "commit" keyword, stopping at next shell boundary
+    after = command[m.end():]
+    for sep in ("\n", ";", "&&", "||", "|"):
+        if sep in after:
+            after = after.split(sep, 1)[0]
     try:
-        tokens = shlex.split(command)
+        args = shlex.split(after)
     except ValueError:
-        return False, False
-    i = 0
-    while i < len(tokens) and is_env_token(tokens[i]):
-        i += 1
-    if i + 1 >= len(tokens):
-        return False, False
-    if tokens[i] != "git" or tokens[i+1] != "commit":
-        return False, False
-    return True, uses_all_flag(tokens[i+2:])
-
-def is_env_token(t):
-    if "=" not in t: return False
-    name = t.split("=", 1)[0]
-    if not name: return False
-    if not (name[0].isalpha() or name[0] == "_"): return False
-    return all(c.isalnum() or c == "_" for c in name)
+        return True, False  # malformed args, treat as no -a (still gate)
+    return True, uses_all_flag(args)
 
 def uses_all_flag(args):
     """-a / --all / -am / -aem etc. Stops at -- separator."""
@@ -188,9 +190,17 @@ def project_opted_in(toplevel):
     common_path = common.stdout.strip()
     if not os.path.isabs(common_path):
         common_path = os.path.join(toplevel, common_path)
-    main_root = os.path.dirname(common_path.rstrip("/.git"))
+    # common_path is absolute path to .git directory (main repo's .git, even from worktree).
+    # CRITICAL: do NOT use rstrip("/.git") — it's character-class strip and corrupts paths
+    # like /a/b/.gitconfig.it → /a/b. Use explicit suffix-strip instead.
+    if common_path.endswith(os.sep + ".git"):
+        main_root = common_path[:-len(os.sep + ".git")]
+    elif common_path.endswith("/.git"):  # safety net for non-OS-native sep
+        main_root = common_path[:-len("/.git")]
+    else:
+        main_root = os.path.dirname(common_path)
     if main_root == toplevel:
-        return False  # not a worktree
+        return False  # not a worktree (toplevel == main_root means main repo)
     fallback = os.path.join(main_root, ".claude", "review-gate-on")
     if not os.path.isfile(fallback):
         return False
@@ -370,10 +380,25 @@ REVIEWER BRIEF:
 
 2. Reviewer reads `git diff --cached` (or `git diff HEAD` if -a/--all was used).
 
-3. Reviewer ACTUALLY EXECUTES `pnpm --filter <owning-pkg-list> typecheck` and
-   `pnpm --filter <owning-pkg-list> test` in <toplevel>. Record exit + duration.
-   - Identify owning packages from changed file paths (backend/, extension/, web/, desktop/, shared/)
+3. Reviewer ACTUALLY EXECUTES typecheck + test on affected packages.
+   - Identify owning packages from changed file paths (backend/, extension/, web/, desktop/, shared/).
+     Path → package mapping: `backend/**` → backend, `extension/**` → extension,
+     `web/**` → web, `desktop/**` → desktop, `shared/**` → shared.
+     Multiple owners → space-separated list.
+   - For each owning package, try these in priority order until one succeeds OR all skipped:
+     **typecheck**:
+       (a) If `<pkg>/package.json` has `scripts.typecheck`: `pnpm --filter <pkg> typecheck`
+       (b) Else if TS package (`tsconfig.json` exists in pkg): `pnpm --filter <pkg> exec tsc --noEmit`
+       (c) Else: record `{"exit": 0, "duration_ms": 0, "command": "skip-no-typecheck",
+           "summary": "package has no TS code or typecheck script"}` and continue
+     **test**:
+       (a) If `<pkg>/package.json` has `scripts.test`: `pnpm --filter <pkg> test`
+       (b) Else if pkg has vitest.config.* or tests/ dir: `pnpm --filter <pkg> exec vitest run`
+       (c) Else: record `{"exit": 0, "duration_ms": 0, "command": "skip-no-test",
+           "summary": "package has no test script or test dir"}` and continue
    - DO NOT run full monorepo `pnpm typecheck` (3-5 min cost). Filter to affected packages only.
+   - Hook validates `checks.{typecheck,test}.exit == 0`. Skip-records (exit=0 with
+     skip-* command) are honest "nothing to check here" — accepted.
 
 4. Reviewer evaluates each of these 9 invariants explicitly:
    Each gets a value of "ok" (passed) | "n/a" (영역 미관련, 확신할 때만) | "fail" (위반 발견 OR 영역
@@ -391,9 +416,10 @@ REVIEWER BRIEF:
 5. AUTO-BLOCK triggers (verdict=BLOCK regardless of other checks):
    - new line in package.json dependencies/devDependencies (supply-chain review)
    - new HTTP endpoint added without test in backend/tests/
-   - single function ≥30 lines without justification
    - ≥200-line NEW CODE FILE (.ts/.tsx/.py/.go/.rs etc); 제외: .txt/.json/.sql/.md/.csv/.yaml +
      디렉터리 backend/tests/fixtures/, */baselines/, */messages/, web/public/, extension/test-results/
+   (Note: "단일 함수 ≥30줄" trigger 제거 — JSDoc "justification" 판정 모호 + checklist
+   judgment에 위임 가능. CLAUDE.md 코드 룰 #6 (3+ 호출 시 추상화) 와 중복.)
 
 6. EXTERNAL KNOWLEDGE GROUNDING (only when diff touches deps / external APIs / framework patterns /
    auth / security): use WebSearch + WebFetch to verify against current best practices, recent
@@ -456,6 +482,80 @@ Emergency bypass (60-min TTL, logged to ~/.claude/review-bypass-log.jsonl):
 | matcher false positive (Bash if 절이 잘못 매칭) | hook 자체 토큰 검사 후 allow | 2층 방어 |
 | `CLAUDE_REVIEW_BYPASS` valid + 신선 | fail-open + 로그 + banner | 사용자 명시 우회 |
 
+### 5.4 Helper 함수 정의 (Section 5.1에서 참조됨, 기존 prepush gate 패턴 차용)
+
+```python
+def run_git(*args):
+    """Run git subprocess with 10s timeout. Returns CompletedProcess or None."""
+    try:
+        return subprocess.run(
+            ["git", *args], capture_output=True, text=True, timeout=10)
+    except Exception:
+        return None
+
+def ok(r):
+    """True if subprocess succeeded with non-empty stdout."""
+    return r is not None and r.returncode == 0 and bool(r.stdout.strip())
+
+def allow():
+    """Exit cleanly — hook returns no decision → tool proceeds normally."""
+    sys.exit(0)
+
+def allow_with_warning(msg):
+    """Allow + emit warning to stderr (for bypass banner etc)."""
+    sys.stderr.write(msg + "\n")
+    sys.exit(0)
+
+def deny(reason):
+    """Block the tool call with reason string shown to model + user."""
+    print(json.dumps({"hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "deny",
+        "permissionDecisionReason": reason,
+    }}))
+    sys.exit(0)
+
+def read_command_from_stdin():
+    """Parse hook stdin payload, extract command string. Returns '' on failure."""
+    try:
+        payload = json.loads(sys.stdin.read() or "{}")
+        return (payload.get("tool_input", {}) or {}).get("command", "") or ""
+    except Exception:
+        return ""
+
+def sampled_cleanup(marker_dir, days):
+    """1% probabilistic prune of markers older than `days`. Never fatal."""
+    if random.random() >= CLEANUP_SAMPLE_RATE:
+        return
+    try:
+        cutoff = time.time() - days * 86400
+        for name in os.listdir(marker_dir):
+            if not (name.endswith(".ok") or name.endswith(".attempts")):
+                continue
+            p = os.path.join(marker_dir, name)
+            try:
+                if os.path.getmtime(p) < cutoff:
+                    os.remove(p)
+            except OSError:
+                pass
+    except OSError:
+        pass
+
+def build_brief(tree, ins, dels, files, marker_path, toplevel):
+    """Render Section 5.2 brief template with substitutions."""
+    # Implementation: format the string literal from Section 5.2 with substitutions.
+    # Substitution map: <tree-sha12>=tree[:12], <N>=ins, <M>=dels, <F>=files,
+    # <toplevel>=toplevel, <marker-path>=marker_path.
+    return SECTION_5_2_TEMPLATE.format(
+        tree=tree[:12], ins=ins, dels=dels, files=files,
+        toplevel=toplevel, marker_path=marker_path,
+        marker_dir=PRECOMMIT_MARKER_DIR,
+    )
+```
+
+For prepush gate, `build_enhanced_brief` mirrors `build_brief` but reads HEAD SHA
+and `base..HEAD` diff context instead of staged tree.
+
 ---
 
 ## 6. prepush-review-gate.py 변경 사양
@@ -505,7 +605,11 @@ if ok(commits_r):
         allow()  # N5: 0 commits ahead
 
     # T9 fix: batch query — single subprocess for all tree SHAs
-    trees_r = run_git("log", "--format=%T", base + "..HEAD" if base else "-30 HEAD")
+    # CRITICAL: separate args, not single string ("-30 HEAD" as one arg = git fatal)
+    if base:
+        trees_r = run_git("log", "--format=%T", base + "..HEAD")
+    else:
+        trees_r = run_git("log", "--format=%T", "-30", "HEAD")
     if ok(trees_r):
         trees = [t for t in trees_r.stdout.strip().split("\n") if t]
         all_reviewed = True
@@ -708,9 +812,17 @@ Exception은 silent.
 - (H) base..HEAD N×subprocess 비효율
 - + 5개 MEDIUM
 
-### 4-round 누적 결함 — 모두 spec 흡수
+### Round 5 (final spec-doc review by fresh independent reviewer)
+- (C) backend/web에 `typecheck` script 부재 — brief 강제력 over-shoot → 무한 BLOCK 위험
+- (C) `rstrip("/.git") + os.path.dirname` 조합 — worktree fallback main_root 잘못 계산
+- (H) `parse_git_commit` shlex-only — `cd path && git commit` 미매치
+- (H) Section 6.1 `"-30 HEAD"` 단일 문자열 인자 = git fatal
+- + 4 MEDIUM/LOW (helper 함수 정의 누락, 30-line 함수 trigger 모호, 라인 추정, 7 vs 9 invariants)
+모두 sections 5.1 / 5.2 / 5.4 / 6.1 / 11.1 / 13에 흡수 (Round 5 patch).
 
-총 21개 결함 (4 CRITICAL + 9 HIGH + 8 MEDIUM/LOW) 모두 위 사양에 반영됨.
+### 5-round 누적 결함 — 모두 spec 흡수
+
+총 25개 결함 (6 CRITICAL + 11 HIGH + 8 MEDIUM/LOW) 모두 위 사양에 반영됨.
 
 ### REJECTED 옵션 (참고)
 
@@ -841,14 +953,14 @@ Marker 추가 commit은 trivial-skip 통과하지만 (0 ins / 0 del / 1 file →
 
 | 파일 | 변경 종류 | 라인 추정 |
 |---|---|---|
-| `~/.claude/hooks/precommit-review-gate.py` | NEW | ~250 |
-| `~/.claude/hooks/_lib_marker.py` | NEW | ~50 |
-| `~/.claude/hooks/prepush-review-gate.py` | EDIT (+30, brief 강화 -50 +130) | net ~+110 |
+| `~/.claude/hooks/precommit-review-gate.py` | NEW (main flow + 7 helpers + brief template) | ~350 |
+| `~/.claude/hooks/_lib_marker.py` | NEW | ~55 |
+| `~/.claude/hooks/prepush-review-gate.py` | EDIT (base..HEAD lookup + brief 강화 + import) | net ~+130 |
 | `~/.claude/hooks/lisna-session-precheck.py` | EDIT (+20 bypass freq check) | +20 |
 | `~/.claude/settings.json` | EDIT (+8 lines: precommit gate 등록) | +8 |
 | `/Users/guntak/Lisna/.claude/review-gate-on` | NEW | 4 (헤더 코멘트) |
 
-총 ~440 라인 신규/변경.
+총 ~570 라인 신규/변경 (helper 정의 7개 + brief template ~80줄 포함, 최초 추정보다 증가).
 
 ### 11.2 Dependency graph
 
@@ -905,3 +1017,6 @@ lisna-session-precheck.py (reads bypass log)
 | `_lib_marker.py` import 실패 | Low | High (게이트 자체 죽음) | fail-closed + 명시적 error message |
 | schema 진화 시 기존 marker 일괄 무효 | Med | Med (push 폭주) | SUPPORTED_SCHEMA_VERSIONS에 transition window |
 | reviewer가 typecheck/test 거짓 기재 | Low | High (lying) | brief 강제력 80% + future work (reviewer trust 메커니즘 별도) |
+| package에 `typecheck` script 부재 (실측: backend, web) | High | High (typecheck 즉시 fail → 무한 BLOCK) | brief의 typecheck fallback chain (script → tsc --noEmit → skip-record), Section 5.2 step 3 |
+| `cd path && git commit ...` shell idiom 우회 | High (SDD subagent 흔한 패턴) | Critical (게이트 무력) | _COMMIT_RE regex with command-boundary match, Section 5.1 Tier 1 |
+| 7 vs 9 invariants 불일치 (CLAUDE.md vs spec) | Cert | Low (혼란만) | spec 머지 후 CLAUDE.md 업데이트 — 후속 task, 코드 영향 X |
