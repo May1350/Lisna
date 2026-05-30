@@ -13,7 +13,6 @@
 import path from 'node:path';
 import { ipcMain } from 'electron';
 import type { TranscriptSegment as LegacySegment } from '@shared/types';
-import type { SessionTranscript, TranscriptSegment as V2Segment } from '@shared/note-schema/transcript';
 import { adaptToV2Transcript } from '@shared/note-schema';
 import type { NoteBase, NoteFamily } from '@shared/note-schema';
 import type { GrammarCapableSidecar } from '../grammar-call';
