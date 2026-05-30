@@ -51,6 +51,17 @@ interface Props {
 
 export function FamilyPickerStep({ onPick }: Props) {
   const [selected, setSelected] = useState<NoteFamily>('lecture');
+  // In-flight guard. Click-then-click would otherwise call onPick twice; the
+  // parent's prev.kind FSM guard short-circuits the second state transition
+  // but the underlying window.lisna.finalize would still fire twice — two
+  // concurrent generate streams over one sidecar, ~30-120 s of wasted LLM.
+  const [submitting, setSubmitting] = useState(false);
+
+  function handleSubmit(): void {
+    if (submitting) return;
+    setSubmitting(true);
+    onPick(selected);
+  }
 
   return (
     <div style={{ maxWidth: 560, margin: '0 auto', padding: 24, fontFamily: 'system-ui' }} data-testid="family-picker">
@@ -88,7 +99,8 @@ export function FamilyPickerStep({ onPick }: Props) {
         ))}
       </ul>
       <button
-        onClick={() => onPick(selected)}
+        onClick={handleSubmit}
+        disabled={submitting}
         data-testid="family-continue"
         style={{ padding: '8px 16px', fontSize: 14, marginTop: 8 }}
       >

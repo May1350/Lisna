@@ -53,4 +53,14 @@ describe('FamilyPickerStep', () => {
     expect(html).toContain('続行');
     expect(html).toContain('data-testid="family-continue"');
   });
+
+  it('renders the continue button enabled on first paint (in-flight guard is post-click)', () => {
+    // The submitting state only flips after the first click — SSR initial
+    // markup must NOT pre-disable the button (would make it permanently
+    // unclickable since interactivity needs a DOM).
+    const html = renderToStaticMarkup(<FamilyPickerStep onPick={() => {}} />);
+    const m = html.match(/<button[^>]*data-testid="family-continue"[^>]*>/);
+    expect(m).not.toBeNull();
+    expect(m?.[0]).not.toContain('disabled');
+  });
 });
