@@ -593,24 +593,45 @@ export async function finalizeInterview(
     });
     const combinedPrompt = `${prompt.systemTemplate}\n\n${userPrompt}`;
 
-    // baseSeed 7000 (lecture 5000, meeting 6000) keeps seeds distinct across families.
-    const result = await callWithGrammar<unknown>({
-      prompt: combinedPrompt,
-      schema: z.unknown(),
-      grammar,
-      baseSeed: 7000 + i,
-      temperature: tuning.temperature,
-      maxAttempts: 3,
-      maxTokens: tuning.maxGenTokens,
-      generator,
-    });
+    // ── Correction A + A2 (P0b): callWithGrammar (z.unknown() pass-through)
+    //    wrapped in an outer retry loop on post-decode ZodError. See file-top
+    //    constants for budget + seed-block rationale.
+    //    baseSeed 7000 (lecture 5000, meeting 6000) keeps seeds distinct across families.
+    let validated: unknown;
+    let lastZodError: z.ZodError | undefined;
+    for (let outerAttempt = 0; outerAttempt < POST_DECODE_OUTER_ATTEMPTS; outerAttempt++) {
+      const result = await callWithGrammar<unknown>({
+        prompt: combinedPrompt,
+        schema: z.unknown(),
+        grammar,
+        baseSeed: 7000 + i + outerAttempt * POST_DECODE_SEED_OFFSET,
+        temperature: tuning.temperature,
+        maxAttempts: 3,
+        maxTokens: tuning.maxGenTokens,
+        generator,
+      });
 
-    if (!result.ok) {
-      throw new Error(`CHUNK_FAILED:${i}:${result.finalReason}`);
+      if (!result.ok) {
+        throw new Error(`CHUNK_FAILED:${i}:${result.finalReason}`);
+      }
+
+      const rawJson = JSON.stringify(result.value);
+      try {
+        validated = runPostDecodePipeline(rawJson, fam, activeTranscript);
+        break;
+      } catch (e) {
+        if (e instanceof z.ZodError) {
+          lastZodError = e;
+          continue;
+        }
+        throw e;  // ForwardIncompatNoteError / SyntaxError / etc. — not retriable
+      }
     }
-
-    const rawJson = JSON.stringify(result.value);
-    const validated = runPostDecodePipeline(rawJson, fam, activeTranscript);
+    if (validated === undefined) {
+      throw new Error(
+        `CHUNK_FAILED:${i}:POST_DECODE_ZOD_EXHAUSTED:${lastZodError?.issues[0]?.message ?? 'unknown'}`,
+      );
+    }
     partials.push(validated as Record<string, unknown>);
   }
 
@@ -742,24 +763,45 @@ export async function finalizeBrainstorm(
     });
     const combinedPrompt = `${prompt.systemTemplate}\n\n${userPrompt}`;
 
-    // baseSeed 8000 (lecture 5000, meeting 6000, interview 7000) keeps seeds distinct.
-    const result = await callWithGrammar<unknown>({
-      prompt: combinedPrompt,
-      schema: z.unknown(),
-      grammar,
-      baseSeed: 8000 + i,
-      temperature: tuning.temperature,
-      maxAttempts: 3,
-      maxTokens: tuning.maxGenTokens,
-      generator,
-    });
+    // ── Correction A + A2 (P0b): callWithGrammar (z.unknown() pass-through)
+    //    wrapped in an outer retry loop on post-decode ZodError. See file-top
+    //    constants for budget + seed-block rationale.
+    //    baseSeed 8000 (lecture 5000, meeting 6000, interview 7000) keeps seeds distinct.
+    let validated: unknown;
+    let lastZodError: z.ZodError | undefined;
+    for (let outerAttempt = 0; outerAttempt < POST_DECODE_OUTER_ATTEMPTS; outerAttempt++) {
+      const result = await callWithGrammar<unknown>({
+        prompt: combinedPrompt,
+        schema: z.unknown(),
+        grammar,
+        baseSeed: 8000 + i + outerAttempt * POST_DECODE_SEED_OFFSET,
+        temperature: tuning.temperature,
+        maxAttempts: 3,
+        maxTokens: tuning.maxGenTokens,
+        generator,
+      });
 
-    if (!result.ok) {
-      throw new Error(`CHUNK_FAILED:${i}:${result.finalReason}`);
+      if (!result.ok) {
+        throw new Error(`CHUNK_FAILED:${i}:${result.finalReason}`);
+      }
+
+      const rawJson = JSON.stringify(result.value);
+      try {
+        validated = runPostDecodePipeline(rawJson, fam, args.transcript);
+        break;
+      } catch (e) {
+        if (e instanceof z.ZodError) {
+          lastZodError = e;
+          continue;
+        }
+        throw e;  // ForwardIncompatNoteError / SyntaxError / etc. — not retriable
+      }
     }
-
-    const rawJson = JSON.stringify(result.value);
-    const validated = runPostDecodePipeline(rawJson, fam, args.transcript);
+    if (validated === undefined) {
+      throw new Error(
+        `CHUNK_FAILED:${i}:POST_DECODE_ZOD_EXHAUSTED:${lastZodError?.issues[0]?.message ?? 'unknown'}`,
+      );
+    }
     partials.push(validated as Record<string, unknown>);
   }
 
