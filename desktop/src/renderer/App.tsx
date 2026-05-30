@@ -2,20 +2,20 @@ import { useEffect, useState } from 'react';
 import { Recording } from './routes/Recording';
 import { NoteView } from './routes/NoteView';
 import { ErrorView } from './routes/ErrorView';
-import { FinalizingView } from './routes/FinalizingView';
 import { SetupView } from './routes/SetupView';
 import { SignInView } from './routes/SignInView';
+import { FamilyPickerStep } from './components/FamilyPickerStep';
+import { NoteRenderProgress, type ProgressState } from './components/NoteRenderProgress';
 import type { Note, TranscriptSegment } from '@shared/types';
-import type { SessionPhase } from '@shared/ipc-protocol';
-
-type FinalizingPhase = Exclude<SessionPhase, 'stt-loading'>;
+import type { NoteBase, NoteFamily } from '@shared/note-schema';
 
 type View =
   | { kind: 'booting' }
   | { kind: 'setup'; initialStep: 'stt' | 'llm'; initialError?: string }
   | { kind: 'recording'; segments: TranscriptSegment[] }
-  | { kind: 'finalizing'; phase: FinalizingPhase; segments: TranscriptSegment[] }
-  | { kind: 'note'; note: Note }
+  | { kind: 'familyPicking'; segments: TranscriptSegment[] }
+  | { kind: 'curatingV2'; segments: TranscriptSegment[]; progress: ProgressState | null }
+  | { kind: 'note'; note: Note | NoteBase }
   | { kind: 'error'; message: string; segments: TranscriptSegment[]; permanent?: boolean };
 
 /**
@@ -77,49 +77,40 @@ export function App() {
 }
 
 /**
- * Post-auth shell — owns the v2 alpha session FSM (`booting | setup |
- * recording | finalizing | note | error`) and the three onChunk / onPhase /
- * onSessionError subscriptions. Extracted from the pre-Task-70 `App()` body
- * verbatim; only the wrapper changed.
+ * Post-auth shell — owns the v2 session FSM (`booting | setup | recording |
+ * familyPicking | curatingV2 | note | error`) and the onChunk +
+ * onSessionError subscriptions. The v2 finalize flow runs at the App level:
+ * Stop → familyPicking → curatingV2 (window.lisna.finalize) → note (NoteView
+ * dispatches via familyRendererRegistry).
  *
  * Why a function component instead of inlining into the gate: keeps the
- * existing 4-useEffect boot sequence (model status, chunk, phase, session
- * error) gated behind successful auth — the chunk/phase listeners and the
- * getModelStatus call have no reason to fire on the SignInView and would
- * be wasted work / log noise pre-sign-in. The function-component split
- * also means React unmounts AuthenticatedApp on sign-out (future feature),
- * automatically tearing down its listeners.
+ * boot sequence (model status, chunk, session error) gated behind
+ * successful auth — the listeners and getModelStatus call have no reason to
+ * fire on the SignInView and would be wasted work / log noise pre-sign-in.
+ * The function-component split also means React unmounts AuthenticatedApp
+ * on sign-out (future feature), automatically tearing down its listeners.
  */
 function AuthenticatedApp() {
   const [view, setView] = useState<View>({ kind: 'booting' });
 
-  // Chunk-result: accept in 'recording' AND 'finalizing'. The renderer-side
-  // RecordingOrchestrator.stop()'s synchronous acc.flush() ships the final
-  // partial chunk after the user clicks Stop. Its transcribe completes on
-  // main side ~50-500ms later — by then App is in 'finalizing'. Dropping that
-  // chunk-result would lose the last spoken sentence from FinalizingView's
-  // transcript display and from the final Note.transcriptSegments.
+  // Chunk-result: accept in any in-flight session view. RecordingOrchestrator.
+  // stop()'s synchronous acc.flush() ships the final partial chunk after the
+  // user clicks Stop; its transcribe completes on main side ~50-500ms later.
+  // By then App may already be in 'familyPicking' or 'curatingV2'. Accepting
+  // chunk-results across that whole window keeps the last spoken sentence in
+  // the transcript that feeds finalize.
   useEffect(() => {
     return window.lisna.onChunk((msg) => {
       setView((prev) => {
-        if (prev.kind === 'recording' || prev.kind === 'finalizing') {
+        if (
+          prev.kind === 'recording' ||
+          prev.kind === 'familyPicking' ||
+          prev.kind === 'curatingV2'
+        ) {
           return { ...prev, segments: [...prev.segments, ...msg.segments] };
         }
         return prev;
       });
-    });
-  }, []);
-
-  // Phase events: only act during 'finalizing'. The 'stt-loading' phase
-  // emitted during session/start is ignored here — Recording's local
-  // `starting` boolean drives the Start-button label.
-  useEffect(() => {
-    return window.lisna.onPhase(({ phase }) => {
-      if (phase === 'stt-loading') return;
-      // Explicit local binding so TS narrows `phase` past the 'stt-loading' exit
-      // when assigning into View['finalizing'].phase (the 3-value subset).
-      const finalizingPhase: FinalizingPhase = phase;
-      setView((prev) => (prev.kind === 'finalizing' ? { ...prev, phase: finalizingPhase } : prev));
     });
   }, []);
 
@@ -139,8 +130,7 @@ function AuthenticatedApp() {
           // Already in error — only upgrade flag, don't overwrite message/segments.
           return permanent && !prev.permanent ? { ...prev, permanent: true } : prev;
         }
-        const segments =
-          prev.kind === 'recording' || prev.kind === 'finalizing' ? prev.segments : [];
+        const segments = inFlightSegments(prev);
         return { kind: 'error', message, segments, permanent };
       });
     });
@@ -149,7 +139,7 @@ function AuthenticatedApp() {
   // §5.1 — on mount, query main for the boot-resolved ModelStatus.
   // Safe to call here without race: main/index.ts registers models/status
   // BEFORE createWindow (Task 7), so the handler is always present by the
-  // time this mounts. While in 'booting', the existing onChunk/onPhase/
+  // time this mounts. While in 'booting', the existing onChunk /
   // onSessionError listeners are naturally inert (their prev.kind guards
   // no-op).
   useEffect(() => {
@@ -220,19 +210,17 @@ function renderView(view: View, setView: (next: View | ((p: View) => View)) => v
       return (
         <Recording
           segments={view.segments}
-          onFinalizing={() =>
+          onStop={() =>
             setView((prev) =>
               prev.kind === 'recording'
-                ? { kind: 'finalizing', phase: 'stt-unloading', segments: prev.segments }
+                ? { kind: 'familyPicking', segments: prev.segments }
                 : prev,
             )
           }
-          onNote={(note) => setView({ kind: 'note', note })}
           onError={(message) =>
             setView((prev) => {
               if (prev.kind === 'error') return prev;
-              const segments =
-                prev.kind === 'recording' || prev.kind === 'finalizing' ? prev.segments : [];
+              const segments = inFlightSegments(prev);
               // Synchronous SIDECAR_GAVE_UP rejection (e.g. user clicked Start
               // after give-up, before any onSessionError push reached the
               // renderer): infer permanent here so the restart UX kicks in
@@ -243,8 +231,24 @@ function renderView(view: View, setView: (next: View | ((p: View) => View)) => v
           }
         />
       );
-    case 'finalizing':
-      return <FinalizingView phase={view.phase} segments={view.segments} />;
+    case 'familyPicking':
+      return (
+        <FamilyPickerStep
+          onPick={(family) => {
+            // Transition to curating BEFORE await so progress UI mounts
+            // synchronously while finalize runs (≈30 s LLM load + per-chunk
+            // generate loop).
+            setView((prev) =>
+              prev.kind === 'familyPicking'
+                ? { kind: 'curatingV2', segments: prev.segments, progress: { phase: 'loading' } }
+                : prev,
+            );
+            void runFinalize(family, setView);
+          }}
+        />
+      );
+    case 'curatingV2':
+      return <NoteRenderProgress progress={view.progress} />;
     case 'note':
       return (
         <NoteView
@@ -261,5 +265,48 @@ function renderView(view: View, setView: (next: View | ((p: View) => View)) => v
           onRetry={() => setView({ kind: 'recording', segments: [] })}
         />
       );
+  }
+}
+
+/**
+ * Return any transcript segments captured during the current in-flight
+ * session phase. Used to preserve captions when transitioning into the
+ * error view. Returns [] for non-in-flight states.
+ */
+function inFlightSegments(view: View): TranscriptSegment[] {
+  switch (view.kind) {
+    case 'recording':
+    case 'familyPicking':
+    case 'curatingV2':
+      return view.segments;
+    default:
+      return [];
+  }
+}
+
+/**
+ * Runs the v2 finalize IPC and dispatches the FSM accordingly. Lives at
+ * module scope so renderView can call it without re-creating per render.
+ *
+ * On success: transition to `{ kind: 'note', note }` — NoteView dispatches
+ * to the registered family renderer via familyRendererRegistry.
+ * On error: transition to `{ kind: 'error', ... }`. APP_QUIT suppressed.
+ */
+async function runFinalize(
+  family: NoteFamily,
+  setView: (next: View | ((p: View) => View)) => void,
+): Promise<void> {
+  try {
+    const result = await window.lisna.finalize({ family });
+    setView({ kind: 'note', note: result.note });
+  } catch (err) {
+    const message = String((err as Error)?.message ?? err);
+    if (message.includes('APP_QUIT')) return;
+    setView((prev) => {
+      if (prev.kind === 'error') return prev;
+      const segments = inFlightSegments(prev);
+      const permanent = message.includes('SIDECAR_GAVE_UP') || undefined;
+      return { kind: 'error', message, segments, permanent };
+    });
   }
 }
