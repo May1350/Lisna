@@ -1,0 +1,11 @@
+{
+  "fixtureId": "smoke-ja-mini",
+  "family": "lecture",
+  "language": "ja",
+  "durationSec": 40,
+  "bucketSeconds": 10,
+  "scenarioTags": ["smoke", "plumbing"],
+  "expectedSlots": [],
+  "sourceUrl": null,
+  "notes": "Plumbing-only smoke fixture for the grammar real-run gate. NOT part of the founder-owned scored eval set."
+}

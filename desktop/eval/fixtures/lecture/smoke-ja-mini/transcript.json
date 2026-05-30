@@ -1,0 +1,11 @@
+{
+  "sessionId": "smoke-ja-mini",
+  "speakers": [{ "id": 0 }],
+  "bucket_seconds": 10,
+  "transcripts": [
+    { "ts": 0,  "text": "今日は二次方程式の解の公式について説明します。", "speakerId": 0 },
+    { "ts": 10, "text": "まず判別式が正のとき、実数解が二つ存在します。", "speakerId": 0 },
+    { "ts": 20, "text": "判別式がゼロのときは重解になります。", "speakerId": 0 },
+    { "ts": 30, "text": "最後に具体例として、エックス二乗マイナス五エックスプラス六イコールゼロを解きます。", "speakerId": 0 }
+  ]
+}
