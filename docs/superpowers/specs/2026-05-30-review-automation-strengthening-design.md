@@ -177,30 +177,41 @@ def uses_all_flag(args):
 # === Tier 2: project opt-in (worktree fallback) ===
 
 def project_opted_in(toplevel):
-    """Check both worktree root AND main repo root (for worktree scope)."""
-    # Direct: worktree's own .claude/review-gate-on
+    """Check both worktree root AND main repo root (for worktree scope).
+
+    Worktree-ness is determined ONCE via git-common-dir, then passed to
+    both direct and fallback scope checks. (Plan-reviewer fix #4: old
+    version always passed is_worktree=False to direct path, letting a
+    worktree with its own marker bypass `scope: main-only`.)
+    """
+    # Step 1: determine real worktree-ness first (single source of truth)
+    common = run_git("rev-parse", "--git-common-dir")
+    if ok(common):
+        common_path = common.stdout.strip()
+        if not os.path.isabs(common_path):
+            common_path = os.path.join(toplevel, common_path)
+        # CRITICAL: do NOT use rstrip("/.git") — it's character-class strip and corrupts paths
+        # like /a/b/.gitconfig.it → /a/b. Use explicit suffix-strip.
+        if common_path.endswith(os.sep + ".git"):
+            main_root = common_path[:-len(os.sep + ".git")]
+        elif common_path.endswith("/.git"):
+            main_root = common_path[:-len("/.git")]
+        else:
+            main_root = os.path.dirname(common_path)
+        is_worktree = (main_root != toplevel)
+    else:
+        # Conservative: treat as not-a-worktree (no fallback path)
+        is_worktree = False
+        main_root = None
+
+    # Step 2: direct check — toplevel's own marker, using REAL is_worktree
     direct = os.path.join(toplevel, ".claude", "review-gate-on")
     if os.path.isfile(direct):
-        return validate_scope(direct, is_worktree=False)
+        return validate_scope(direct, is_worktree=is_worktree)
 
-    # Fallback: main repo via --git-common-dir (only for worktrees)
-    common = run_git("rev-parse", "--git-common-dir")
-    if not ok(common):
+    # Step 3: fallback — main repo's marker (only useful if actually a worktree)
+    if not is_worktree or main_root is None:
         return False
-    common_path = common.stdout.strip()
-    if not os.path.isabs(common_path):
-        common_path = os.path.join(toplevel, common_path)
-    # common_path is absolute path to .git directory (main repo's .git, even from worktree).
-    # CRITICAL: do NOT use rstrip("/.git") — it's character-class strip and corrupts paths
-    # like /a/b/.gitconfig.it → /a/b. Use explicit suffix-strip instead.
-    if common_path.endswith(os.sep + ".git"):
-        main_root = common_path[:-len(os.sep + ".git")]
-    elif common_path.endswith("/.git"):  # safety net for non-OS-native sep
-        main_root = common_path[:-len("/.git")]
-    else:
-        main_root = os.path.dirname(common_path)
-    if main_root == toplevel:
-        return False  # not a worktree (toplevel == main_root means main repo)
     fallback = os.path.join(main_root, ".claude", "review-gate-on")
     if not os.path.isfile(fallback):
         return False
