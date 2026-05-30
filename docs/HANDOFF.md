@@ -402,7 +402,7 @@ See `DEPLOYMENT.md` for the complete operator runbook.
 
 Most likely next priorities (pick what matches user's current ask):
 
-0. **v2 stack reaches the app end-to-end — alpha.** PR #73 (C++ grammar-gen + P0a + P0b), #74 (renderer wiring + spec §9), #75 (cleanup) all MERGED to main. #76 (MeetingRenderer) OPEN awaiting CI + merge. After #76 merges, Stop → FamilyPicker → finalize → MeetingNote/LectureNote renders end-to-end. See §2 "What landed since (2026-05-28 → 2026-05-30)" for the per-PR detail.
+0. **v2 stack reaches the app end-to-end — alpha.** PR #73 (C++ grammar-gen + P0a + P0b) and #74 (renderer wiring + spec §9) MERGED to main. #75 (orphan-cleanup) and #76 (MeetingRenderer) OPEN awaiting CI + merge. After #76 merges, Stop → FamilyPicker → finalize → MeetingNote/LectureNote renders end-to-end. See §2 "What landed since (2026-05-28 → 2026-05-30)" for the per-PR detail.
 
    **Next vertical (app-design):** Plan 6 (Interview/Brainstorm) renderer follow-up. PR #72 (`feat/v2-interview-brainstorm`) ai-infra core was pushed 2026-05-29 but is now **CONFLICTING/DIRTY** against main (rebase needed — #73/#74 landed underneath). Sequence: (a) rebase #72 onto main, resolve conflicts (likely `orchestrator.ts` + `ipc.ts`); (b) add `desktop/src/shared/families/{interview,brainstorm}/renderer.tsx` + tests + side-effect imports in `main.tsx`; (c) flip Interview + Brainstorm from `disabled: true` to enabled in `FamilyPickerStep.tsx`. The same React `(react-reserved-props)` pitfall rule applies — use `speakerRef` not `ref` for any speaker-index prop.
 
