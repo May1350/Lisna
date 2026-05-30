@@ -168,5 +168,6 @@ Format per line — fields separated by `|`:
 .claude/worktrees/app-design|desktop/src/renderer/ desktop/src/preload/|app-design
 .claude/worktrees/eval|desktop/eval/ desktop/scripts/eval-|eval
 .claude/worktrees/feat-cpp-grammar-gen|desktop/sidecar/ desktop/src/main/ desktop/src/shared/ desktop/eval/ docs/superpowers/|ai-infra
+.claude/worktrees/fix-pipeline-unblock|desktop/sidecar/ desktop/src/main/ desktop/src/shared/ desktop/eval/ docs/superpowers/|ai-infra
 seams: package.json pnpm-lock.yaml pnpm-workspace.yaml .github/workflows/ CLAUDE.md docs/PRD.md .claude/rules/ .claude/lanes.md .gitignore .gitattributes README.md tsconfig
 <!-- END PARSEABLE -->

@@ -66,4 +66,36 @@ describe('zodToGbnf', () => {
     expect(gbnf).not.toContain(`"\\"from\\""`);  // field absent in object rule
     expect(gbnf).toContain(`"\\"text\\""`);  // text field still present
   });
+
+  // ---- P0a: propagate ZodString .min(N>=1) to GBNF (gate-fail fix 2026-05-30) ----
+  // Without this, the grammar permits "" for fields the schema requires non-empty
+  // (e.g. LectureNote.sections[0].heading), and the real-3B grammar gate fails in
+  // runPostDecodePipeline with ZodError: too_small. Both samplers (the bespoke
+  // grammar-first chain and llama.cpp `common_sampler`) respect the grammar, so
+  // the fix must change what the grammar admits, not the sampler choice.
+
+  it('emits json-string-nonempty for z.string().min(1)', () => {
+    const schema = z.object({ heading: z.string().min(1) });
+    const gbnf = zodToGbnf(schema, 'Note');
+    // Both the prelude rule definition and the field reference must be present.
+    expect(gbnf).toContain('json-string-nonempty ::= "\\"" char+ "\\""');
+    expect(gbnf).toContain('Note-heading ::= json-string-nonempty');
+  });
+
+  it('keeps json-string (char*) for unconstrained z.string() — no regression', () => {
+    const schema = z.object({ summary: z.string() });
+    const gbnf = zodToGbnf(schema, 'Note');
+    // The trailing \n distinguishes from a `json-string-nonempty\n` line —
+    // catches a regression where every ZodString accidentally becomes nonempty.
+    expect(gbnf).toContain('Note-summary ::= json-string\n');
+  });
+
+  it('treats z.string().min(N>1) the same as min(1) at grammar level', () => {
+    // We encode only "non-empty" at the grammar; finer N stays a post-decode
+    // Zod concern. Simpler grammar, equally safe (post-decode schema.parse
+    // still rejects shorter strings).
+    const schema = z.object({ text: z.string().min(5) });
+    const gbnf = zodToGbnf(schema, 'X');
+    expect(gbnf).toContain('X-text ::= json-string-nonempty');
+  });
 });
