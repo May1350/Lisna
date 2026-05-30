@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
@@ -9,6 +10,9 @@ namespace lisna::llm {
 struct GenOpts {
   int maxTokens = 1024;
   float temperature = 0.4f;
+  std::string grammar = "";       // GBNF source; empty = no grammar sampler (plain path)
+  uint32_t seed = 0xFFFFFFFFu;    // == LLAMA_DEFAULT_SEED (random). Literal here so this
+                                  // header need not include <llama.h> (see header note above).
 };
 
 /**
@@ -33,11 +37,11 @@ public:
   bool load(const std::string& ggufPath);
   void unload();
   bool loaded() const;
-  // onToken: per-decode-step callback (streaming). `messages` is converted to
-  // a single prompt string via the GGUF-embedded chat template before
-  // tokenization; if the model carries no template, a structured warning is
-  // emitted and the engine concatenates contents as a fallback.
-  void generate(const std::vector<ChatMessage>& messages, const GenOpts& opts,
+  // Returns false ONLY on a setup failure the caller must surface (bad input,
+  // tokenize failure, or GBNF that the grammar parser rejects). Returns true on
+  // normal completion, including an early stop from a mid-stream decode error
+  // (partial output already streamed via onToken).
+  bool generate(const std::vector<ChatMessage>& messages, const GenOpts& opts,
                 const std::function<void(const std::string&)>& onToken);
 
 private:

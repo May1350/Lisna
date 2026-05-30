@@ -391,7 +391,17 @@ See `DEPLOYMENT.md` for the complete operator runbook.
 
 Most likely next priorities (pick what matches user's current ask):
 
-0. **v2 note pipeline: land C++ grammar-constrained generation** — Plans 2–7 are merged but the pipeline can't run end-to-end: C++ `generate` has no GBNF sampler and `GenOpts` lacks `seed`/`grammar`; `SidecarClient.generateWithGrammar` is unimplemented (interface + mocks only); `session/finalize` is registered but not wired to the renderer. This is the critical path that unblocks Lecture/Meeting note generation + real eval scoring (today the eval harness scores a deterministic stub). Detail + file refs in `REFACTOR_BACKLOG.md` "Now" [P0]. Active overlap: the `fix+live-overflow-chunked-note` lane (chunked finalize). _(Resolved since this section last claimed otherwise: Spike 0.2 Path F — see `decision-0.2-path-f.md`; Plan 2 Foundation — written + merged as `desktop/src/main/sidecar/grammar-call.ts`.)_
+0. **v2 note pipeline: pipeline unblocked — P0a + P0b landed + gate PASS.** PR #73 (`worktree-feat-cpp-grammar-gen` ref, off `origin/main` `6fa795f`) now carries 16 commits: the original 9 implementation commits (C++ engine + IPC + TS adapter + eval runner — full list in PR #73 body) plus the gate-FAIL diagnosis (`acaed8e`) and the two pipeline-unblock fixes:
+
+   - **P0a (`7f5085c fix(shared): zod-to-gbnf emits json-string-nonempty for .min(N>=1)`)** — scans `ZodString._def.checks` for `kind === 'min', value >= 1`; emits a new `json-string-nonempty ::= "\"" char+ "\""` prelude rule in place of `json-string`. Covers `heading`, `term`, two `text` fields in lecture + any future family with `z.string().min(N>=1)`. TDD; RED-before-GREEN verified.
+
+   - **P0b (`d0a5a02 fix(orchestrator): outer retry on post-decode ZodError`)** — wraps per-chunk `callWithGrammar + runPostDecodePipeline` in an outer retry loop. `POST_DECODE_OUTER_ATTEMPTS=2`, `POST_DECODE_SEED_OFFSET=10000` (strictly larger than callWithGrammar's inner +0/+100/+200 stride, so outer attempts stay seed-disjoint from each other AND from the lecture/meeting families). Only `ZodError` triggers retry; `ForwardIncompatNoteError`/`SyntaxError` propagate; exhaustion surfaces `CHUNK_FAILED:i:POST_DECODE_ZOD_EXHAUSTED:<msg>`. Same wrap on lecture (baseSeed 5000+i) and meeting (baseSeed 6000+i). TDD; 3 new tests.
+
+   **Real-3B gate at HEAD `d0a5a02`: PASS.** Schema-valid `LectureNote` with ≥1 section; `[gate] retryAttempts/chunk: [ 1 ]` (P0a alone was sufficient; P0b stays as defense-in-depth); 20.5s wall; sidecar process tree clean after `pkill`. Independent expert review (round 2 of 2; opus, reviewer ≠ author) **APPROVED for push**.
+
+   `common_sampler` fallback intentionally NOT taken — the root cause was upstream of the sampler choice (both samplers would emit grammar-valid empty strings under the original GBNF).
+
+   **Now-unblocked follow-ups:** renderer wiring (app-design lane, Plan 3 Tasks 11–12 — preload `finalize` binding + `Recording.tsx` + structured `NoteView`) and the `session/finalize` IPC model-load step per design spec §9. The structured pipeline is *runnable and proven via eval end-to-end*; the app's Stop button still doesn't reach it (separate app-design effort).
 
 1. **Test the today's fixes** with a real K-LMS lecture: stop button → final curate → export, slide detection multiple slide changes, .zip unpacking into Obsidian vault.
 

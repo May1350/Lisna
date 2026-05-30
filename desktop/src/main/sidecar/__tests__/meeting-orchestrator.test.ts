@@ -296,4 +296,71 @@ describe('finalizeMeeting', () => {
       }),
     ).rejects.toThrow('EMPTY_TRANSCRIPT');
   });
+
+  // ─── P0b: outer retry on post-decode ZodError (parity with lecture) ──────────
+  // Same shape as lecture's P0b test — confirms the orchestrator wrap is applied
+  // to the meeting callsite too.
+
+  it('retries chunk with fresh seed when runPostDecodePipeline throws ZodError (P0b)', async () => {
+    // Well-formed JSON missing required `executive_summary` (and other required
+    // meeting fields). JSON.parse + z.unknown() pass; family.schema.parse Stage 4
+    // throws ZodError; outer retry must catch + re-call with a fresh seed.
+    const invalidJson = JSON.stringify({
+      schemaVersion: 1,
+      family: 'meeting',
+      title: 'タイトル',
+      generatedAt: new Date().toISOString(),
+      generatedBy: { model: 'llama-3.2-3b-q4-km', promptVersion: 1 },
+      language: 'ja',
+      durationSec: 60,
+      purpose: 'プロジェクトの進捗確認',
+      // missing: executive_summary, topic_arc, discussions, decisions, open_questions
+    });
+    const validJson = makeMeetingNoteJson(0);
+    const sidecar = mockSidecar({ responses: [invalidJson, validJson] });
+
+    const result = await finalizeMeeting({
+      sessionId: 'p0b-retry-meeting',
+      transcript: makeMultiSpeakerTranscript(),
+      sidecar,
+      modelProfile,
+      diarizationStatus: 'ok',
+    });
+
+    expect(sidecar.calls).toHaveLength(2);
+    expect(sidecar.calls[1]!.seed).toBeGreaterThan(sidecar.calls[0]!.seed + 200);
+    expect(result.note.family).toBe('meeting');
+  });
+
+  it('throws CHUNK_FAILED:POST_DECODE_ZOD_EXHAUSTED when post-decode fails on both outer attempts', async () => {
+    // Parity with the lecture-orchestrator exhaustion test — same code path
+    // in the meeting branch of finalizeMeeting. The lecture test already
+    // RED-before-GREEN verified the exhaustion path; this case is added for
+    // explicit coverage on the meeting wrap (per the round-2 reviewer's
+    // non-blocking observation about asymmetric exhaustion coverage).
+    const invalidJson = JSON.stringify({
+      schemaVersion: 1,
+      family: 'meeting',
+      title: 'タイトル',
+      generatedAt: new Date().toISOString(),
+      generatedBy: { model: 'llama-3.2-3b-q4-km', promptVersion: 1 },
+      language: 'ja',
+      durationSec: 60,
+      purpose: 'プロジェクトの進捗確認',
+      // missing: executive_summary, topic_arc, discussions, decisions, open_questions
+    });
+    const sidecar = mockSidecar({ responses: [invalidJson, invalidJson] });
+
+    await expect(
+      finalizeMeeting({
+        sessionId: 'p0b-exhaust-meeting',
+        transcript: makeMultiSpeakerTranscript(),
+        sidecar,
+        modelProfile,
+        diarizationStatus: 'ok',
+      }),
+    ).rejects.toThrow(/^CHUNK_FAILED:0:POST_DECODE_ZOD_EXHAUSTED/);
+
+    expect(sidecar.calls).toHaveLength(2);
+  });
 });

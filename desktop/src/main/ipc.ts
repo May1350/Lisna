@@ -11,6 +11,7 @@ import type {
 import type { Note } from '@shared/types';
 import type { SidecarSupervisor } from './sidecar/supervisor';
 import { SessionOrchestrator } from './sidecar/orchestrator';
+import { makeGrammarSidecar } from './sidecar/grammar-call';
 import { WhisperCppSTT } from './engines/whisper-cpp-stt';
 import { LlamaCppLLM } from './engines/llama-cpp-llm';
 import { isMacAudioLoopbackSupported } from './platform/hardware-check';
@@ -163,11 +164,12 @@ export function registerIpc(deps: IpcDeps) {
         sessionId: 'live',   // placeholder — real session-ID assignment lands in Task 13
         segments: current.exposedSegments,
         llmModelPath: paths.llmPath,
-        // The production SidecarClient does NOT yet have generateWithGrammar
-        // (Plan 3 deferred per grammar-call.ts:113 comment). The Lecture path
-        // will fail at the first grammar call until the C++ side lands. Tests
-        // exercise this with a mock SessionContext, not the real cast.
-        sidecar: client as unknown as import('./sidecar/ipc/session-finalize').SessionContext['sidecar'],
+        // Real grammar-capable sidecar (Task 5). NOTE: the LLM model is NOT
+        // loaded on this IPC path — the renderer/finalize wiring (app-design
+        // lane) must load it before invoking session/finalize, or the first
+        // grammar call returns `not_loaded`. The offline-3b eval runner loads
+        // the model itself, so it is the only end-to-end consumer today.
+        sidecar: makeGrammarSidecar(client),
       };
     },
   });

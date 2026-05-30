@@ -30,6 +30,10 @@ interface ZodDef {
   values?: readonly string[];
   options?: readonly z.ZodType[];
   value?: string;
+  // ZodString carries refinements (min, max, regex, email, …) on this array.
+  // We currently only consult `kind === 'min'` to propagate non-empty to the
+  // grammar; the rest stay a post-decode Zod concern.
+  checks?: ReadonlyArray<{ kind: string; value?: number }>;
 }
 
 const getDef = (schema: z.ZodType): ZodDef =>
@@ -107,7 +111,22 @@ function emit(schema: z.ZodType, name: string, rules: string[], visited: Set<str
   }
 
   // scalars (rule names use `-` per is_word_char — see sanitize() above)
-  if (def.typeName === 'ZodString') { rules.push(`${name} ::= json-string`); return; }
+  if (def.typeName === 'ZodString') {
+    // Propagate ZodString.min(N>=1) into the grammar so the model can't emit
+    // `""` for fields the schema requires non-empty (e.g. LectureNote
+    // `sections[0].heading` is `z.string().min(1)`). Without this, the
+    // real-3B grammar gate fails in runPostDecodePipeline with
+    // `ZodError: too_small` after the model has already produced grammar-valid
+    // empty output — wasted retries and no recovery (the per-attempt schema is
+    // z.unknown() in the production orchestrator, so callWithGrammar's
+    // retry-on-Zod-rejection contract is a no-op for the real shape). Finer
+    // min lengths (N > 1) stay a post-decode Zod concern — the grammar only
+    // encodes the binary `non-empty?` distinction; the post-decode
+    // schema.parse() still rejects shorter strings.
+    const hasMin1 = def.checks?.some(c => c.kind === 'min' && (c.value ?? 0) >= 1) ?? false;
+    rules.push(`${name} ::= ${hasMin1 ? 'json-string-nonempty' : 'json-string'}`);
+    return;
+  }
   if (def.typeName === 'ZodNumber') { rules.push(`${name} ::= json-number`); return; }
   if (def.typeName === 'ZodBoolean') { rules.push(`${name} ::= "true" | "false"`); return; }
 
@@ -147,6 +166,10 @@ function scalarRules(): string {
   return [
     'ws ::= [ \\t\\n]*',
     'json-string ::= "\\"" char* "\\""',
+    // Non-empty variant referenced when a ZodString has .min(N>=1). Emitted
+    // unconditionally — the prelude already carries unused rules (e.g. `ws`
+    // when no object is emitted) and the parser does not warn about them.
+    'json-string-nonempty ::= "\\"" char+ "\\""',
     'char ::= [^"\\\\] | "\\\\" ["\\\\/bfnrt]',
     'json-number ::= "-"? ("0" | [1-9] [0-9]*) ("." [0-9]+)? ([eE] [-+]? [0-9]+)?',
   ].join('\n');

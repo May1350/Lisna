@@ -80,6 +80,10 @@ export type SidecarRequest =
       maxTokens?: number;
       temperature?: number;
       stop?: string[];
+      /** GBNF source. Present only on the grammar-constrained path. */
+      grammar?: string;
+      /** RNG seed. Present only on the grammar-constrained (retry) path. */
+      seed?: number;
     };
 
 export type SidecarResponse =
