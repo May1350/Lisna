@@ -283,6 +283,33 @@ The plan's 8 implementation commits remain correct as-is — the sidecar engine
 + IPC + adapter + eval runner are end-to-end ready for the moment the two
 upstream gaps close. Both are filed as P0 follow-ups in HANDOFF §8 item 0.
 
+**Gate outcome — resolution (2026-05-30, follow-up).** Both P0s landed and
+the gate re-ran GREEN.
+
+- **P0a** — `7f5085c fix(shared): zod-to-gbnf emits json-string-nonempty for
+  .min(N>=1)`. The generator now scans `ZodString._def.checks` for
+  `{kind: 'min', value >= 1}` and references a new `json-string-nonempty ::=
+  "\"" char+ "\""` prelude rule instead of `json-string`. Finer N stays a
+  post-decode Zod concern. TDD; RED-before-GREEN verified.
+- **P0b** — `d0a5a02 fix(orchestrator): outer retry on post-decode ZodError`.
+  Per-chunk `callWithGrammar + runPostDecodePipeline` is wrapped in an outer
+  2-attempt loop with `POST_DECODE_SEED_OFFSET = 10000` (strictly larger than
+  callWithGrammar's `+0/+100/+200` inner stride, so outer attempts stay
+  seed-disjoint). Narrow `instanceof ZodError` catch; everything else
+  propagates; exhaustion surfaces `CHUNK_FAILED:i:POST_DECODE_ZOD_EXHAUSTED:
+  <first issue msg>`. Same wrap applied symmetrically to `finalizeLecture`
+  (baseSeed 5000+i) and `finalizeMeeting` (baseSeed 6000+i). TDD; lecture
+  exhaustion test RED-before-GREEN, meeting exhaustion test added GREEN as
+  structural parity.
+
+Real-3B gate at HEAD `d0a5a02`: PASS — schema-valid `LectureNote` with ≥1
+section, `[gate] retryAttempts/chunk: [ 1 ]` (P0a alone was sufficient; P0b
+stays as defense-in-depth for future schema mismatches), 20.5 s wall, sidecar
+process tree clean after `pkill`. Three independent expert reviews (opus,
+reviewer ≠ author) over the diff: all APPROVE. `common_sampler` fallback
+intentionally NOT taken — the root cause was upstream of the sampler choice,
+exactly as the diagnosis above predicted.
+
 ## 6. Data flow (end-to-end, the in-scope eval path)
 
 ```
