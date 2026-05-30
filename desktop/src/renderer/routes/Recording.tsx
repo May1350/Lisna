@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { RecordingSource } from '@shared/ipc-protocol';
-import type { TranscriptSegment, Note } from '@shared/types';
+import type { TranscriptSegment } from '@shared/types';
 import { RecordingOrchestrator } from '../audio/orchestrator';
 import { createCapturer } from '../audio/worklet-capturer';
 import { SystemAudioUnavailableNotice } from '../components/SystemAudioUnavailableNotice';
@@ -16,12 +16,17 @@ const SLOW_LOAD_HINT_MS = 8_000;
 
 interface Props {
   segments: TranscriptSegment[];
-  onFinalizing: () => void;
-  onNote: (note: Note) => void;
+  /**
+   * Fired after the audio orchestrator + main-side recording have torn
+   * down cleanly, before any structured-note pipeline runs. The parent
+   * decides what comes next (today: show FamilyPicker → finalize per
+   * Plan 3 Task 12). Errors during teardown surface via onError.
+   */
+  onStop: () => void;
   onError: (message: string) => void;
 }
 
-export function Recording({ segments, onFinalizing, onNote, onError }: Props) {
+export function Recording({ segments, onStop, onError }: Props) {
   const [running, setRunning] = useState(false);
   const [starting, setStarting] = useState(false);
   // Flips true SLOW_LOAD_HINT_MS into the `starting=true` window so we can
@@ -122,24 +127,22 @@ export function Recording({ segments, onFinalizing, onNote, onError }: Props) {
   }
 
   async function stop() {
-    const orch = orchRef.current;
-    orchRef.current = null;
-    if (orch) await orch.stop();
-    await window.lisna.stopRecording();
-    // SYNC transition: App enters 'finalizing' view BEFORE stopSession await
-    // so the phase indicator UI shows while orchestrator.stop runs.
-    onFinalizing();
     try {
-      const note = await window.lisna.stopSession();
-      onNote(note);
+      const orch = orchRef.current;
+      orchRef.current = null;
+      if (orch) await orch.stop();
+      await window.lisna.stopRecording();
     } catch (err) {
       const message = String((err as Error)?.message ?? err);
-      // APP_QUIT: window is dying anyway, no point showing the error view.
-      if (message.includes('APP_QUIT')) return;
-      onError(message);
+      if (!message.includes('APP_QUIT')) onError(message);
+      return;
     } finally {
       setRunning(false);
     }
+    // Hand off to parent. Parent shows FamilyPicker → finalize → NoteView
+    // per Plan 3 Task 12; finalize happens in App.tsx where the FSM lives,
+    // so Recording.tsx no longer awaits the structured-note pipeline.
+    onStop();
   }
 
   return (

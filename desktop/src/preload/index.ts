@@ -14,6 +14,10 @@ import type {
   ModelPickPayload,
 } from '@shared/ipc-protocol';
 import type { Note } from '@shared/types';
+import type {
+  SessionFinalizeArgs,
+  SessionFinalizeResult,
+} from '../main/sidecar/ipc/session-finalize';
 
 contextBridge.exposeInMainWorld('lisna', {
   startRecording: (source: 'mic' | 'system') => ipcRenderer.invoke(CHANNELS.startRecording, { source }),
@@ -39,6 +43,19 @@ contextBridge.exposeInMainWorld('lisna', {
 
   stopSession: (): Promise<Note> =>
     ipcRenderer.invoke(CHANNELS.sessionStop),
+
+  /**
+   * V2 family-routed note generation. Replaces the legacy `stopSession`
+   * markdown path for structured notes. Per Plan 3 Task 10 + spec §9.
+   *
+   * The main process loads the LLM lazily inside `getCurrentSession`
+   * (first call may take ~30 s on cold cache; subsequent calls within
+   * the same session are immediate). Result includes the orchestrator's
+   * structured note so the renderer can render without a second IPC
+   * round-trip.
+   */
+  finalize: (args: SessionFinalizeArgs): Promise<SessionFinalizeResult> =>
+    ipcRenderer.invoke(CHANNELS.sessionFinalize, args),
 
   /**
    * Subscribe to phase indicator events during session/start and session/stop.
@@ -123,6 +140,7 @@ declare global {
       onChunk(cb: (msg: ChunkResultPayload) => void): () => void;
       startSession(payload: SessionStartPayload): Promise<void>;
       stopSession(): Promise<Note>;
+      finalize(args: SessionFinalizeArgs): Promise<SessionFinalizeResult>;
       onPhase(cb: (msg: SessionPhasePayload) => void): () => void;
       onSessionError(cb: (msg: SessionErrorPayload) => void): () => void;
       restartApp(): Promise<void>;

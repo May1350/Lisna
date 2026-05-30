@@ -14,7 +14,7 @@ import path from 'node:path';
 import { ipcMain } from 'electron';
 import type { TranscriptSegment as LegacySegment } from '@shared/types';
 import type { SessionTranscript, TranscriptSegment as V2Segment } from '@shared/note-schema/transcript';
-import type { NoteFamily } from '@shared/note-schema';
+import type { NoteBase, NoteFamily } from '@shared/note-schema';
 import type { GrammarCapableSidecar } from '../grammar-call';
 import { finalizeLecture, finalizeMeeting } from '../orchestrator';
 import { modelProfiles } from '@shared/models/profiles';
@@ -34,6 +34,21 @@ export interface SessionFinalizeArgs {
 }
 
 /**
+ * Result of a successful session/finalize call. `note` is typed at the IPC
+ * boundary as `NoteBase` (which carries the `family` discriminator); the
+ * renderer narrows by family via `familyRendererRegistry[note.family]`.
+ *
+ * Returning the note alongside the id lets the renderer render the structured
+ * note immediately without a second IPC round-trip. Persistence (real
+ * `noteId` assignment) lands in Plan 3 Task 13; until then `noteId` is the
+ * orchestrator's placeholder.
+ */
+export interface SessionFinalizeResult {
+  noteId: string;
+  note: NoteBase;
+}
+
+/**
  * Snapshot of live session data required to drive finalizeLecture.
  * Sourced from the running SessionOrchestrator via exposedSegments getter.
  */
@@ -48,8 +63,13 @@ export interface SessionFinalizeDeps {
   /**
    * Returns the current session context or null if no session is active.
    * Called once per IPC invocation — NOT captured at registration time.
+   *
+   * Async because the implementation in `main/ipc.ts` performs the spec §9
+   * model-load step (unload STT, load LLM) on the first invocation per
+   * session. Subsequent invocations resolve immediately from the cached
+   * "already loaded for this orchestrator" flag.
    */
-  getCurrentSession: () => SessionContext | null;
+  getCurrentSession: () => Promise<SessionContext | null>;
 }
 
 // ─── channel constant (mirrors CHANNELS in ipc.ts) ───────────────────────────
@@ -62,7 +82,7 @@ export const SESSION_FINALIZE_CHANNEL = 'session/finalize' as const;
  * Call once from registerIpc() in main/ipc.ts.
  */
 export function registerSessionFinalize(deps: SessionFinalizeDeps): void {
-  ipcMain.handle(SESSION_FINALIZE_CHANNEL, async (_e, args: SessionFinalizeArgs): Promise<{ noteId: string }> => {
+  ipcMain.handle(SESSION_FINALIZE_CHANNEL, async (_e, args: SessionFinalizeArgs): Promise<SessionFinalizeResult> => {
     const { family, promptVariant } = args;
 
     // ── Family routing ────────────────────────────────────────────────────
@@ -84,9 +104,9 @@ export function registerSessionFinalize(deps: SessionFinalizeDeps): void {
 async function routeLecture(
   deps: SessionFinalizeDeps,
   promptVariantId: string | undefined,
-): Promise<{ noteId: string }> {
-  // 1. Read live session
-  const session = deps.getCurrentSession();
+): Promise<SessionFinalizeResult> {
+  // 1. Read live session (this awaits the spec §9 LLM-load step)
+  const session = await deps.getCurrentSession();
   if (!session) throw new Error('NO_ACTIVE_SESSION');
 
   // 2. Adapt legacy segments → v2 SessionTranscript
@@ -109,12 +129,11 @@ async function routeLecture(
     promptVariantId,
   });
 
-  // 5. Return placeholder noteId. We thread telemetry.noteId (which is
-  // args.sessionId — currently the hardcoded 'live' placeholder) instead of
-  // result.note.title because the title is content (user-visible text that
-  // may collide). Task 13 assigns the real persistence ID; that propagates
-  // through telemetry.noteId here without touching this line.
-  return { noteId: result.telemetry.noteId };
+  // 5. Return placeholder noteId + the structured note. We thread
+  // telemetry.noteId (currently the 'live' placeholder; Task 13 assigns the
+  // real persistence ID) and the orchestrator-produced LectureNote so the
+  // renderer can render immediately without a second IPC round-trip.
+  return { noteId: result.telemetry.noteId, note: result.note };
 }
 
 // ─── meeting route ────────────────────────────────────────────────────────────
@@ -122,9 +141,9 @@ async function routeLecture(
 async function routeMeeting(
   deps: SessionFinalizeDeps,
   promptVariantId: string | undefined,
-): Promise<{ noteId: string }> {
-  // 1. Read live session
-  const session = deps.getCurrentSession();
+): Promise<SessionFinalizeResult> {
+  // 1. Read live session (this awaits the spec §9 LLM-load step)
+  const session = await deps.getCurrentSession();
   if (!session) throw new Error('NO_ACTIVE_SESSION');
 
   // 2. Adapt legacy segments → v2 SessionTranscript.
@@ -154,7 +173,7 @@ async function routeMeeting(
     diarizationStatus: 'disabled',
   });
 
-  return { noteId: result.telemetry.noteId };
+  return { noteId: result.telemetry.noteId, note: result.note };
 }
 
 // ─── adapter ──────────────────────────────────────────────────────────────────

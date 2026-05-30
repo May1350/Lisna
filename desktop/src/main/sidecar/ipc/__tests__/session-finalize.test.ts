@@ -5,11 +5,11 @@
  * invokes it directly. No Electron binary required.
  *
  * Test cases:
- *   (a) family: 'meeting', valid session + mock sidecar → resolves { noteId: string }
+ *   (a) family: 'meeting', valid session + mock sidecar → resolves { noteId, note: MeetingNote }
  *   (b) family: 'interview'  → throws FAMILY_NOT_IMPLEMENTED:interview:plan-6
  *   (c) family: 'brainstorm' → throws FAMILY_NOT_IMPLEMENTED:brainstorm:plan-6
  *   (d) family: 'lecture', getCurrentSession()===null → throws NO_ACTIVE_SESSION
- *   (e) family: 'lecture', valid session + mock sidecar → resolves { noteId: string }
+ *   (e) family: 'lecture', valid session + mock sidecar → resolves { noteId, note: LectureNote }
  *   (f) family: 'lecture', unknown llmModelPath       → throws UNKNOWN_MODEL_PROFILE
  *   (g) unknown family (e.g. 'garbage' as any)        → throws /^UNKNOWN_FAMILY:/
  *   (h) family: 'meeting', no active session          → throws NO_ACTIVE_SESSION
@@ -131,7 +131,10 @@ beforeEach(async () => {
 
 // Helper: register with a given getCurrentSession getter and return the handler
 function setup(getCurrentSession: () => SessionContext | null) {
-  registerSessionFinalize({ getCurrentSession });
+  // SessionFinalizeDeps.getCurrentSession is now async (spec §9 LLM-load
+  // happens in the real impl). Adapt sync test getters to that shape.
+  const async_get = async () => getCurrentSession();
+  registerSessionFinalize({ getCurrentSession: async_get });
   if (!capturedHandler) throw new Error('Handler not registered — ipcMain.handle mock not capturing session/finalize');
   return capturedHandler;
 }
@@ -139,14 +142,16 @@ function setup(getCurrentSession: () => SessionContext | null) {
 // ─── tests ─────────────────────────────────────────────────────────────────
 
 describe('registerSessionFinalize', () => {
-  // (a) meeting + valid session → resolves { noteId: string }
-  it('(a) family meeting, valid session → resolves { noteId: string }', async () => {
+  // (a) meeting + valid session → resolves { noteId, note: MeetingNote }
+  it('(a) family meeting, valid session → resolves { noteId, note: MeetingNote }', async () => {
     const sidecar = makeMockSidecar(makeMeetingNoteJson());
     const ctx = makeSessionContext({ sidecar });
     const handler = setup(() => ctx);
     const result = await handler({}, { family: 'meeting' });
     expect(result).toHaveProperty('noteId');
     expect(typeof result.noteId).toBe('string');
+    expect(result).toHaveProperty('note');
+    expect(result.note).toMatchObject({ family: 'meeting', schemaVersion: 1 });
     // sidecar was called at least once
     expect((sidecar.generateWithGrammar as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
   });
@@ -172,8 +177,8 @@ describe('registerSessionFinalize', () => {
       .rejects.toThrow('NO_ACTIVE_SESSION');
   });
 
-  // (e) lecture + valid session + mock sidecar → resolves { noteId: string }
-  it('(e) family lecture, valid session → resolves { noteId: string }', async () => {
+  // (e) lecture + valid session + mock sidecar → resolves { noteId, note: LectureNote }
+  it('(e) family lecture, valid session → resolves { noteId, note: LectureNote }', async () => {
     const sidecar = makeMockSidecar(makeLectureNoteJson());
     const ctx = (() => {
       const baseCtx = makeSessionContext({ sidecar });
@@ -188,6 +193,8 @@ describe('registerSessionFinalize', () => {
     const result = await handler({}, { family: 'lecture' });
     expect(result).toHaveProperty('noteId');
     expect(typeof result.noteId).toBe('string');
+    expect(result).toHaveProperty('note');
+    expect(result.note).toMatchObject({ family: 'lecture', schemaVersion: 1 });
     // sidecar was called at least once
     expect((sidecar.generateWithGrammar as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
     // Verify noSpeechProb was plumbed through: the prompt should contain the segment text
