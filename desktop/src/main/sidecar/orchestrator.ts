@@ -4,6 +4,7 @@ import type { SessionPhase } from '@shared/ipc-protocol';
 import { withTimeout } from '@shared/with-timeout';
 import { buildJaNoteV1Prompt } from './prompts/ja-note-v1';
 import { TIMEOUTS, TIMEOUT_CODES } from './timeouts';
+import { generateChunkedNote } from './chunked-note';
 
 // ─── finalizeLecture / finalizeMeeting imports ───────────────────────────────
 import type { SessionTranscript } from '@shared/note-schema/transcript';
@@ -164,12 +165,17 @@ export class SessionOrchestrator {
         TIMEOUT_CODES.LLM_LOAD_TIMEOUT,
       );
       onPhase?.('generating');
-      const messages = (this.opts.buildPrompt ?? defaultPrompt)(this.opts.language, this.segments);
-      // generate() is per-token streaming; the GENERATE_TIMEOUT (no-progress
-      // 60s) is enforced inside LlamaCppLLM → SidecarClient.sendStream, so
-      // no extra wrapping here.
-      let md = '';
-      for await (const tok of this.opts.llm.generate(messages, { maxTokens: 4096, temperature: 0.4 })) md += tok;
+      // generateChunkedNote chunks long transcripts to stay within n_ctx
+      // (see chunked-note.ts) — short transcripts still take the single-pass
+      // path (byte-identical output). GENERATE_TIMEOUT (no-progress 60s) is
+      // enforced per generate() call inside LlamaCppLLM → SidecarClient.sendStream.
+      const md = await generateChunkedNote({
+        segments: this.segments,
+        language: this.opts.language,
+        buildPrompt: this.opts.buildPrompt ?? defaultPrompt,
+        generate: (messages) =>
+          this.opts.llm.generate(messages, { maxTokens: 4096, temperature: 0.4 }),
+      });
       return {
         language: this.opts.language,
         generatedAt: new Date().toISOString(),
