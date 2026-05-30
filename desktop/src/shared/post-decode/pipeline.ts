@@ -88,7 +88,8 @@ function fillBrainstormIdeaIds(parsed: Record<string, unknown>): void {
  *   1. Is a plain object (not an array)
  *   2. Has `from === undefined` (not yet set)
  *   3. Has at least one discriminator field indicating it's a
- *      provenance-bearing leaf: `text`, `term`, or `expression`
+ *      provenance-bearing leaf: `text`, `term`, `expression`, or both
+ *      `question` + `answer` (Interview qa_pairs — they carry no `text`)
  *
  * `ts` is NO LONGER required for Stage 3 to act. When `ts` is absent
  * (e.g. MeetingNoteSchema.conclusions[] where ts is optional),
@@ -109,6 +110,8 @@ function fillBrainstormIdeaIds(parsed: Record<string, unknown>): void {
  *   - MeetingNoteSchema.conclusions[]:     has `text`   + ts (OPTIONAL) — the gap this fix closes
  *   - MeetingNoteSchema.next_steps[]/decisions[]/proposals[]/
  *     open_questions[]/risks_or_concerns[]: has `text`  + ts (required)
+ *   - InterviewNoteSchema.qa_pairs[]:       has `question` + `answer` + ts
+ *     (required) — the only leaf discriminated by question+answer, not text
  *
  * Objects without any discriminator field (outer section, note root, etc.)
  * are skipped — we do not add `from` to objects that don't declare it.
@@ -131,7 +134,8 @@ function fillProvenanceRecursive(
     (
       'text' in o ||
       'term' in o ||
-      'expression' in o
+      'expression' in o ||
+      ('question' in o && 'answer' in o)
     )
   ) {
     // Pass o as { ts?: number } — computeProvenance returns 'inferred' when

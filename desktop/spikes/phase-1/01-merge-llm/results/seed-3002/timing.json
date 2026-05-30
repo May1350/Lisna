@@ -1,0 +1,369 @@
+{
+  "seed": 3002,
+  "chunks": [
+    {
+      "chunkIndex": 0,
+      "ok": true,
+      "latencyMs": 35146,
+      "attemptsUsed": 1,
+      "note": {
+        "schemaVersion": 1,
+        "family": "interview",
+        "title": "",
+        "generatedAt": "2023-03-09T12:00:00.000Z",
+        "generatedBy": {
+          "model": "JapaneseInterviewNote",
+          "promptVersion": 1
+        },
+        "language": "ja",
+        "durationSec": 4,
+        "purpose": "このインタビューは、意思決定プロセスにおける重要な要素を取り上げます。\n\n",
+        "conclusions": [
+          {
+            "text": "このインタビューは、意思決定プロセスにおける重要な要素を取り上げました。",
+            "from": "inferred"
+          }
+        ],
+        "next_steps": [
+          {
+            "text": "このプロセスをよりよく理解するために、より多くのデータと実験を実施する必要があります。",
+            "ts": 4,
+            "from": "inferred"
+          }
+        ],
+        "subject_summary": "面接官と候補者",
+        "participants": [
+          {
+            "speakerRef": 0,
+            "role": "interviewer"
+          },
+          {
+            "speakerRef": 1,
+            "role": "interviewee"
+          }
+        ],
+        "qa_pairs": [
+          {
+            "question": "[面接官] 本日はお時間いただきありがとうございます。まずはじめに、これまで最も困難だった意思決定について教えてください。",
+            "answer": "[候補者] 5年前にローンチタイミングの判断で意見が割れた件です。データは強行を支持していましたが、品質チームが反対していました。私は2週間延期を決断しました。",
+            "ts": 0,
+            "asked_by": 0,
+            "answered_by": 1,
+            "from": "inferred"
+          },
+          {
+            "question": "[面接官] その判断の決め手は何でしたか?",
+            "answer": "[候補者] 決断が重いほど、後から振り返れる材料を残すようにしています。データだけでなく品質チームの定性的な懸念も無視できなかったです。",
+            "ts": 1,
+            "asked_by": 0,
+            "answered_by": 1,
+            "from": "inferred"
+          },
+          {
+            "question": "[面接官] ステークホルダー調整はどう進めましたか?",
+            "answer": "[候補者] まず品質チームの懸念を文書化して全員で合意してから、CEOに延期提案を上げました。CEOには合意の形を見せることが重要です。",
+            "ts": 2,
+            "asked_by": 0,
+            "answered_by": 1,
+            "from": "inferred"
+          },
+          {
+            "question": "[面接官] 結果はどうなりましたか?",
+            "answer": "[候補者] 2週間延期して品質を担保しました。後から見れば正解でしたが、当時は決断が重かったです。",
+            "ts": 3,
+            "asked_by": 0,
+            "answered_by": 1,
+            "from": "inferred"
+          }
+        ],
+        "themes": [
+          {
+            "name": "意思決定",
+            "appears_at_ts": [
+              0,
+              1,
+              2,
+              3
+            ]
+          },
+          {
+            "name": "品質管理",
+            "appears_at_ts": [
+              1,
+              3
+            ]
+          },
+          {
+            "name": "ステークホルダー調整",
+            "appears_at_ts": [
+              2
+            ]
+          }
+        ],
+        "quotable_lines": [
+          {
+            "text": "決断が重いほど、後から振り返れる材料を残すようにしています。データだけでなく品質チームの定性的な懸念も無視できなかったです。",
+            "speakerRef": 1,
+            "ts": 1
+          }
+        ],
+        "key_takeaways": [
+          {
+            "text": "意思決定プロセスにおける重要な要素を取り上げること。品質管理とステークホルダー調整の重要性を強調すること。",
+            "from": "inferred"
+          },
+          {
+            "text": "意思決定プロセスにおける重要な要素を取り上げること。",
+            "from": "inferred"
+          }
+        ]
+      }
+    },
+    {
+      "chunkIndex": 1,
+      "ok": true,
+      "latencyMs": 182581,
+      "attemptsUsed": 2,
+      "note": {
+        "schemaVersion": 1,
+        "family": "interview",
+        "title": "面接官と候補者の対話",
+        "generatedAt": "2024-03-16T12:00:00.000Z",
+        "generatedBy": {
+          "model": "T5",
+          "promptVersion": 3
+        },
+        "language": "ja",
+        "durationSec": 75,
+        "purpose": "面接官と候補者の対話を記録する",
+        "conclusions": [
+          {
+            "text": "面接官と候補者の対話は、意思決定におけるステークホルダーへの伝え方の重要性、プロダクト戦略におけるユーザーの課題深さと事業へのインパクトの二軸の重要性、数値化が難しい場合はプロキシ指標の使用、判断の根拠を残すことの重要性を示しています",
+            "from": "inferred"
+          }
+        ],
+        "next_steps": [
+          {
+            "text": "面接官が、ステークホルダーへの伝え方を早め、プロダクト戦略をより効果的に実施すること、また、判断の根拠を残すことの重要性を理解すること",
+            "ts": 34,
+            "from": "inferred"
+          }
+        ],
+        "subject_summary": "面接官と候補者の対話",
+        "qa_pairs": [
+          {
+            "question": "[面接官] 先ほどおっしゃった意思決定の話で、もし今同じ状況なら別の選択をしますか?",
+            "answer": "[候補者] プロセスは変えませんが、ステークホルダーへの伝え方を早めます。延期決定そのものは同じです。",
+            "ts": 30,
+            "asked_by": 0,
+            "answered_by": 1,
+            "from": "transcript"
+          },
+          {
+            "question": "[面接官] プロダクト戦略の優先順位はどう判断していますか?",
+            "answer": "[候補者] ユーザーの課題深さと事業へのインパクトの二軸でマトリクスを作っています。深さは定性、インパクトは数値化を意識します。",
+            "ts": 31,
+            "asked_by": 0,
+            "answered_by": 1,
+            "from": "transcript"
+          },
+          {
+            "question": "[面接官] 数値化が難しい場合はどうしますか?",
+            "answer": "[候補者] プロキシ指標を仮置きします。完璧な数字より、議論を進められる粗い数字を優先します。",
+            "ts": 33,
+            "asked_by": 0,
+            "answered_by": 1,
+            "from": "transcript"
+          },
+          {
+            "question": "[面接官] 最後に、PMとして最も大切にしている価値観を一言で。",
+            "answer": "[候補者] 判断の根拠を残すことです。決断が重いほど、後から振り返れる材料を残します。",
+            "ts": 34,
+            "asked_by": 0,
+            "answered_by": 1,
+            "from": "inferred"
+          }
+        ],
+        "themes": [
+          {
+            "name": "意思決定",
+            "appears_at_ts": [
+              30,
+              31,
+              33,
+              34
+            ]
+          },
+          {
+            "name": "プロダクト戦略",
+            "appears_at_ts": [
+              31,
+              33
+            ]
+          },
+          {
+            "name": "ステークホルダー",
+            "appears_at_ts": [
+              30,
+              33
+            ]
+          },
+          {
+            "name": "判断の根拠",
+            "appears_at_ts": [
+              34
+            ]
+          }
+        ],
+        "quotable_lines": [
+          {
+            "text": "判断の根拠を残すことです。決断が重いほど、後から振り返れる材料を残します。",
+            "speakerRef": 1,
+            "ts": 34
+          }
+        ],
+        "key_takeaways": [
+          {
+            "text": "意思決定におけるステークホルダーへの伝え方の重要性、プロダクト戦略におけるユーザーの課題深さと事業へのインパクトの二軸の重要性、数値化が難しい場合はプロキシ指標の使用、判断の根拠を残すことの重要性",
+            "from": "inferred"
+          }
+        ]
+      }
+    }
+  ],
+  "merge": {
+    "ok": true,
+    "latencyMs": 48839,
+    "attemptsUsed": 1,
+    "merged": {
+      "schemaVersion": 1,
+      "family": "interview",
+      "title": "",
+      "generatedAt": "2023-03-09T12:00:00.000Z",
+      "generatedBy": {
+        "model": "JapaneseInterviewNote",
+        "promptVersion": 1
+      },
+      "language": "ja",
+      "durationSec": 4,
+      "purpose": "このインタビューは、意思決定プロセスにおける重要な要素を取り上げます。\nこのインタビューは、意思決定プロセスにおける重要な要素を取り上げます。\n",
+      "conclusions": [
+        {
+          "text": "面接官と候補者の対話は、意思決定におけるステークホルダーへの伝え方の重要性、プロダクト戦略におけるユーザーの課題深さと事業へのインパクトの二軸の重要性、数値化が難しい場合はプロキシ指標の使用、判断の根拠を残すことの重要性を示しています",
+          "ts": 4,
+          "from": "inferred"
+        }
+      ],
+      "next_steps": [
+        {
+          "text": "面接官が、ステークホルダーへの伝え方を早め、プロダクト戦略をより効果的に実施すること、また、判断の根拠を残すことの重要性を理解すること",
+          "ts": 4,
+          "from": "inferred"
+        }
+      ],
+      "subject_summary": "面接官と候補者",
+      "participants": [
+        {
+          "speakerRef": 0,
+          "role": "interviewer"
+        },
+        {
+          "speakerRef": 1,
+          "role": "interviewee"
+        }
+      ],
+      "qa_pairs": [
+        {
+          "question": "[面接官] 本日はお時間いただきありがとうございます。まずはじめに、これまで最も困難だった意思決定について教えてください。",
+          "answer": "[候補者] 5年前にローンチタイミングの判断で意見が割れた件です。データは強行を支持していましたが、品質チームが反対していました。私は2週間延期を決断しました。",
+          "ts": 0,
+          "asked_by": 0,
+          "answered_by": 1,
+          "themes": [
+            "意思決定",
+            "品質管理",
+            "ステークホルダー調整"
+          ],
+          "from": "inferred"
+        },
+        {
+          "question": "[面接官] その判断の決め手は何でしたか?",
+          "answer": "[候補者] 決断が重いほど、後から振り返れる材料を残すようにしています。データだけでなく品質チームの定性的な懸念も無視できなかったです。",
+          "ts": 1,
+          "asked_by": 0,
+          "answered_by": 1,
+          "themes": [
+            "意思決定",
+            "品質管理",
+            "ステークホルダー調整"
+          ],
+          "from": "inferred"
+        },
+        {
+          "question": "[面接官] ステークホルダー調整はどう進めましたか?",
+          "answer": "[候補者] まず品質チームの懸念を文書化して全員で合意してから、CEOに延期提案を上げました。CEOには合意の形を見せることが重要です。",
+          "ts": 2,
+          "asked_by": 0,
+          "answered_by": 1,
+          "themes": [
+            "意思決定",
+            "品質管理",
+            "ステークホルダー調整"
+          ],
+          "from": "inferred"
+        },
+        {
+          "question": "[面接官] 結果はどうなりましたか?",
+          "answer": "[候補者] 2週間延期して品質を担保しました。後から見れば正解でしたが、当時は決断が重かったです。",
+          "ts": 3,
+          "asked_by": 0,
+          "answered_by": 1,
+          "themes": [
+            "意思決定",
+            "品質管理",
+            "ステークホルダー調整"
+          ],
+          "from": "inferred"
+        }
+      ],
+      "themes": [
+        {
+          "name": "意思決定",
+          "appears_at_ts": [
+            0,
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "name": "品質管理",
+          "appears_at_ts": [
+            1,
+            3
+          ]
+        },
+        {
+          "name": "ステークホルダー調整",
+          "appears_at_ts": [
+            2
+          ]
+        }
+      ],
+      "quotable_lines": [
+        {
+          "text": "判断の根拠を残すことです。決断が重いほど、後から振り返れる材料を残します。",
+          "speakerRef": 1,
+          "ts": 1
+        }
+      ],
+      "key_takeaways": [
+        {
+          "text": "意思決定における重要な要素を取り上げること。品質管理とステークホルダー調整の重要性を強調すること。",
+          "from": "inferred"
+        }
+      ]
+    }
+  },
+  "totalLatencyMs": 276599
+}

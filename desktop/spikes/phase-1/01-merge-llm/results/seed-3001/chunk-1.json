@@ -1,0 +1,97 @@
+{
+  "chunkIndex": 1,
+  "ok": true,
+  "latencyMs": 28446,
+  "attemptsUsed": 1,
+  "note": {
+    "schemaVersion": 1,
+    "family": "interview",
+    "title": "",
+    "generatedAt": "2023-03-09T12:00:00.000Z",
+    "generatedBy": {
+      "model": "transcript2json",
+      "promptVersion": 2
+    },
+    "language": "ja",
+    "durationSec": 15,
+    "purpose": "意思決定プロセスにおける選択の重要性と判断の根拠",
+    "conclusions": [
+      {
+        "text": "意思決定プロセスにおける選択の重要性と判断の根拠を考慮することの重要性",
+        "from": "inferred"
+      }
+    ],
+    "next_steps": [
+      {
+        "text": "意思決定プロセスを改善するための実践的アプローチを検討すること",
+        "ts": 35,
+        "from": "inferred"
+      }
+    ],
+    "subject_summary": "面接官と候補者の対話",
+    "qa_pairs": [
+      {
+        "question": "[面接官] 先ほどおっしゃった意思決定の話で、もし今同じ状況なら別の選択をしますか?",
+        "answer": "[候補者] プロセスは変えませんが、ステークホルダーへの伝え方を早めます。延期決定そのものは同じです。",
+        "ts": 30,
+        "asked_by": 0,
+        "answered_by": 1,
+        "from": "transcript"
+      },
+      {
+        "question": "[面接官] プロダクト戦略の優先順位はどう判断していますか?",
+        "answer": "[候補者] ユーザーの課題深さと事業へのインパクトの二軸でマトリクスを作っています。深さは定性、インパクトは数値化を意識します。",
+        "ts": 31,
+        "asked_by": 0,
+        "answered_by": 1,
+        "from": "transcript"
+      },
+      {
+        "question": "[面接官] 数値化が難しい場合はどうしますか?",
+        "answer": "[候補者] プロキシ指標を仮置きします。完璧な数字より、議論を進められる粗い数字を優先します。",
+        "ts": 32,
+        "asked_by": 0,
+        "answered_by": 1,
+        "from": "transcript"
+      },
+      {
+        "question": "[面接官] 最後に、PMとして最も大切にしている価値観を一言で。",
+        "answer": "[候補者] 判断の根拠を残すことです。決断が重いほど、後から振り返れる材料を残します。",
+        "ts": 34,
+        "asked_by": 0,
+        "answered_by": 1,
+        "from": "inferred"
+      }
+    ],
+    "themes": [
+      {
+        "name": "意思決定",
+        "appears_at_ts": [
+          30,
+          31,
+          32,
+          34
+        ]
+      },
+      {
+        "name": "判断の根拠",
+        "appears_at_ts": [
+          34
+        ]
+      }
+    ],
+    "quotable_lines": [
+      {
+        "text": "判断の根拠を残すことです。決断が重いほど、後から振り返れる材料を残します。",
+        "speakerRef": 1,
+        "ts": 34
+      }
+    ],
+    "key_takeaways": [
+      {
+        "text": "意思決定プロセスにおける選択の重要性と判断の根拠を考慮することの重要性",
+        "from": "inferred"
+      }
+    ]
+  }
+}

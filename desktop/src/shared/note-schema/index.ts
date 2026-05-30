@@ -37,7 +37,7 @@ export {
   type ProvenanceComputer,
 } from './provenance';
 
-export { hydratePostDecode } from './post-decode-hydration';
+export { hydratePostDecode, assignBrainstormIdeaIds } from './post-decode-hydration';
 export { zodToGbnf } from './zod-to-gbnf';
 export { ForwardIncompatNoteError } from './forward-incompat';
 export { loadNote } from './load-note';

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { hydratePostDecode } from '../post-decode-hydration';
+import { hydratePostDecode, assignBrainstormIdeaIds } from '../post-decode-hydration';
 import type { SessionTranscript } from '../transcript';
 
 const transcript: SessionTranscript = {
@@ -63,5 +63,70 @@ describe('hydratePostDecode', () => {
     const obj = { ts: 5 };
     hydratePostDecode(obj, empty);
     expect((obj as { from?: string }).from).toBe('inferred');
+  });
+});
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+describe('assignBrainstormIdeaIds', () => {
+  it('assigns distinct UUID v4 to ideas without id', () => {
+    const raw: Record<string, unknown> = {
+      family: 'brainstorm',
+      idea_clusters: [
+        {
+          theme: 'T',
+          ideas: [
+            { text: 'idea A', ts: 1 },
+            { text: 'idea B', ts: 2 },
+          ],
+        },
+      ],
+    };
+    const result = assignBrainstormIdeaIds(raw);
+    const clusters = result.idea_clusters as Array<{ ideas: Array<{ id: string }> }>;
+    const idA = clusters[0]!.ideas[0]!.id;
+    const idB = clusters[0]!.ideas[1]!.id;
+    expect(idA).toMatch(UUID_RE);
+    expect(idB).toMatch(UUID_RE);
+    expect(idA).not.toBe(idB);
+  });
+
+  it('preserves existing ids', () => {
+    const existingId = '550e8400-e29b-41d4-a716-446655440000';
+    const raw: Record<string, unknown> = {
+      family: 'brainstorm',
+      idea_clusters: [
+        {
+          theme: 'T',
+          ideas: [{ id: existingId, text: 'idea A', ts: 1 }],
+        },
+      ],
+    };
+    const result = assignBrainstormIdeaIds(raw);
+    const clusters = result.idea_clusters as Array<{ ideas: Array<{ id: string }> }>;
+    expect(clusters[0]!.ideas[0]!.id).toBe(existingId);
+  });
+
+  it('preserves a malformed (non-UUID) id string — schema parse is what rejects it', () => {
+    const raw = { family: 'brainstorm', idea_clusters: [{ theme: 'T', ideas: [{ id: 'not-a-uuid', text: 'x', ts: 1 }] }] };
+    const out = assignBrainstormIdeaIds(raw);
+    const clusters = (out as { idea_clusters: Array<{ ideas: Array<{ id: string }> }> }).idea_clusters;
+    expect(clusters[0]!.ideas[0]!.id).toBe('not-a-uuid'); // preserved as-is; BrainstormNoteSchema.parse rejects it downstream
+  });
+
+  it('is a no-op for non-brainstorm family', () => {
+    const raw: Record<string, unknown> = {
+      family: 'lecture',
+      idea_clusters: [{ theme: 'T', ideas: [{ text: 'i', ts: 1 }] }],
+    };
+    const result = assignBrainstormIdeaIds(raw);
+    expect(result).toBe(raw); // same reference — untouched
+  });
+
+  it('is defensive on missing idea_clusters', () => {
+    const raw: Record<string, unknown> = { family: 'brainstorm' };
+    expect(() => assignBrainstormIdeaIds(raw)).not.toThrow();
+    const result = assignBrainstormIdeaIds(raw);
+    expect(result).toBe(raw);
   });
 });

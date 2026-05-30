@@ -2,8 +2,8 @@
  * session/finalize IPC handler — Task 10 (Plan 3).
  *
  * Registers the `session/finalize` channel on ipcMain. Routes by `family`:
- *   - 'lecture'    → delegates to finalizeLecture from orchestrator.ts
- *   - other known  → throws FAMILY_NOT_IMPLEMENTED:<family>:<future-plan>
+ *   - 'lecture' / 'meeting' / 'interview' / 'brainstorm'
+ *                  → delegates to the matching finalize* in orchestrator.ts
  *   - unknown      → throws UNKNOWN_FAMILY:<family>
  *
  * No session/stop is modified. This is an additive new channel.
@@ -16,15 +16,18 @@ import type { TranscriptSegment as LegacySegment } from '@shared/types';
 import type { SessionTranscript, TranscriptSegment as V2Segment } from '@shared/note-schema/transcript';
 import type { NoteBase, NoteFamily } from '@shared/note-schema';
 import type { GrammarCapableSidecar } from '../grammar-call';
-import { finalizeLecture, finalizeMeeting } from '../orchestrator';
+import { finalizeLecture, finalizeMeeting, finalizeInterview, finalizeBrainstorm } from '../orchestrator';
 import { modelProfiles } from '@shared/models/profiles';
 
 // Side-effect imports: register family cores so familyCoreRegistry is populated
-// when route handlers call finalizeLecture / finalizeMeeting at runtime.
-// Note: lecture/core has the same gap — no production caller imported it before
-// this file. Both families are registered here as the natural wiring point.
+// at app boot. All four families (lecture / meeting / interview / brainstorm)
+// are routable below; registration also lets the family picker + loadNote()
+// read each family's schema / picker / migrations. This is the natural wiring
+// point — no production caller imported these cores before this file.
 import '@shared/families/lecture/core';
 import '@shared/families/meeting/core';
+import '@shared/families/interview/core';
+import '@shared/families/brainstorm/core';
 
 // ─── public types ────────────────────────────────────────────────────────────
 
@@ -90,8 +93,8 @@ export function registerSessionFinalize(deps: SessionFinalizeDeps): void {
       return routeLecture(deps, promptVariant);
     }
     if (family === 'meeting') return routeMeeting(deps, promptVariant);
-    if (family === 'interview') throw new Error('FAMILY_NOT_IMPLEMENTED:interview:plan-6');
-    if (family === 'brainstorm') throw new Error('FAMILY_NOT_IMPLEMENTED:brainstorm:plan-6');
+    if (family === 'interview') return routeInterview(deps, promptVariant);
+    if (family === 'brainstorm') return routeBrainstorm(deps, promptVariant);
 
     // TypeScript exhaustiveness guard — 'family' is typed but callers can
     // send anything over IPC (un-typed JSON), so the runtime check matters.
@@ -171,6 +174,65 @@ async function routeMeeting(
     modelProfile,
     promptVariantId,
     diarizationStatus: 'disabled',
+  });
+
+  return { noteId: result.telemetry.noteId, note: result.note };
+}
+
+// ─── interview route ───────────────────────────────────────────────────────────
+
+async function routeInterview(
+  deps: SessionFinalizeDeps,
+  promptVariantId: string | undefined,
+): Promise<SessionFinalizeResult> {
+  // 1. Read live session (this awaits the spec §9 LLM-load step)
+  const session = await deps.getCurrentSession();
+  if (!session) throw new Error('NO_ACTIVE_SESSION');
+
+  const transcript = adaptToV2Transcript(session.segments, session.sessionId);
+
+  const basename = path.basename(session.llmModelPath);
+  const modelProfile = Object.values(modelProfiles).find((p) => p.filename === basename);
+  if (!modelProfile) throw new Error('UNKNOWN_MODEL_PROFILE');
+
+  // diarizationStatus: 'disabled' — same alpha rationale as routeMeeting: Plan 4
+  // Phase B native diarization is not yet plumbed into SessionContext, so the
+  // interview path collapses to single-speaker and emits SINGLE_SPEAKER_WARNING.
+  const result = await finalizeInterview({
+    sessionId: session.sessionId,
+    transcript,
+    sidecar: session.sidecar,
+    modelProfile,
+    promptVariantId,
+    diarizationStatus: 'disabled',
+  });
+
+  return { noteId: result.telemetry.noteId, note: result.note };
+}
+
+// ─── brainstorm route ──────────────────────────────────────────────────────────
+
+async function routeBrainstorm(
+  deps: SessionFinalizeDeps,
+  promptVariantId: string | undefined,
+): Promise<SessionFinalizeResult> {
+  // 1. Read live session (this awaits the spec §9 LLM-load step)
+  const session = await deps.getCurrentSession();
+  if (!session) throw new Error('NO_ACTIVE_SESSION');
+
+  const transcript = adaptToV2Transcript(session.segments, session.sessionId);
+
+  const basename = path.basename(session.llmModelPath);
+  const modelProfile = Object.values(modelProfiles).find((p) => p.filename === basename);
+  if (!modelProfile) throw new Error('UNKNOWN_MODEL_PROFILE');
+
+  // Brainstorm requiresDiarization=false → no diarizationStatus (treated single-speaker).
+  const result = await finalizeBrainstorm({
+    sessionId: session.sessionId,
+    transcript,
+    sidecar: session.sidecar,
+    modelProfile,
+    promptVariantId,
   });
 
   return { noteId: result.telemetry.noteId, note: result.note };

@@ -2,14 +2,18 @@ import type { MergeStrategy } from '@shared/families';
 
 const JACCARD_THRESHOLD = 0.7;
 
-function trigrams(text: string): Set<string> {
+/** Character trigrams of `text`, NFKC-normalized + lowercased. Exported for
+ * family-specific dedup (e.g. Interview qa_pairs union in interview/merge.ts). */
+export function trigrams(text: string): Set<string> {
   const tg = new Set<string>();
   const t = text.toLowerCase().normalize('NFKC').trim();
   for (let i = 0; i <= t.length - 3; i++) tg.add(t.slice(i, i + 3));
   return tg;
 }
 
-function jaccard(a: Set<string>, b: Set<string>): number {
+/** Jaccard overlap of two trigram sets (1 when both empty). Exported alongside
+ * `trigrams` for reuse in family-specific dedup. */
+export function jaccard(a: Set<string>, b: Set<string>): number {
   let inter = 0;
   for (const x of a) if (b.has(x)) inter++;
   const union = a.size + b.size - inter;

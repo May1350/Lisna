@@ -1,8 +1,8 @@
 import { z } from 'zod';
-import { NoteBaseSchema, ProvenanceSchema, SpeakerRefSchema } from '@shared/note-schema';
+import { ProvenanceSchema, SpeakerRefSchema } from '@shared/note-schema';
+import { PurposeDrivenNoteSchema } from '../util/purpose-driven';
 
-// Bounds calibrated per spec §3.4 MeetingNote + §3.2 PurposeDrivenNote.
-// Mirror lecture/schema.ts style: MAX_* constants above the schema.
+// Bounds calibrated per spec §3.4 MeetingNote.
 const MAX_PARTICIPANTS = 12;
 const MAX_TOPIC_ARC = 30;
 const MAX_DISCUSSIONS = 25;
@@ -11,39 +11,10 @@ const MAX_PROPOSALS = 25;
 const MAX_OPEN_QUESTIONS = 25;
 const MAX_RISKS = 20;
 const MAX_KEY_POINTS_PER_DISCUSSION = 12;
-const MAX_NEXT_STEPS = 30;
-const MAX_CONCLUSIONS = 15;
 const MAX_AGENDA = 20;
 
-export const MeetingNoteSchema = NoteBaseSchema.extend({
+export const MeetingNoteSchema = PurposeDrivenNoteSchema.extend({
   family: z.literal('meeting'),
-
-  // --- §3.2 PurposeDrivenNote fields inlined ---
-  // Plan 6 extracts a shared PurposeDrivenNoteSchema when Interview/Brainstorm
-  // land as the 3rd call site (DRY rule: 3+ call sites trigger abstraction).
-  purpose: z.string().min(1),
-  conclusions: z
-    .array(
-      z.object({
-        text: z.string().min(1),
-        ts: z.number().nonnegative().optional(),
-        from: ProvenanceSchema,
-      }),
-    )
-    .max(MAX_CONCLUSIONS)
-    .optional(),
-  next_steps: z
-    .array(
-      z.object({
-        text: z.string().min(1),
-        owner: SpeakerRefSchema.optional(),
-        due: z.string().optional(),
-        ts: z.number().nonnegative(),
-        from: ProvenanceSchema,
-      }),
-    )
-    .max(MAX_NEXT_STEPS)
-    .optional(),
 
   // --- §3.4 Meeting fields ---
   executive_summary: z.string().min(1),

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
 import { runPostDecodePipeline, ForwardIncompatNoteError } from '../pipeline';
 import { LectureFamilyCore } from '../../families/lecture/core';
+import { InterviewFamilyCore } from '../../families/interview/core';
 import { ProvenanceSchema, NoteBaseSchema } from '../../note-schema';
 import type { FamilyCoreDefinition } from '../../families';
 import type { NoteBase } from '../../note-schema/base';
@@ -278,5 +279,57 @@ describe('Stage 3 — provenance fill on ts-less leaves (meeting conclusions pat
       TRANSCRIPT_WITH_TS5,
     ) as { items: Array<{ from: string }> };
     expect(note.items[0]!.from).toBe('inferred');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Stage 3 — qa_pairs leaves (Interview): discriminated by question+answer,
+// NOT text/term/expression. Without the qa_pair discriminator, Stage 3 skips
+// these leaves and Stage 4 Zod parse throws (qa_pairs[].from is required).
+// ---------------------------------------------------------------------------
+
+// Minimal valid InterviewNote JSON. qa_pairs intentionally omit `from` — the
+// pipeline must fill it via computeProvenance before Zod parse.
+function makeInterviewRaw(qaPairs: Array<Record<string, unknown>>): string {
+  return JSON.stringify({
+    schemaVersion: 1,
+    family: 'interview',
+    title: 'Test Interview',
+    generatedAt: '2026-05-29T00:00:00.000Z',
+    generatedBy: { model: 'test-model', promptVersion: 1 },
+    language: 'ja',
+    durationSec: 120,
+    purpose: 'test purpose',
+    subject_summary: 'a subject summary',
+    qa_pairs: qaPairs,
+    themes: [],
+    quotable_lines: [],
+    key_takeaways: [],
+  });
+}
+
+describe('Stage 3 — provenance fill on qa_pairs (Interview)', () => {
+  it('FAIL-FIRST: qa_pair (question+answer, no from) is filled so the note validates; ts match → transcript', () => {
+    // qa_pairs carry question/answer (not text/term/expression). Before the
+    // qa_pair discriminator, Stage 3 skips them → from stays undefined → the
+    // required ProvenanceSchema makes Stage 4 throw.
+    const raw = makeInterviewRaw([
+      { question: 'Q', answer: 'A', ts: 5, asked_by: 0, answered_by: 1 },
+    ]);
+    const note = runPostDecodePipeline(raw, InterviewFamilyCore, TRANSCRIPT_WITH_TS5) as {
+      qa_pairs: Array<{ from: string }>;
+    };
+    // ts=5 aligns with the segment at ts=5 (within ±3s window)
+    expect(note.qa_pairs[0]!.from).toBe('transcript');
+  });
+
+  it('qa_pair with ts far from any segment gets from=inferred', () => {
+    const raw = makeInterviewRaw([
+      { question: 'Q', answer: 'A', ts: 999, asked_by: 0, answered_by: 1 },
+    ]);
+    const note = runPostDecodePipeline(raw, InterviewFamilyCore, TRANSCRIPT_WITH_TS5) as {
+      qa_pairs: Array<{ from: string }>;
+    };
+    expect(note.qa_pairs[0]!.from).toBe('inferred');
   });
 });
