@@ -93,6 +93,25 @@ describe('main/ipc FSM', () => {
     await expect(ipcHandlers['session/start']!({}, { language: 'ja' })).rejects.toThrow('SESSION_ACTIVE');
   });
 
+  // Regression: the v2 Stop flow ends at session/finalize, NOT session/stop, so
+  // finalize is the only path that returns the session FSM to idle. If finalize
+  // doesn't clear `current` in a finally, the NEXT session/start rejects with
+  // SESSION_ACTIVE — exactly the "すでに録音セッションが進行中です" error a user
+  // hits on their second recording. UNKNOWN_FAMILY exercises the finally without
+  // needing the LLM-load + generate path (which has its own coverage in
+  // session-finalize.test.ts).
+  it('session/finalize completion clears state → next session/start succeeds', async () => {
+    const { win } = makeFakeWindow();
+    const supervisor = makeFakeSupervisor({});
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+    await ipcHandlers['session/start']!({}, { language: 'ja' });
+    await expect(ipcHandlers['session/finalize']!({}, { family: 'garbage' }))
+      .rejects.toThrow(/UNKNOWN_FAMILY/);
+    // Proves `current` was reset by finalize's cleanup — not SESSION_ACTIVE.
+    await expect(ipcHandlers['session/start']!({}, { language: 'ja' }))
+      .resolves.toBeUndefined();
+  });
+
   it('recording/chunk before session/start → silent no-op', async () => {
     const { win } = makeFakeWindow();
     const supervisor = makeFakeSupervisor({});

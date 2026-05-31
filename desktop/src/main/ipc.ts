@@ -192,6 +192,16 @@ export function registerIpc(deps: IpcDeps) {
         sidecar: makeGrammarSidecar(client),
       };
     },
+    // The v2 Stop flow ends here, not at session/stop — so finalize owns the
+    // idle-return. Mirror the session/stop finally block (lines below): clear
+    // `current` + `_llmLoadedForCurrent` and drop `recording` so post-finalize
+    // chunk callbacks no-op and the next session/start isn't rejected with
+    // SESSION_ACTIVE. Runs on success AND failure (handler-side finally).
+    onSessionSettled: () => {
+      current = null;
+      _llmLoadedForCurrent = null;
+      recording = false;
+    },
   });
 
   ipcMain.handle(CHANNELS.sessionStart, async (_e, { language }: SessionStartPayload) => {

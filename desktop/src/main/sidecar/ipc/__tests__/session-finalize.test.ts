@@ -166,11 +166,11 @@ beforeEach(async () => {
 });
 
 // Helper: register with a given getCurrentSession getter and return the handler
-function setup(getCurrentSession: () => SessionContext | null) {
+function setup(getCurrentSession: () => SessionContext | null, onSessionSettled?: () => void) {
   // SessionFinalizeDeps.getCurrentSession is now async (spec §9 LLM-load
   // happens in the real impl). Adapt sync test getters to that shape.
   const async_get = async () => getCurrentSession();
-  registerSessionFinalize({ getCurrentSession: async_get });
+  registerSessionFinalize({ getCurrentSession: async_get, onSessionSettled });
   if (!capturedHandler) throw new Error('Handler not registered — ipcMain.handle mock not capturing session/finalize');
   return capturedHandler;
 }
@@ -279,5 +279,28 @@ describe('registerSessionFinalize', () => {
     const handler = setup(() => null);
     await expect(handler({}, { family: 'meeting' }))
       .rejects.toThrow('NO_ACTIVE_SESSION');
+  });
+
+  // (i) onSessionSettled fires after a SUCCESSFUL finalize. The v2 Stop flow
+  // never calls session/stop, so finalize is the only path that returns the
+  // main-side session FSM to idle. Without this callback the next session/start
+  // rejects with SESSION_ACTIVE (the "already recording" bug).
+  it('(i) calls onSessionSettled exactly once after a successful finalize', async () => {
+    const sidecar = makeMockSidecar(makeLectureNoteJson());
+    const ctx = makeSessionContext({ sidecar });
+    const onSessionSettled = vi.fn();
+    const handler = setup(() => ctx, onSessionSettled);
+    await handler({}, { family: 'lecture' });
+    expect(onSessionSettled).toHaveBeenCalledTimes(1);
+  });
+
+  // (j) onSessionSettled fires even when finalize THROWS — the cleanup lives in
+  // a finally block. Otherwise a failed note-generation would strand the session
+  // in 'active' and block all subsequent recordings until app restart.
+  it('(j) calls onSessionSettled exactly once even when finalize throws', async () => {
+    const onSessionSettled = vi.fn();
+    const handler = setup(() => null, onSessionSettled);
+    await expect(handler({}, { family: 'lecture' })).rejects.toThrow('NO_ACTIVE_SESSION');
+    expect(onSessionSettled).toHaveBeenCalledTimes(1);
   });
 });
