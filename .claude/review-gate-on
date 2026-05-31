@@ -1,0 +1,4 @@
+# Opt-in marker: presence enables ~/.claude/hooks/precommit-review-gate.py
+# + prepush-review-gate.py for this repo. See ~/.claude/hooks/_lib_marker.py
+# for marker schema.
+# scope: main-only
