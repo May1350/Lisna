@@ -2,13 +2,7 @@ import type { FamilyCoreDefinition } from '../families';
 import type { NoteBase } from '../note-schema/base';
 import type { SessionTranscript } from '../note-schema/transcript';
 import { computeProvenance } from '../note-schema/provenance';
-import {
-  ForwardIncompatNoteError,
-  CURRENT_SCHEMA_VERSION,
-} from '../note-schema/forward-incompat';
-
-// Re-export for backwards compat — existing callers import from this module.
-export { ForwardIncompatNoteError, CURRENT_SCHEMA_VERSION };
+import { CURRENT_SCHEMA_VERSION } from '../note-schema/forward-incompat';
 
 /**
  * Run the 5-stage post-decode pipeline per spec §5.2.
@@ -35,13 +29,14 @@ export function runPostDecodePipeline(
   // Stage 1 — JSON.parse (native SyntaxError on bad input, per spec)
   const parsed = JSON.parse(rawJson) as Record<string, unknown>;
 
-  // Forward-incompat guard (still Stage 1)
-  if (
-    typeof parsed.schemaVersion === 'number' &&
-    parsed.schemaVersion > CURRENT_SCHEMA_VERSION
-  ) {
-    throw new ForwardIncompatNoteError(parsed.schemaVersion, CURRENT_SCHEMA_VERSION);
-  }
+  // Normalize system-owned schemaVersion (still Stage 1). The grammar exposes
+  // NoteBase.schemaVersion as a free positive int, so a real LLM may emit any
+  // value (observed: 2 in founder smoke 2026-06). A freshly generated note is
+  // by definition the current schema version, so we OVERWRITE whatever the LLM
+  // produced rather than reject it — rejecting blocked all note generation.
+  // Forward-incompat defense for *persisted* future-version notes lives in the
+  // load path (load-note.ts), the only place a genuinely-newer note is read.
+  parsed.schemaVersion = CURRENT_SCHEMA_VERSION;
 
   // Stage 2 — id fill (Brainstorm only; Lecture / Meeting / Interview no-op)
   if (family.id === 'brainstorm') {

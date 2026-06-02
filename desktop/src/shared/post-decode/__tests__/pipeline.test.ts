@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
-import { runPostDecodePipeline, ForwardIncompatNoteError } from '../pipeline';
+import { runPostDecodePipeline } from '../pipeline';
 import { LectureFamilyCore } from '../../families/lecture/core';
 import { InterviewFamilyCore } from '../../families/interview/core';
 import { ProvenanceSchema, NoteBaseSchema } from '../../note-schema';
@@ -196,11 +196,26 @@ describe('runPostDecodePipeline (Lecture)', () => {
     expect(note.sections[0]!.key_terms).toHaveLength(2);
   });
 
-  it('throws ForwardIncompatNoteError when schemaVersion > CURRENT_SCHEMA_VERSION', () => {
+  // schemaVersion is SYSTEM-owned. The grammar exposes NoteBase.schemaVersion
+  // as a free positive int (`z.number().int().positive()`), so a real LLM can
+  // — and does (observed: 2 in founder smoke 2026-06) — emit any value. The
+  // generation path must NORMALIZE it to CURRENT, not reject the whole note.
+  // Forward-incompat defense for *persisted* future-version notes lives in the
+  // load path (load-note.ts), the only place a genuinely-newer note appears.
+  it('normalizes an LLM-emitted schemaVersion above CURRENT to CURRENT', () => {
+    const raw = makeLectureRaw({ schemaVersion: 2 });
+    const note = runPostDecodePipeline(raw, LectureFamilyCore, EMPTY_TRANSCRIPT) as {
+      schemaVersion: number;
+    };
+    expect(note.schemaVersion).toBe(1);
+  });
+
+  it('normalizes an extreme LLM-emitted schemaVersion to CURRENT', () => {
     const raw = makeLectureRaw({ schemaVersion: 99 });
-    expect(() =>
-      runPostDecodePipeline(raw, LectureFamilyCore, EMPTY_TRANSCRIPT),
-    ).toThrow(ForwardIncompatNoteError);
+    const note = runPostDecodePipeline(raw, LectureFamilyCore, EMPTY_TRANSCRIPT) as {
+      schemaVersion: number;
+    };
+    expect(note.schemaVersion).toBe(1);
   });
 });
 
