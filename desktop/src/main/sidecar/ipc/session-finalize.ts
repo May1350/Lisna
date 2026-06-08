@@ -73,6 +73,18 @@ export interface SessionFinalizeDeps {
    * "already loaded for this orchestrator" flag.
    */
   getCurrentSession: () => Promise<SessionContext | null>;
+
+  /**
+   * Called once after every finalize attempt settles — success OR throw — to
+   * return the main-side session FSM to idle.
+   *
+   * The v2 Stop flow ends at this channel and never calls `session/stop`, so
+   * finalize is the ONLY place that clears `current`/`recording`. Without it
+   * the session stays 'active' forever and the next `session/start` rejects
+   * with SESSION_ACTIVE. Invoked in the handler's `finally` so a failed
+   * note-generation doesn't strand the session either.
+   */
+  onSessionSettled?: () => void;
 }
 
 // ─── channel constant (mirrors CHANNELS in ipc.ts) ───────────────────────────
@@ -88,17 +100,22 @@ export function registerSessionFinalize(deps: SessionFinalizeDeps): void {
   ipcMain.handle(SESSION_FINALIZE_CHANNEL, async (_e, args: SessionFinalizeArgs): Promise<SessionFinalizeResult> => {
     const { family, promptVariant } = args;
 
-    // ── Family routing ────────────────────────────────────────────────────
-    if (family === 'lecture') {
-      return routeLecture(deps, promptVariant);
-    }
-    if (family === 'meeting') return routeMeeting(deps, promptVariant);
-    if (family === 'interview') return routeInterview(deps, promptVariant);
-    if (family === 'brainstorm') return routeBrainstorm(deps, promptVariant);
+    try {
+      // ── Family routing ────────────────────────────────────────────────────
+      if (family === 'lecture') return await routeLecture(deps, promptVariant);
+      if (family === 'meeting') return await routeMeeting(deps, promptVariant);
+      if (family === 'interview') return await routeInterview(deps, promptVariant);
+      if (family === 'brainstorm') return await routeBrainstorm(deps, promptVariant);
 
-    // TypeScript exhaustiveness guard — 'family' is typed but callers can
-    // send anything over IPC (un-typed JSON), so the runtime check matters.
-    throw new Error(`UNKNOWN_FAMILY:${family as string}`);
+      // TypeScript exhaustiveness guard — 'family' is typed but callers can
+      // send anything over IPC (un-typed JSON), so the runtime check matters.
+      throw new Error(`UNKNOWN_FAMILY:${family as string}`);
+    } finally {
+      // Return the session FSM to idle whether finalize succeeded or threw.
+      // This is the v2 flow's only idle-return path (no session/stop). See
+      // SessionFinalizeDeps.onSessionSettled.
+      deps.onSessionSettled?.();
+    }
   });
 }
 
