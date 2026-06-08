@@ -1,5 +1,5 @@
 import { it, expect } from 'vitest';
-import { runSttEval, type SttFn } from './run-stt-eval';
+import { runSttEval, formatSttScorecard, type SttFn } from './run-stt-eval';
 
 // Stub STT: clean → perfect, degraded → 1 substitution. No sidecar.
 const ref = '静電ポテンシャルの計算';
@@ -24,4 +24,17 @@ it('throws when far-field-real is requested without realAudio', async () => {
     sampleRate: 16000, audio, reference: ref, noise, snrDb: 5,
     conditions: ['far-field-real'], stt: makeStub(true),
   })).rejects.toThrow('realAudio');
+});
+
+it('formatSttScorecard renders one line per condition with CER/WER %', () => {
+  const out = formatSttScorecard({
+    reference: 'あいう',
+    rows: [
+      { condition: 'clean', modelId: 'kotoba-q5_0', cer: 0, wer: 0, hyp: 'あいう' },
+      { condition: 'far-field-synth', modelId: 'kotoba-q5_0', cer: 0.3333, wer: 1, hyp: 'あいX' },
+    ],
+  });
+  expect(out).toContain('ref 3 chars');
+  expect(out).toContain('clean');
+  expect(out).toContain('CER=33.3%');
 });

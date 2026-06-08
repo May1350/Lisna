@@ -16,7 +16,10 @@ export function editDistance<T>(a: T[], b: T[]): number {
 }
 
 /** Character Error Rate (primary metric for Japanese — no word boundaries).
- *  `[...s]` iterates by code point, correct for CJK + surrogate pairs. */
+ *  `[...s]` iterates by code point, correct for CJK + surrogate pairs.
+ *  Intentionally UNCAPPED per WER/CER convention: insertions can push the rate
+ *  above 1.0 (a hyp far longer than ref → CER > 100%, e.g. scorecard prints
+ *  CER=400.0%). That is correct, not a bug. */
 export function cer(ref: string, hyp: string): number {
   const r = [...ref];
   if (r.length === 0) return [...hyp].length === 0 ? 0 : 1;
