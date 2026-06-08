@@ -4,6 +4,7 @@ import type { SessionPhase } from '@shared/ipc-protocol';
 import { withTimeout } from '@shared/with-timeout';
 import { buildJaNoteV1Prompt } from './prompts/ja-note-v1';
 import { TIMEOUTS, TIMEOUT_CODES } from './timeouts';
+import { generateChunkedNote } from './chunked-note';
 
 // ─── finalizeLecture / finalizeMeeting imports ───────────────────────────────
 import type { SessionTranscript } from '@shared/note-schema/transcript';
@@ -19,6 +20,7 @@ import { zodToGbnf } from '@shared/note-schema/zod-to-gbnf';
 import { chunkTranscript } from '@shared/note-schema/chunking';
 import { estimateTokens } from '@shared/note-schema/tokens';
 import { runPostDecodePipeline } from '@shared/post-decode/pipeline';
+import { applyGeneratedMeta } from '@shared/note-schema/apply-generated-meta';
 import { deterministicMerge } from '@shared/post-decode/deterministic-merge';
 import { runMergeLLMCall } from './merge-llm';
 import { callWithGrammar, makeSidecarGenerator, type GrammarCapableSidecar } from './grammar-call';
@@ -164,12 +166,17 @@ export class SessionOrchestrator {
         TIMEOUT_CODES.LLM_LOAD_TIMEOUT,
       );
       onPhase?.('generating');
-      const messages = (this.opts.buildPrompt ?? defaultPrompt)(this.opts.language, this.segments);
-      // generate() is per-token streaming; the GENERATE_TIMEOUT (no-progress
-      // 60s) is enforced inside LlamaCppLLM → SidecarClient.sendStream, so
-      // no extra wrapping here.
-      let md = '';
-      for await (const tok of this.opts.llm.generate(messages, { maxTokens: 4096, temperature: 0.4 })) md += tok;
+      // generateChunkedNote chunks long transcripts to stay within n_ctx
+      // (see chunked-note.ts) — short transcripts still take the single-pass
+      // path (byte-identical output). GENERATE_TIMEOUT (no-progress 60s) is
+      // enforced per generate() call inside LlamaCppLLM → SidecarClient.sendStream.
+      const md = await generateChunkedNote({
+        segments: this.segments,
+        language: this.opts.language,
+        buildPrompt: this.opts.buildPrompt ?? defaultPrompt,
+        generate: (messages) =>
+          this.opts.llm.generate(messages, { maxTokens: 4096, temperature: 0.4 }),
+      });
       return {
         language: this.opts.language,
         generatedAt: new Date().toISOString(),
@@ -323,6 +330,16 @@ export async function finalizeLecture(
 
   // Re-parse the merged object through the family schema for final validation
   const note = fam.schema.parse(merged) as LectureNote;
+  // System owns provenance/schema metadata — the grammar exposes these
+  // NoteBase fields so the LLM emits them too, but its values are untrustworthy
+  // (a 1B model hallucinated an invalid generatedAt → "Invalid Date").
+  applyGeneratedMeta(note, {
+    generatedAt: generationStartedAt,
+    model: args.modelProfile.id,
+    promptVersion: prompt.version,
+    language: 'ja', // v2.0 is JA-only (ipc rejects other languages)
+    durationSec: args.transcript.transcriptSegments.at(-1)?.endTs ?? 0,
+  });
 
   // ── Build telemetry ───────────────────────────────────────────────────────
   // totalTokensIn = sum of estimateTokens over each rendered chunk (prompt side
@@ -491,6 +508,13 @@ export async function finalizeMeeting(
   }
 
   const note = fam.schema.parse(merged) as MeetingNote;
+  applyGeneratedMeta(note, {
+    generatedAt: generationStartedAt,
+    model: args.modelProfile.id,
+    promptVersion: prompt.version,
+    language: 'ja', // v2.0 is JA-only (ipc rejects other languages)
+    durationSec: activeTranscript.transcriptSegments.at(-1)?.endTs ?? 0,
+  });
 
   const telemetry: GenerationTelemetry = {
     noteId: args.sessionId,
@@ -672,6 +696,13 @@ export async function finalizeInterview(
   }
 
   const note = fam.schema.parse(merged) as InterviewNote;
+  applyGeneratedMeta(note, {
+    generatedAt: generationStartedAt,
+    model: args.modelProfile.id,
+    promptVersion: prompt.version,
+    language: 'ja', // v2.0 is JA-only (ipc rejects other languages)
+    durationSec: activeTranscript.transcriptSegments.at(-1)?.endTs ?? 0,
+  });
 
   const telemetry: GenerationTelemetry = {
     noteId: args.sessionId,
@@ -838,6 +869,13 @@ export async function finalizeBrainstorm(
   }
 
   const note = fam.schema.parse(merged) as BrainstormNote;
+  applyGeneratedMeta(note, {
+    generatedAt: generationStartedAt,
+    model: args.modelProfile.id,
+    promptVersion: prompt.version,
+    language: 'ja', // v2.0 is JA-only (ipc rejects other languages)
+    durationSec: args.transcript.transcriptSegments.at(-1)?.endTs ?? 0,
+  });
 
   const telemetry: GenerationTelemetry = {
     noteId: args.sessionId,

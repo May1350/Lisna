@@ -29,6 +29,7 @@ export { GenerationTelemetrySchema, type GenerationTelemetry } from './telemetry
 
 export { estimateTokens } from './tokens';
 export { chunkTranscript } from './chunking';
+export { adaptToV2Transcript } from './adapt-legacy-transcript';
 
 export {
   computeProvenance,
