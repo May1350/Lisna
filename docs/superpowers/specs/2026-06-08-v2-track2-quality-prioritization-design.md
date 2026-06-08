@@ -1,7 +1,7 @@
 # v2 TRACK 2 — Quality prioritization & measurement plan
 
 **Date:** 2026-06-08
-**Status:** DRAFT (brainstorm → spec; pending independent review)
+**Status:** REVIEWED (independent design review 2026-06-08 → SOUND; revisions folded in). Ready for `writing-plans`.
 **Branch:** `docs/v2-track2-quality-spec`
 **Owner:** controller session (single-controller model, see `.claude/lanes.md`)
 **Supersedes for prioritization:** the open "model/perf quality" items in
@@ -122,9 +122,22 @@ The **clean − far-field gap** is the headline number: a large gap means
 **capture dominates** (→ Phase 1 = capture pipeline); a small gap with a
 high absolute CER means **the model dominates** (→ Phase 1 = model swap).
 
-**Model sweep (on the clean clip):** kotoba-whisper q5_0 vs q8_0 vs
-whisper-large-v3 (q5) — is there an accuracy win that fits the 8 GB RAM +
-latency envelope?
+**Model sweep (on the clean clip):** kotoba-whisper v2.0 q5_0 (baseline)
+vs q8_0 vs whisper-large-v3 — framed honestly, NOT as a "free win" hunt.
+kotoba v2.0 is a *distillation* of large-v3 (~756 M params, ~0.8 GB, ~6×
+faster) that **beats** large-v3 in-domain but **trails** it
+out-of-domain — and a live on-site lecture is out-of-domain (per the
+kotoba-tech card: JSUT CER 8.4 vs 7.1, CommonVoice 9.2 vs 8.5). So:
+- q8_0 = quantization-ceiling probe for kotoba (note the RAM delta vs q5_0).
+- large-v3 = does the small OOD-CER headroom justify ~2× weights + ~6×
+  slower STT?
+
+Measure each on **(a) CER, (b) STT latency budget** (real-time factor if
+STT runs live during capture, else added post-stop wait), and **(c) peak
+RAM during the STT phase**. NB: STT and the LLM are **swapped, not
+co-resident** (`ipc.ts` unloads STT before loading the LLM — confirm), so
+the 8 GB constraint is "largest single resident model"; large-v3's real
+cost is **latency**, not co-residence.
 
 **Deliverable:** `condition × model` CER/WER scorecard + the model-vs-
 capture verdict.
@@ -144,9 +157,14 @@ decision in parallel.
 **Build:**
 - Wire `makeOffline3bRunner` into `eval-notes.ts:resolveRunner` (replace
   the throw). Resolve `sidecarBin` + `llmModelPath` from env / config.
-- Add an `offline-1b` runner — `makeOffline3bRunner` already resolves the
-  model profile by filename, so this is mostly parameterizing the
-  hardcoded `modelId` label + passing the 1B path.
+- Add an `offline-1b` runner. CAUTION: `makeOffline3bRunner` hardcodes
+  BOTH `id: 'offline-3b'` AND `modelId: 'llama-3.2-3b-q4-km'`, and the CLI
+  saves baselines stamped with `runner.modelId` — a naive 1B variant would
+  mislabel its baseline as 3B (silent A/B contamination: the run *works*,
+  only the provenance lies). Fix: lift `id` + `modelId` to factory params
+  (`makeOfflineRunner({ runnerId, modelId, sidecarBin, llmModelPath })`)
+  + a unit test asserting `runner.modelId` matches the filename-resolved
+  profile id.
 - Lecture + meeting first (the runner's supported families). Interview /
   brainstorm only if cheap; else explicitly logged as deferred (no silent
   cap).
@@ -163,6 +181,16 @@ per-chunk latency, retry histogram. Save baselines
    to the bar (which would win 8 GB speed)? — this is the Plan 6 Task 16
    "prompt becomes load-bearing" hypothesis, now measurable as an A/B.
 
+**1B guardrails (pre-committed — Path F already showed 1B FAIL: 0/3 slots
++ 1/3 runaway):**
+- **Path G first for the 1B runs:** apply bounded `n_predict` + `.max(N)`
+  array bounds BEFORE scoring 1B, so a runaway (unparseable JSON) doesn't
+  poison the A/B with unscoreable runs.
+- **Kill-criterion:** ≤ 2 prompt-v2 iterations; if 1B slot emergence stays
+  below the 3B floor, 1B is closed as the lecture default and reserved for
+  quick-gist / lower-stakes tiers (Path F option 3). Prevents an unbounded
+  prompt rabbit-hole on a model that may be structurally below the floor.
+
 **Hardware note:** the *wiring + unit tests* are safe and run anywhere. The
 *actual model runs* invoke the local Llama sidecar and are heavy on 8 GB
 (`(spike-llm)` rule: foreground, sequential, `kill -9` survivors, never
@@ -170,6 +198,22 @@ per-chunk latency, retry histogram. Save baselines
 controlled foreground execution — see section 8.
 
 ---
+
+### 4c. Composed real-pipeline gate (the actual track-exit instrument)
+
+4a and 4b measure STT and LLM *separately* — but the founder's failure was
+**error propagation** (STT errors made the LLM output unassessable).
+Separate metrics can BOTH read green while the composed real pipeline still
+fails (e.g. 15 % CER reads "okay" but garbles exactly the named entities
+the LLM needs for slots). So Phase 0 must re-compose:
+
+- Feed the **real-mic STT output** (4a's far-field-real condition) — a
+  real, error-containing transcript — through the 4b LLM eval as a third
+  baseline (`v0-3b-lecture-realstt`).
+- This single composed run is the measured **track-exit gate**, replacing a
+  manual vibe-check.
+- It depends on 4a's real-mic recording (founder/hardware gate, section 8),
+  so it lands just after 0a/0b rather than fully in parallel.
 
 ## 5. Phase 1 — routed by Phase 0 data
 
@@ -202,8 +246,10 @@ controlled foreground execution — see section 8.
   because 3B parrots placeholder formulas). **1B is "viable"** iff it
   matches 3B within tolerance on slot emergence + content fidelity, not
   just on speed.
-- **Track exit:** the founder records a real on-site talk and gets a note
-  they would keep.
+- **Track exit:** measured by the 4c composed real-pipeline gate (real-mic
+  STT → LLM, baseline `v0-3b-lecture-realstt`) — not a manual vibe-check.
+  The founder records a real on-site talk and the generated note clears the
+  LLM eval bar on the *real* (error-containing) transcript.
 
 ---
 
@@ -213,7 +259,10 @@ controlled foreground execution — see section 8.
 1B-vs-3B decision; latency-mitigation wiring.
 
 **Out of scope (separate or deferred):**
-- Diarization quality (speaker separation) — its own track (Plan 4).
+- Diarization quality (speaker separation) — its own track (Plan 4). NB:
+  4a's STT floor is measured on **single-speaker** audio; the multi-speaker
+  far-field interaction (where STT + diarization collapse together) is
+  co-owned with Plan 4 and must NOT be generalized from 4a's numbers.
 - 16 GB+ / 7B tier — deferred; this track targets the 8 GB floor.
 - System-audio capture path — noted as a future fork for online talks; not
   the in-person target.
@@ -228,9 +277,14 @@ controlled foreground execution — see section 8.
    the ceiling early; if it is too low, the honest outcomes are (a) mic /
    placement guidance, (b) recommend an external mic, or (c) revisit
    system-audio for online talks. We surface this, not hide it.
-2. **Synthetic far-field validity.** The room-IR + noise proxy must be
-   sanity-checked against one real recording before we trust the
-   model-vs-capture split. The real recording is the founder/hardware gate.
+2. **Synthetic far-field validity — it is a LOWER BOUND on real CER.** The
+   room-IR + additive-noise proxy cannot reproduce the Lombard effect
+   (speakers change articulation in noise) or true room-material impulse
+   responses — both push *real* CER above synthetic. So the synthetic
+   clean−far-field gap is optimistic and can mis-route Phase 1 ("model
+   dominates" when capture actually does). The real-mic recording is
+   therefore required to **calibrate the offset**, not merely spot-check —
+   it is the founder/hardware gate.
 3. **8 GB heavy-model runs.** Running 3B + 1B (and whisper-large-v3)
    back-to-back risks the `(spike-llm)` kernel-panic class. All real runs
    are foreground, sequential, cleaned up, and gated — never background.
@@ -263,4 +317,23 @@ Hand Phase 0 (4a + 4b) to the `writing-plans` skill for a task-level
 implementation plan. First implementable tasks: (4b) wire the offline
 runner into the CLI + add `offline-1b` (pure code, TDD), and (4a) build the
 STT CER/WER harness skeleton + synthetic far-field degradation (pure code,
-TDD). The heavy model runs follow, gated per section 8.
+TDD). The heavy model runs + the 4c composed real-STT→LLM gate follow,
+gated per section 8.
+
+---
+
+## 11. Review log
+
+- **2026-06-08 — independent design review** (opus, reviewer ≠ author,
+  web-grounded). Verdict: **SOUND**, no blocking issues; factual accuracy
+  verified against all cited artifacts. Folded in: model-sweep reframe
+  (kotoba v2.0 is a distilled large-v3 → large-v3 is a heavier/slower OOD
+  trade, not a free win; measure CER + STT latency + RAM-during-STT-phase;
+  STT/LLM swapped, not co-resident) [SHOULD-FIX 1]; `offline-1b` must
+  parameterize `id`+`modelId` + assert label correctness or baselines
+  mislabel as 3B [SHOULD-FIX 2]; new 4c composed real-STT→LLM gate as the
+  measured track-exit [NICE 4, pulled into scope]; synthetic far-field is a
+  lower bound → real recording calibrates the offset [NICE 3]; 1B
+  kill-criterion + Path-G-first [NICE 5]; single-speaker STT-floor caveat
+  [NICE 6]. Sources: kotoba-tech HF model card; Japanese-ASR CER
+  convention; far-field RIR-sim + Lombard-effect literature.
