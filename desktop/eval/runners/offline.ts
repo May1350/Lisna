@@ -22,20 +22,26 @@ function countingProxy(inner: GrammarCapableSidecar): { sidecar: GrammarCapableS
   };
 }
 
-export function makeOffline3bRunner(opts: { sidecarBin: string; llmModelPath: string }): PipelineRunner {
+/** Build an offline eval runner for ANY profiled model. `modelId` is DERIVED
+ *  from the model file (resolved against the profile registry by basename) so a
+ *  1B run can never be silently stamped as 3B — the baseline label always
+ *  matches the model actually loaded. Resolving at factory time also fails fast
+ *  on an unknown model instead of after spawning the sidecar. */
+export function makeOfflineRunner(opts: { runnerId: string; sidecarBin: string; llmModelPath: string }): PipelineRunner {
+  const profile = Object.values(modelProfiles).find(
+    (p) => p.filename === basename(opts.llmModelPath),
+  );
+  if (!profile) throw new Error('UNKNOWN_MODEL_PROFILE');
+
   return {
-    id: 'offline-3b',
-    modelId: 'llama-3.2-3b-q4-km',
+    id: opts.runnerId,
+    modelId: profile.id,
     promptVariantId: 'default',
     async run({ meta, transcript }): Promise<PipelineResult> {
       // Family guard BEFORE spawning anything (cheap, unit-testable).
       if (meta.family !== 'lecture' && meta.family !== 'meeting') {
         throw new Error(`UNSUPPORTED_FAMILY_FOR_OFFLINE_RUNNER:${meta.family}`);
       }
-      const profile = Object.values(modelProfiles).find(
-        (p) => p.filename === basename(opts.llmModelPath),
-      );
-      if (!profile) throw new Error('UNKNOWN_MODEL_PROFILE');
 
       const proc = spawn(opts.sidecarBin, [], { stdio: ['pipe', 'pipe', 'pipe'] });
       const client = new SidecarClient(proc);
