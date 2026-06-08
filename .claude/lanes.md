@@ -1,9 +1,37 @@
-# Lanes — multi-session isolation map
+# Lanes — session + subagent isolation map
 
-This file declares directory ownership for each Lisna Claude session lane.
+This file declares directory ownership for each Lisna Claude worktree.
 The `.claude/hooks/pre-commit-check.sh` (section 7) reads the parseable
 block at the bottom and prints a SOFT warning when staged files fall
 outside the current worktree's owned set AND outside the shared seams.
+
+## Operating model — SINGLE CONTROLLER SESSION (adopted 2026-06-08)
+
+Lisna v2 work runs through **one controller session** on the **main
+worktree** (`/Users/guntak/Lisna`). This replaces the earlier
+parallel-human-session model (e.g. the "Lisna-AI" + "Lisna-note" split),
+which repeatedly drifted the main worktree onto another branch and caused
+branch-confusion incidents.
+
+The rules:
+
+1. **One session holds merge control** — the controller, on `main`. All
+   PR review + `main` merges happen here only. No second human-driven
+   session merges in parallel.
+2. **Well-defined execution work → delegate to subagents** in isolated
+   worktrees; the controller reviews + merges. Subagents stay inside
+   their assigned worktree (see `feedback_subagent_worktree_boundary` /
+   `.claude/rules/workflow.md (dispatch)` — never `git checkout`/`pull`/
+   `reset` a shared branch).
+3. **Exploration / design → the controller drives directly.** Subagents
+   can't do interactive back-and-forth, so brainstorming, spec authoring,
+   and design decisions stay in the controller session.
+
+Consequence for ownership: under a single controller, lane boundaries
+exist mainly to scope **subagent worktrees**. The controller on `main`
+works across the whole v2 surface directly (everything except the frozen
+`extension/`), so its parseable row owns a broad set; subagent worktrees
+get a narrow scoped row added by the controller when it dispatches them.
 
 ## The contract
 
@@ -20,12 +48,26 @@ outside the current worktree's owned set AND outside the shared seams.
 
 ## Lane definitions
 
-### AI infra
+Under the single-controller model, the first entry below is the live
+controller; the rest are **templates** — the scoped ownership a subagent
+worktree should get when the controller dispatches that kind of work.
+
+### Controller (main) — LIVE
+The controller session on the main worktree. Drives exploration/design
+directly and owns the whole v2 surface except the frozen `extension/`.
+When it delegates execution to a subagent worktree, it narrows that
+worktree to one of the templates below.
+
+- **Worktree:** `.` (main repo)
+- **Branch:** `main` (feature branches off `main` for each change)
+- **Owns:** `desktop/` · `docs/` · `backend/` · `infra/` · `shared/` · `.claude/`
+
+### AI infra (subagent template)
 v2 note-creation backbone — schemas, registries, sidecar wrapper,
 orchestrator, C++ sidecar binary, integration tests.
 
-- **Worktree:** `.` (main repo)
-- **Branch:** `spec/v2-note-creation-design` (current v2 integration)
+- **Worktree:** `.claude/worktrees/<slug>` (create on dispatch)
+- **Branch:** `feat/v2-*` or `fix/v2-*`
 - **Owns:**
   - `desktop/src/main/`
   - `desktop/src/shared/`
@@ -134,21 +176,23 @@ becomes a recurring pattern (e.g., a new shared seam is forming),
 promote the path into the shared-seams section above instead of tagging
 every commit.
 
-## Stale worktrees (founder cleanup decision pending)
+## Worktree state (2026-06-08)
 
-Two worktrees from earlier work, both predate this lane scheme:
+The single-session consolidation pruned all in-flight feature worktrees
+(their PRs squash-merged to `main`). Only two remain:
 
 | Path | Branch | Status |
 |---|---|---|
-| `.claude/worktrees/auth-picker-diagnostics` | `fix/auth-picker-diagnostics` | Extension fix; extension FROZEN |
-| `.claude/worktrees/flamboyant-williams-6fe1f8` | `chore/sidecar-build-j1` | Old sidecar build chore |
+| `.` | `main` | Controller (live). |
+| `.claude/worktrees/spec-docs` | `docs/v2-spec-docs` | Long-lived spec/decision branch (no PR; far ahead of `main`). KEEP. |
 
-Founder to confirm safe-to-prune. If yes:
-```
-git worktree remove --force .claude/worktrees/auth-picker-diagnostics
-git worktree remove --force .claude/worktrees/flamboyant-williams-6fe1f8
-git branch -d fix/auth-picker-diagnostics chore/sidecar-build-j1
-```
+Subagent worktrees are created on dispatch and removed after their PR
+merges (`git worktree remove`). Before creating one, verify the work
+isn't already done + pushed (`git branch -a | grep <slug>` +
+`git ls-remote origin '<glob>'`) — see `.claude/rules/workflow.md
+(dispatch)`. Several stale **remote** branches still exist from earlier
+work (e.g. `fix/auth-picker-diagnostics`, `worktree-*`); they have no
+local worktree and can be cleaned up separately.
 
 ---
 
@@ -162,14 +206,7 @@ Format per line — fields separated by `|`:
 `seams:` line is a single space-separated list.
 
 <!-- BEGIN PARSEABLE -->
-.|desktop/src/main/ desktop/src/shared/ desktop/sidecar/ desktop/__tests__/ desktop/spikes/|ai-infra
-.claude/worktrees/meeting|desktop/src/main/ desktop/src/shared/ desktop/src/integration/|ai-infra
-.claude/worktrees/interview-brainstorm|desktop/src/main/ desktop/src/shared/ desktop/src/integration/|ai-infra
-.claude/worktrees/fix+live-overflow-chunked-note|desktop/src/main/sidecar/ desktop/src/shared/note-schema/|ai-infra
+.|desktop/ docs/ backend/ infra/ shared/ .claude/|controller
 .claude/worktrees/spec-docs|docs/ .claude/commands/ .claude/skills/ .claude/hooks/ .claude/launch.json .claude/worktrees/|spec-docs
-.claude/worktrees/app-design|desktop/src/renderer/ desktop/src/preload/|app-design
-.claude/worktrees/eval|desktop/eval/ desktop/scripts/eval-|eval
-.claude/worktrees/feat-cpp-grammar-gen|desktop/sidecar/ desktop/src/main/ desktop/src/shared/ desktop/eval/ docs/superpowers/|ai-infra
-.claude/worktrees/fix-pipeline-unblock|desktop/sidecar/ desktop/src/main/ desktop/src/shared/ desktop/eval/ docs/superpowers/|ai-infra
 seams: package.json pnpm-lock.yaml pnpm-workspace.yaml .github/workflows/ CLAUDE.md docs/PRD.md .claude/rules/ .claude/lanes.md .gitignore .gitattributes README.md tsconfig
 <!-- END PARSEABLE -->
