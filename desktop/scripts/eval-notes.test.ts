@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { __testOnly_parseArgs } from './eval-notes';
+import { __testOnly_parseArgs, __testOnly_resolveRunner } from './eval-notes';
 
 describe('eval-notes argparse', () => {
   it('parses defaults', () => {
@@ -33,5 +33,33 @@ describe('eval-notes argparse', () => {
   it('parses brainstorm family', () => {
     const o = __testOnly_parseArgs(['node', 'eval-notes', '--family', 'brainstorm']);
     expect(o.family).toBe('brainstorm');
+  });
+});
+
+describe('eval-notes resolveRunner', () => {
+  it('resolves offline-1b to a correctly-labelled runner from the model dir', async () => {
+    const r = await __testOnly_resolveRunner('offline-1b', { modelDir: '/models', sidecarBin: '/sc' });
+    expect(r.id).toBe('offline-1b');
+    expect(r.modelId).toBe('llama-3.2-1b-q4-km');
+  });
+
+  it('resolves offline-3b modelId from the 3B profile filename', async () => {
+    const r = await __testOnly_resolveRunner('offline-3b', { modelDir: '/models', sidecarBin: '/sc' });
+    expect(r.modelId).toBe('llama-3.2-3b-q4-km');
+  });
+
+  it('returns the stub runner for the stub id', async () => {
+    const r = await __testOnly_resolveRunner('stub', {});
+    expect(r.id).toBe('stub');
+  });
+
+  it('throws a helpful error when the offline model dir is not configured', async () => {
+    const saved = process.env.LISNA_LLM_MODEL_DIR;
+    delete process.env.LISNA_LLM_MODEL_DIR;
+    try {
+      await expect(__testOnly_resolveRunner('offline-3b', {})).rejects.toThrow(/LISNA_LLM_MODEL_DIR/);
+    } finally {
+      if (saved !== undefined) process.env.LISNA_LLM_MODEL_DIR = saved;
+    }
   });
 });

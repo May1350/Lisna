@@ -1,10 +1,12 @@
 import { fileURLToPath } from 'node:url';
-import { join } from 'node:path';
+import { join, resolve, dirname } from 'node:path';
 import { runFamilySuite } from '../eval/runners/family-suite';
 import { runRegression } from '../eval/runners/regression';
 import { saveBaseline } from '../eval/baseline/store';
 import { formatScorecard } from '../eval/scorecard';
 import { STUB_RUNNER } from '../eval/runners/pipeline-stub';
+import { makeOfflineRunner } from '../eval/runners/offline';
+import { modelProfiles } from '../src/shared/models/profiles';
 import type { NoteFamily } from '../eval/judges/judge-types';
 import type { PipelineRunner } from '../eval/runners/pipeline-stub';
 
@@ -35,11 +37,34 @@ export function __testOnly_parseArgs(argv: string[]): CliArgs {
   return out;
 }
 
-async function resolveRunner(id: string): Promise<PipelineRunner> {
+// Runner id → the ModelProfile it loads. The offline runner re-derives modelId
+// from the model filename, so this map only chooses WHICH model file to load.
+const OFFLINE_MODEL_ID: Record<string, string> = {
+  'offline-3b': 'llama-3.2-3b-q4-km',
+  'offline-1b': 'llama-3.2-1b-q4-km',
+};
+
+export async function __testOnly_resolveRunner(
+  id: string,
+  cfg: { modelDir?: string; sidecarBin?: string } = {},
+): Promise<PipelineRunner> {
   if (id === 'stub') return STUB_RUNNER;
-  // offline-3b / offline-1b will be wired when Plan 2 SessionOrchestrator
-  // exposes a CLI-shaped invocation. Plan 7 ships the stub only.
-  throw new Error(`runner '${id}' not implemented in Plan 7 — wire via Plan 2 SessionOrchestrator + register here`);
+  const modelId = OFFLINE_MODEL_ID[id];
+  if (modelId) {
+    const modelDir = cfg.modelDir ?? process.env.LISNA_LLM_MODEL_DIR;
+    if (!modelDir) throw new Error(`set LISNA_LLM_MODEL_DIR (or pass cfg.modelDir) to use runner '${id}'`);
+    const sidecarBin = cfg.sidecarBin ?? process.env.LISNA_SIDECAR_BIN
+      ?? resolve(dirname(fileURLToPath(import.meta.url)), '../resources/sidecar');
+    const profile = modelProfiles[modelId];
+    if (!profile) throw new Error(`no model profile '${modelId}' for runner '${id}'`);
+    const llmModelPath = join(modelDir, profile.filename);
+    return makeOfflineRunner({ runnerId: id, sidecarBin, llmModelPath });
+  }
+  throw new Error(`unknown runner '${id}'`);
+}
+
+async function resolveRunner(id: string): Promise<PipelineRunner> {
+  return __testOnly_resolveRunner(id);
 }
 
 async function main(): Promise<void> {

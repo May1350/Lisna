@@ -3,7 +3,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { FixtureMetaSchema, FixtureTranscriptSchema } from '../fixtures/_schema';
-import { makeOffline3bRunner } from './offline-3b';
+import { makeOfflineRunner } from './offline';
 import { LECTURE_RULES } from '../contract/families/lecture';
 import { runContractTest } from '../contract/contract-test';
 import { z } from 'zod';
@@ -18,7 +18,7 @@ gate('offline-3b grammar real-run gate (JA lecture)', () => {
   it('produces valid JSON that parses to a schema-valid LectureNote with ≥1 section', async () => {
     const meta = FixtureMetaSchema.parse(JSON.parse(readFileSync(join(fixtureDir, 'meta.json'), 'utf8')));
     const transcript = FixtureTranscriptSchema.parse(JSON.parse(readFileSync(join(fixtureDir, 'transcript.json'), 'utf8')));
-    const runner = makeOffline3bRunner({ sidecarBin, llmModelPath: llmModel });
+    const runner = makeOfflineRunner({ runnerId: 'offline-3b', sidecarBin, llmModelPath: llmModel });
     const { note, retryAttempts } = await runner.run({ meta, transcript });
 
     const ct = runContractTest({ family: 'lecture', schema: z.object({}).passthrough(),
