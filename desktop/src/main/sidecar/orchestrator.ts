@@ -20,6 +20,7 @@ import { zodToGbnf } from '@shared/note-schema/zod-to-gbnf';
 import { chunkTranscript } from '@shared/note-schema/chunking';
 import { estimateTokens } from '@shared/note-schema/tokens';
 import { runPostDecodePipeline } from '@shared/post-decode/pipeline';
+import { applyGeneratedMeta } from '@shared/note-schema/apply-generated-meta';
 import { deterministicMerge } from '@shared/post-decode/deterministic-merge';
 import { runMergeLLMCall } from './merge-llm';
 import { callWithGrammar, makeSidecarGenerator, type GrammarCapableSidecar } from './grammar-call';
@@ -329,6 +330,16 @@ export async function finalizeLecture(
 
   // Re-parse the merged object through the family schema for final validation
   const note = fam.schema.parse(merged) as LectureNote;
+  // System owns provenance/schema metadata — the grammar exposes these
+  // NoteBase fields so the LLM emits them too, but its values are untrustworthy
+  // (a 1B model hallucinated an invalid generatedAt → "Invalid Date").
+  applyGeneratedMeta(note, {
+    generatedAt: generationStartedAt,
+    model: args.modelProfile.id,
+    promptVersion: prompt.version,
+    language: 'ja', // v2.0 is JA-only (ipc rejects other languages)
+    durationSec: args.transcript.transcriptSegments.at(-1)?.endTs ?? 0,
+  });
 
   // ── Build telemetry ───────────────────────────────────────────────────────
   // totalTokensIn = sum of estimateTokens over each rendered chunk (prompt side
@@ -497,6 +508,13 @@ export async function finalizeMeeting(
   }
 
   const note = fam.schema.parse(merged) as MeetingNote;
+  applyGeneratedMeta(note, {
+    generatedAt: generationStartedAt,
+    model: args.modelProfile.id,
+    promptVersion: prompt.version,
+    language: 'ja', // v2.0 is JA-only (ipc rejects other languages)
+    durationSec: activeTranscript.transcriptSegments.at(-1)?.endTs ?? 0,
+  });
 
   const telemetry: GenerationTelemetry = {
     noteId: args.sessionId,
@@ -678,6 +696,13 @@ export async function finalizeInterview(
   }
 
   const note = fam.schema.parse(merged) as InterviewNote;
+  applyGeneratedMeta(note, {
+    generatedAt: generationStartedAt,
+    model: args.modelProfile.id,
+    promptVersion: prompt.version,
+    language: 'ja', // v2.0 is JA-only (ipc rejects other languages)
+    durationSec: activeTranscript.transcriptSegments.at(-1)?.endTs ?? 0,
+  });
 
   const telemetry: GenerationTelemetry = {
     noteId: args.sessionId,
@@ -844,6 +869,13 @@ export async function finalizeBrainstorm(
   }
 
   const note = fam.schema.parse(merged) as BrainstormNote;
+  applyGeneratedMeta(note, {
+    generatedAt: generationStartedAt,
+    model: args.modelProfile.id,
+    promptVersion: prompt.version,
+    language: 'ja', // v2.0 is JA-only (ipc rejects other languages)
+    durationSec: args.transcript.transcriptSegments.at(-1)?.endTs ?? 0,
+  });
 
   const telemetry: GenerationTelemetry = {
     noteId: args.sessionId,
