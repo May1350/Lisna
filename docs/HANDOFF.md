@@ -1,6 +1,6 @@
 # Lisna — Session Handoff
 
-**Last updated**: 2026-05-30 (v2 stack reachable from app UI — #73 grammar-gen + #74 renderer wiring + #76 Meeting renderer)
+**Last updated**: 2026-06-08 (all 4 families render end-to-end; founder smoke done; #66+#79 note-gen bugs fixed; focus → TRACK 2 quality)
 **Purpose**: Bring a new session up to speed in <5 min. Read top → bottom in order.
 **Reader**: future-self (or another Claude). Skip what you already know.
 
@@ -49,6 +49,51 @@ segments). Curator: OpenAI gpt-4o-mini. Auth: JWT issued from Google OAuth.
 ---
 
 ## 2. Critical state (read this before anything else)
+
+### v2 current state (2026-06-08) — READ FIRST
+
+The active track is the **v2 on-device desktop app** (`desktop/`), not the
+v1 cloud extension. The v1 sections further down (§2 "What's working
+today (2026-04-30)" onward, §3 Extension map, §4 roadmap) are **frozen v1
+history** — useful background, not current work.
+
+**Where v2 stands:**
+
+- **End-to-end pipeline works for all 4 families.** Stop → FamilyPicker →
+  `session/finalize` → on-device STT → on-device LLM (grammar-constrained)
+  → structured note → renderer → NoteView. Lecture / Meeting / Interview /
+  Brainstorm all have cores + renderers + IPC routing on `main`.
+- **Founder smoke done** on a real 8GB MacBook Air with real models
+  (Llama-3.2-1B/3B Q4_K_M + kotoba-whisper v2.0 q5_0). It surfaced 3
+  note-gen **code bugs — all now fixed + merged**:
+  - **#66 (`6348eb2`)** — chunked-note n_ctx overflow (silent empty/
+    truncated note) + `schemaVersion` normalize + system-owned note
+    metadata (the "Generated Invalid Date").
+  - **#79 (`f4e916a`)** — v2 Stop flow never reset the session FSM
+    (`SESSION_ACTIVE` after the first recording until app restart).
+- **Code bugs are done. The remaining gap is QUALITY/PERF, not code** —
+  this is **TRACK 2** (see §5 + §8). The STT↔LLM memory swap is already
+  implemented (`ipc.ts` unloads STT → loads LLM; finalize `finally`
+  unloads LLM), so the gap is **grammar-decode speed** + **1B output
+  quality** + **STT accuracy** on 8GB. Approach: measure/eval, not guess.
+
+**Operating model: SINGLE CONTROLLER SESSION** (adopted 2026-06-08). One
+session on the `main` worktree holds merge control + drives design;
+execution work is delegated to subagents in isolated worktrees. Replaces
+the old parallel-human-session model that caused branch drift. Full
+definition in `.claude/lanes.md`.
+
+**⚠️ CI infra debt** (not a code bug): the `ci` workflow's Playwright
+Chromium-install step hangs ~10 min on a cache miss (any lockfile change)
+→ job hits `timeout-minutes: 10` → **CANCELLED on every PR**. `desktop-ci`
+is a separate workflow and is the real desktop verification (build + test
++ lint via `pnpm --filter @lisna/desktop verify`). Until `ci.yml` is
+fixed, desktop-only / docs-only PRs must **admin-merge** once `desktop-ci`
+is green (`gh pr merge --admin`). Fix options: cache Chromium properly /
+split Playwright into its own job / raise the timeout / preinstall.
+
+**Worktrees:** only `.` (main, controller) + `.claude/worktrees/spec-docs`
+(long-lived doc branch). All in-flight feature worktrees pruned 2026-06-08.
 
 ### What's working today (2026-04-30 evening)
 
@@ -117,6 +162,21 @@ The v2 on-device structured note pipeline is now reachable from the app's Stop b
 | #74 | **v2 renderer wiring — Plan 3 Tasks 11–12 + spec §9.** Stop → FamilyPicker → finalize → NoteView vertical slice. 7 commits: session/finalize IPC now returns `{noteId, note}` (was dropping note); `getCurrentSession` async + lazy LLM-load (spec §9 — unload STT, load LLM, cached per-orchestrator); preload `window.lisna.finalize`; `LectureRenderer` + slot dispatch + registerFamilyRenderer; FamilyPickerStep + NoteRenderProgress components; App.tsx FSM gains `familyPicking` + `curatingV2` states + drops dead `finalizing` view; double-click guard on 続行. |
 | #75 | **Cleanup: orphaned FinalizingView + min-display.** PR #74 left FinalizingView.tsx + min-display.ts (with test) + a stale Spinner.tsx JSDoc reference. Removed per CLAUDE.md rule #9 (don't keep dead code). |
 | #76 | **MeetingRenderer** — Plan 5 renderer follow-up. Mirrors LectureRenderer (pure {note}=>JSX, registerFamilyRenderer at module load). No `slotRenderers` — Meeting has no typed-extras `slots`. SpeakerRef tag hides when ref===0 (alpha runs with `diarizationStatus:'disabled'`, all refs collapse to 0). Side-effect import added in main.tsx. Caught a React gotcha in TDD — `ref` is reserved on function components; `SpeakerTag` uses `speakerRef`. New `(react-reserved-props)` pitfall rule pinned. |
+
+### What landed since (2026-05-30 → 2026-06-08, all families render + smoke bugfixes)
+
+| PR | What |
+|---|---|
+| #72 | **Interview + Brainstorm note families (Plan 6).** ai-infra cores — prompts, schemas, orchestrator wiring, hybrid cross-chunk merge (deterministic union of `qa_pairs`/participants/`ideas` + LLM-only derived prose), IPC routing (`routeInterview`/`routeBrainstorm`). |
+| #78 | **Interview + Brainstorm renderers (Plan 6 Path A).** `InterviewRenderer` + `BrainstormRenderer` + the 4-family picker fully enabled. **Plan 6 fully closed** — all 4 families now have cores + renderers + IPC routing on `main`. Stop → FamilyPicker → finalize → NoteView works for every family. |
+| #66 | **chunk long transcripts to prevent silent note overflow** (founder-smoke bug 1+2). Short input = byte-identical single pass; long input = silence-aware chunk → per-chunk note → lossless `【…】` merge + reactive empty-output subsplit. Also: `schemaVersion` normalized to `CURRENT_SCHEMA_VERSION` on the generation path (1B was emitting `2` via grammar → forward-incompat guard rejected ALL notes); `applyGeneratedMeta()` makes generatedAt/generatedBy/language/durationSec system-owned (1B was hallucinating an invalid `generatedAt` → "Generated Invalid Date"). |
+| #79 | **reset session FSM to idle on session/finalize** (founder-smoke bug 3). v2 Stop ends at `session/finalize` and never called `session/stop`, so `current`/`recording`/`_llmLoadedForCurrent` never reset → every recording after the first rejected with `SESSION_ACTIVE` until app restart (regression from #74). Fix: `onSessionSettled` in the finalize `finally`. |
+| #81 | **Review automation strengthening** — commit gate + review brief (docs+chore). |
+| #77 | **HANDOFF refresh** for #73/#74/#75/#76 + the `(react-reserved-props)` pitfall rule. |
+
+**Both #66 and #79 were admin-merged** (`gh pr merge --admin`) — `desktop-ci`
+was green (real verification held); the `ci` Playwright hang would never
+let them go green on their own (see CI infra debt above).
 
 ### Operational guards on GitHub (added 2026-05-24)
 
@@ -272,6 +332,11 @@ feedback validates the demand.
 | Open Dependabot PRs (2026-05-24) | Open | `dependabot/npm_and_yarn/postcss-8.5.15`, `dependabot/npm_and_yarn/vite-6.4.2`. CI should pass via the #21 fallback. |
 | v2 Spike 0.1 N=5 envelope | Acknowledged (2026-05-27) | Spike 0.1 PASS at N=5 reduced scope per Plan Amendment 1 (commit `9eda9b1`). i=8 Maxwell (iter-3 mode-B string char-escape runaway) unverified — production risk covered ONLY by the retry budget. Before v2 alpha: (a) Plan 2 wrapper enforces retry contract via failing test (paper mandate today), (b) per-attempt wall-time cap 90-120 s (prevents triple-runaway 24-min UI hang), (c) UI retry counter (renderer shows "Retrying 2/3…"). Full N=10 recovery: `desktop/spikes/phase-0/01-zod-to-gbnf/decision-0.1-fail.md` "Path 2.A/B/C procedures". |
 | v2 Spike 0.2 latency MIXED | Open | 3B Lecture spike PASS on Zod + slot emergence; latency 73-98 s/chunk vs spec §7.2 30 s threshold (2.5-3× over). Controller's path A-E (decision-0.2-latency.md) — recommended Path E (per-phase timings, 30 min) before A/B/C/D. Affects alpha post-Stop UX: 53-min lecture ≈ 3 min wall, 90-min ≈ 5 min wall. |
+| **TRACK 2 — long-input decode latency** | Open (next) | Founder smoke saw ~5-min hangs on ~24-segment input (short/1-chunk input completes fine). NOT a memory swap (mem ~70-80%) — it's grammar-decode compute, per-chunk, × chunk count. Profile chunk count × per-chunk time. Overlaps Spike 0.2. See §8 TRACK 2. |
+| **TRACK 2 — 1B output quality** | Open (next) | 1B structures the transcript weakly + hallucinates the optional `lecturer` content field (LectureRenderer ~:192, schema ~:43). 3B is the quality default (Path F: 1B Lecture FAIL) but slow/tight on 8GB. The 1B-vs-3B tradeoff is the core TRACK 2 decision. |
+| **TRACK 2 — STT accuracy** | Open (separate) | kotoba-whisper v2.0 q5_0 + mic environment; accuracy low in smoke. Separate sub-track from the LLM decode/quality work. |
+| CI `ci` job hangs → CANCELLED | Open (infra debt) | Playwright Chromium-install step hangs ~10 min on cache miss (any lockfile change) → `timeout-minutes: 10` → CANCELLED every PR. `desktop-ci` unaffected (separate workflow, real verify). Workaround: admin-merge on green `desktop-ci`. Fix: cache Chromium / split job / raise timeout / preinstall. |
+| #80 dependabot vitest 2.1.9→4.1.0 | Open — desktop-ci FAILING | Not just the `ci` hang — `desktop-ci` is a real FAILURE. vitest 4 = the `(vitest-discovery)` `dist/**` pitfall; review carefully before merge (desktop already has a `vitest.config.ts` exclude, so this is likely a *different* vitest-4 breaking change — investigate, don't blind-merge). |
 
 ### Pending questions for the user
 
@@ -402,13 +467,31 @@ See `DEPLOYMENT.md` for the complete operator runbook.
 
 Most likely next priorities (pick what matches user's current ask):
 
-0. **v2 stack reaches the app end-to-end — alpha.** PR #73 (C++ grammar-gen + P0a + P0b) and #74 (renderer wiring + spec §9) MERGED to main. #75 (orphan-cleanup) and #76 (MeetingRenderer) OPEN awaiting CI + merge. After #76 merges, Stop → FamilyPicker → finalize → MeetingNote/LectureNote renders end-to-end. See §2 "What landed since (2026-05-28 → 2026-05-30)" for the per-PR detail.
+0. **TRACK 2 — quality / perf (CURRENT FOCUS).** All 4 families render
+   end-to-end and the 3 founder-smoke code bugs are fixed (#66 + #79).
+   What's left is **not code bugs** — it's whether the on-device output is
+   good + fast enough on 8GB. Three open dimensions, to be prioritized by
+   **measurement/eval, not guesswork** (this is what the current session
+   is brainstorming):
+   - **1B vs 3B (quality):** 1B structures weakly + hallucinates the
+     optional `lecturer` field; 3B is the quality default but slow/tight
+     on 8GB. Core tradeoff decision.
+   - **Long-input decode latency:** per-chunk grammar-decode is slow on
+     8GB (~5-min hangs on ~24-segment input). Grammar-decode compute, not
+     memory swap. Overlaps Spike 0.2 (latency MIXED, decision-0.2). Profile
+     chunk count × per-chunk time first.
+   - **STT accuracy:** kotoba-whisper q5_0 + mic env; separate sub-track.
 
-   **Next vertical (app-design):** Plan 6 (Interview/Brainstorm) renderer follow-up. PR #72 (`feat/v2-interview-brainstorm`) ai-infra core was pushed 2026-05-29 but is now **CONFLICTING/DIRTY** against main (rebase needed — #73/#74 landed underneath). Sequence: (a) rebase #72 onto main, resolve conflicts (likely `orchestrator.ts` + `ipc.ts`); (b) add `desktop/src/shared/families/{interview,brainstorm}/renderer.tsx` + tests + side-effect imports in `main.tsx`; (c) flip Interview + Brainstorm from `disabled: true` to enabled in `FamilyPickerStep.tsx`. The same React `(react-reserved-props)` pitfall rule applies — use `speakerRef` not `ref` for any speaker-index prop.
+   The prioritization + measurement plan lands as a decision memo under
+   `docs/superpowers/decisions/` (and/or `docs/REFACTOR_BACKLOG.md`).
+   Relevant skills: `llm-eval-loop`, `api-integration-pitfalls`. Existing
+   evidence: `desktop/spikes/phase-0/` (Spike 0.2 per-phase timings,
+   Path E/F/G), `desktop/eval/` (Plan 7 harness — runner is a STUB).
 
-   **Backlog mitigations (next safe wins):**
-   - P2 wall-time cap (90–120 s per attempt) + UI retry counter — alpha-gate mitigation against the triple-runaway 24-min hang. Touches `callWithGrammar` + renderer.
-   - Legacy `session/stop` IPC handler in `main/ipc.ts` is registered with no UI consumer post-#74. Safe to drop AFTER #72 lands (all 4 families have v2 finalize paths).
+   **Backlog mitigation still pending (alpha-gate, independent of TRACK 2):**
+   - P2 wall-time cap (90–120 s per attempt) + UI retry counter — guards
+     against the triple-runaway 24-min hang. Touches `callWithGrammar` +
+     renderer. See `docs/REFACTOR_BACKLOG.md`.
 
 1. **Test the today's fixes** with a real K-LMS lecture: stop button → final curate → export, slide detection multiple slide changes, .zip unpacking into Obsidian vault.
 
