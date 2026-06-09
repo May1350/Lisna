@@ -166,11 +166,20 @@ beforeEach(async () => {
 });
 
 // Helper: register with a given getCurrentSession getter and return the handler
-function setup(getCurrentSession: () => SessionContext | null, onSessionSettled?: () => void) {
+function setup(
+  getCurrentSession: () => SessionContext | null,
+  onSessionSettled?: () => void,
+  onTelemetry?: (e: unknown) => void,
+) {
   // SessionFinalizeDeps.getCurrentSession is now async (spec §9 LLM-load
   // happens in the real impl). Adapt sync test getters to that shape.
   const async_get = async () => getCurrentSession();
-  registerSessionFinalize({ getCurrentSession: async_get, onSessionSettled });
+  registerSessionFinalize({
+    getCurrentSession: async_get,
+    onSessionSettled,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    onTelemetry: onTelemetry as any,
+  });
   if (!capturedHandler) throw new Error('Handler not registered — ipcMain.handle mock not capturing session/finalize');
   return capturedHandler;
 }
@@ -302,5 +311,21 @@ describe('registerSessionFinalize', () => {
     const handler = setup(() => null, onSessionSettled);
     await expect(handler({}, { family: 'lecture' })).rejects.toThrow('NO_ACTIVE_SESSION');
     expect(onSessionSettled).toHaveBeenCalledTimes(1);
+  });
+
+  // (k) onTelemetry forwarding: every family route threads the callback through
+  // to the underlying finalize* call, so the founder-visible main.log gets the
+  // latency breakdown. This is the contract that the IPC handler's sessionLog
+  // wiring depends on (see ipc.ts registerSessionFinalize).
+  it('(k) forwards onTelemetry through routeLecture to finalizeLecture', async () => {
+    const sidecar = makeMockSidecar(makeLectureNoteJson());
+    const ctx = makeSessionContext({ sidecar });
+    const events: Array<{ kind: string }> = [];
+    const handler = setup(() => ctx, undefined, (e) => events.push(e as { kind: string }));
+    await handler({}, { family: 'lecture' });
+    // Saw at least one 'attempt', one 'chunk-done', and a 'finalize-done'.
+    expect(events.some((e) => e.kind === 'attempt')).toBe(true);
+    expect(events.some((e) => e.kind === 'chunk-done')).toBe(true);
+    expect(events.some((e) => e.kind === 'finalize-done')).toBe(true);
   });
 });

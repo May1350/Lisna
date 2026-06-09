@@ -23,8 +23,94 @@ import { runPostDecodePipeline } from '@shared/post-decode/pipeline';
 import { applyGeneratedMeta } from '@shared/note-schema/apply-generated-meta';
 import { deterministicMerge } from '@shared/post-decode/deterministic-merge';
 import { runMergeLLMCall } from './merge-llm';
-import { callWithGrammar, makeSidecarGenerator, type GrammarCapableSidecar } from './grammar-call';
+import { callWithGrammar, makeSidecarGenerator, type GrammarAttempt, type GrammarCapableSidecar } from './grammar-call';
 import { degradeToSingleSpeaker } from '@shared/families/meeting/degrade-to-single-speaker';
+import type { FinalizeFamily } from '../log';
+
+// ─── Route (b) latency decomposition (founder smoke 2026-06-09) ──────────────
+//
+// onTelemetry feeds the founder-visible main.log so a finalize wall time can
+// be split into cold-cache (first attempt latency >> rest), retry (totalAttempts
+// > chunks), or RAM swap (per-chunk latency grows monotonically). The IPC route
+// wires this to sessionLog.finalize{Attempt,ChunkDone,Done}; the per-event
+// shape is shape-only (counts/durations/seeds/JSON-paths-count) — see log.ts
+// PII contract.
+//
+// Re-exporting FinalizeFamily lets callers type their dispatcher without an
+// extra import path (orchestrator owns the finalize* surface).
+
+export type { FinalizeFamily };
+
+export type FinalizeTelemetryEvent =
+  | {
+      kind: 'attempt';
+      family: FinalizeFamily;
+      chunkIndex: number;
+      totalChunks: number;
+      outerAttempt: number;   // 0-indexed (matches the for-loop var)
+      attempt: number;        // 1-indexed (matches GrammarAttempt.attempt)
+      seed: number;
+      latencyMs: number;
+      ok: boolean;
+      reason?: string;
+      sanitizedSlotCount?: number;
+    }
+  | {
+      kind: 'chunk-done';
+      family: FinalizeFamily;
+      chunkIndex: number;
+      totalChunks: number;
+      totalLatencyMs: number;
+      outerAttempts: number;    // 1-indexed: how many outer cycles ran
+      totalAttempts: number;    // sum of inner attempts across outer
+      freshSeedRetries: number; // outerAttempts - 1
+      sanitizedTotal: number;
+    }
+  | {
+      kind: 'finalize-done';
+      family: FinalizeFamily;
+      totalLatencyMs: number;
+      chunkCount: number;
+      totalAttempts: number;
+      sanitizedTotal: number;
+    };
+
+/**
+ * Walk a callWithGrammar result's `attempts[]`, emit one 'attempt' telemetry
+ * event per inner attempt, and return per-call totals. Inline-duplicated 4×
+ * across finalize* is the alternative — the helper lets each finalizer stay
+ * a 3-line emit + accumulate at the call site.
+ */
+function emitGrammarAttempts(
+  onTelemetry: ((e: FinalizeTelemetryEvent) => void) | undefined,
+  ctx: {
+    family: FinalizeFamily;
+    chunkIndex: number;
+    totalChunks: number;
+    outerAttempt: number;
+  },
+  attempts: GrammarAttempt[],
+): { innerAttempts: number; sanitizedCount: number } {
+  let sanitizedCount = 0;
+  for (const att of attempts) {
+    const slotCount = att.sanitizedSlots?.length ?? 0;
+    sanitizedCount += slotCount;
+    onTelemetry?.({
+      kind: 'attempt',
+      family: ctx.family,
+      chunkIndex: ctx.chunkIndex,
+      totalChunks: ctx.totalChunks,
+      outerAttempt: ctx.outerAttempt,
+      attempt: att.attempt,
+      seed: att.seed,
+      latencyMs: att.latencyMs,
+      ok: att.ok,
+      reason: att.reason,
+      sanitizedSlotCount: slotCount || undefined,
+    });
+  }
+  return { innerAttempts: attempts.length, sanitizedCount };
+}
 
 // ─── P0b: per-chunk outer retry around callWithGrammar + post-decode ─────────
 // `callWithGrammar` receives `schema: z.unknown()` so its per-attempt
@@ -216,6 +302,15 @@ export interface FinalizeLectureArgs {
     | { phase: 'merge' }
     | { phase: 'persist' }
   ) => void;
+  /**
+   * Latency-decomposition telemetry (route (b), 2026-06-09). Emits one event
+   * per LLM attempt, per chunk completion, and a single finalize-done at the
+   * tail. The IPC route wires this to sessionLog so the founder-visible
+   * main.log carries the breakdown. Optional — omitting it is a silent no-op.
+   * Failure path: chunk-done still fires (try/finally), finalize-done does
+   * NOT (the throw escapes).
+   */
+  onTelemetry?: (e: FinalizeTelemetryEvent) => void;
 }
 
 export interface FinalizeLectureResult {
@@ -262,74 +357,113 @@ export async function finalizeLecture(
   const generator = makeSidecarGenerator(args.sidecar);
   const partials: Array<Partial<LectureNote>> = [];
 
+  // Telemetry accumulators for the finalize-done roll-up. Per-chunk values
+  // are local to each for-iteration; we sum them here so the final breadcrumb
+  // matches sum(chunk-done.totalAttempts) and sum(chunk-done.sanitizedTotal).
+  let totalAttemptsAcrossChunks = 0;
+  let sanitizedAcrossChunks = 0;
+
   // ── Per-chunk: call LLM + post-decode pipeline ────────────────────────────
   for (let i = 0; i < chunks.length; i++) {
     args.onProgress?.({ phase: 'chunk', chunkIndex: i, totalChunks: chunks.length });
 
-    // ── Correction F: systemTemplate (not system) ──────────────────────────
-    const userPrompt = prompt.chunkUserTemplate({
-      chunkIndex: i,
-      totalChunks: chunks.length,
-      transcript: renderTranscriptChunk(chunks[i]!),
-    });
-    const combinedPrompt = `${prompt.systemTemplate}\n\n${userPrompt}`;
+    // Telemetry: per-chunk wall + accumulators. try/finally ensures
+    // chunk-done fires even when the chunk throws (partial-failure
+    // attribution for the founder log).
+    const chunkT0 = Date.now();
+    let outerAttemptsUsed = 0;
+    let innerAttemptsThisChunk = 0;
+    let sanitizedThisChunk = 0;
 
-    // ── Correction A + A2 (P0b): callWithGrammar (z.unknown() pass-through)
-    //    wrapped in an outer retry loop on post-decode ZodError. See file-top
-    //    constants for budget + seed-block rationale.
-    let validated: unknown;
-    let lastZodError: z.ZodError | undefined;
-    for (let outerAttempt = 0; outerAttempt < POST_DECODE_OUTER_ATTEMPTS; outerAttempt++) {
-      const result = await callWithGrammar<unknown>({
-        prompt: combinedPrompt,
-        schema: z.unknown(),
-        grammar,
-        baseSeed: 5000 + i + outerAttempt * POST_DECODE_SEED_OFFSET,
-        temperature: tuning.temperature,
-        maxAttempts: 3,
-        maxTokens: tuning.maxGenTokens,
-        generator,
+    try {
+      // ── Correction F: systemTemplate (not system) ──────────────────────────
+      const userPrompt = prompt.chunkUserTemplate({
+        chunkIndex: i,
+        totalChunks: chunks.length,
+        transcript: renderTranscriptChunk(chunks[i]!),
       });
+      const combinedPrompt = `${prompt.systemTemplate}\n\n${userPrompt}`;
 
-      if (!result.ok) {
-        // ESCAPE_LITERAL_AT_ (added 2026-06-09): inner +100-stride seeds often
-        // can't escape the mode-collapse basin on short string slots. Give it
-        // a fresh outer seed block (+10000) before failing the chunk. See
-        // findEscapeLiteralInStrings + memory
-        // v2_track2_escape_literal_phase1_2026-06-09.
-        if (
-          result.finalReason.startsWith('ESCAPE_LITERAL_AT_') &&
-          outerAttempt < POST_DECODE_OUTER_ATTEMPTS - 1
-        ) {
-          continue;
-        }
-        throw new Error(`CHUNK_FAILED:${i}:${result.finalReason}`);
-      }
+      // ── Correction A + A2 (P0b): callWithGrammar (z.unknown() pass-through)
+      //    wrapped in an outer retry loop on post-decode ZodError. See file-top
+      //    constants for budget + seed-block rationale.
+      let validated: unknown;
+      let lastZodError: z.ZodError | undefined;
+      for (let outerAttempt = 0; outerAttempt < POST_DECODE_OUTER_ATTEMPTS; outerAttempt++) {
+        outerAttemptsUsed = outerAttempt + 1;
+        const result = await callWithGrammar<unknown>({
+          prompt: combinedPrompt,
+          schema: z.unknown(),
+          grammar,
+          baseSeed: 5000 + i + outerAttempt * POST_DECODE_SEED_OFFSET,
+          temperature: tuning.temperature,
+          maxAttempts: 3,
+          maxTokens: tuning.maxGenTokens,
+          generator,
+        });
 
-      // ── Correction C: re-serialize → runPostDecodePipeline ───────────────
-      // callWithGrammar parses JSON internally (with z.unknown(), it passes
-      // through). runPostDecodePipeline expects a raw JSON string — the
-      // double round-trip is acceptable for chunk-sized JSON (a few KB) and
-      // keeps Task 8's pipeline contract unchanged (per task spec: do NOT
-      // refactor pipeline to accept object).
-      const rawJson = JSON.stringify(result.value);
-      try {
-        validated = runPostDecodePipeline(rawJson, fam, args.transcript);
-        break;
-      } catch (e) {
-        if (e instanceof z.ZodError) {
-          lastZodError = e;
-          continue;
+        const stats = emitGrammarAttempts(
+          args.onTelemetry,
+          { family: 'lecture', chunkIndex: i, totalChunks: chunks.length, outerAttempt },
+          result.attempts,
+        );
+        innerAttemptsThisChunk += stats.innerAttempts;
+        sanitizedThisChunk += stats.sanitizedCount;
+
+        if (!result.ok) {
+          // ESCAPE_LITERAL_AT_ (added 2026-06-09): inner +100-stride seeds often
+          // can't escape the mode-collapse basin on short string slots. Give it
+          // a fresh outer seed block (+10000) before failing the chunk. See
+          // findEscapeLiteralInStrings + memory
+          // v2_track2_escape_literal_phase1_2026-06-09.
+          if (
+            result.finalReason.startsWith('ESCAPE_LITERAL_AT_') &&
+            outerAttempt < POST_DECODE_OUTER_ATTEMPTS - 1
+          ) {
+            continue;
+          }
+          throw new Error(`CHUNK_FAILED:${i}:${result.finalReason}`);
         }
-        throw e;  // ForwardIncompatNoteError / SyntaxError / etc. — not retriable
+
+        // ── Correction C: re-serialize → runPostDecodePipeline ───────────────
+        // callWithGrammar parses JSON internally (with z.unknown(), it passes
+        // through). runPostDecodePipeline expects a raw JSON string — the
+        // double round-trip is acceptable for chunk-sized JSON (a few KB) and
+        // keeps Task 8's pipeline contract unchanged (per task spec: do NOT
+        // refactor pipeline to accept object).
+        const rawJson = JSON.stringify(result.value);
+        try {
+          validated = runPostDecodePipeline(rawJson, fam, args.transcript);
+          break;
+        } catch (e) {
+          if (e instanceof z.ZodError) {
+            lastZodError = e;
+            continue;
+          }
+          throw e;  // ForwardIncompatNoteError / SyntaxError / etc. — not retriable
+        }
       }
+      if (validated === undefined) {
+        throw new Error(
+          `CHUNK_FAILED:${i}:POST_DECODE_ZOD_EXHAUSTED:${lastZodError?.issues[0]?.message ?? 'unknown'}`,
+        );
+      }
+      partials.push(validated as Partial<LectureNote>);
+    } finally {
+      args.onTelemetry?.({
+        kind: 'chunk-done',
+        family: 'lecture',
+        chunkIndex: i,
+        totalChunks: chunks.length,
+        totalLatencyMs: Date.now() - chunkT0,
+        outerAttempts: outerAttemptsUsed,
+        totalAttempts: innerAttemptsThisChunk,
+        freshSeedRetries: Math.max(0, outerAttemptsUsed - 1),
+        sanitizedTotal: sanitizedThisChunk,
+      });
+      totalAttemptsAcrossChunks += innerAttemptsThisChunk;
+      sanitizedAcrossChunks += sanitizedThisChunk;
     }
-    if (validated === undefined) {
-      throw new Error(
-        `CHUNK_FAILED:${i}:POST_DECODE_ZOD_EXHAUSTED:${lastZodError?.issues[0]?.message ?? 'unknown'}`,
-      );
-    }
-    partials.push(validated as Partial<LectureNote>);
   }
 
   // ── Merge partials ────────────────────────────────────────────────────────
@@ -376,6 +510,14 @@ export async function finalizeLecture(
   };
 
   args.onProgress?.({ phase: 'persist' });
+  args.onTelemetry?.({
+    kind: 'finalize-done',
+    family: 'lecture',
+    totalLatencyMs: Date.now() - t0,
+    chunkCount: chunks.length,
+    totalAttempts: totalAttemptsAcrossChunks,
+    sanitizedTotal: sanitizedAcrossChunks,
+  });
   return { note, telemetry };
 }
 
@@ -394,6 +536,8 @@ export interface FinalizeMeetingArgs {
     | { phase: 'merge' }
     | { phase: 'persist' }
   ) => void;
+  /** See FinalizeLectureArgs.onTelemetry. */
+  onTelemetry?: (e: FinalizeTelemetryEvent) => void;
 }
 
 export interface FinalizeMeetingResult {
@@ -451,68 +595,102 @@ export async function finalizeMeeting(
   const generator = makeSidecarGenerator(args.sidecar);
   const partials: Array<Partial<MeetingNote>> = [];
 
+  // See finalizeLecture for the rationale on these accumulators.
+  let totalAttemptsAcrossChunks = 0;
+  let sanitizedAcrossChunks = 0;
+
   for (let i = 0; i < chunks.length; i++) {
     args.onProgress?.({ phase: 'chunk', chunkIndex: i, totalChunks: chunks.length });
 
-    const userPrompt = prompt.chunkUserTemplate({
-      chunkIndex: i,
-      totalChunks: chunks.length,
-      transcript: renderTranscriptWithSpeakers(chunks[i]!, activeTranscript.speakers),
-    });
-    const combinedPrompt = `${prompt.systemTemplate}\n\n${userPrompt}`;
+    const chunkT0 = Date.now();
+    let outerAttemptsUsed = 0;
+    let innerAttemptsThisChunk = 0;
+    let sanitizedThisChunk = 0;
 
-    // P0b: outer retry around callWithGrammar + post-decode (same shape as
-    // finalizeLecture; see file-top constants). baseSeed 6000 (lecture uses
-    // 5000) keeps seeds distinct across families; with POST_DECODE_SEED_OFFSET
-    // 10000, lecture outer 1 (15000+i) and meeting outer 1 (16000+i) stay
-    // disjoint for any plausible chunk count.
-    let validated: unknown;
-    let lastZodError: z.ZodError | undefined;
-    for (let outerAttempt = 0; outerAttempt < POST_DECODE_OUTER_ATTEMPTS; outerAttempt++) {
-      const result = await callWithGrammar<unknown>({
-        prompt: combinedPrompt,
-        schema: z.unknown(),
-        grammar,
-        baseSeed: 6000 + i + outerAttempt * POST_DECODE_SEED_OFFSET,
-        temperature: tuning.temperature,
-        maxAttempts: 3,
-        maxTokens: tuning.maxGenTokens,
-        generator,
+    try {
+      const userPrompt = prompt.chunkUserTemplate({
+        chunkIndex: i,
+        totalChunks: chunks.length,
+        transcript: renderTranscriptWithSpeakers(chunks[i]!, activeTranscript.speakers),
       });
+      const combinedPrompt = `${prompt.systemTemplate}\n\n${userPrompt}`;
 
-      if (!result.ok) {
-        // ESCAPE_LITERAL_AT_ (added 2026-06-09): inner +100-stride seeds often
-        // can't escape the mode-collapse basin on short string slots. Give it
-        // a fresh outer seed block (+10000) before failing the chunk. See
-        // findEscapeLiteralInStrings + memory
-        // v2_track2_escape_literal_phase1_2026-06-09.
-        if (
-          result.finalReason.startsWith('ESCAPE_LITERAL_AT_') &&
-          outerAttempt < POST_DECODE_OUTER_ATTEMPTS - 1
-        ) {
-          continue;
-        }
-        throw new Error(`CHUNK_FAILED:${i}:${result.finalReason}`);
-      }
+      // P0b: outer retry around callWithGrammar + post-decode (same shape as
+      // finalizeLecture; see file-top constants). baseSeed 6000 (lecture uses
+      // 5000) keeps seeds distinct across families; with POST_DECODE_SEED_OFFSET
+      // 10000, lecture outer 1 (15000+i) and meeting outer 1 (16000+i) stay
+      // disjoint for any plausible chunk count.
+      let validated: unknown;
+      let lastZodError: z.ZodError | undefined;
+      for (let outerAttempt = 0; outerAttempt < POST_DECODE_OUTER_ATTEMPTS; outerAttempt++) {
+        outerAttemptsUsed = outerAttempt + 1;
+        const result = await callWithGrammar<unknown>({
+          prompt: combinedPrompt,
+          schema: z.unknown(),
+          grammar,
+          baseSeed: 6000 + i + outerAttempt * POST_DECODE_SEED_OFFSET,
+          temperature: tuning.temperature,
+          maxAttempts: 3,
+          maxTokens: tuning.maxGenTokens,
+          generator,
+        });
 
-      const rawJson = JSON.stringify(result.value);
-      try {
-        validated = runPostDecodePipeline(rawJson, fam, activeTranscript);
-        break;
-      } catch (e) {
-        if (e instanceof z.ZodError) {
-          lastZodError = e;
-          continue;
+        const stats = emitGrammarAttempts(
+          args.onTelemetry,
+          { family: 'meeting', chunkIndex: i, totalChunks: chunks.length, outerAttempt },
+          result.attempts,
+        );
+        innerAttemptsThisChunk += stats.innerAttempts;
+        sanitizedThisChunk += stats.sanitizedCount;
+
+        if (!result.ok) {
+          // ESCAPE_LITERAL_AT_ (added 2026-06-09): inner +100-stride seeds often
+          // can't escape the mode-collapse basin on short string slots. Give it
+          // a fresh outer seed block (+10000) before failing the chunk. See
+          // findEscapeLiteralInStrings + memory
+          // v2_track2_escape_literal_phase1_2026-06-09.
+          if (
+            result.finalReason.startsWith('ESCAPE_LITERAL_AT_') &&
+            outerAttempt < POST_DECODE_OUTER_ATTEMPTS - 1
+          ) {
+            continue;
+          }
+          throw new Error(`CHUNK_FAILED:${i}:${result.finalReason}`);
         }
-        throw e;
+
+        const rawJson = JSON.stringify(result.value);
+        try {
+          validated = runPostDecodePipeline(rawJson, fam, activeTranscript);
+          break;
+        } catch (e) {
+          if (e instanceof z.ZodError) {
+            lastZodError = e;
+            continue;
+          }
+          throw e;
+        }
       }
+      if (validated === undefined) {
+        throw new Error(
+          `CHUNK_FAILED:${i}:POST_DECODE_ZOD_EXHAUSTED:${lastZodError?.issues[0]?.message ?? 'unknown'}`,
+        );
+      }
+      partials.push(validated as Partial<MeetingNote>);
+    } finally {
+      args.onTelemetry?.({
+        kind: 'chunk-done',
+        family: 'meeting',
+        chunkIndex: i,
+        totalChunks: chunks.length,
+        totalLatencyMs: Date.now() - chunkT0,
+        outerAttempts: outerAttemptsUsed,
+        totalAttempts: innerAttemptsThisChunk,
+        freshSeedRetries: Math.max(0, outerAttemptsUsed - 1),
+        sanitizedTotal: sanitizedThisChunk,
+      });
+      totalAttemptsAcrossChunks += innerAttemptsThisChunk;
+      sanitizedAcrossChunks += sanitizedThisChunk;
     }
-    if (validated === undefined) {
-      throw new Error(
-        `CHUNK_FAILED:${i}:POST_DECODE_ZOD_EXHAUSTED:${lastZodError?.issues[0]?.message ?? 'unknown'}`,
-      );
-    }
-    partials.push(validated as Partial<MeetingNote>);
   }
 
   args.onProgress?.({ phase: 'merge' });
@@ -557,6 +735,14 @@ export async function finalizeMeeting(
   };
 
   args.onProgress?.({ phase: 'persist' });
+  args.onTelemetry?.({
+    kind: 'finalize-done',
+    family: 'meeting',
+    totalLatencyMs: Date.now() - t0,
+    chunkCount: chunks.length,
+    totalAttempts: totalAttemptsAcrossChunks,
+    sanitizedTotal: sanitizedAcrossChunks,
+  });
   return { note, telemetry };
 }
 
@@ -575,6 +761,8 @@ export interface FinalizeInterviewArgs {
     | { phase: 'merge' }
     | { phase: 'persist' }
   ) => void;
+  /** See FinalizeLectureArgs.onTelemetry. */
+  onTelemetry?: (e: FinalizeTelemetryEvent) => void;
 }
 
 export interface FinalizeInterviewResult {
@@ -629,67 +817,101 @@ export async function finalizeInterview(
   const generator = makeSidecarGenerator(args.sidecar);
   const partials: Array<Record<string, unknown>> = [];
 
+  // See finalizeLecture for the rationale on these accumulators.
+  let totalAttemptsAcrossChunks = 0;
+  let sanitizedAcrossChunks = 0;
+
   for (let i = 0; i < chunks.length; i++) {
     args.onProgress?.({ phase: 'chunk', chunkIndex: i, totalChunks: chunks.length });
 
-    const userPrompt = prompt.chunkUserTemplate({
-      chunkIndex: i,
-      totalChunks: chunks.length,
-      transcript: renderTranscriptWithSpeakers(chunks[i]!, activeTranscript.speakers),
-    });
-    const combinedPrompt = `${prompt.systemTemplate}\n\n${userPrompt}`;
+    const chunkT0 = Date.now();
+    let outerAttemptsUsed = 0;
+    let innerAttemptsThisChunk = 0;
+    let sanitizedThisChunk = 0;
 
-    // ── Correction A + A2 (P0b): callWithGrammar (z.unknown() pass-through)
-    //    wrapped in an outer retry loop on post-decode ZodError. See file-top
-    //    constants for budget + seed-block rationale.
-    //    baseSeed 7000 (lecture 5000, meeting 6000) keeps seeds distinct across families.
-    let validated: unknown;
-    let lastZodError: z.ZodError | undefined;
-    for (let outerAttempt = 0; outerAttempt < POST_DECODE_OUTER_ATTEMPTS; outerAttempt++) {
-      const result = await callWithGrammar<unknown>({
-        prompt: combinedPrompt,
-        schema: z.unknown(),
-        grammar,
-        baseSeed: 7000 + i + outerAttempt * POST_DECODE_SEED_OFFSET,
-        temperature: tuning.temperature,
-        maxAttempts: 3,
-        maxTokens: tuning.maxGenTokens,
-        generator,
+    try {
+      const userPrompt = prompt.chunkUserTemplate({
+        chunkIndex: i,
+        totalChunks: chunks.length,
+        transcript: renderTranscriptWithSpeakers(chunks[i]!, activeTranscript.speakers),
       });
+      const combinedPrompt = `${prompt.systemTemplate}\n\n${userPrompt}`;
 
-      if (!result.ok) {
-        // ESCAPE_LITERAL_AT_ (added 2026-06-09): inner +100-stride seeds often
-        // can't escape the mode-collapse basin on short string slots. Give it
-        // a fresh outer seed block (+10000) before failing the chunk. See
-        // findEscapeLiteralInStrings + memory
-        // v2_track2_escape_literal_phase1_2026-06-09.
-        if (
-          result.finalReason.startsWith('ESCAPE_LITERAL_AT_') &&
-          outerAttempt < POST_DECODE_OUTER_ATTEMPTS - 1
-        ) {
-          continue;
-        }
-        throw new Error(`CHUNK_FAILED:${i}:${result.finalReason}`);
-      }
+      // ── Correction A + A2 (P0b): callWithGrammar (z.unknown() pass-through)
+      //    wrapped in an outer retry loop on post-decode ZodError. See file-top
+      //    constants for budget + seed-block rationale.
+      //    baseSeed 7000 (lecture 5000, meeting 6000) keeps seeds distinct across families.
+      let validated: unknown;
+      let lastZodError: z.ZodError | undefined;
+      for (let outerAttempt = 0; outerAttempt < POST_DECODE_OUTER_ATTEMPTS; outerAttempt++) {
+        outerAttemptsUsed = outerAttempt + 1;
+        const result = await callWithGrammar<unknown>({
+          prompt: combinedPrompt,
+          schema: z.unknown(),
+          grammar,
+          baseSeed: 7000 + i + outerAttempt * POST_DECODE_SEED_OFFSET,
+          temperature: tuning.temperature,
+          maxAttempts: 3,
+          maxTokens: tuning.maxGenTokens,
+          generator,
+        });
 
-      const rawJson = JSON.stringify(result.value);
-      try {
-        validated = runPostDecodePipeline(rawJson, fam, activeTranscript);
-        break;
-      } catch (e) {
-        if (e instanceof z.ZodError) {
-          lastZodError = e;
-          continue;
+        const stats = emitGrammarAttempts(
+          args.onTelemetry,
+          { family: 'interview', chunkIndex: i, totalChunks: chunks.length, outerAttempt },
+          result.attempts,
+        );
+        innerAttemptsThisChunk += stats.innerAttempts;
+        sanitizedThisChunk += stats.sanitizedCount;
+
+        if (!result.ok) {
+          // ESCAPE_LITERAL_AT_ (added 2026-06-09): inner +100-stride seeds often
+          // can't escape the mode-collapse basin on short string slots. Give it
+          // a fresh outer seed block (+10000) before failing the chunk. See
+          // findEscapeLiteralInStrings + memory
+          // v2_track2_escape_literal_phase1_2026-06-09.
+          if (
+            result.finalReason.startsWith('ESCAPE_LITERAL_AT_') &&
+            outerAttempt < POST_DECODE_OUTER_ATTEMPTS - 1
+          ) {
+            continue;
+          }
+          throw new Error(`CHUNK_FAILED:${i}:${result.finalReason}`);
         }
-        throw e;  // ForwardIncompatNoteError / SyntaxError / etc. — not retriable
+
+        const rawJson = JSON.stringify(result.value);
+        try {
+          validated = runPostDecodePipeline(rawJson, fam, activeTranscript);
+          break;
+        } catch (e) {
+          if (e instanceof z.ZodError) {
+            lastZodError = e;
+            continue;
+          }
+          throw e;  // ForwardIncompatNoteError / SyntaxError / etc. — not retriable
+        }
       }
+      if (validated === undefined) {
+        throw new Error(
+          `CHUNK_FAILED:${i}:POST_DECODE_ZOD_EXHAUSTED:${lastZodError?.issues[0]?.message ?? 'unknown'}`,
+        );
+      }
+      partials.push(validated as Record<string, unknown>);
+    } finally {
+      args.onTelemetry?.({
+        kind: 'chunk-done',
+        family: 'interview',
+        chunkIndex: i,
+        totalChunks: chunks.length,
+        totalLatencyMs: Date.now() - chunkT0,
+        outerAttempts: outerAttemptsUsed,
+        totalAttempts: innerAttemptsThisChunk,
+        freshSeedRetries: Math.max(0, outerAttemptsUsed - 1),
+        sanitizedTotal: sanitizedThisChunk,
+      });
+      totalAttemptsAcrossChunks += innerAttemptsThisChunk;
+      sanitizedAcrossChunks += sanitizedThisChunk;
     }
-    if (validated === undefined) {
-      throw new Error(
-        `CHUNK_FAILED:${i}:POST_DECODE_ZOD_EXHAUSTED:${lastZodError?.issues[0]?.message ?? 'unknown'}`,
-      );
-    }
-    partials.push(validated as Record<string, unknown>);
   }
 
   // ── Merge ───────────────────────────────────────────────────────────────────
@@ -756,6 +978,14 @@ export async function finalizeInterview(
   };
 
   args.onProgress?.({ phase: 'persist' });
+  args.onTelemetry?.({
+    kind: 'finalize-done',
+    family: 'interview',
+    totalLatencyMs: Date.now() - t0,
+    chunkCount: chunks.length,
+    totalAttempts: totalAttemptsAcrossChunks,
+    sanitizedTotal: sanitizedAcrossChunks,
+  });
   return { note, telemetry };
 }
 
@@ -772,6 +1002,8 @@ export interface FinalizeBrainstormArgs {
     | { phase: 'merge' }
     | { phase: 'persist' }
   ) => void;
+  /** See FinalizeLectureArgs.onTelemetry. */
+  onTelemetry?: (e: FinalizeTelemetryEvent) => void;
 }
 
 export interface FinalizeBrainstormResult {
@@ -817,67 +1049,101 @@ export async function finalizeBrainstorm(
   const generator = makeSidecarGenerator(args.sidecar);
   const partials: Array<Record<string, unknown>> = [];
 
+  // See finalizeLecture for the rationale on these accumulators.
+  let totalAttemptsAcrossChunks = 0;
+  let sanitizedAcrossChunks = 0;
+
   for (let i = 0; i < chunks.length; i++) {
     args.onProgress?.({ phase: 'chunk', chunkIndex: i, totalChunks: chunks.length });
 
-    const userPrompt = prompt.chunkUserTemplate({
-      chunkIndex: i,
-      totalChunks: chunks.length,
-      transcript: renderTranscriptWithSpeakers(chunks[i]!, args.transcript.speakers),
-    });
-    const combinedPrompt = `${prompt.systemTemplate}\n\n${userPrompt}`;
+    const chunkT0 = Date.now();
+    let outerAttemptsUsed = 0;
+    let innerAttemptsThisChunk = 0;
+    let sanitizedThisChunk = 0;
 
-    // ── Correction A + A2 (P0b): callWithGrammar (z.unknown() pass-through)
-    //    wrapped in an outer retry loop on post-decode ZodError. See file-top
-    //    constants for budget + seed-block rationale.
-    //    baseSeed 8000 (lecture 5000, meeting 6000, interview 7000) keeps seeds distinct.
-    let validated: unknown;
-    let lastZodError: z.ZodError | undefined;
-    for (let outerAttempt = 0; outerAttempt < POST_DECODE_OUTER_ATTEMPTS; outerAttempt++) {
-      const result = await callWithGrammar<unknown>({
-        prompt: combinedPrompt,
-        schema: z.unknown(),
-        grammar,
-        baseSeed: 8000 + i + outerAttempt * POST_DECODE_SEED_OFFSET,
-        temperature: tuning.temperature,
-        maxAttempts: 3,
-        maxTokens: tuning.maxGenTokens,
-        generator,
+    try {
+      const userPrompt = prompt.chunkUserTemplate({
+        chunkIndex: i,
+        totalChunks: chunks.length,
+        transcript: renderTranscriptWithSpeakers(chunks[i]!, args.transcript.speakers),
       });
+      const combinedPrompt = `${prompt.systemTemplate}\n\n${userPrompt}`;
 
-      if (!result.ok) {
-        // ESCAPE_LITERAL_AT_ (added 2026-06-09): inner +100-stride seeds often
-        // can't escape the mode-collapse basin on short string slots. Give it
-        // a fresh outer seed block (+10000) before failing the chunk. See
-        // findEscapeLiteralInStrings + memory
-        // v2_track2_escape_literal_phase1_2026-06-09.
-        if (
-          result.finalReason.startsWith('ESCAPE_LITERAL_AT_') &&
-          outerAttempt < POST_DECODE_OUTER_ATTEMPTS - 1
-        ) {
-          continue;
-        }
-        throw new Error(`CHUNK_FAILED:${i}:${result.finalReason}`);
-      }
+      // ── Correction A + A2 (P0b): callWithGrammar (z.unknown() pass-through)
+      //    wrapped in an outer retry loop on post-decode ZodError. See file-top
+      //    constants for budget + seed-block rationale.
+      //    baseSeed 8000 (lecture 5000, meeting 6000, interview 7000) keeps seeds distinct.
+      let validated: unknown;
+      let lastZodError: z.ZodError | undefined;
+      for (let outerAttempt = 0; outerAttempt < POST_DECODE_OUTER_ATTEMPTS; outerAttempt++) {
+        outerAttemptsUsed = outerAttempt + 1;
+        const result = await callWithGrammar<unknown>({
+          prompt: combinedPrompt,
+          schema: z.unknown(),
+          grammar,
+          baseSeed: 8000 + i + outerAttempt * POST_DECODE_SEED_OFFSET,
+          temperature: tuning.temperature,
+          maxAttempts: 3,
+          maxTokens: tuning.maxGenTokens,
+          generator,
+        });
 
-      const rawJson = JSON.stringify(result.value);
-      try {
-        validated = runPostDecodePipeline(rawJson, fam, args.transcript);
-        break;
-      } catch (e) {
-        if (e instanceof z.ZodError) {
-          lastZodError = e;
-          continue;
+        const stats = emitGrammarAttempts(
+          args.onTelemetry,
+          { family: 'brainstorm', chunkIndex: i, totalChunks: chunks.length, outerAttempt },
+          result.attempts,
+        );
+        innerAttemptsThisChunk += stats.innerAttempts;
+        sanitizedThisChunk += stats.sanitizedCount;
+
+        if (!result.ok) {
+          // ESCAPE_LITERAL_AT_ (added 2026-06-09): inner +100-stride seeds often
+          // can't escape the mode-collapse basin on short string slots. Give it
+          // a fresh outer seed block (+10000) before failing the chunk. See
+          // findEscapeLiteralInStrings + memory
+          // v2_track2_escape_literal_phase1_2026-06-09.
+          if (
+            result.finalReason.startsWith('ESCAPE_LITERAL_AT_') &&
+            outerAttempt < POST_DECODE_OUTER_ATTEMPTS - 1
+          ) {
+            continue;
+          }
+          throw new Error(`CHUNK_FAILED:${i}:${result.finalReason}`);
         }
-        throw e;  // ForwardIncompatNoteError / SyntaxError / etc. — not retriable
+
+        const rawJson = JSON.stringify(result.value);
+        try {
+          validated = runPostDecodePipeline(rawJson, fam, args.transcript);
+          break;
+        } catch (e) {
+          if (e instanceof z.ZodError) {
+            lastZodError = e;
+            continue;
+          }
+          throw e;  // ForwardIncompatNoteError / SyntaxError / etc. — not retriable
+        }
       }
+      if (validated === undefined) {
+        throw new Error(
+          `CHUNK_FAILED:${i}:POST_DECODE_ZOD_EXHAUSTED:${lastZodError?.issues[0]?.message ?? 'unknown'}`,
+        );
+      }
+      partials.push(validated as Record<string, unknown>);
+    } finally {
+      args.onTelemetry?.({
+        kind: 'chunk-done',
+        family: 'brainstorm',
+        chunkIndex: i,
+        totalChunks: chunks.length,
+        totalLatencyMs: Date.now() - chunkT0,
+        outerAttempts: outerAttemptsUsed,
+        totalAttempts: innerAttemptsThisChunk,
+        freshSeedRetries: Math.max(0, outerAttemptsUsed - 1),
+        sanitizedTotal: sanitizedThisChunk,
+      });
+      totalAttemptsAcrossChunks += innerAttemptsThisChunk;
+      sanitizedAcrossChunks += sanitizedThisChunk;
     }
-    if (validated === undefined) {
-      throw new Error(
-        `CHUNK_FAILED:${i}:POST_DECODE_ZOD_EXHAUSTED:${lastZodError?.issues[0]?.message ?? 'unknown'}`,
-      );
-    }
-    partials.push(validated as Record<string, unknown>);
   }
 
   // ── Merge ───────────────────────────────────────────────────────────────────
@@ -940,6 +1206,14 @@ export async function finalizeBrainstorm(
   };
 
   args.onProgress?.({ phase: 'persist' });
+  args.onTelemetry?.({
+    kind: 'finalize-done',
+    family: 'brainstorm',
+    totalLatencyMs: Date.now() - t0,
+    chunkCount: chunks.length,
+    totalAttempts: totalAttemptsAcrossChunks,
+    sanitizedTotal: sanitizedAcrossChunks,
+  });
   return { note, telemetry };
 }
 
