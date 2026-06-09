@@ -16,7 +16,13 @@ import type { TranscriptSegment as LegacySegment } from '@shared/types';
 import { adaptToV2Transcript } from '@shared/note-schema';
 import type { NoteBase, NoteFamily } from '@shared/note-schema';
 import type { GrammarCapableSidecar } from '../grammar-call';
-import { finalizeLecture, finalizeMeeting, finalizeInterview, finalizeBrainstorm } from '../orchestrator';
+import {
+  finalizeLecture,
+  finalizeMeeting,
+  finalizeInterview,
+  finalizeBrainstorm,
+  type FinalizeTelemetryEvent,
+} from '../orchestrator';
 import { modelProfiles } from '@shared/models/profiles';
 
 // Side-effect imports: register family cores so familyCoreRegistry is populated
@@ -85,6 +91,19 @@ export interface SessionFinalizeDeps {
    * note-generation doesn't strand the session either.
    */
   onSessionSettled?: () => void;
+
+  /**
+   * Optional telemetry sink — production wires this to `sessionLog.finalize*`
+   * (in `main/ipc.ts`) so per-attempt latency / parse pass+fail / fresh-seed
+   * trigger breadcrumbs land in `~/Library/Logs/Lisna/main.log`. Tests
+   * typically omit this; when omitted the underlying finalize*'s
+   * onTelemetry callback is undefined and the orchestrator emits nothing.
+   *
+   * Decouples session-finalize.ts from `../log` (its only dep on the main-
+   * process log facility would be this one call) — same DI shape as
+   * `onSessionSettled`.
+   */
+  onTelemetry?: (e: FinalizeTelemetryEvent) => void;
 }
 
 // ─── channel constant (mirrors CHANNELS in ipc.ts) ───────────────────────────
@@ -147,6 +166,7 @@ async function routeLecture(
     sidecar: session.sidecar,
     modelProfile,
     promptVariantId,
+    onTelemetry: deps.onTelemetry,
   });
 
   // 5. Return placeholder noteId + the structured note. We thread
@@ -191,6 +211,7 @@ async function routeMeeting(
     modelProfile,
     promptVariantId,
     diarizationStatus: 'disabled',
+    onTelemetry: deps.onTelemetry,
   });
 
   return { noteId: result.telemetry.noteId, note: result.note };
@@ -222,6 +243,7 @@ async function routeInterview(
     modelProfile,
     promptVariantId,
     diarizationStatus: 'disabled',
+    onTelemetry: deps.onTelemetry,
   });
 
   return { noteId: result.telemetry.noteId, note: result.note };
@@ -250,6 +272,7 @@ async function routeBrainstorm(
     sidecar: session.sidecar,
     modelProfile,
     promptVariantId,
+    onTelemetry: deps.onTelemetry,
   });
 
   return { noteId: result.telemetry.noteId, note: result.note };

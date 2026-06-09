@@ -108,6 +108,17 @@ export interface LogSink {
  * (transcript, prompt, note body), add a separate emit method and route
  * it through `redactPath` or a length-only summarizer.
  */
+/** Truncation cap for free-form reason strings in finalizeAttempt breadcrumbs.
+ *  Keeps log lines under ~200 chars so `tail -f` stays readable. The actual
+ *  reason can be longer (e.g. ESCAPE_LITERAL_AT_<deep path>:<json sample>); the
+ *  60-char prefix is enough to identify the failure mode. */
+const REASON_TRUNC = 60;
+
+/** Family discriminator for `finalize*` breadcrumbs. Mirrors the NoteFamily
+ *  string union in `@shared/note-schema` so callers can pass it through
+ *  without an extra import in log.ts (which already avoids deep deps). */
+export type FinalizeFamily = 'lecture' | 'meeting' | 'interview' | 'brainstorm';
+
 export function createSessionLog(sink: LogSink) {
   return {
     start(language: string): void {
@@ -125,7 +136,71 @@ export function createSessionLog(sink: LogSink) {
     respawn(args: { attempt: number; reason: string }): void {
       sink.warn(`[sidecar] respawn attempt=${args.attempt} reason=${args.reason}`);
     },
+
+    // ── Route (b) latency decomposition (founder smoke 2026-06-09) ─────────
+    // A finalize wall time can be split into (cold-cache, retry, RAM) only if
+    // each attempt's seed/latency, each chunk's roll-up, and the per-finalize
+    // total are all on the log file. These three methods emit shape-only
+    // breadcrumbs; the eval harness reads `GrammarAttempt.sanitizedSlots` for
+    // path-level detail (kept out of the log to bound line length).
+
+    finalizeAttempt(args: {
+      family: FinalizeFamily;
+      chunkIndex: number;
+      totalChunks: number;
+      outerAttempt: number;     // 0-indexed (matches the for-loop var)
+      attempt: number;           // 1-indexed (matches GrammarAttempt.attempt)
+      seed: number;
+      latencyMs: number;
+      ok: boolean;
+      reason?: string;           // populated on !ok
+      sanitizedSlotCount?: number;
+    }): void {
+      const reasonPart = args.reason ? ` reason=${truncateReason(args.reason)}` : '';
+      const sanPart = args.sanitizedSlotCount ? ` sanitized=${args.sanitizedSlotCount}` : '';
+      sink.info(
+        `[finalize:${args.family}] chunk=${args.chunkIndex}/${args.totalChunks}` +
+        ` outerAttempt=${args.outerAttempt} attempt=${args.attempt}` +
+        ` seed=${args.seed} latencyMs=${args.latencyMs} ok=${args.ok}${reasonPart}${sanPart}`,
+      );
+    },
+
+    finalizeChunkDone(args: {
+      family: FinalizeFamily;
+      chunkIndex: number;
+      totalChunks: number;
+      totalLatencyMs: number;     // wall across all outer attempts for this chunk
+      outerAttempts: number;      // 1-indexed: how many outer cycles taken
+      totalAttempts: number;      // sum of inner attempts across outer
+      freshSeedRetries: number;   // outerAttempts - 1 (explicit for skim-readability)
+      sanitizedTotal: number;     // sum of sanitizedSlots.length across attempts
+    }): void {
+      sink.info(
+        `[finalize:${args.family}] chunk=${args.chunkIndex}/${args.totalChunks} done` +
+        ` latencyMs=${args.totalLatencyMs} outerAttempts=${args.outerAttempts}` +
+        ` totalAttempts=${args.totalAttempts} freshSeedRetries=${args.freshSeedRetries}` +
+        ` sanitized=${args.sanitizedTotal}`,
+      );
+    },
+
+    finalizeDone(args: {
+      family: FinalizeFamily;
+      totalLatencyMs: number;
+      chunkCount: number;
+      totalAttempts: number;
+      sanitizedTotal: number;
+    }): void {
+      sink.info(
+        `[finalize:${args.family}] DONE latencyMs=${args.totalLatencyMs}` +
+        ` chunks=${args.chunkCount} totalAttempts=${args.totalAttempts}` +
+        ` sanitized=${args.sanitizedTotal}`,
+      );
+    },
   };
+}
+
+function truncateReason(reason: string): string {
+  return reason.length <= REASON_TRUNC ? reason : `${reason.slice(0, REASON_TRUNC)}…`;
 }
 
 /**
