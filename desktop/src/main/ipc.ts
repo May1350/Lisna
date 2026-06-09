@@ -214,9 +214,9 @@ export function registerIpc(deps: IpcDeps) {
     },
     // Route (b) latency-decomposition telemetry → sessionLog (founder-visible
     // main.log). Per-event shape matches sessionLog.finalize* methods 1:1
-    // modulo the `kind` discriminator. The switch is exhaustive — adding a
-    // new FinalizeTelemetryEvent variant fails to compile here until you
-    // wire it to the matching log method.
+    // modulo the `kind` discriminator. The default arm assigns `e` to `never`
+    // so a new FinalizeTelemetryEvent variant fails to compile here until
+    // you wire it to the matching log method.
     onTelemetry: (e) => {
       switch (e.kind) {
         case 'attempt':
@@ -228,6 +228,10 @@ export function registerIpc(deps: IpcDeps) {
         case 'finalize-done':
           sessionLog.finalizeDone(e);
           return;
+        default: {
+          const _exhaustive: never = e;
+          return _exhaustive;
+        }
       }
     },
   });
