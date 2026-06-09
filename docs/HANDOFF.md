@@ -1,6 +1,6 @@
 # Lisna — Session Handoff
 
-**Last updated**: 2026-06-08 (all 4 families render end-to-end; founder smoke done; #66+#79 note-gen bugs fixed; focus → TRACK 2 quality)
+**Last updated**: 2026-06-09 (TRACK 2 quality — 3 PRs OPEN stacked: #88 escape-literal sanitize, #89 latency telemetry, #90 helper extract; route (a) closed; routes (b)/(c) pending founder retest / Path G design approval)
 **Purpose**: Bring a new session up to speed in <5 min. Read top → bottom in order.
 **Reader**: future-self (or another Claude). Skip what you already know.
 
@@ -50,7 +50,7 @@ segments). Curator: OpenAI gpt-4o-mini. Auth: JWT issued from Google OAuth.
 
 ## 2. Critical state (read this before anything else)
 
-### v2 current state (2026-06-08) — READ FIRST
+### v2 current state (2026-06-09) — READ FIRST
 
 The active track is the **v2 on-device desktop app** (`desktop/`), not the
 v1 cloud extension. The v1 sections further down (§2 "What's working
@@ -63,19 +63,72 @@ history** — useful background, not current work.
   `session/finalize` → on-device STT → on-device LLM (grammar-constrained)
   → structured note → renderer → NoteView. Lecture / Meeting / Interview /
   Brainstorm all have cores + renderers + IPC routing on `main`.
-- **Founder smoke done** on a real 8GB MacBook Air with real models
-  (Llama-3.2-1B/3B Q4_K_M + kotoba-whisper v2.0 q5_0). It surfaced 3
-  note-gen **code bugs — all now fixed + merged**:
-  - **#66 (`6348eb2`)** — chunked-note n_ctx overflow (silent empty/
-    truncated note) + `schemaVersion` normalize + system-owned note
-    metadata (the "Generated Invalid Date").
-  - **#79 (`f4e916a`)** — v2 Stop flow never reset the session FSM
-    (`SESSION_ACTIVE` after the first recording until app restart).
-- **Code bugs are done. The remaining gap is QUALITY/PERF, not code** —
-  this is **TRACK 2** (see §5 + §8). The STT↔LLM memory swap is already
-  implemented (`ipc.ts` unloads STT → loads LLM; finalize `finally`
-  unloads LLM), so the gap is **grammar-decode speed** + **1B output
-  quality** + **STT accuracy** on 8GB. Approach: measure/eval, not guess.
+- **First real-time founder smoke (2026-06-09)** on free-talk ~30 s JA
+  exposed TWO quality bugs (NOT code crashes):
+  - **(a) escape-literal mode-collapse** — 3B emits `"\\u…"` /
+    `"\\'<nl>"` literals in short JSON string slots; JSON.parse leaves
+    them as ASCII; Zod accepts; user sees `あしす…` in 3 headings + 2
+    items. **PR [#88] OPEN** layers a shape-agnostic sanitize
+    (`\uXXXX` decode → nuke backslash → trim ASCII noise) into
+    `callWithGrammar` + outer-retry expansion across all 4 family
+    finalizers when ESCAPE_LITERAL_AT_ exhausts inner attempts.
+    Real-3B verification: 200 s+ → 28 s, one call, no retries.
+  - **(b) ~4-min Stop→Note latency** with no log surface to attribute
+    (cold-cache vs retry vs RAM). **PR [#89] OPEN** adds typed
+    `sessionLog.finalize{Attempt,ChunkDone,Done}` breadcrumbs +
+    optional `onTelemetry` callback on all 4 `finalize*` + STT-unload
+    / LLM-load phase timing in `getCurrentSession()`. Decision tree
+    in PR body lets the founder retest discriminate the hypotheses.
+- **PR [#90] OPEN** is the structural cleanup on top of #89 — extracts
+  `runChunkWithGrammar` helper from the 4 duplicated per-chunk outer-
+  retry loops (DRY trigger 4× met) + adds the `const _: never = e;`
+  exhaustive arm to `ipc.ts` that #89's reviewer flagged as missing.
+  −114 LoC in orchestrator.ts. Zero behavior change; zero test files
+  modified. Pre-push reviewer APPROVED with byte-equivalence audit.
+- **Stack**: `main ← #88 ← #89 ← #90`. Auto-retargets to main as each
+  parent merges + its head auto-deletes.
+- **Earlier code bugs from the desktop-app smoke (#66/#79) are merged**
+  on `main` already; #88/#89/#90 are the TRACK 2 quality follow-up.
+
+**Routes** (the founder smoke 2026-06-09 left four open):
+1. **(a) escape-literal repro + fix** — closed by PR #88, founder
+   retest pending.
+2. **(b) latency timing decomposition** — instrumentation closed by
+   PR #89; needs founder retest for the actual answer.
+3. **(c) 1B re-eval under Path G** — see "Path G grammar-propagation
+   gap" below; design + founder approval required before code.
+4. **(d) Quality-policy brainstorm** — only enter after (a)+(b)+(c)
+   numbers exist. Don't panic-decide.
+
+**Path G grammar-propagation gap (discovered 2026-06-09)**
+
+Path G ("bounded `n_predict` + `.max(N)`") is **only half wired**:
+- ✓ Lecture schema has `.max(N)` annotations on every array
+  (sections / key_terms / examples / points / extras — see
+  `desktop/src/shared/families/lecture/schema.ts`).
+- ✗ `desktop/src/shared/note-schema/zod-to-gbnf.ts:133-138` emits
+  every ZodArray as **unbounded** `"[" ws (elem (ws "," ws elem)*)?
+  ws "]"`. The `.max(N)` value never reaches GBNF — it's
+  validation-only post-decode.
+- ✗ `desktop/src/shared/models/profiles.ts` has IDENTICAL
+  `maxGenTokens` for 1B and 3B (3000 lecture/meeting, 3500
+  interview/brainstorm). No headroom adjustment for the weaker model.
+
+This means the 1B's previous failure mode (`CHUNK_FAILED:0`
+unterminated JSON across 3 retries / 414 s, per
+`v2_track2_first_scorecard_2026-06-08`) is **fundamentally
+unresolved** — even with Zod `.max()` annotations, the LLM can emit
+arbitrarily long arrays at decode time and only fail validation
+*after* `maxGenTokens` truncates mid-string. The 1B re-eval cannot
+move until either:
+  (i) zod-to-gbnf.ts is extended to emit bounded GBNF rules from
+      `.max(N)` (GBNF lacks `{N,M}` — must cascade or alt-enumerate);
+  (ii) `maxGenTokens` is lowered for the 1B profile (less rope to
+       hang itself with, but doesn't address the cause);
+  (iii) both.
+**Founder approval needed** before implementing — it's a behavior
+change to all 4 families' grammars. Memo:
+`v2_track2_path_g_grammar_gap_2026-06-09.md` (full design choices).
 
 **Operating model: SINGLE CONTROLLER SESSION** (adopted 2026-06-08). One
 session on the `main` worktree holds merge control + drives design;
@@ -177,6 +230,15 @@ The v2 on-device structured note pipeline is now reachable from the app's Stop b
 **Both #66 and #79 were admin-merged** (`gh pr merge --admin`) — `desktop-ci`
 was green (real verification held); the `ci` Playwright hang would never
 let them go green on their own (see CI infra debt above).
+
+### What landed since (2026-06-09, TRACK 2 quality stacked PRs)
+
+| PR | What |
+|---|---|
+| #88 OPEN | **Escape-literal sanitize (route a).** Branch `chore/v2-track2-escape-literal-repro`. Founder smoke 2026-06-09 produced a note mixing clean JA with `あしす…` literals (3 headings + 2 items). Root cause confirmed on the `session/finalize → finalizeLecture → callWithGrammar` path (NOT chunked-note.ts) — 3B under grammar emits `"\\u…"` / `"\\'<nl>"` literal escapes inside short JSON string slots; JSON.parse passes; Zod passes; user sees the literal text. Fix: layered defense in `callWithGrammar` — `sanitizeEscapeLiteralsInStrings` (shape-AGNOSTIC `\uXXXX` decode + nuke backslash + trim ASCII noise; full-width JA preserved) → `findEscapeLiteralInStrings` final invariant → existing fresh-seed retry. Plus outer-retry expansion across all 4 family finalizers when `ESCAPE_LITERAL_AT_` exhausts inner attempts (+10000 seed). New telemetry: `GrammarAttempt.sanitizedSlots`. **Real-3B verification: 200 s+ → 28 s**, ONE call, no retries. Pre-commit reviewer + strategy reviewer both APPROVED. |
+| #89 OPEN | **Latency-decomposition telemetry (route b).** Branch `chore/v2-track2-latency-instrumentation` (stacked on #88). Adds 3 typed `sessionLog` methods (`finalize{Attempt,ChunkDone,Done}`) with shape-only PII contract; optional `onTelemetry?` callback on all 4 `finalize*Args` with per-attempt + chunk-done (try/finally — partial-failure attribution survives) + finalize-done events; `session/finalize` IPC route forwards it; `ipc.ts` wires the switch to `sessionLog.*` AND adds `sessionLog.phase('stt-unload-finalize'\|'llm-load-finalize', ms)` in `getCurrentSession()` (cold-cache discrimination). Founder retest reads `tail -n 200 ~/Library/Logs/Lisna/main.log \| grep -E '\[(session\|finalize:)'`; decision tree in PR body distinguishes cold-cache vs retry vs RAM. 11 new tests; `pnpm verify` 776+9 PASS. Pre-commit reviewer APPROVED. |
+| #90 OPEN | **Extract runChunkWithGrammar + exhaustive switch (cleanup).** Branch `chore/v2-finalize-extract-outer-retry` (stacked on #89). Per `architecture.md` DRY rule (4 duplications = extract trigger), pulls the per-chunk outer-retry + telemetry body out of the 4 finalize* functions into one helper. Plus adds `const _exhaustive: never = e;` default arm to `ipc.ts`'s `onTelemetry` switch (closes the loop on #89 reviewer's overpromise note). **−114 LoC** in orchestrator.ts (1251 → 1137); main bundle 125.25 → 120.46 kB. **Zero test files touched** — behavior preservation verified by 109 sidecar + 11 ipc/session-finalize tests staying green. Pre-push reviewer APPROVED with byte-equivalence audit (seed math, transcriptForPostDecode routing, CHUNK_FAILED format, try/finally semantics all confirmed identical). |
+| docs (this PR) | **HANDOFF refresh + Path G memo.** Captures the 3 OPEN PRs above, exposes route (c) blocker (Path G grammar emission gap), and pins the founder-retest workflow as the next user-facing milestone. |
 
 ### Operational guards on GitHub (added 2026-05-24)
 
