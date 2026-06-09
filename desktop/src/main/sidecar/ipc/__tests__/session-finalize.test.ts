@@ -168,7 +168,7 @@ beforeEach(async () => {
 // Helper: register with a given getCurrentSession getter and return the handler
 function setup(
   getCurrentSession: () => SessionContext | null,
-  onSessionSettled?: () => void,
+  onSessionSettled?: (result: { ok: boolean }) => void,
   onTelemetry?: (e: unknown) => void,
 ) {
   // SessionFinalizeDeps.getCurrentSession is now async (spec §9 LLM-load
@@ -294,23 +294,28 @@ describe('registerSessionFinalize', () => {
   // never calls session/stop, so finalize is the only path that returns the
   // main-side session FSM to idle. Without this callback the next session/start
   // rejects with SESSION_ACTIVE (the "already recording" bug).
-  it('(i) calls onSessionSettled exactly once after a successful finalize', async () => {
+  it('(i) calls onSessionSettled with {ok:true} exactly once after a successful finalize', async () => {
     const sidecar = makeMockSidecar(makeLectureNoteJson());
     const ctx = makeSessionContext({ sidecar });
     const onSessionSettled = vi.fn();
     const handler = setup(() => ctx, onSessionSettled);
     await handler({}, { family: 'lecture' });
     expect(onSessionSettled).toHaveBeenCalledTimes(1);
+    expect(onSessionSettled).toHaveBeenCalledWith({ ok: true });
   });
 
   // (j) onSessionSettled fires even when finalize THROWS — the cleanup lives in
   // a finally block. Otherwise a failed note-generation would strand the session
   // in 'active' and block all subsequent recordings until app restart.
-  it('(j) calls onSessionSettled exactly once even when finalize throws', async () => {
+  // P0-3 (2026-06-09): also asserts the `ok: false` discriminator the caller
+  // uses to PRESERVE the orchestrator on failure (so retry sees the same
+  // transcript instead of NO_ACTIVE_SESSION).
+  it('(j) calls onSessionSettled with {ok:false} exactly once when finalize throws', async () => {
     const onSessionSettled = vi.fn();
     const handler = setup(() => null, onSessionSettled);
     await expect(handler({}, { family: 'lecture' })).rejects.toThrow('NO_ACTIVE_SESSION');
     expect(onSessionSettled).toHaveBeenCalledTimes(1);
+    expect(onSessionSettled).toHaveBeenCalledWith({ ok: false });
   });
 
   // (k) onTelemetry forwarding: every family route threads the callback through
@@ -327,5 +332,53 @@ describe('registerSessionFinalize', () => {
     expect(events.some((e) => e.kind === 'attempt')).toBe(true);
     expect(events.some((e) => e.kind === 'chunk-done')).toBe(true);
     expect(events.some((e) => e.kind === 'finalize-done')).toBe(true);
+  });
+
+  // (l) P0-3 (2026-06-09) — retry after failure preserves the orchestrator +
+  // transcript. The IPC handler's onSessionSettled callback signals success
+  // vs failure so the caller (ipc.ts) only clears `current` on success.
+  // After a failed finalize the SAME SessionContext (same segments array
+  // reference) must remain reachable so the ErrorView retry button can
+  // re-invoke session/finalize against the already-captured transcript.
+  it('(l) onSessionSettled {ok:false} preserves orchestrator; retry sees the same segments', async () => {
+    const failingSidecar: GrammarCapableSidecar = {
+      generateWithGrammar: vi.fn().mockRejectedValue(new Error('GENERATE_FAILED')),
+    };
+    const healthySidecar = makeMockSidecar(makeLectureNoteJson());
+
+    // Mirror the main/ipc.ts wiring: a mutable `current` cleared only on
+    // ok:true. The segments array is the same reference across both reads.
+    const segments: LegacySegment[] = [
+      { startSec: 0, endSec: 4, text: 'Segment 1 content here.' },
+    ];
+    let current: SessionContext | null = {
+      sessionId: 'test-session',
+      segments,
+      llmModelPath: '/models/Llama-3.2-3B-Instruct-Q4_K_M.gguf',
+      sidecar: failingSidecar,
+    };
+    const settledCalls: Array<{ ok: boolean }> = [];
+
+    const handler = setup(
+      () => current,
+      (result) => {
+        settledCalls.push(result);
+        if (result.ok) current = null;
+      },
+    );
+
+    // First attempt fails — orchestrator must be PRESERVED.
+    await expect(handler({}, { family: 'lecture' })).rejects.toThrow();
+    expect(settledCalls).toEqual([{ ok: false }]);
+    expect(current).not.toBeNull();
+    expect(current!.segments).toBe(segments); // same array reference
+
+    // Retry — swap to healthy sidecar; same segments, same context object.
+    current = { ...current!, sidecar: healthySidecar };
+    const result = await handler({}, { family: 'lecture' });
+    expect(result.note).toMatchObject({ family: 'lecture' });
+    expect(settledCalls).toEqual([{ ok: false }, { ok: true }]);
+    // Now that finalize succeeded the wiring cleared current.
+    expect(current).toBeNull();
   });
 });

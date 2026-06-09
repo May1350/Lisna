@@ -206,8 +206,22 @@ export function registerIpc(deps: IpcDeps) {
     // idle-return. Mirror the session/stop finally block (lines below): clear
     // `current` + `_llmLoadedForCurrent` and drop `recording` so post-finalize
     // chunk callbacks no-op and the next session/start isn't rejected with
-    // SESSION_ACTIVE. Runs on success AND failure (handler-side finally).
-    onSessionSettled: () => {
+    // SESSION_ACTIVE.
+    //
+    // P0-3 (2026-06-09) — clear ONLY on success. On finalize FAILURE (grammar-
+    // parse throw, sidecar generate rejection, LLM-load fail, etc.) we MUST
+    // preserve the SessionOrchestrator + its captured `exposedSegments` so the
+    // renderer's ErrorView retry button can re-invoke `session/finalize`
+    // against the same accumulated transcript. `_llmLoadedForCurrent` stays
+    // too — the LLM is already in the sidecar's RAM, no need to re-run the
+    // ~25 s load. Audio capture already stopped (Stop fires before
+    // familyPicker) so `recording` is already false in both branches. The
+    // orchestrator is cleared on next SUCCESSFUL finalize, on session/stop,
+    // or on sidecar exit (handleSidecarExit). Without this, a 30-min
+    // recording's transcript is GONE on first failure click — see memory
+    // v2_30min_real_record_3_p0s_2026-06-09 for the incident this fixes.
+    onSessionSettled: (result) => {
+      if (!result.ok) return;
       current = null;
       _llmLoadedForCurrent = null;
       recording = false;
@@ -410,10 +424,26 @@ export function setAppQuitting() {
  * (which is correct — renderer has no other signal).
  */
 export function handleSidecarExit() {
+  // P0-2 (2026-06-09) — invalidate the LLM-loaded cache on EVERY sidecar
+  // exit, before any other guard. The cache is keyed on the orchestrator
+  // INSTANCE, not the sidecar pid; a respawn produces a fresh sidecar
+  // process with NO model loaded, so any cached "already loaded for this
+  // orchestrator" claim is stale. This MUST run independently of:
+  //   (a) the idle short-circuit below (clearing is cheap), and
+  //   (b) the in-flight session-handler guard (which suppresses the
+  //       renderer `session/error` push but must not suppress cache
+  //       invalidation — a crash mid-finalize is the founder 2026-06-09
+  //       4-min hang root cause: same orchestrator preserved through
+  //       respawn → cache says "loaded" → generate hits a model-less
+  //       sidecar → 60s timeout × 2 retries).
+  // Companion to P0-3 (onSessionSettled preservation): P0-3 intentionally
+  // keeps `current` non-null after finalize failure; this invalidation
+  // keeps the LLM-load contract honest when the sidecar respawn happens
+  // under P0-3's preserved orchestrator.
+  _llmLoadedForCurrent = null;
   if (!current && !recording) return;
   const wasHandlerInFlight = _sessionHandlerInFlight;
   current = null;
-  _llmLoadedForCurrent = null;
   recording = false;
   if (wasHandlerInFlight) return;  // IPC rejection handles renderer transition
   // Code-only payload — renderer maps it to JA copy via `toFriendlyJa`.

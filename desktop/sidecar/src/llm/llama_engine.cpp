@@ -108,6 +108,20 @@ bool LlamaEngine::load(const std::string& path) {
   // at ~10 tokens/sec, well past the longest plausible single recording.
   // 2026-05-15 smoke confirmed 3B succeeds at 16K; bump only on profiled need.
   cp.n_ctx = 16384;
+  // P0-1 (2026-06-09): match logical batch ceiling to the context window.
+  // llama.cpp's default is n_batch=2048; our `generate()` builds a single
+  // `llama_batch_get_one(tokens, N)` for the entire prompt, so any prompt
+  // tokenizing to >2048 trips the upstream assert
+  //   GGML_ASSERT(n_tokens_all <= cparams.n_batch)
+  // (llama-context.cpp:1599) and the process aborts with SIGABRT. Real
+  // 30-min Interview transcripts render to ~8000 tokens after chat-template
+  // formatting → 100% repro before this fix (founder smoke 2026-06-09).
+  // Setting n_batch=n_ctx is free here: we run one decode at a time (no
+  // parallel batching), and `n_ubatch` (the physical kernel batch, default
+  // 512) is unchanged, so per-token throughput is unaffected. The only
+  // thing this widens is the gate on per-call prompt token count.
+  // DO NOT REVERT to the default without rerunning a 30-min stress prompt.
+  cp.n_batch = cp.n_ctx;
   impl_->ctx = llama_init_from_model(impl_->model, cp);
   if (!impl_->ctx) {
     llama_model_free(impl_->model);

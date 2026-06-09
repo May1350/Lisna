@@ -93,21 +93,41 @@ describe('main/ipc FSM', () => {
     await expect(ipcHandlers['session/start']!({}, { language: 'ja' })).rejects.toThrow('SESSION_ACTIVE');
   });
 
-  // Regression: the v2 Stop flow ends at session/finalize, NOT session/stop, so
-  // finalize is the only path that returns the session FSM to idle. If finalize
-  // doesn't clear `current` in a finally, the NEXT session/start rejects with
-  // SESSION_ACTIVE — exactly the "すでに録音セッションが進行中です" error a user
-  // hits on their second recording. UNKNOWN_FAMILY exercises the finally without
-  // needing the LLM-load + generate path (which has its own coverage in
-  // session-finalize.test.ts).
-  it('session/finalize completion clears state → next session/start succeeds', async () => {
+  // P0-3 (2026-06-09) — failure path PRESERVES the orchestrator so the
+  // ErrorView retry can re-invoke session/finalize against the SAME
+  // accumulated transcript. The previous contract was "any settled =
+  // clear" (so UNKNOWN_FAMILY garbage was followed by a fresh start);
+  // the new contract is "ONLY success clears." A retry without an
+  // intervening successful finalize must hit SESSION_ACTIVE — the user's
+  // expected mental model is "the recording is still mine until I either
+  // get a note OR explicitly restart." See memory
+  // v2_30min_real_record_3_p0s_2026-06-09 for the founder-loss incident
+  // this fixes.
+  it('session/finalize FAILURE preserves current (P0-3) → next session/start rejects SESSION_ACTIVE', async () => {
     const { win } = makeFakeWindow();
     const supervisor = makeFakeSupervisor({});
     ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
     await ipcHandlers['session/start']!({}, { language: 'ja' });
     await expect(ipcHandlers['session/finalize']!({}, { family: 'garbage' }))
       .rejects.toThrow(/UNKNOWN_FAMILY/);
-    // Proves `current` was reset by finalize's cleanup — not SESSION_ACTIVE.
+    // Orchestrator preserved → next session/start refused, NOT idle.
+    await expect(ipcHandlers['session/start']!({}, { language: 'ja' }))
+      .rejects.toThrow('SESSION_ACTIVE');
+  });
+
+  // The dual of the test above: if the sidecar exits (crash OR app close),
+  // handleSidecarExit clears `current` — so the user CAN start a fresh
+  // session after a crash without restarting the app. This is the escape
+  // hatch from "orchestrator stuck forever" if a finalize keeps failing.
+  it('handleSidecarExit clears current → next session/start succeeds (escape hatch)', async () => {
+    const { win } = makeFakeWindow();
+    const supervisor = makeFakeSupervisor({});
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+    await ipcHandlers['session/start']!({}, { language: 'ja' });
+    await expect(ipcHandlers['session/finalize']!({}, { family: 'garbage' }))
+      .rejects.toThrow(/UNKNOWN_FAMILY/);
+    // Sidecar crashes → handleSidecarExit fires → cache + current cleared.
+    ipc.handleSidecarExit();
     await expect(ipcHandlers['session/start']!({}, { language: 'ja' }))
       .resolves.toBeUndefined();
   });
