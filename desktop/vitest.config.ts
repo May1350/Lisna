@@ -17,5 +17,11 @@ export default defineConfig({
   },
   test: {
     exclude: ['**/node_modules/**', '**/dist/**', '**/out/**', 'sidecar/deps/**'],
+    // L2 zombie defense — pkill llama-completion before AND after the
+    // test run. See vitest.global-setup.ts for the 4-layer strategy.
+    // Founder incident 2026-06-09: 2.31 GB orphan in Activity Monitor
+    // during a verify; per-test afterAll is L1 but doesn't catch
+    // leftovers from prior crashed runs.
+    globalSetup: './vitest.global-setup.ts',
   },
 });
