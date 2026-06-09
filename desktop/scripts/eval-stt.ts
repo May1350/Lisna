@@ -6,11 +6,15 @@ import { SidecarClient } from '../src/main/sidecar/client';
 import { WhisperCppSTT } from '../src/main/engines/whisper-cpp-stt';
 import { runSttEval, formatSttScorecard, type SttCondition } from '../eval/stt/run-stt-eval';
 import { makeRealSttFn } from '../eval/stt/real-stt-fn';
+import { ensurePcmWav16kMono } from '../eval/stt/audio-convert';
+import { saveHypAsLectureFixture } from '../eval/stt/save-hyp-fixture';
 
 interface CliArgs {
   saveAs?: string;
   snrDb: number;
   modelId: string;
+  realAudio?: string;
+  saveHypFixture?: string;
 }
 
 export function __testOnly_parseArgs(argv: string[]): CliArgs {
@@ -20,6 +24,8 @@ export function __testOnly_parseArgs(argv: string[]): CliArgs {
     if (a === '--baseline') out.saveAs = argv[++i];
     else if (a === '--snr-db') out.snrDb = parseFloat(argv[++i] ?? '5');
     else if (a === '--model-id') out.modelId = argv[++i] ?? out.modelId;
+    else if (a === '--real-audio') out.realAudio = argv[++i];
+    else if (a === '--save-hyp-fixture') out.saveHypFixture = argv[++i];
   }
   return out;
 }
@@ -47,9 +53,14 @@ async function main(): Promise<void> {
     console.error('LISNA_TEST_STT_MODEL must point to the kotoba/whisper GGML bin');
     process.exit(1);
   }
+  if (opts.saveHypFixture && !opts.realAudio) {
+    console.error('--save-hyp-fixture requires --real-audio (no far-field-real row would exist otherwise)');
+    process.exit(1);
+  }
   const __dirname = dirname(fileURLToPath(import.meta.url));
   const sidecarBin = process.env.LISNA_SIDECAR_BIN ?? resolve(__dirname, '../resources/sidecar');
   const fixDir = resolve(__dirname, '../tests/fixtures');
+  const evalFixturesRoot = resolve(__dirname, '../eval/fixtures');
 
   const clean = __testOnly_readWavAsFloat32(readFileSync(join(fixDir, 'audio/ja-30s.wav')));
   const noise = __testOnly_readWavAsFloat32(readFileSync(join(fixDir, 'audio/ja-bg-noise-30s.wav')));
@@ -57,6 +68,20 @@ async function main(): Promise<void> {
 
   if (clean.sampleRate !== noise.sampleRate) {
     throw new Error(`sampleRate mismatch: clean=${clean.sampleRate} noise=${noise.sampleRate}`);
+  }
+
+  const conditions: SttCondition[] = ['clean', 'far-field-synth'];
+  let realAudio: Float32Array | undefined;
+  if (opts.realAudio) {
+    const convertedPath = opts.realAudio + '.16k-mono.wav';
+    await ensurePcmWav16kMono(opts.realAudio, convertedPath, 30);
+    const r = __testOnly_readWavAsFloat32(readFileSync(convertedPath));
+    if (r.sampleRate !== clean.sampleRate) {
+      throw new Error(`real-audio sampleRate ${r.sampleRate} != clean ${clean.sampleRate}`);
+    }
+    realAudio = r.pcm;
+    conditions.push('far-field-real');
+    console.log(`real-audio         ${opts.realAudio} → ${convertedPath} (${r.pcm.length} samples)`);
   }
 
   const proc = spawn(sidecarBin, [], { stdio: ['pipe', 'pipe', 'pipe'] });
@@ -73,9 +98,10 @@ async function main(): Promise<void> {
         reference,
         noise: noise.pcm,
         snrDb: opts.snrDb,
-        conditions: ['clean', 'far-field-synth'] as SttCondition[],
+        conditions,
         stt: makeRealSttFn(stt),
         modelId: opts.modelId,
+        realAudio,
       });
       console.log(formatSttScorecard(card));
       console.log(`runMs              ${Date.now() - t0}`);
@@ -89,6 +115,20 @@ async function main(): Promise<void> {
           card,
         }, null, 2));
         console.log(`baseline saved → ${out}`);
+      }
+      if (opts.saveHypFixture) {
+        const realRow = card.rows.find((r) => r.condition === 'far-field-real');
+        if (!realRow) throw new Error('expected a far-field-real row when --save-hyp-fixture is set');
+        const written = saveHypAsLectureFixture({
+          fixtureId: opts.saveHypFixture,
+          hyp: realRow.hyp,
+          reference,
+          durationSec: 30,
+          sttModelId: opts.modelId,
+          fixturesRoot: evalFixturesRoot,
+        });
+        console.log(`fixture written  → ${written.dir}`);
+        console.log(`next            → pnpm --filter @lisna/desktop eval:notes --family lecture --fixture ${opts.saveHypFixture} --runner offline-3b --baseline v0-3b-lecture-realstt`);
       }
     } finally {
       await stt.unloadModel().catch(() => {});

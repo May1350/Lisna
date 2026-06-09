@@ -25,6 +25,33 @@ describe('eval-stt parseArgs', () => {
     const o = __testOnly_parseArgs(['node', 'eval-stt.ts', '--snr-db', '-3']);
     expect(o.snrDb).toBe(-3);
   });
+
+  it('parses --real-audio (path to founder mic recording)', () => {
+    const o = __testOnly_parseArgs([
+      'node', 'eval-stt.ts',
+      '--real-audio', '/Users/guntak/Desktop/ja-far-field-real.m4a',
+    ]);
+    expect(o.realAudio).toBe('/Users/guntak/Desktop/ja-far-field-real.m4a');
+  });
+
+  it('--real-audio is undefined when not passed (synthetic-only run)', () => {
+    const o = __testOnly_parseArgs(['node', 'eval-stt.ts']);
+    expect(o.realAudio).toBeUndefined();
+  });
+
+  it('parses --save-hyp-fixture (composed-gate fixture id)', () => {
+    const o = __testOnly_parseArgs([
+      'node', 'eval-stt.ts',
+      '--real-audio', '/tmp/x.wav',
+      '--save-hyp-fixture', 'ja-30s-realstt',
+    ]);
+    expect(o.saveHypFixture).toBe('ja-30s-realstt');
+  });
+
+  it('--save-hyp-fixture is undefined when not passed', () => {
+    const o = __testOnly_parseArgs(['node', 'eval-stt.ts']);
+    expect(o.saveHypFixture).toBeUndefined();
+  });
 });
 
 describe('readWavAsFloat32', () => {
