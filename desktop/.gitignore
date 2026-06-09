@@ -9,6 +9,7 @@ sidecar/deps/llama.cpp/build
 *.log
 .DS_Store
 docs/last-smoke-note.txt
+docs/escape-literal-repro-raw.txt
 
 # Phase 0 spikes — ephemeral outputs
 spikes/phase-0/results/
