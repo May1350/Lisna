@@ -21,4 +21,47 @@ else
   mkdir -p ../../../resources
   cp lisna_sidecar ../../../resources/sidecar
   chmod +x ../../../resources/sidecar
+
+  # ─── Bundle native dylibs for the packaged .app (P0 2026-06-10) ─────────
+  #
+  # Without this step, the sidecar binary's @rpath points to build-host-
+  # specific absolute paths (e.g. `/Users/runner/work/...` on the CI builder,
+  # `/Users/guntak/.../build/release/bin` on the dev machine). The dev build
+  # works "by accident" because the local path exists; the .app shipped to
+  # users has no such path → dyld fails → SIGABRT → "録音エンジンを復旧
+  # できませんでした" red banner on first record attempt. See memory
+  # v2_alpha_v0.1.1_sidecar_bundling_bug_2026-06-09.
+  #
+  # Fix: copy all dependent dylibs into ../../../resources/dylibs/ AND patch
+  # rpath so the sidecar binary looks for them at @executable_path/dylibs
+  # (resolves to Lisna.app/Contents/Resources/dylibs/ when packaged, and to
+  # desktop/resources/dylibs/ in dev). Each dylib gets @loader_path so it
+  # can find its sibling dylibs in the same directory. Both rpath edits
+  # invalidate the ad-hoc signature → resign with `codesign -s -`.
+  #
+  # Idempotent: re-runs of build.sh detect existing rpath via `otool -l`
+  # and skip the install_name_tool + codesign steps to keep the script
+  # cheap.
+
+  DYLIBS_DST="../../../resources/dylibs"
+  mkdir -p "$DYLIBS_DST"
+  # -P preserves symlinks (libwhisper.1.dylib → libwhisper.1.8.4.dylib).
+  # Both the symlink AND the real file are required for @rpath resolution.
+  cp -P deps/whisper.cpp/src/libwhisper*.dylib "$DYLIBS_DST/" 2>/dev/null || true
+  cp -P bin/libggml*.dylib bin/libllama*.dylib "$DYLIBS_DST/" 2>/dev/null || true
+
+  SIDECAR_BIN="../../../resources/sidecar"
+  if ! otool -l "$SIDECAR_BIN" | grep -q "@executable_path/dylibs"; then
+    install_name_tool -add_rpath "@executable_path/dylibs" "$SIDECAR_BIN"
+    codesign --force --sign - "$SIDECAR_BIN"
+  fi
+
+  for LIB in "$DYLIBS_DST"/*.dylib; do
+    # Skip symlinks — only patch the real files (rpath lives in the real Mach-O).
+    [ -L "$LIB" ] && continue
+    if ! otool -l "$LIB" | grep -q "@loader_path\b"; then
+      install_name_tool -add_rpath "@loader_path" "$LIB"
+      codesign --force --sign - "$LIB"
+    fi
+  done
 fi

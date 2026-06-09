@@ -16,9 +16,18 @@ mac:
 asarUnpack:
   - "**/node_modules/keytar/**/*"
   - "resources/sidecar"
+  - "resources/dylibs/**/*"   # P0 2026-06-10 — sidecar's @rpath dylibs
 extraResources:
   - from: "resources/sidecar"
     to: "sidecar"
+  # P0 2026-06-10 — sidecar binary's @executable_path/dylibs resolves to
+  # Lisna.app/Contents/Resources/dylibs/ at runtime. Without this entry the
+  # dylibs ride along inside app.asar (unmappable) and dyld fails to find
+  # libwhisper.1.dylib etc. → SIGABRT cascade. See memory
+  # v2_alpha_v0.1.1_sidecar_bundling_bug_2026-06-09.
+  - from: "resources/dylibs"
+    to: "dylibs"
+    filter: ["**/*.dylib"]
 
 publish:
   provider: github
