@@ -81,16 +81,17 @@ export interface SessionFinalizeDeps {
   getCurrentSession: () => Promise<SessionContext | null>;
 
   /**
-   * Called once after every finalize attempt settles — success OR throw — to
-   * return the main-side session FSM to idle.
+   * Called once after every finalize attempt settles. `result.ok` discriminates
+   * success vs failure so the caller can decide whether to clear session state.
    *
    * The v2 Stop flow ends at this channel and never calls `session/stop`, so
-   * finalize is the ONLY place that clears `current`/`recording`. Without it
-   * the session stays 'active' forever and the next `session/start` rejects
-   * with SESSION_ACTIVE. Invoked in the handler's `finally` so a failed
-   * note-generation doesn't strand the session either.
+   * finalize is the ONLY place that returns the main-side session FSM to idle
+   * on success. On failure (P0-3, 2026-06-09) the caller MUST PRESERVE the
+   * SessionOrchestrator so the renderer's ErrorView retry can re-invoke
+   * `session/finalize` against the same accumulated transcript — discarding
+   * the orchestrator on every failed attempt is the bug this signature fixes.
    */
-  onSessionSettled?: () => void;
+  onSessionSettled?: (result: { ok: boolean }) => void;
 
   /**
    * Optional telemetry sink — production wires this to `sessionLog.finalize*`
@@ -119,21 +120,25 @@ export function registerSessionFinalize(deps: SessionFinalizeDeps): void {
   ipcMain.handle(SESSION_FINALIZE_CHANNEL, async (_e, args: SessionFinalizeArgs): Promise<SessionFinalizeResult> => {
     const { family, promptVariant } = args;
 
+    let ok = false;
     try {
       // ── Family routing ────────────────────────────────────────────────────
-      if (family === 'lecture') return await routeLecture(deps, promptVariant);
-      if (family === 'meeting') return await routeMeeting(deps, promptVariant);
-      if (family === 'interview') return await routeInterview(deps, promptVariant);
-      if (family === 'brainstorm') return await routeBrainstorm(deps, promptVariant);
-
+      let result: SessionFinalizeResult;
+      if (family === 'lecture') result = await routeLecture(deps, promptVariant);
+      else if (family === 'meeting') result = await routeMeeting(deps, promptVariant);
+      else if (family === 'interview') result = await routeInterview(deps, promptVariant);
+      else if (family === 'brainstorm') result = await routeBrainstorm(deps, promptVariant);
       // TypeScript exhaustiveness guard — 'family' is typed but callers can
       // send anything over IPC (un-typed JSON), so the runtime check matters.
-      throw new Error(`UNKNOWN_FAMILY:${family as string}`);
+      else throw new Error(`UNKNOWN_FAMILY:${family as string}`);
+      ok = true;
+      return result;
     } finally {
-      // Return the session FSM to idle whether finalize succeeded or threw.
-      // This is the v2 flow's only idle-return path (no session/stop). See
-      // SessionFinalizeDeps.onSessionSettled.
-      deps.onSessionSettled?.();
+      // Always notify — the caller (main/ipc.ts) uses `ok` to decide whether
+      // to clear the orchestrator. On failure (ok=false) the orchestrator is
+      // PRESERVED so the renderer's ErrorView retry can re-invoke finalize
+      // against the same accumulated transcript (P0-3, 2026-06-09).
+      deps.onSessionSettled?.({ ok });
     }
   });
 }
