@@ -1,6 +1,6 @@
 # Lisna — Session Handoff
 
-**Last updated**: 2026-06-09 (TRACK 2 quality — 3 PRs OPEN stacked: #88 escape-literal sanitize, #89 latency telemetry, #90 helper extract; route (a) closed; routes (b)/(c) pending founder retest / Path G design approval)
+**Last updated**: 2026-06-10 (TRACK 2 quality merged + 30-min real-record P0 cascade fix MERGED + alpha .app sidecar bundling P0 MERGED + 4-layer llama-completion zombie defense; **founder 30-min retest is the next deliverable**)
 **Purpose**: Bring a new session up to speed in <5 min. Read top → bottom in order.
 **Reader**: future-self (or another Claude). Skip what you already know.
 
@@ -50,7 +50,7 @@ segments). Curator: OpenAI gpt-4o-mini. Auth: JWT issued from Google OAuth.
 
 ## 2. Critical state (read this before anything else)
 
-### v2 current state (2026-06-09) — READ FIRST
+### v2 current state (2026-06-10 dawn) — READ FIRST
 
 The active track is the **v2 on-device desktop app** (`desktop/`), not the
 v1 cloud extension. The v1 sections further down (§2 "What's working
@@ -63,32 +63,66 @@ history** — useful background, not current work.
   `session/finalize` → on-device STT → on-device LLM (grammar-constrained)
   → structured note → renderer → NoteView. Lecture / Meeting / Interview /
   Brainstorm all have cores + renderers + IPC routing on `main`.
-- **First real-time founder smoke (2026-06-09)** on free-talk ~30 s JA
-  exposed TWO quality bugs (NOT code crashes):
-  - **(a) escape-literal mode-collapse** — 3B emits `"\\u…"` /
-    `"\\'<nl>"` literals in short JSON string slots; JSON.parse leaves
-    them as ASCII; Zod accepts; user sees `あしす…` in 3 headings + 2
-    items. **PR [#88] OPEN** layers a shape-agnostic sanitize
-    (`\uXXXX` decode → nuke backslash → trim ASCII noise) into
-    `callWithGrammar` + outer-retry expansion across all 4 family
-    finalizers when ESCAPE_LITERAL_AT_ exhausts inner attempts.
-    Real-3B verification: 200 s+ → 28 s, one call, no retries.
-  - **(b) ~4-min Stop→Note latency** with no log surface to attribute
-    (cold-cache vs retry vs RAM). **PR [#89] OPEN** adds typed
-    `sessionLog.finalize{Attempt,ChunkDone,Done}` breadcrumbs +
-    optional `onTelemetry` callback on all 4 `finalize*` + STT-unload
-    / LLM-load phase timing in `getCurrentSession()`. Decision tree
-    in PR body lets the founder retest discriminate the hypotheses.
-- **PR [#90] OPEN** is the structural cleanup on top of #89 — extracts
-  `runChunkWithGrammar` helper from the 4 duplicated per-chunk outer-
-  retry loops (DRY trigger 4× met) + adds the `const _: never = e;`
-  exhaustive arm to `ipc.ts` that #89's reviewer flagged as missing.
-  −114 LoC in orchestrator.ts. Zero behavior change; zero test files
-  modified. Pre-push reviewer APPROVED with byte-equivalence audit.
-- **Stack**: `main ← #88 ← #89 ← #90`. Auto-retargets to main as each
-  parent merges + its head auto-deletes.
-- **Earlier code bugs from the desktop-app smoke (#66/#79) are merged**
-  on `main` already; #88/#89/#90 are the TRACK 2 quality follow-up.
+- **2026-06-09 daytime founder smoke** (30 s JA free-talk) exposed two
+  quality bugs (route a = escape-literal mode-collapse; route b = ~4-min
+  Stop→Note latency unattributable). Both FIXED + MERGED:
+  - Route (a) **PR #88 MERGED** — shape-agnostic sanitize + outer-retry
+    expansion. Real-3B verification 200 s+ → 28 s, single call. Verified
+    on 23-s retest 2026-06-09 evening: 32 s wall, zero literals.
+  - Route (b) **PR #89/#93 MERGED** — telemetry instrumentation
+    (`sessionLog.finalize{Attempt,ChunkDone,Done}` + onTelemetry callback
+    + STT-unload/LLM-load phase timing). Founder retest decision tree
+    in PR body discriminates cold-cache vs retry vs RAM.
+  - Cleanup **PR #90/#93 MERGED** — `runChunkWithGrammar` helper
+    extraction (DRY trigger 4× met) + exhaustive `never` arm. −114 LoC
+    in orchestrator.ts. Zero behavior change.
+  - Stack collapsed via cherry-pick recovery (PR #93) after GitHub
+    auto-CLOSED child PRs on parent-branch deletion (memory
+    `v2_track2_extract_runchunk_2026-06-09`). LESSON for stacked PRs:
+    parent-merge auto-deletes head → child PRs auto-CLOSE (NOT
+    auto-retarget as previously assumed).
+- **2026-06-09 night founder real-record (30-min)** revealed a NEW
+  3-P0 cascade in production:
+  - **P0-1** C++ `cparams.n_batch=2048` (llama.cpp default) < real
+    8000-token prompt → `GGML_ASSERT` SIGABRT → sidecar crash.
+  - **P0-2** `_llmLoadedForCurrent` cache keyed on orchestrator
+    instance (not sidecar pid) → respawn doesn't reload LLM → next
+    finalize generates against empty sidecar → 60s × 3 retries timeout.
+  - **P0-3** ErrorView `もう一度試す` button → `onSessionSettled`
+    finally fired on failure → `current = null` → orchestrator GONE
+    → 30-min transcript LOST.
+  - **All three FIXED in PR #95 MERGED** (`fix(track2): 30-min
+    real-record cascade`). P0-3: `onSessionSettled` signature →
+    `({ok}) => void`, ipc.ts clears only on `ok=true`. P0-2:
+    invalidate `_llmLoadedForCurrent` at the TOP of
+    `handleSidecarExit`, before guards. P0-1: `cp.n_batch = cp.n_ctx`
+    + sidecar rebuild (md5 0ac1cdfd → 2c6cd754).
+  - **Founder retest pending** — same workflow as before, retry now
+    preserves transcript on failure.
+- **Alpha v0.1.1 .app COMPLETELY INOPERABLE** on user Macs (separate
+  P0, discovered same session). Sidecar binary's `@rpath` was
+  hardcoded to CI build path `/Users/runner/work/...` → dyld fails
+  → SIGABRT → "録音エンジンを復旧できませんでした" red banner. Dev
+  mode worked "by accident" via a second local-build @rpath that
+  exists only on dev machines. **Fixed in PR #96 MERGED** (`fix(sidecar):
+  bundle dylibs + patch @rpath for packaged .app`). build.sh now
+  copies 7 dylibs (libwhisper + 5x libggml + libllama) to
+  `resources/dylibs/`, patches sidecar with `@executable_path/dylibs`
+  + each dylib with `@loader_path`, re-signs ad-hoc. electron-builder.yml
+  adds the dylibs to extraResources. **Acid test reproduced** (clean
+  binary with local rpath stripped successfully loads all dylibs from
+  simulated `@executable_path/dylibs/`). All future alpha installs work.
+  **Next release must be rebuilt with this commit** for the fix to
+  reach users. Memory: `v2_alpha_v0.1.1_sidecar_bundling_bug_2026-06-09`.
+- **PR #97 OPEN** (zombie defense, awaiting CI) — 4-layer defense
+  against orphan `llama-completion` processes. L1 (existing per-test
+  `afterAll pkill`) + L2 (vitest globalSetup pre+post pkill) + L3
+  (shell trap on EXIT/INT/TERM/HUP wrapping vitest) + L4 (post-`pnpm
+  test` `verify-no-zombies.sh` assertion). Founder ask after Activity
+  Monitor showed 2.31 GB orphan during a verify run. Only SIGKILL
+  bypasses all 4.
+- **PR #92 DRAFT** (Path G spec stub) — awaiting founder Q1/Q2/Q3
+  answers in spec §7. Route (c) implementation blocked until then.
 
 **Routes** (the founder smoke 2026-06-09 left four open):
 1. **(a) escape-literal repro + fix** — closed by PR #88, founder
@@ -239,6 +273,32 @@ let them go green on their own (see CI infra debt above).
 | #89 OPEN | **Latency-decomposition telemetry (route b).** Branch `chore/v2-track2-latency-instrumentation` (stacked on #88). Adds 3 typed `sessionLog` methods (`finalize{Attempt,ChunkDone,Done}`) with shape-only PII contract; optional `onTelemetry?` callback on all 4 `finalize*Args` with per-attempt + chunk-done (try/finally — partial-failure attribution survives) + finalize-done events; `session/finalize` IPC route forwards it; `ipc.ts` wires the switch to `sessionLog.*` AND adds `sessionLog.phase('stt-unload-finalize'\|'llm-load-finalize', ms)` in `getCurrentSession()` (cold-cache discrimination). Founder retest reads `tail -n 200 ~/Library/Logs/Lisna/main.log \| grep -E '\[(session\|finalize:)'`; decision tree in PR body distinguishes cold-cache vs retry vs RAM. 11 new tests; `pnpm verify` 776+9 PASS. Pre-commit reviewer APPROVED. |
 | #90 OPEN | **Extract runChunkWithGrammar + exhaustive switch (cleanup).** Branch `chore/v2-finalize-extract-outer-retry` (stacked on #89). Per `architecture.md` DRY rule (4 duplications = extract trigger), pulls the per-chunk outer-retry + telemetry body out of the 4 finalize* functions into one helper. Plus adds `const _exhaustive: never = e;` default arm to `ipc.ts`'s `onTelemetry` switch (closes the loop on #89 reviewer's overpromise note). **−114 LoC** in orchestrator.ts (1251 → 1137); main bundle 125.25 → 120.46 kB. **Zero test files touched** — behavior preservation verified by 109 sidecar + 11 ipc/session-finalize tests staying green. Pre-push reviewer APPROVED with byte-equivalence audit (seed math, transcriptForPostDecode routing, CHUNK_FAILED format, try/finally semantics all confirmed identical). |
 | docs (this PR) | **HANDOFF refresh + Path G memo.** Captures the 3 OPEN PRs above, exposes route (c) blocker (Path G grammar emission gap), and pins the founder-retest workflow as the next user-facing milestone. |
+
+### What landed since (2026-06-09 night → 2026-06-10 dawn — TRACK 2 wave 2 + 2 P0 cascades)
+
+The afternoon's TRACK 2 wave finished merging (#91 docs, #88 sanitize, #93 telemetry+helper-extract recovery, #94 30-min stress test), then a real-record attempt at night exposed two parallel P0 bugs which were fixed before sleep.
+
+| PR | What |
+|---|---|
+| #91 | **HANDOFF refresh for 2026-06-09 daytime** — captured the 3 OPEN code PRs + Path G memo. Admin-merged 13:15Z. |
+| #88 | **Escape-literal sanitize (route a)** — MERGED 13:16Z. Real-3B verified 200 s+ → 28 s. |
+| #93 | **Latency telemetry + helper extract (recovers #89+#90)** — MERGED 13:28Z. Cherry-picked the 2 code commits from #89/#90 onto fresh main after GitHub auto-closed those PRs when #88's branch deleted. Lesson: GitHub `auto-delete head branches` setting auto-CLOSES child PRs whose base is the deleted branch (NOT auto-retargets). Pre-push reviewer ran byte-equivalence audit on cherry-picks. |
+| #94 | **30-min lecture stress test at default 8000-token budget** — MERGED 14:14Z. Mocked-leg (3 tests in CI) + env-gated real-3B leg with SIGTERM→5s→SIGKILL race + dev-app-running OOM guard. Founder principle "쪼개서 진행이라 길어도 시간만 더" verified at LOGIC level. |
+| #92 DRAFT | **Path G spec stub** — still awaiting founder Q1/Q2/Q3 answers in spec §7. |
+| **#95** | **fix(track2): 30-min real-record cascade (P0-3 + P0-2 + P0-1)** — MERGED 13:30Z (2026-06-10). Cascade fix for founder's 2026-06-09 night 30-min real-record attempt that lost the transcript + failed note generation. Three independent P0s in 2 commits. **P0-3** `onSessionSettled({ok})` — clears `current` only on success → orchestrator preserved on failure so retry sees same transcript. **P0-2** invalidate `_llmLoadedForCurrent` at the top of `handleSidecarExit` → respawn correctly reloads LLM (not 60s timeout). **P0-1** C++ `cp.n_batch = cp.n_ctx` in `llama_engine.cpp` → 8k-token prompts don't SIGABRT. Sidecar rebuilt (md5 0ac1cdfd → 2c6cd754). Memory: `v2_30min_real_record_3_p0s_2026-06-09`. |
+| **#96** | **fix(sidecar): bundle dylibs + patch @rpath for packaged .app** — MERGED 15:44Z. P0 alpha-distribution bug: every v0.1.1 installer hits dyld load failure (sidecar @rpath = CI build path, doesn't exist on user Macs). build.sh now copies 7 dylibs (libwhisper + 5x libggml + libllama) to `resources/dylibs/`, patches sidecar with `@executable_path/dylibs` + each dylib with `@loader_path`, re-signs ad-hoc. electron-builder.yml extraResources adds the dylibs to `Lisna.app/Contents/Resources/dylibs/`. Acid test reproduced (binary with local rpath stripped loads dylibs from simulated `@executable_path/dylibs/`). **Next release rebuild fixes alpha install for all future users.** Memory: `v2_alpha_v0.1.1_sidecar_bundling_bug_2026-06-09`. |
+| **#97** | **4-layer llama-completion zombie defense** — MERGED 15:52Z. Founder observed 2.31 GB orphan in Activity Monitor during a verify (kernel-panic risk on 8GB M1 per `pitfalls.md spike-llm`). L1 (existing per-test `afterAll pkill`) + L2 vitest globalSetup pre+post pkill (catches per-test afterAll failures + prior-run zombies) + L3 shell trap on EXIT/INT/TERM/HUP wrapping vitest (catches external kill) + L4 post-`pnpm test` `verify-no-zombies.sh` assertion (fails verify loudly if any survived). Only SIGKILL bypasses all 4. |
+
+### Open routes status (2026-06-10 dawn)
+
+| Route | Status |
+|---|---|
+| (a) escape-literal | ✅ Closed code-side (PR #88). Founder retest 2026-06-09 evening 23-s clean run = 0 literals. Production verification on 30+ min retry pending. |
+| (b) latency decomposition | ✅ Instrumentation closed (PR #89/#93). 23-s warm-cache showed 32 s total. Cold-cache / multi-chunk / RAM-swap discrimination pending real 30-min retest. |
+| (c) Path G 1B re-eval | ⏸️ Spec stub PR #92 DRAFT — needs founder Q1/Q2/Q3 answers. |
+| (d) quality-policy brainstorm | ⏸️ Don't enter until (a)+(b)+(c) data exists. |
+| 30-min real-record gate | 🔓 P0-1/2/3 fixed (#95). Founder retest unblocked — re-record, retry-on-failure preserves transcript, sidecar respawn reloads LLM. |
+| Alpha install (v0.2 release) | 🔓 Dylib bundling fixed (#96). Next release rebuild ships working .app. |
 
 ### Operational guards on GitHub (added 2026-05-24)
 
