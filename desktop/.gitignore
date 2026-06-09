@@ -2,6 +2,7 @@ node_modules
 out
 dist
 resources/sidecar
+resources/dylibs
 resources/models
 sidecar/build
 sidecar/deps/whisper.cpp/build
