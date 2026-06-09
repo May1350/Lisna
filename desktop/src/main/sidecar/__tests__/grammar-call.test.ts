@@ -3,6 +3,8 @@ import { spawn } from 'node:child_process';
 import { z } from 'zod';
 import {
   callWithGrammar,
+  findEscapeLiteralInStrings,
+  sanitizeEscapeLiteralsInStrings,
   makeSidecarGenerator,
   makeGrammarSidecar,
   type LlmGenerator,
@@ -201,6 +203,122 @@ describe('callWithGrammar — generator throw is captured as failed attempt', ()
       expect(out.attempts[0]!.ok).toBe(false);
       expect(out.attempts[0]!.reason).toMatch(/ECONNRESET/);
     }
+  });
+});
+
+describe('findEscapeLiteralInStrings (helper)', () => {
+  it('returns null for clean JA prose', () => {
+    expect(findEscapeLiteralInStrings({
+      heading: '【要点】',
+      summary: '今日は就職活動について話しました。',
+      items: ['新しい技術', 'AI機械学習'],
+    })).toBeNull();
+  });
+
+  it('finds any backslash in a string slot (the union detector — covers both observed shapes)', () => {
+    // Source `'\\hit'` parses to runtime `\hit` (1 backslash + "hit").
+    // After JSON.parse on real model output, founder's `\u4eca` shape and this-
+    // run's `\'` shape both decode to JS strings containing at least one
+    // backslash — the walker only needs to find any backslash.
+    const r = findEscapeLiteralInStrings({
+      sections: [{ heading: '【要点】', body: 'before \\hit after' }],
+    });
+    expect(r).not.toBeNull();
+    expect(r!.path).toBe('$.sections[0].body');
+    expect(r!.sample).toContain('\\hit');
+  });
+
+  it('walks arrays + nested objects in document order, returns FIRST match', () => {
+    const r = findEscapeLiteralInStrings({
+      a: 'clean',
+      b: ['clean', { c: 'still clean', d: 'first \\hit' }, 'second \\hit'],
+    });
+    expect(r!.path).toBe('$.b[1].d');
+  });
+});
+
+describe('sanitizeEscapeLiteralsInStrings (helper)', () => {
+  it('returns the value unchanged with empty slots[] for clean JA prose', () => {
+    const input = {
+      heading: '【要点】',
+      summary: '今日は就職活動について話しました。',
+      items: ['新しい技術', 'AI機械学習'],
+    };
+    const r = sanitizeEscapeLiteralsInStrings(input);
+    expect(r.value).toEqual(input);
+    expect(r.sanitizedSlots).toEqual([]);
+  });
+
+  it('decodes `\\uXXXX` literal sequences back to the CJK codepoint they encode', () => {
+    // Source `'\\u4eca\\u306e'` parses to runtime `今の` — 12 ASCII
+    // chars, the decoded form of the founder-reported `\u…` shape.
+    const r = sanitizeEscapeLiteralsInStrings({
+      sections: [{ heading: '\\u4eca\\u306e' }],
+    });
+    expect(r.value).toEqual({ sections: [{ heading: '今の' }] });
+    expect(r.sanitizedSlots).toEqual(['$.sections[0].heading']);
+  });
+
+  it("strips this-run's `\\'<NL>...<NL>\\'` Python-source-LOOKING wrapping", () => {
+    // Source `"\\'\\n就職活動\\'\\n"` parses to runtime
+    // `\'<NL>就職活動\'<NL>` — backslash + apostrophe + newline + JA + …
+    const r = sanitizeEscapeLiteralsInStrings({
+      sections: [{ key_terms: [{ term: "\\'\n就職活動\\'\n" }] }],
+    });
+    expect(r.value).toEqual({
+      sections: [{ key_terms: [{ term: '就職活動' }] }],
+    });
+    expect(r.sanitizedSlots).toEqual(['$.sections[0].key_terms[0].term']);
+  });
+
+  it('shape-agnostic: handles BOTH the founder shape AND this-run shape in the same value (reviewer contract)', () => {
+    const r = sanitizeEscapeLiteralsInStrings({
+      a: '\\u4eca\\u306e',       // founder shape
+      b: "\\'\n新しい技術\\'\n",  // this-run shape
+      c: 'clean prose',
+    });
+    expect(r.value).toEqual({
+      a: '今の',
+      b: '新しい技術',
+      c: 'clean prose',
+    });
+    expect(r.sanitizedSlots).toEqual(['$.a', '$.b']);
+  });
+
+  it('does NOT touch non-string leaves (numbers, booleans, null)', () => {
+    const input = { n: 42, b: true, x: null, s: 'clean' };
+    const r = sanitizeEscapeLiteralsInStrings(input);
+    expect(r.value).toEqual(input);
+    expect(r.sanitizedSlots).toEqual([]);
+  });
+});
+
+describe('callWithGrammar — sanitize recovers in same attempt (no retry)', () => {
+  it('sanitizes the founder shape on attempt 1, records sanitizedSlots, ok=true', async () => {
+    const generator: LlmGenerator = vi.fn(async ({ seed }) => ({
+      // Raw text contains JSON-syntax `\\u4eca` → JSON.parse decodes to
+      // runtime `今` (6 chars). Sanitize stage 1 decodes this back to `今`.
+      text: '{"name":"\\\\u4eca\\\\u306e","n":1}',
+      seed,
+    }));
+    const out = await callWithGrammar({
+      prompt: 'p',
+      schema: SimpleSchema,
+      grammar: 'g',
+      baseSeed: 5000,
+      temperature: 0.4,
+      maxAttempts: 3,
+      maxTokens: 1024,
+      generator,
+    });
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      expect(out.attemptsUsed).toBe(1);                      // NO retry
+      expect(out.attempts[0]!.ok).toBe(true);
+      expect(out.attempts[0]!.sanitizedSlots).toEqual(['$.name']);
+      expect(out.value).toEqual({ name: '今の', n: 1 });
+    }
+    expect(generator).toHaveBeenCalledTimes(1);
   });
 });
 

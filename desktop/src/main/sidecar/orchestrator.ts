@@ -292,6 +292,17 @@ export async function finalizeLecture(
       });
 
       if (!result.ok) {
+        // ESCAPE_LITERAL_AT_ (added 2026-06-09): inner +100-stride seeds often
+        // can't escape the mode-collapse basin on short string slots. Give it
+        // a fresh outer seed block (+10000) before failing the chunk. See
+        // findEscapeLiteralInStrings + memory
+        // v2_track2_escape_literal_phase1_2026-06-09.
+        if (
+          result.finalReason.startsWith('ESCAPE_LITERAL_AT_') &&
+          outerAttempt < POST_DECODE_OUTER_ATTEMPTS - 1
+        ) {
+          continue;
+        }
         throw new Error(`CHUNK_FAILED:${i}:${result.finalReason}`);
       }
 
@@ -470,6 +481,17 @@ export async function finalizeMeeting(
       });
 
       if (!result.ok) {
+        // ESCAPE_LITERAL_AT_ (added 2026-06-09): inner +100-stride seeds often
+        // can't escape the mode-collapse basin on short string slots. Give it
+        // a fresh outer seed block (+10000) before failing the chunk. See
+        // findEscapeLiteralInStrings + memory
+        // v2_track2_escape_literal_phase1_2026-06-09.
+        if (
+          result.finalReason.startsWith('ESCAPE_LITERAL_AT_') &&
+          outerAttempt < POST_DECODE_OUTER_ATTEMPTS - 1
+        ) {
+          continue;
+        }
         throw new Error(`CHUNK_FAILED:${i}:${result.finalReason}`);
       }
 
@@ -636,6 +658,17 @@ export async function finalizeInterview(
       });
 
       if (!result.ok) {
+        // ESCAPE_LITERAL_AT_ (added 2026-06-09): inner +100-stride seeds often
+        // can't escape the mode-collapse basin on short string slots. Give it
+        // a fresh outer seed block (+10000) before failing the chunk. See
+        // findEscapeLiteralInStrings + memory
+        // v2_track2_escape_literal_phase1_2026-06-09.
+        if (
+          result.finalReason.startsWith('ESCAPE_LITERAL_AT_') &&
+          outerAttempt < POST_DECODE_OUTER_ATTEMPTS - 1
+        ) {
+          continue;
+        }
         throw new Error(`CHUNK_FAILED:${i}:${result.finalReason}`);
       }
 
@@ -813,6 +846,17 @@ export async function finalizeBrainstorm(
       });
 
       if (!result.ok) {
+        // ESCAPE_LITERAL_AT_ (added 2026-06-09): inner +100-stride seeds often
+        // can't escape the mode-collapse basin on short string slots. Give it
+        // a fresh outer seed block (+10000) before failing the chunk. See
+        // findEscapeLiteralInStrings + memory
+        // v2_track2_escape_literal_phase1_2026-06-09.
+        if (
+          result.finalReason.startsWith('ESCAPE_LITERAL_AT_') &&
+          outerAttempt < POST_DECODE_OUTER_ATTEMPTS - 1
+        ) {
+          continue;
+        }
         throw new Error(`CHUNK_FAILED:${i}:${result.finalReason}`);
       }
 
