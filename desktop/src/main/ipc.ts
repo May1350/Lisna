@@ -174,14 +174,24 @@ export function registerIpc(deps: IpcDeps) {
       // unload STT → load LLM. STT unload is idempotent (catch+ignore)
       // so a session that never recorded chunks isn't penalized. Cached
       // per-orchestrator via _llmLoadedForCurrent.
+      //
+      // Telemetry: each phase emits its own `sessionLog.phase(...)`
+      // breadcrumb so the founder-visible main.log can attribute a long
+      // Stop → Note interval to cold-cache (llm-load-finalize huge) vs
+      // generation (visible later via [finalize:*] attempts). Without these,
+      // a ~4-min run with a 25 s LLM load looks identical to a 25 s retry.
       if (_llmLoadedForCurrent !== current) {
         const stt = new WhisperCppSTT(client);
         const llm = new LlamaCppLLM(client);
+        const sttT0 = Date.now();
         await stt.unloadModel().catch(() => {
           // STT may not have been loaded (no recording happened, or already
           // unloaded by a prior finalize). Either way, proceed to LLM load.
         });
+        sessionLog.phase('stt-unload-finalize', Date.now() - sttT0);
+        const llmT0 = Date.now();
         await llm.loadModel(paths.llmPath);
+        sessionLog.phase('llm-load-finalize', Date.now() - llmT0);
         _llmLoadedForCurrent = current;
       }
 
@@ -201,6 +211,28 @@ export function registerIpc(deps: IpcDeps) {
       current = null;
       _llmLoadedForCurrent = null;
       recording = false;
+    },
+    // Route (b) latency-decomposition telemetry → sessionLog (founder-visible
+    // main.log). Per-event shape matches sessionLog.finalize* methods 1:1
+    // modulo the `kind` discriminator. The default arm assigns `e` to `never`
+    // so a new FinalizeTelemetryEvent variant fails to compile here until
+    // you wire it to the matching log method.
+    onTelemetry: (e) => {
+      switch (e.kind) {
+        case 'attempt':
+          sessionLog.finalizeAttempt(e);
+          return;
+        case 'chunk-done':
+          sessionLog.finalizeChunkDone(e);
+          return;
+        case 'finalize-done':
+          sessionLog.finalizeDone(e);
+          return;
+        default: {
+          const _exhaustive: never = e;
+          return _exhaustive;
+        }
+      }
     },
   });
 

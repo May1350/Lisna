@@ -8,8 +8,12 @@
  *   3. retry budget: chunk-0 fails once, total grammar calls = chunkCount + 1
  *   4. validation_warnings stays empty (Lecture has no SpeakerRef)
  */
-import { describe, it, expect, beforeAll } from 'vitest';
-import { finalizeLecture, type FinalizeLectureArgs } from '../orchestrator';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
+import {
+  finalizeLecture,
+  type FinalizeLectureArgs,
+  type FinalizeTelemetryEvent,
+} from '../orchestrator';
 import type { GrammarCapableSidecar } from '../grammar-call';
 import type { SessionTranscript } from '@shared/note-schema/transcript';
 import { modelProfiles } from '@shared/models/profiles';
@@ -322,5 +326,188 @@ describe('finalizeLecture', () => {
     ).rejects.toThrow(/^CHUNK_FAILED:0:POST_DECODE_ZOD_EXHAUSTED/);
 
     expect(sidecar.calls).toHaveLength(2);
+  });
+
+  // ─── Route (b) latency decomposition (founder smoke 2026-06-09) ────────────
+  // onTelemetry feeds the founder-visible main.log so a finalize wall time can
+  // be split into cold-cache / retry / RAM. The IPC route wires it to
+  // sessionLog.finalize{Attempt,ChunkDone,Done}; here we assert the event
+  // stream shape with a vi.fn collector.
+
+  describe('onTelemetry callback', () => {
+    it('single-chunk happy path emits 1 attempt + 1 chunk-done + 1 finalize-done', async () => {
+      const sidecar = mockSidecar({ responses: [makeLectureNoteJson('Sec', 0)] });
+      const events: FinalizeTelemetryEvent[] = [];
+
+      await finalizeLecture({
+        sessionId: 'tel',
+        transcript: makeTranscript(3),
+        sidecar,
+        modelProfile,
+        onTelemetry: (e) => events.push(e),
+      });
+
+      // attempt event: 1 inner attempt, ok=true, seed matches the lecture base (5000+0+0)
+      const attempts = events.filter((e) => e.kind === 'attempt');
+      expect(attempts).toHaveLength(1);
+      expect(attempts[0]).toMatchObject({
+        kind: 'attempt',
+        family: 'lecture',
+        chunkIndex: 0,
+        totalChunks: 1,
+        outerAttempt: 0,
+        attempt: 1,
+        seed: 5000,
+        ok: true,
+      });
+      expect((attempts[0] as { latencyMs: number }).latencyMs).toBeGreaterThanOrEqual(0);
+
+      // chunk-done: 1 inner attempt total, no retries, no sanitized
+      const chunkDone = events.filter((e) => e.kind === 'chunk-done');
+      expect(chunkDone).toHaveLength(1);
+      expect(chunkDone[0]).toMatchObject({
+        kind: 'chunk-done',
+        family: 'lecture',
+        chunkIndex: 0,
+        totalChunks: 1,
+        outerAttempts: 1,
+        totalAttempts: 1,
+        freshSeedRetries: 0,
+        sanitizedTotal: 0,
+      });
+
+      // finalize-done: 1 chunk, 1 attempt
+      const finalizeDone = events.filter((e) => e.kind === 'finalize-done');
+      expect(finalizeDone).toHaveLength(1);
+      expect(finalizeDone[0]).toMatchObject({
+        kind: 'finalize-done',
+        family: 'lecture',
+        chunkCount: 1,
+        totalAttempts: 1,
+        sanitizedTotal: 0,
+      });
+    });
+
+    it('inner-retry on generator throw produces 2 attempt events for chunk 0 (1 ok=false, 1 ok=true)', async () => {
+      // failuresPerCall {0:1} → first generate call throws → callWithGrammar
+      // catches as a failed inner attempt and retries with seed+100.
+      const sidecar = mockSidecar({
+        responses: [makeLectureNoteJson('Sec', 0)],
+        failuresPerCall: { 0: 1 },
+      });
+      const events: FinalizeTelemetryEvent[] = [];
+
+      await finalizeLecture({
+        sessionId: 'tel-retry',
+        transcript: makeTranscript(3),
+        sidecar,
+        modelProfile,
+        onTelemetry: (e) => events.push(e),
+      });
+
+      const attempts = events.filter((e) => e.kind === 'attempt') as Array<
+        Extract<FinalizeTelemetryEvent, { kind: 'attempt' }>
+      >;
+      expect(attempts).toHaveLength(2);
+      expect(attempts[0]!.ok).toBe(false);
+      expect(attempts[0]!.attempt).toBe(1);
+      expect(attempts[0]!.seed).toBe(5000);
+      expect(attempts[0]!.reason).toBe('mock-fail');
+      expect(attempts[1]!.ok).toBe(true);
+      expect(attempts[1]!.attempt).toBe(2);
+      expect(attempts[1]!.seed).toBe(5100);
+
+      const chunkDone = events.filter((e) => e.kind === 'chunk-done') as Array<
+        Extract<FinalizeTelemetryEvent, { kind: 'chunk-done' }>
+      >;
+      expect(chunkDone[0]!.outerAttempts).toBe(1);
+      expect(chunkDone[0]!.totalAttempts).toBe(2);
+      expect(chunkDone[0]!.freshSeedRetries).toBe(0); // inner retry, not outer
+    });
+
+    it('outer post-decode retry advances outerAttempts and freshSeedRetries', async () => {
+      // Reuses the P0b setup: outer attempt 0 produces JSON missing 'sections'
+      // (post-decode ZodError) → outer attempt 1 with +10000 seed block succeeds.
+      const invalidJson = JSON.stringify({
+        schemaVersion: 1,
+        family: 'lecture',
+        title: 'タイトル',
+        generatedAt: new Date().toISOString(),
+        generatedBy: { model: 'llama-3.2-3b-q4-km', promptVersion: 1 },
+        language: 'ja',
+        durationSec: 60,
+        // missing: sections — Stage 4 throws ZodError
+      });
+      const validJson = makeLectureNoteJson('セクション', 0);
+      const sidecar = mockSidecar({ responses: [invalidJson, validJson] });
+      const events: FinalizeTelemetryEvent[] = [];
+
+      await finalizeLecture({
+        sessionId: 'tel-outer',
+        transcript: makeTranscript(3),
+        sidecar,
+        modelProfile,
+        onTelemetry: (e) => events.push(e),
+      });
+
+      const attempts = events.filter((e) => e.kind === 'attempt') as Array<
+        Extract<FinalizeTelemetryEvent, { kind: 'attempt' }>
+      >;
+      expect(attempts).toHaveLength(2);
+      // outer 0, inner 1: ok=true (JSON parses + sanitize passes — fails LATER in post-decode)
+      expect(attempts[0]!.outerAttempt).toBe(0);
+      expect(attempts[0]!.ok).toBe(true);
+      // outer 1, inner 1: ok=true on the valid JSON
+      expect(attempts[1]!.outerAttempt).toBe(1);
+      expect(attempts[1]!.ok).toBe(true);
+
+      const chunkDone = events.filter((e) => e.kind === 'chunk-done') as Array<
+        Extract<FinalizeTelemetryEvent, { kind: 'chunk-done' }>
+      >;
+      expect(chunkDone[0]!.outerAttempts).toBe(2);
+      expect(chunkDone[0]!.totalAttempts).toBe(2);
+      expect(chunkDone[0]!.freshSeedRetries).toBe(1);
+    });
+
+    it('omitting onTelemetry is a no-op (no throws, finalize succeeds)', async () => {
+      // Negative: explicit guard that the callback is optional.
+      const sidecar = mockSidecar({ responses: [makeLectureNoteJson('Sec', 0)] });
+      const result = await finalizeLecture({
+        sessionId: 'no-tel',
+        transcript: makeTranscript(3),
+        sidecar,
+        modelProfile,
+        // onTelemetry omitted
+      });
+      expect(result.note.family).toBe('lecture');
+    });
+
+    it('onTelemetry receives chunk-done even when the chunk throws CHUNK_FAILED (try/finally invariant)', async () => {
+      // Founder-relevant: if a chunk explodes we still want the partial timing
+      // surfaced so the next session can attribute the failure.
+      const sidecar = mockSidecar({
+        responses: [],
+        failuresPerCall: { 0: 5 }, // exhausts inner retries (maxAttempts=3) on first outer
+      });
+      const onTelemetry = vi.fn();
+      await expect(
+        finalizeLecture({
+          sessionId: 'tel-throw',
+          transcript: makeTranscript(1),
+          sidecar,
+          modelProfile,
+          onTelemetry,
+        }),
+      ).rejects.toThrow(/^CHUNK_FAILED:0:/);
+
+      const calls = onTelemetry.mock.calls.map((c) => c[0] as FinalizeTelemetryEvent);
+      // 3 inner attempts (all ok=false) + 1 chunk-done; NO finalize-done (we threw).
+      const attempts = calls.filter((e) => e.kind === 'attempt');
+      expect(attempts).toHaveLength(3);
+      expect(attempts.every((e) => (e as { ok: boolean }).ok === false)).toBe(true);
+      const chunkDone = calls.filter((e) => e.kind === 'chunk-done');
+      expect(chunkDone).toHaveLength(1);
+      expect(calls.filter((e) => e.kind === 'finalize-done')).toHaveLength(0);
+    });
   });
 });
