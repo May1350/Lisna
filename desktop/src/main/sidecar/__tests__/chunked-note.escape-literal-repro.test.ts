@@ -24,8 +24,12 @@ import { spawn, execSync } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { finalizeLecture } from '../orchestrator';
-import { makeGrammarSidecar, type GrammarCapableSidecar } from '../grammar-call';
+import { finalizeLecture, type FinalizeLectureResult } from '../orchestrator';
+import {
+  findEscapeLiteralInStrings,
+  makeGrammarSidecar,
+  type GrammarCapableSidecar,
+} from '../grammar-call';
 import { SidecarClient } from '../client';
 import { LlamaCppLLM } from '../../engines/llama-cpp-llm';
 import { modelProfiles } from '@shared/models/profiles';
@@ -114,11 +118,12 @@ describeIf('real-3B finalizeLecture escape-literal repro (env-gated, ~1-3 min)',
   });
 
   it(
-    'Llama-3.2-3B grammar-constrained lecture finalize emits no \\uXXXX literals',
+    'finalizeLecture returns and the resulting note has no backslash in any decoded string',
     async () => {
       const proc = spawn(sidecarBin, [], { stdio: ['pipe', 'pipe', 'pipe'] });
       const client = new SidecarClient(proc);
       let captured: CapturedCall[] = [];
+      let result: FinalizeLectureResult | undefined;
       let runErr: unknown = undefined;
       try {
         await client.waitForReady(10_000);
@@ -129,25 +134,27 @@ describeIf('real-3B finalizeLecture escape-literal repro (env-gated, ~1-3 min)',
         const { spy, captured: cap } = makeSpyingSidecar(real);
         captured = cap;
         try {
-          await finalizeLecture({
+          result = await finalizeLecture({
             sessionId: 'real-3b-repro',
             transcript: FOUNDER_LIKE_TRANSCRIPT,
             sidecar: spy,
             modelProfile: modelProfiles['llama-3.2-3b-q4-km']!,
           });
         } catch (e) {
-          // finalizeLecture may throw if 3B emits malformed JSON or Zod-invalid
-          // shape (CHUNK_FAILED / POST_DECODE_ZOD_EXHAUSTED). The captured raw
-          // texts are still the load-bearing diagnostic — keep going.
+          // CHUNK_FAILED:0:ESCAPE_LITERAL_AT_$.…:"…" means the fresh-seed
+          // retry budget (3 inner attempts) exhausted without recovery. The
+          // captured raw texts in the diagnostic show what the model kept
+          // emitting — useful for tuning attempts up or escalating to the
+          // grammar-edit option.
           runErr = e;
         }
       } finally {
-        // Diagnostic write FIRST — load-bearing output of this test.
         if (!existsSync(diagnosticDir)) mkdirSync(diagnosticDir, { recursive: true });
+        const escapeAttempts = captured.filter((c) => ESCAPE_LITERAL_RE.test(c.text)).length;
         const lines: string[] = [
           `# Founder escape-literal repro (grammar path) — ${new Date().toISOString()}`,
           `# Model: ${llmModel}`,
-          `# Captured ${captured.length} grammar call(s)`,
+          `# Captured ${captured.length} grammar call(s) — ${escapeAttempts} contained 2-backslash mode-collapse shape`,
           ...(runErr ? [`# finalizeLecture error: ${String(runErr)}`] : []),
         ];
         captured.forEach((c, i) => {
@@ -159,17 +166,27 @@ describeIf('real-3B finalizeLecture escape-literal repro (env-gated, ~1-3 min)',
         proc.kill('SIGTERM');
       }
 
+      // Fix verification (layered defense, 2026-06-09):
+      //  (1) finalizeLecture returned (sanitize recovered OR retries broke
+      //      out of the mode-collapse basin within budget).
+      //  (2) The resulting note has no backslash in any decoded string slot.
+      //      Raw text from the model may STILL contain escape literals
+      //      (see diagnostic file — that's the pre-sanitize spy capture);
+      //      what matters is that callWithGrammar's sanitize stage cleaned
+      //      them before Zod, so the renderer-visible note is healthy.
+      //  (3) Captured at least 1 call so we know the test path ran.
+      expect(runErr, `finalizeLecture threw: ${runErr}`).toBeUndefined();
+      expect(result).toBeDefined();
       expect(captured.length).toBeGreaterThan(0);
-      for (const [i, c] of captured.entries()) {
-        const m = c.text.match(ESCAPE_LITERAL_RE);
-        expect(
-          m,
-          m
-            ? `Call ${i} (seed=${c.seed}) literal \\u${'XXXX'} at idx ${m.index}: ${JSON.stringify(c.text.slice(Math.max(0, (m.index ?? 0) - 20), (m.index ?? 0) + 40))} — full text in ${diagnosticPath}`
-            : 'no match — bug not reproduced this run',
-        ).toBeNull();
-      }
+
+      const leak = findEscapeLiteralInStrings(result!.note);
+      expect(
+        leak,
+        leak
+          ? `escape-literal leak at ${leak.path}: ${JSON.stringify(leak.sample)} — full raw text history in ${diagnosticPath}`
+          : 'unreachable',
+      ).toBeNull();
     },
-    300_000, // 5 min
+    300_000, // 5 min — wide enough for ≤3 inner retries on cold-cache 8 GB M3
   );
 });
