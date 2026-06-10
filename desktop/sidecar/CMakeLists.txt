@@ -33,9 +33,13 @@ add_executable(lisna_sidecar
   src/stt/whisper_engine.cpp
   src/llm/llama_engine.cpp
   src/memory/os_reclaim.cpp
+  src/lifecycle/parent_watchdog.cpp
 )
 target_include_directories(lisna_sidecar PRIVATE src deps/json)
-target_link_libraries(lisna_sidecar PRIVATE whisper llama)
+# Threads: explicit for the parent-watchdog std::thread (previously only
+# linked transitively via llama/whisper internals).
+find_package(Threads REQUIRED)
+target_link_libraries(lisna_sidecar PRIVATE whisper llama Threads::Threads)
 
 if(LISNA_WITH_TESTS)
   enable_testing()

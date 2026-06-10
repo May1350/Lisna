@@ -28,6 +28,89 @@ let mainWindow: BrowserWindow | undefined;
 // skips the preventDefault gate and lets Electron quit normally.
 let shuttingDown = false;
 
+// ── Zombie-defense Layer B (2026-06-10) ──────────────────────────────────
+// The sidecar holds ~3 GB RAM (Llama + Whisper + Metal buffers). Any Electron
+// exit path that skips `before-quit` leaves it orphaned — founder-reported
+// 10+ times. Every handler below converges on killing the child before the
+// main process is allowed to die. Registered at module scope, BEFORE
+// whenReady, so they cover boot-phase failures too.
+
+// Last-resort synchronous reaper. `process.on('exit')` runs after the event
+// loop is gone — only sync code executes. Covers: app.exit() calls, the tail
+// of every graceful quit, and Node-default terminations that still unwind.
+process.on('exit', () => {
+  supervisor?.panicKill();
+});
+
+// Emergency teardown for fatal-but-catchable paths. supervisor.shutdown()
+// is internally bounded at 2s (SIGTERM → SIGKILL → hard ceiling), so this
+// cannot hang the quit. app.exit (not app.quit) — skip the quit-event chain,
+// whose listeners may be the thing that just threw.
+let hardShutdownRan = false;
+function hardShutdownAndExit(code: number): void {
+  if (hardShutdownRan) return;
+  hardShutdownRan = true;
+  shuttingDown = true; // suppress the before-quit preventDefault pass
+  const bail = setTimeout(() => app.exit(code), 2500); // shutdown() ceiling is 2s
+  void supervisor?.shutdown().finally(() => {
+    clearTimeout(bail);
+    app.exit(code);
+  });
+  if (!supervisor) {
+    clearTimeout(bail);
+    app.exit(code);
+  }
+}
+
+// POSIX termination signals: Activity Monitor quit, `kill <pid>`, dev-launcher
+// (electron-vite / pnpm dev) teardown, terminal hangup, logout. Node's default
+// disposition would die without running before-quit; converting to the
+// graceful path lets the sidecar SIGTERM cleanly (Metal teardown) first.
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
+  process.on(sig, () => {
+    log.warn(`[lifecycle] ${sig} received — shutting down`);
+    hardShutdownAndExit(0);
+  });
+}
+
+// A main-process throw after boot would otherwise terminate Electron via
+// Node's default handler WITHOUT running before-quit — the silent-exit shape
+// from the 2026-06-10 RCA (17-min recording lost, sidecar orphaned). Log
+// first: the log line is the difference between a diagnosable incident and
+// another "app just vanished" report.
+process.on('uncaughtException', (err) => {
+  log.error('[lifecycle] uncaughtException — emergency shutdown', err);
+  hardShutdownAndExit(1);
+});
+
+// Logged but NOT fatal: Node's default (throw) would turn any forgotten
+// .catch into a full app exit mid-recording. A rejected promise nobody
+// awaits is an observability problem, not a process-integrity problem.
+process.on('unhandledRejection', (reason) => {
+  log.error('[lifecycle] unhandledRejection (non-fatal)', reason);
+});
+
+// Renderer death (V8 OOM, GPU fault, native crash) with no listener lets
+// Electron destroy the BrowserWindow → window-all-closed → app.quit — the
+// load-bearing chain in the 2026-06-10 silent exit. The orchestrator (and
+// the in-flight transcript) lives in THIS process, so a webContents.reload()
+// is full recovery, not a restart.
+app.on('render-process-gone', (_event, contents, details) => {
+  log.error('[lifecycle] render-process-gone', details.reason, `exitCode=${details.exitCode}`);
+  if (['crashed', 'oom', 'abnormal-exit', 'launch-failed'].includes(details.reason)) {
+    const win = BrowserWindow.getAllWindows().find((w) => w.webContents === contents);
+    if (win && !win.isDestroyed()) {
+      win.webContents.reload();
+    }
+  }
+});
+
+// GPU / network-service / utility process deaths are recoverable (Electron
+// respawns them) but each one is a breadcrumb for the next incident RCA.
+app.on('child-process-gone', (_event, details) => {
+  log.warn('[lifecycle] child-process-gone', details.type, details.reason);
+});
+
 // Phase M Task 68 — wire the `lisna://` deep-link handler BEFORE `whenReady`.
 // `registerUrlScheme` acquires the single-instance lock and installs the
 // `open-url` / `second-instance` listeners; macOS may fire `open-url` during
