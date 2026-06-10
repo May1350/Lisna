@@ -2,6 +2,14 @@ appId: com.lisna.desktop
 productName: Lisna
 
 mac:
+  # P0 2026-06-11 — mic capture needs com.apple.security.device.audio-input
+  # under hardened runtime. entitlementsInherit matters as much as
+  # entitlements: getUserMedia's audio capture runs in the Helper processes,
+  # not the main binary. Without these the packaged app records SILENCE with
+  # no error and never appears in the TCC microphone list (dev/terminal
+  # launches masked this via the responsible process's mic permission).
+  entitlements: signing/entitlements.mac.plist
+  entitlementsInherit: signing/entitlements.mac.plist
   extendInfo:
     CFBundleURLTypes:
       - CFBundleURLName: lisna
