@@ -139,7 +139,9 @@ export async function handleChunk(
   if (!recording || !current) return { ok: true };  // silent no-op
   const orch = current;
   try {
-    const segs = await orch.onChunk(payload.samples);
+    // startMs → seconds: re-anchor Whisper's chunk-relative segment ts to
+    // session time (see SessionOrchestrator.onChunk JSDoc).
+    const segs = await orch.onChunk(payload.samples, payload.startMs / 1000);
     event.sender.send(CHANNELS.onChunk, {
       index: payload.index,
       segments: segs,
