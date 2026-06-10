@@ -12,6 +12,7 @@ import type { Note } from '@shared/types';
 import type { SidecarSupervisor } from './sidecar/supervisor';
 import { SessionOrchestrator } from './sidecar/orchestrator';
 import { makeGrammarSidecar } from './sidecar/grammar-call';
+import { makeRecoveringGrammarSidecar } from './sidecar/recovering-grammar-sidecar';
 import { WhisperCppSTT } from './engines/whisper-cpp-stt';
 import { LlamaCppLLM } from './engines/llama-cpp-llm';
 import { isMacAudioLoopbackSupported } from './platform/hardware-check';
@@ -199,7 +200,32 @@ export function registerIpc(deps: IpcDeps) {
         sessionId: 'live',   // placeholder — real session-ID assignment lands in Task 13
         segments: current.exposedSegments,
         llmModelPath: paths.llmPath,
-        sidecar: makeGrammarSidecar(client),
+        // Wedged-retry fix (2026-06-10): resolve the client LAZILY per
+        // generate call and restart + LLM-reload on a no-progress stall, so
+        // callWithGrammar's fresh-seed retries hit a live process instead of
+        // queueing behind a doomed generation in the single-threaded C++
+        // dispatch loop. See recovering-grammar-sidecar.ts for the RCA.
+        sidecar: makeRecoveringGrammarSidecar({
+          getSidecar: () => {
+            const c = deps.supervisor.getClient();
+            return c ? makeGrammarSidecar(c) : null;
+          },
+          recover: async () => {
+            log.warn('[finalize] generate stalled (no progress) — restarting sidecar + reloading LLM');
+            const t0 = Date.now();
+            try {
+              const fresh = await deps.supervisor.restart();
+              await fresh.waitForReady(5000);
+              await new LlamaCppLLM(fresh).loadModel(paths.llmPath);
+              sessionLog.phase('llm-reload-recovery', Date.now() - t0);
+            } catch (e) {
+              // Force the next session/finalize call to re-run the full
+              // unload-STT → load-LLM prep instead of trusting the cache.
+              _llmLoadedForCurrent = null;
+              throw e;
+            }
+          },
+        }),
       };
     },
     // The v2 Stop flow ends here, not at session/stop — so finalize owns the

@@ -211,4 +211,104 @@ describe('SidecarSupervisor', () => {
     await new Promise((r) => setTimeout(r, 60));
     expect(spawnMock).toHaveBeenCalledTimes(1);
   });
+
+  // ---- restart(): deliberate kill + fresh spawn (wedged-retry fix 2026-06-10) ----
+
+  it('restart() SIGKILLs the old child, spawns a fresh one, suppresses onExit', async () => {
+    const onExit = vi.fn();
+    const sup = new SidecarSupervisor({ onCrash: vi.fn(), onExit, restartDelayMs: 10000 });
+    sup.start();
+    const oldProc = spawnMock.mock.results[0]!.value as FakeChild;
+    const killSpy = vi.spyOn(oldProc, 'kill');
+    // FakeChild.kill doesn't emit 'exit'; simulate the kernel doing so.
+    killSpy.mockImplementation(() => {
+      setTimeout(() => oldProc.emit('exit', null, 'SIGKILL'), 5);
+      return true;
+    });
+    const client = await sup.restart();
+    expect(killSpy).toHaveBeenCalledWith('SIGKILL');
+    expect(client).toBeDefined();
+    expect(spawnMock).toHaveBeenCalledTimes(2);          // old + fresh
+    expect(onExit).not.toHaveBeenCalled();               // deliberate, not a crash
+    expect(sup.getPid()).toBe(9999);                     // fresh child live
+  });
+
+  it('restart() resumes crash supervision for the fresh child', async () => {
+    const onExit = vi.fn();
+    const sup = new SidecarSupervisor({ onCrash: vi.fn(), onExit, restartDelayMs: 10000 });
+    sup.start();
+    const oldProc = spawnMock.mock.results[0]!.value as FakeChild;
+    vi.spyOn(oldProc, 'kill').mockImplementation(() => {
+      setTimeout(() => oldProc.emit('exit', null, 'SIGKILL'), 5);
+      return true;
+    });
+    await sup.restart();
+    const freshProc = spawnMock.mock.results[1]!.value as FakeChild;
+    freshProc.emit('exit', 1, null);                     // unexpected crash AFTER restart
+    expect(onExit).toHaveBeenCalledTimes(1);             // supervision is back on
+  });
+
+  it('restart() refuses after shutdown()', async () => {
+    const sup = new SidecarSupervisor({ onCrash: vi.fn() });
+    sup.start();
+    void sup.shutdown();
+    await expect(sup.restart()).rejects.toThrow('already shut down');
+  });
+
+  // Reviewer-caught race (2026-06-10): a wedged child under swap pressure can
+  // take >2s for the kernel to reap. restart()'s kill-wait ceiling then
+  // resolves FIRST: flags reset, fresh child spawned — and the old child's
+  // 'exit' arrives LATE. Without the proc-identity guard in handleExit, that
+  // stale exit re-enters the crash path: disowns the fresh child (zombie),
+  // fires onExit (wipes in-flight finalize state — P0-3 violation), and
+  // schedules a respawn that fights the live process.
+  it('late exit from a restart()-killed child does not disturb the fresh child', async () => {
+    vi.useFakeTimers();
+    try {
+      const onExit = vi.fn();
+      const sup = new SidecarSupervisor({ onCrash: vi.fn(), onExit, restartDelayMs: 10000 });
+      sup.start();
+      const oldProc = spawnMock.mock.results[0]!.value as FakeChild;
+      // Wedged child: kill() does NOT produce an exit — the ceiling must win.
+      vi.spyOn(oldProc, 'kill').mockImplementation(() => true);
+      const restartP = sup.restart();
+      await vi.advanceTimersByTimeAsync(2000); // ceiling fires
+      const client = await restartP;
+      expect(client).toBeDefined();
+      expect(spawnMock).toHaveBeenCalledTimes(2);
+      const freshPid = sup.getPid();
+      expect(freshPid).toBe(9999);
+
+      // The kernel finally reaps the old child — its 'exit' arrives late.
+      oldProc.emit('exit', null, 'SIGKILL');
+
+      expect(onExit).not.toHaveBeenCalled();      // not treated as a crash
+      expect(sup.getPid()).toBe(freshPid);        // fresh child NOT disowned
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(spawnMock).toHaveBeenCalledTimes(2); // no rogue respawn scheduled
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('onSpawn fires on boot, crash-respawn, and restart()', async () => {
+    const onSpawn = vi.fn();
+    const sup = new SidecarSupervisor({
+      onCrash: vi.fn(), onSpawn,
+      maxConsecutiveFailures: 5, restartDelayMs: 5,
+    });
+    sup.start();
+    expect(onSpawn).toHaveBeenCalledTimes(1);     // boot
+    const proc1 = spawnMock.mock.results[0]!.value as FakeChild;
+    proc1.emit('exit', 1, null);                  // crash → respawn in 5ms
+    await new Promise((r) => setTimeout(r, 30));
+    expect(onSpawn).toHaveBeenCalledTimes(2);     // crash-respawn
+    const proc2 = spawnMock.mock.results[1]!.value as FakeChild;
+    vi.spyOn(proc2, 'kill').mockImplementation(() => {
+      setTimeout(() => proc2.emit('exit', null, 'SIGKILL'), 5);
+      return true;
+    });
+    await sup.restart();
+    expect(onSpawn).toHaveBeenCalledTimes(3);     // deliberate restart
+  });
 });
