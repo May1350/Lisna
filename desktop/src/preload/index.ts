@@ -44,6 +44,9 @@ contextBridge.exposeInMainWorld('lisna', {
   stopSession: (): Promise<Note> =>
     ipcRenderer.invoke(CHANNELS.sessionStop),
 
+  /** Drop the stopped session without generating a note (discard route). */
+  discardSession: (): Promise<void> => ipcRenderer.invoke(CHANNELS.sessionDiscard),
+
   /**
    * V2 family-routed note generation. Replaces the legacy `stopSession`
    * markdown path for structured notes. Per Plan 3 Task 10 + spec §9.
@@ -140,6 +143,8 @@ declare global {
       onChunk(cb: (msg: ChunkResultPayload) => void): () => void;
       startSession(payload: SessionStartPayload): Promise<void>;
       stopSession(): Promise<Note>;
+      /** Drop the stopped session without generating a note (discard route). */
+      discardSession(): Promise<void>;
       finalize(args: SessionFinalizeArgs): Promise<SessionFinalizeResult>;
       onPhase(cb: (msg: SessionPhasePayload) => void): () => void;
       onSessionError(cb: (msg: SessionErrorPayload) => void): () => void;
