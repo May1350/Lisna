@@ -16,13 +16,18 @@ export type LlmGenerator = (opts: {
   seed: number;
   temperature: number;
   maxTokens: number;
-}) => Promise<{ text: string; seed: number }>;
+}) => Promise<{ text: string; seed: number; stats?: { tokensOut: number; genMs: number } }>;
 
 /** Per-attempt observability record. Surfaces in both success + failure shapes. */
 export interface GrammarAttempt {
   attempt: number;          // 1-indexed
   seed: number;
   latencyMs: number;
+  /** Sidecar-reported decode stats (absent on older binaries / failed attempts).
+   *  tokensOut/genMs discriminate "output too long" from "decode too slow" —
+   *  the 1-min-target decomposition (2026-06-10). */
+  tokensOut?: number;
+  genMs?: number;
   ok: boolean;
   reason?: string;          // populated when ok = false
   /**
@@ -199,6 +204,7 @@ export async function callWithGrammar<T>(
     let reason: string | undefined;
     let value: T | undefined;
     let sanitizedSlots: string[] | undefined;
+    let stats: { tokensOut: number; genMs: number } | undefined;
 
     try {
       const r = await opts.generator({
@@ -208,6 +214,7 @@ export async function callWithGrammar<T>(
         temperature: opts.temperature,
         maxTokens: opts.maxTokens,
       });
+      stats = r.stats;
       const parsed = JSON.parse(r.text);
       // Mode-collapse recovery (added 2026-06-09): sanitize first
       // (shape-agnostic), THEN detect as the final invariant. If sanitize
@@ -231,6 +238,10 @@ export async function callWithGrammar<T>(
 
     const latencyMs = Date.now() - t0;
     const att: GrammarAttempt = { attempt, seed, latencyMs, ok, reason };
+    if (stats) {
+      att.tokensOut = stats.tokensOut;
+      att.genMs = stats.genMs;
+    }
     if (sanitizedSlots) att.sanitizedSlots = sanitizedSlots;
     attempts.push(att);
     if (ok && value !== undefined) {
@@ -254,7 +265,7 @@ export interface GrammarCapableSidecar {
     seed: number;
     temperature: number;
     maxTokens: number;
-  }): Promise<{ text: string; seed: number }>;
+  }): Promise<{ text: string; seed: number; stats?: { tokensOut: number; genMs: number } }>;
 }
 
 /**
@@ -278,6 +289,7 @@ export function makeGrammarSidecar(client: SidecarClient): GrammarCapableSidecar
   return {
     async generateWithGrammar({ prompt, grammar, seed, temperature, maxTokens }) {
       let text = '';
+      let stats: { tokensOut: number; genMs: number } | undefined;
       for await (const tok of client.sendStream(
         {
           type: 'generate',
@@ -287,11 +299,11 @@ export function makeGrammarSidecar(client: SidecarClient): GrammarCapableSidecar
           temperature,
           maxTokens,
         },
-        { timeoutMs: TIMEOUTS.GENERATE_NO_PROGRESS_MS },
+        { timeoutMs: TIMEOUTS.GENERATE_NO_PROGRESS_MS, onDone: (s) => { stats = s; } },
       )) {
         text += tok;
       }
-      return { text, seed };
+      return { text, seed, stats };
     },
   };
 }

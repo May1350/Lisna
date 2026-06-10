@@ -155,13 +155,21 @@ export function createSessionLog(sink: LogSink) {
       ok: boolean;
       reason?: string;           // populated on !ok
       sanitizedSlotCount?: number;
+      /** Sidecar decode stats when reported (decode-speed instrumentation). */
+      tokensOut?: number;
+      genMs?: number;
     }): void {
       const reasonPart = args.reason ? ` reason=${truncateReason(args.reason)}` : '';
       const sanPart = args.sanitizedSlotCount ? ` sanitized=${args.sanitizedSlotCount}` : '';
+      // tok/s computed here (not stored) so the log line carries the number
+      // the 1-min-target analysis actually reads. Shape-only — no content.
+      const tokPart = args.tokensOut !== undefined && args.genMs
+        ? ` tokens=${args.tokensOut} tokPerSec=${(args.tokensOut / (args.genMs / 1000)).toFixed(1)}`
+        : '';
       sink.info(
         `[finalize:${args.family}] chunk=${args.chunkIndex}/${args.totalChunks}` +
         ` outerAttempt=${args.outerAttempt} attempt=${args.attempt}` +
-        ` seed=${args.seed} latencyMs=${args.latencyMs} ok=${args.ok}${reasonPart}${sanPart}`,
+        ` seed=${args.seed} latencyMs=${args.latencyMs} ok=${args.ok}${tokPart}${reasonPart}${sanPart}`,
       );
     },
 

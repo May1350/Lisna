@@ -57,6 +57,9 @@ export type FinalizeTelemetryEvent =
       ok: boolean;
       reason?: string;
       sanitizedSlotCount?: number;
+      /** Sidecar decode stats (decode-speed instrumentation, 2026-06-10). */
+      tokensOut?: number;
+      genMs?: number;
     }
   | {
       kind: 'chunk-done';
@@ -108,6 +111,8 @@ function emitGrammarAttempts(
       ok: att.ok,
       reason: att.reason,
       sanitizedSlotCount: slotCount || undefined,
+      tokensOut: att.tokensOut,
+      genMs: att.genMs,
     });
   }
   return { innerAttempts: attempts.length, sanitizedCount };

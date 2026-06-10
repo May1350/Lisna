@@ -54,6 +54,47 @@ describe('SidecarClient with /bin/cat (raw line buffering)', () => {
     await expect(respPromise).resolves.toMatchObject({ type: 'ping' });
   });
 
+  it('sendStream onDone receives stats from the done line (and undefined when absent)', async () => {
+    const client = new SidecarClient(proc);
+    // Register the raw-line capture BEFORE sendStream writes — cat echoes the
+    // request line immediately, and a late listener misses it.
+    const firstEcho = new Promise<string>((resolve) => client.onRawLine((l) => resolve(l)));
+    let stats1: unknown = 'unset';
+    const consume1 = (async () => {
+      const toks: string[] = [];
+      for await (const t of client.sendStream({ type: 'generate' } as never, {
+        timeoutMs: 2000,
+        onDone: (s) => { stats1 = s; },
+      })) toks.push(t);
+      return toks;
+    })();
+    const id = (JSON.parse(await firstEcho) as { id: string }).id;
+    proc.stdin!.write(JSON.stringify({ id, type: 'token', token: 'x' }) + '\n');
+    proc.stdin!.write(JSON.stringify({ id, type: 'done', stats: { tokensOut: 42, genMs: 1500 } }) + '\n');
+    const toks = await consume1;
+    expect(toks).toEqual(['x']);
+    expect(stats1).toEqual({ tokensOut: 42, genMs: 1500 });
+
+    // Older binary shape: done without stats → onDone(undefined).
+    const secondEcho = new Promise<string>((resolve) => client.onRawLine((l) => {
+      // Skip lines belonging to the first exchange (already consumed); the
+      // next request line is the one carrying a fresh UUID.
+      if (l.includes('"type":"generate"')) resolve(l);
+    }));
+    let stats2: unknown = 'unset';
+    const consume2 = (async () => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      for await (const _t of client.sendStream({ type: 'generate' } as never, {
+        timeoutMs: 2000,
+        onDone: (s) => { stats2 = s; },
+      })) { /* drain */ }
+    })();
+    const id2 = (JSON.parse(await secondEcho) as { id: string }).id;
+    proc.stdin!.write(JSON.stringify({ id: id2, type: 'done' }) + '\n');
+    await consume2;
+    expect(stats2).toBeUndefined();
+  });
+
   it('id-less lines route to event listeners, not pending requests', async () => {
     const client = new SidecarClient(proc);
     const events: unknown[] = [];

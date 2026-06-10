@@ -68,6 +68,46 @@ describe('callWithGrammar — surfaces seed + latencyMs per attempt', () => {
 });
 
 describe('callWithGrammar — retry on JSON.parse failure', () => {
+  it('records sidecar decode stats (tokensOut/genMs) on the attempt when present', async () => {
+    const generator: LlmGenerator = vi.fn(async ({ seed }) => ({
+      text: JSON.stringify({ name: 'ok', n: 7 }),
+      seed,
+      stats: { tokensOut: 1234, genMs: 60000 },
+    }));
+    const out = await callWithGrammar({
+      prompt: 'gen',
+      schema: SimpleSchema,
+      grammar: '<grammar-stub>',
+      baseSeed: 1000,
+      temperature: 0.6,
+      maxAttempts: 1,
+      maxTokens: 1024,
+      generator,
+    });
+    expect(out.ok).toBe(true);
+    expect(out.attempts[0]!.tokensOut).toBe(1234);
+    expect(out.attempts[0]!.genMs).toBe(60000);
+  });
+
+  it('attempt stats stay undefined when the generator reports none (older binary)', async () => {
+    const generator: LlmGenerator = vi.fn(async ({ seed }) => ({
+      text: JSON.stringify({ name: 'ok', n: 7 }),
+      seed,
+    }));
+    const out = await callWithGrammar({
+      prompt: 'gen',
+      schema: SimpleSchema,
+      grammar: '<grammar-stub>',
+      baseSeed: 1000,
+      temperature: 0.6,
+      maxAttempts: 1,
+      maxTokens: 1024,
+      generator,
+    });
+    expect(out.attempts[0]!.tokensOut).toBeUndefined();
+    expect(out.attempts[0]!.genMs).toBeUndefined();
+  });
+
   it('retries when first attempt emits non-JSON, succeeds on attempt 2', async () => {
     let calls = 0;
     const generator: LlmGenerator = vi.fn(async ({ seed }) => {
