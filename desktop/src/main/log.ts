@@ -128,6 +128,10 @@ export function createSessionLog(sink: LogSink) {
     discard(hadSession: boolean): void {
       sink.info(`[session] discard hadSession=${hadSession}`);
     },
+
+    idleStop(): void {
+      sink.info('[session] idle — stopping sidecar (runs only when in use)');
+    },
     stop(args: { noteChars: number; segments: number }): void {
       sink.info(`[session] stop note=${args.noteChars}chars segments=${args.segments}`);
     },

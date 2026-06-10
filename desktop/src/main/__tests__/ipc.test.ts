@@ -106,6 +106,73 @@ describe('main/ipc FSM', () => {
     await expect(ipcHandlers['session/start']!({}, { language: 'ja' })).resolves.toBeUndefined();
   });
 
+  // ── Session-scoped sidecar lifecycle (2026-06-10, founder reboot) ──
+
+  it('session/start lazily respawns a stopped sidecar instead of SIDECAR_DOWN', async () => {
+    const { win } = makeFakeWindow();
+    const freshClient = { send: vi.fn(async () => ({})), waitForReady: vi.fn(async () => ({})) };
+    const supervisor = makeFakeSupervisor(null);          // idle-stopped: no client
+    supervisor.start = vi.fn(() => freshClient);          // lazy spawn returns fresh
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+    await ipcHandlers['session/start']!({}, { language: 'ja' });
+    expect(supervisor.start).toHaveBeenCalledTimes(1);
+    expect(freshClient.waitForReady).toHaveBeenCalled();
+  });
+
+  it('session/start surfaces SIDECAR_DOWN when the lazy respawn never reaches ready', async () => {
+    const { win } = makeFakeWindow();
+    const deadClient = { send: vi.fn(async () => ({})), waitForReady: vi.fn(async () => { throw new Error('timeout'); }) };
+    const supervisor = makeFakeSupervisor(null);
+    supervisor.start = vi.fn(() => deadClient);
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+    await expect(ipcHandlers['session/start']!({}, { language: 'ja' })).rejects.toThrow('SIDECAR_DOWN');
+  });
+
+  it('session/discard unloads nothing but arms idle-stop → supervisor.stop fires after the window', async () => {
+    vi.useFakeTimers();
+    try {
+      const { win } = makeFakeWindow();
+      const client = { send: vi.fn(async () => ({})) };
+      const supervisor = makeFakeSupervisor(client);
+      supervisor.stop = vi.fn(async () => {});
+      ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+      await ipcHandlers['session/discard']!({}, undefined);
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      expect(supervisor.stop).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('idle-stop does NOT fire when a new session started inside the window', async () => {
+    vi.useFakeTimers();
+    try {
+      const { win } = makeFakeWindow();
+      const client = { send: vi.fn(async () => ({})) };
+      const supervisor = makeFakeSupervisor(client);
+      supervisor.stop = vi.fn(async () => {});
+      ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+      await ipcHandlers['session/discard']!({}, undefined);  // arms idle
+      await vi.advanceTimersByTimeAsync(60_000);
+      await ipcHandlers['session/start']!({}, { language: 'ja' }); // cancels
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      expect(supervisor.stop).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('isSessionInFlight reflects the FSM (the supervisor respawn gate)', async () => {
+    const { win } = makeFakeWindow();
+    const supervisor = makeFakeSupervisor({ send: vi.fn(async () => ({})) });
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+    expect(ipc.isSessionInFlight()).toBe(false);
+    await ipcHandlers['session/start']!({}, { language: 'ja' });
+    expect(ipc.isSessionInFlight()).toBe(true);
+    await ipcHandlers['session/discard']!({}, undefined);
+    expect(ipc.isSessionInFlight()).toBe(false);
+  });
+
   it('session/discard is a safe no-op with no active session', async () => {
     const { win } = makeFakeWindow();
     const supervisor = makeFakeSupervisor({});
