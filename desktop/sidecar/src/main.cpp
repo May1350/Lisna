@@ -4,6 +4,7 @@
 #include <whisper.h>
 #include <ggml.h>
 #include "ipc/json_protocol.h"
+#include "lifecycle/parent_watchdog.h"
 #include "json.hpp"
 
 namespace {
@@ -36,6 +37,11 @@ void lisna_log_callback(ggml_log_level level, const char* text, void* /*user*/) 
 } // namespace
 
 int main() {
+  // Zombie-defense Layer A: self-exit when the Electron parent dies without
+  // closing our stdin (jetsam, SIGKILL, crash — pipe EOF never observed).
+  // Installed FIRST so even a failure during model load can't orphan us.
+  lisna::lifecycle::install_parent_watchdog(getppid());
+
   // Install log callbacks BEFORE any whisper/ggml call so the very first log
   // line (model load info, init failures, Metal backend selection) is captured.
   whisper_log_set(lisna_log_callback, nullptr);
@@ -43,7 +49,7 @@ int main() {
 
   lisna::ipc::emit_event(
       std::string(R"({"type":"ready","pid":)") + std::to_string(getpid()) +
-      R"(,"version":"0.0.1"})"
+      R"(,"version":"0.0.2"})"
   );
   std::string line;
   while (std::getline(std::cin, line)) {
