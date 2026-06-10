@@ -8,7 +8,9 @@ import { generateChunkedNote } from './chunked-note';
 
 // ─── finalizeLecture / finalizeMeeting imports ───────────────────────────────
 import type { SessionTranscript } from '@shared/note-schema/transcript';
+import type { NoteLanguage } from '@shared/note-schema';
 import type { ModelProfile } from '@shared/models/profiles';
+import { renderSystemTemplate } from '@shared/families/util/prompts';
 import type { GenerationTelemetry } from '@shared/note-schema/telemetry';
 import type { LectureNote } from '@shared/families/lecture/schema';
 import type { MeetingNote } from '@shared/families/meeting/schema';
@@ -337,6 +339,8 @@ export class SessionOrchestrator {
    * without exposing the mutable internal array.
    */
   get exposedSegments(): readonly TranscriptSegment[] { return this.segments; }
+  /** Session language as passed at start — read by the finalize IPC route. */
+  get language(): Language { return this.opts.language; }
 
   async start(): Promise<void> {
     this.segments = [];
@@ -446,6 +450,12 @@ export interface FinalizeLectureArgs {
   sidecar: GrammarCapableSidecar;
   modelProfile: ModelProfile;
   promptVariantId?: string;
+  /**
+   * Session language (minimal EN support, 2026-06-10). Drives the system-
+   * template output-language rule (renderSystemTemplate) and the Note meta.
+   * Defaults to 'ja' — the eval'd v2.0 baseline.
+   */
+  language?: NoteLanguage;
   onProgress?: (e:
     | { phase: 'chunk'; chunkIndex: number; totalChunks: number }
     | { phase: 'merge' }
@@ -522,7 +532,7 @@ export async function finalizeLecture(
       totalChunks: chunks.length,
       transcript: renderTranscriptChunk(chunks[i]!),
     });
-    const combinedPrompt = `${prompt.systemTemplate}\n\n${userPrompt}`;
+    const combinedPrompt = `${renderSystemTemplate(prompt.systemTemplate, args.language ?? 'ja')}\n\n${userPrompt}`;
 
     const chunkResult = await runChunkWithGrammar({
       family: 'lecture',
@@ -558,7 +568,7 @@ export async function finalizeLecture(
     generatedAt: generationStartedAt,
     model: args.modelProfile.id,
     promptVersion: prompt.version,
-    language: 'ja', // v2.0 is JA-only (ipc rejects other languages)
+    language: args.language ?? 'ja',
     durationSec: args.transcript.transcriptSegments.at(-1)?.endTs ?? 0,
   });
 
@@ -605,6 +615,12 @@ export interface FinalizeMeetingArgs {
   sidecar: GrammarCapableSidecar;
   modelProfile: ModelProfile;
   promptVariantId?: string;
+  /**
+   * Session language (minimal EN support, 2026-06-10). Drives the system-
+   * template output-language rule (renderSystemTemplate) and the Note meta.
+   * Defaults to 'ja' — the eval'd v2.0 baseline.
+   */
+  language?: NoteLanguage;
   /** 'ok' = transcript already carries real diarized speakerIds; 'fallback'/'disabled' = collapse to single speaker + warn. */
   diarizationStatus: 'ok' | 'fallback' | 'disabled';
   onProgress?: (e:
@@ -682,7 +698,7 @@ export async function finalizeMeeting(
       totalChunks: chunks.length,
       transcript: renderTranscriptWithSpeakers(chunks[i]!, activeTranscript.speakers),
     });
-    const combinedPrompt = `${prompt.systemTemplate}\n\n${userPrompt}`;
+    const combinedPrompt = `${renderSystemTemplate(prompt.systemTemplate, args.language ?? 'ja')}\n\n${userPrompt}`;
 
     // baseSeed 6000 (lecture 5000) keeps seeds distinct across families; with
     // POST_DECODE_SEED_OFFSET=10000, lecture outer 1 (15000+i) and meeting
@@ -724,7 +740,7 @@ export async function finalizeMeeting(
     generatedAt: generationStartedAt,
     model: args.modelProfile.id,
     promptVersion: prompt.version,
-    language: 'ja', // v2.0 is JA-only (ipc rejects other languages)
+    language: args.language ?? 'ja',
     durationSec: activeTranscript.transcriptSegments.at(-1)?.endTs ?? 0,
   });
 
@@ -766,6 +782,12 @@ export interface FinalizeInterviewArgs {
   sidecar: GrammarCapableSidecar;
   modelProfile: ModelProfile;
   promptVariantId?: string;
+  /**
+   * Session language (minimal EN support, 2026-06-10). Drives the system-
+   * template output-language rule (renderSystemTemplate) and the Note meta.
+   * Defaults to 'ja' — the eval'd v2.0 baseline.
+   */
+  language?: NoteLanguage;
   /** 'ok' = transcript already carries real diarized speakerIds; 'fallback'/'disabled' = collapse to single speaker + warn. */
   diarizationStatus: 'ok' | 'fallback' | 'disabled';
   onProgress?: (e:
@@ -840,7 +862,7 @@ export async function finalizeInterview(
       totalChunks: chunks.length,
       transcript: renderTranscriptWithSpeakers(chunks[i]!, activeTranscript.speakers),
     });
-    const combinedPrompt = `${prompt.systemTemplate}\n\n${userPrompt}`;
+    const combinedPrompt = `${renderSystemTemplate(prompt.systemTemplate, args.language ?? 'ja')}\n\n${userPrompt}`;
 
     // baseSeed 7000 (lecture 5000, meeting 6000) keeps seeds distinct across families.
     const chunkResult = await runChunkWithGrammar({
@@ -902,7 +924,7 @@ export async function finalizeInterview(
     generatedAt: generationStartedAt,
     model: args.modelProfile.id,
     promptVersion: prompt.version,
-    language: 'ja', // v2.0 is JA-only (ipc rejects other languages)
+    language: args.language ?? 'ja',
     durationSec: activeTranscript.transcriptSegments.at(-1)?.endTs ?? 0,
   });
 
@@ -944,6 +966,12 @@ export interface FinalizeBrainstormArgs {
   sidecar: GrammarCapableSidecar;
   modelProfile: ModelProfile;
   promptVariantId?: string;
+  /**
+   * Session language (minimal EN support, 2026-06-10). Drives the system-
+   * template output-language rule (renderSystemTemplate) and the Note meta.
+   * Defaults to 'ja' — the eval'd v2.0 baseline.
+   */
+  language?: NoteLanguage;
   onProgress?: (e:
     | { phase: 'chunk'; chunkIndex: number; totalChunks: number }
     | { phase: 'merge' }
@@ -1007,7 +1035,7 @@ export async function finalizeBrainstorm(
       totalChunks: chunks.length,
       transcript: renderTranscriptWithSpeakers(chunks[i]!, args.transcript.speakers),
     });
-    const combinedPrompt = `${prompt.systemTemplate}\n\n${userPrompt}`;
+    const combinedPrompt = `${renderSystemTemplate(prompt.systemTemplate, args.language ?? 'ja')}\n\n${userPrompt}`;
 
     // baseSeed 8000 (lecture 5000, meeting 6000, interview 7000) keeps seeds distinct.
     const chunkResult = await runChunkWithGrammar({
@@ -1065,7 +1093,7 @@ export async function finalizeBrainstorm(
     generatedAt: generationStartedAt,
     model: args.modelProfile.id,
     promptVersion: prompt.version,
-    language: 'ja', // v2.0 is JA-only (ipc rejects other languages)
+    language: args.language ?? 'ja',
     durationSec: args.transcript.transcriptSegments.at(-1)?.endTs ?? 0,
   });
 

@@ -9,6 +9,7 @@ import type {
   SessionPhase,
 } from '@shared/ipc-protocol';
 import type { Note } from '@shared/types';
+import type { NoteLanguage } from '@shared/note-schema';
 import type { SidecarSupervisor } from './sidecar/supervisor';
 import { SessionOrchestrator } from './sidecar/orchestrator';
 import { makeGrammarSidecar } from './sidecar/grammar-call';
@@ -200,6 +201,8 @@ export function registerIpc(deps: IpcDeps) {
         sessionId: 'live',   // placeholder — real session-ID assignment lands in Task 13
         segments: current.exposedSegments,
         llmModelPath: paths.llmPath,
+        // Gate above admits only ja/en, both valid NoteLanguage values.
+        language: current.language as NoteLanguage,
         // Wedged-retry fix (2026-06-10): resolve the client LAZILY per
         // generate call and restart + LLM-reload on a no-progress stall, so
         // callWithGrammar's fresh-seed retries hit a live process instead of
@@ -279,7 +282,10 @@ export function registerIpc(deps: IpcDeps) {
   ipcMain.handle(CHANNELS.sessionStart, async (_e, { language }: SessionStartPayload) => {
     if (_sidecarGaveUp) throw new Error('SIDECAR_GAVE_UP');
     if (current !== null) throw new Error('SESSION_ACTIVE');
-    if (language !== 'ja') throw new Error('UNSUPPORTED_LANGUAGE');  // v2.0 JA-only
+    // Minimal EN support (2026-06-10): ja + en accepted. ko/zh stay gated —
+    // prompts are adapted via renderSystemTemplate but un-eval'd, and the
+    // bundled STT models cover ja (kotoba) / multilingual (large-v3-turbo).
+    if (language !== 'ja' && language !== 'en') throw new Error('UNSUPPORTED_LANGUAGE');
     const paths = deps.getModelPaths();
     if (!paths) throw new Error('MODELS_NOT_CONFIGURED');
     const client = deps.supervisor.getClient();

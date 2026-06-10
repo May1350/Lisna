@@ -142,6 +142,7 @@ function makeSessionContext(
     segments,
     llmModelPath: opts.llmModelPath ?? '/models/Llama-3.2-3B-Instruct-Q4_K_M.gguf',
     sidecar: opts.sidecar ?? makeMockSidecar(makeLectureNoteJson()),
+    language: 'ja',
   };
 }
 
@@ -356,6 +357,7 @@ describe('registerSessionFinalize', () => {
       segments,
       llmModelPath: '/models/Llama-3.2-3B-Instruct-Q4_K_M.gguf',
       sidecar: failingSidecar,
+      language: 'ja',
     };
     const settledCalls: Array<{ ok: boolean }> = [];
 
