@@ -34,6 +34,10 @@ export const CHANNELS = {
   sessionStart: 'session/start',
   /** renderer → main: orch.stop() returning Note */
   sessionStop: 'session/stop',
+  /** renderer → main: drop the stopped session WITHOUT generating a note.
+   *  Clears the orchestrator + LLM-loaded cache so the next session/start
+   *  isn't rejected with SESSION_ACTIVE. No-op when nothing is active. */
+  sessionDiscard: 'session/discard',
   /** main → renderer: phase indicator during long awaits */
   sessionPhase: 'session/phase',
   /** main → renderer: sidecar crashed mid-session */
@@ -279,6 +283,17 @@ export function registerIpc(deps: IpcDeps) {
         }
       }
     },
+  });
+
+  // Discard route (2026-06-10, founder request): Stop previously forced every
+  // session into FamilyPicker → finalize — an empty/unwanted recording had no
+  // exit. Discard drops main-side session state so Start works again.
+  // Idempotent; safe to call from any renderer state.
+  ipcMain.handle(CHANNELS.sessionDiscard, async () => {
+    sessionLog.discard(current !== null);
+    current = null;
+    _llmLoadedForCurrent = null;
+    recording = false;
   });
 
   ipcMain.handle(CHANNELS.sessionStart, async (_e, { language }: SessionStartPayload) => {

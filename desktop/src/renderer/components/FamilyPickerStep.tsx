@@ -47,9 +47,12 @@ const FAMILIES: ReadonlyArray<{
 
 interface Props {
   onPick: (family: NoteFamily) => void;
+  /** Discard route (2026-06-10): drop the session without a note and return
+   *  to Recording. Wired to `session/discard` by the parent. */
+  onDiscard: () => void;
 }
 
-export function FamilyPickerStep({ onPick }: Props) {
+export function FamilyPickerStep({ onPick, onDiscard }: Props) {
   const [selected, setSelected] = useState<NoteFamily>('lecture');
   // In-flight guard. Click-then-click would otherwise call onPick twice; the
   // parent's prev.kind FSM guard short-circuits the second state transition
@@ -105,6 +108,23 @@ export function FamilyPickerStep({ onPick }: Props) {
         style={{ padding: '8px 16px', fontSize: 14, marginTop: 8 }}
       >
         続行
+      </button>
+      <button
+        onClick={onDiscard}
+        disabled={submitting}
+        data-testid="family-discard"
+        style={{
+          padding: '8px 16px',
+          fontSize: 14,
+          marginTop: 8,
+          marginLeft: 12,
+          background: 'transparent',
+          color: '#666',
+          border: '1px solid #ccc',
+          borderRadius: 4,
+        }}
+      >
+        ノートを作らずに戻る
       </button>
     </div>
   );

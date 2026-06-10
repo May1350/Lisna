@@ -11,7 +11,7 @@ import { FamilyPickerStep } from '../FamilyPickerStep';
 
 describe('FamilyPickerStep', () => {
   it('renders all 4 families with JA labels', () => {
-    const html = renderToStaticMarkup(<FamilyPickerStep onPick={() => {}} />);
+    const html = renderToStaticMarkup(<FamilyPickerStep onDiscard={() => {}} onPick={() => {}} />);
     expect(html).toContain('講義 (Lecture)');
     expect(html).toContain('ミーティング (Meeting)');
     expect(html).toContain('インタビュー (Interview)');
@@ -19,14 +19,14 @@ describe('FamilyPickerStep', () => {
   });
 
   it('defaults to lecture selected', () => {
-    const html = renderToStaticMarkup(<FamilyPickerStep onPick={() => {}} />);
+    const html = renderToStaticMarkup(<FamilyPickerStep onDiscard={() => {}} onPick={() => {}} />);
     // The lecture radio is checked, others are not.
     expect(html).toMatch(/data-testid="family-radio-lecture"[^>]*checked/);
     expect(html).not.toMatch(/data-testid="family-radio-meeting"[^>]*checked/);
   });
 
   it('enables all 4 family radios (Plan 6 cores + renderers landed)', () => {
-    const html = renderToStaticMarkup(<FamilyPickerStep onPick={() => {}} />);
+    const html = renderToStaticMarkup(<FamilyPickerStep onDiscard={() => {}} onPick={() => {}} />);
     // React renders attrs in declaration order; `disabled` can land before
     // `data-testid` in the markup, so assert both attrs are present in the
     // same `<input ... />` tag via per-input substring extraction.
@@ -42,7 +42,7 @@ describe('FamilyPickerStep', () => {
   });
 
   it('does not show the "(coming soon)" hint after Plan 6 lands', () => {
-    const html = renderToStaticMarkup(<FamilyPickerStep onPick={() => {}} />);
+    const html = renderToStaticMarkup(<FamilyPickerStep onDiscard={() => {}} onPick={() => {}} />);
     // The `{f.disabled && <small>(coming soon)</small>}` JSX clause stays
     // so a future temporary disable surfaces the hint, but with all
     // families enabled it must render zero times.
@@ -51,7 +51,7 @@ describe('FamilyPickerStep', () => {
   });
 
   it('exposes a continue button labelled 続行', () => {
-    const html = renderToStaticMarkup(<FamilyPickerStep onPick={() => {}} />);
+    const html = renderToStaticMarkup(<FamilyPickerStep onDiscard={() => {}} onPick={() => {}} />);
     expect(html).toContain('続行');
     expect(html).toContain('data-testid="family-continue"');
   });
@@ -60,8 +60,18 @@ describe('FamilyPickerStep', () => {
     // The submitting state only flips after the first click — SSR initial
     // markup must NOT pre-disable the button (would make it permanently
     // unclickable since interactivity needs a DOM).
-    const html = renderToStaticMarkup(<FamilyPickerStep onPick={() => {}} />);
+    const html = renderToStaticMarkup(<FamilyPickerStep onDiscard={() => {}} onPick={() => {}} />);
     const m = html.match(/<button[^>]*data-testid="family-continue"[^>]*>/);
+    expect(m).not.toBeNull();
+    expect(m?.[0]).not.toContain('disabled');
+  });
+
+  it('exposes a discard button (note-less exit route, 2026-06-10)', () => {
+    const html = renderToStaticMarkup(<FamilyPickerStep onDiscard={() => {}} onPick={() => {}} />);
+    expect(html).toContain('ノートを作らずに戻る');
+    expect(html).toContain('data-testid="family-discard"');
+    // Initial paint must not pre-disable it (same SSR rationale as 続行).
+    const m = html.match(/<button[^>]*data-testid="family-discard"[^>]*>/);
     expect(m).not.toBeNull();
     expect(m?.[0]).not.toContain('disabled');
   });

@@ -211,11 +211,17 @@ function renderView(view: View, setView: (next: View | ((p: View) => View)) => v
         <Recording
           segments={view.segments}
           onStop={() =>
-            setView((prev) =>
-              prev.kind === 'recording'
-                ? { kind: 'familyPicking', segments: prev.segments }
-                : prev,
-            )
+            setView((prev) => {
+              if (prev.kind !== 'recording') return prev;
+              // Empty recording (e.g. silent system-audio capture): nothing to
+              // make a note FROM — skip the picker, drop main-side session
+              // state, stay on Recording for an immediate retry.
+              if (prev.segments.length === 0) {
+                void window.lisna.discardSession();
+                return { kind: 'recording', segments: [] };
+              }
+              return { kind: 'familyPicking', segments: prev.segments };
+            })
           }
           onError={(message) =>
             setView((prev) => {
@@ -234,6 +240,13 @@ function renderView(view: View, setView: (next: View | ((p: View) => View)) => v
     case 'familyPicking':
       return (
         <FamilyPickerStep
+          onDiscard={() => {
+            // Drop the session in main (clears SESSION_ACTIVE) and return to
+            // Recording. Fire-and-forget: the handler is idempotent and the
+            // UI transition must not block on IPC latency.
+            void window.lisna.discardSession();
+            setView({ kind: 'recording', segments: [] });
+          }}
           onPick={(family) => {
             // Transition to curating BEFORE await so progress UI mounts
             // synchronously while finalize runs (≈30 s LLM load + per-chunk

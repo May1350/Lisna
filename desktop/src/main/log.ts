@@ -124,6 +124,10 @@ export function createSessionLog(sink: LogSink) {
     start(language: string): void {
       sink.info(`[session] start lang=${language}`);
     },
+
+    discard(hadSession: boolean): void {
+      sink.info(`[session] discard hadSession=${hadSession}`);
+    },
     stop(args: { noteChars: number; segments: number }): void {
       sink.info(`[session] stop note=${args.noteChars}chars segments=${args.segments}`);
     },

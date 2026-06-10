@@ -93,6 +93,26 @@ describe('main/ipc FSM', () => {
     await expect(ipcHandlers['session/start']!({}, { language: 'ja' })).rejects.toThrow('SESSION_ACTIVE');
   });
 
+  // Discard route (2026-06-10, founder request): Stop previously forced every
+  // session into the note pipeline — an empty/unwanted recording locked the
+  // FSM (next Start hit SESSION_ACTIVE forever). Discard clears the session
+  // without finalize.
+  it('session/discard clears the session → next session/start succeeds', async () => {
+    const { win } = makeFakeWindow();
+    const supervisor = makeFakeSupervisor({});
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+    await ipcHandlers['session/start']!({}, { language: 'ja' });
+    await ipcHandlers['session/discard']!({}, undefined);
+    await expect(ipcHandlers['session/start']!({}, { language: 'ja' })).resolves.toBeUndefined();
+  });
+
+  it('session/discard is a safe no-op with no active session', async () => {
+    const { win } = makeFakeWindow();
+    const supervisor = makeFakeSupervisor({});
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+    await expect(ipcHandlers['session/discard']!({}, undefined)).resolves.toBeUndefined();
+  });
+
   // P0-3 (2026-06-09) — failure path PRESERVES the orchestrator so the
   // ErrorView retry can re-invoke session/finalize against the SAME
   // accumulated transcript. The previous contract was "any settled =
