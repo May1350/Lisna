@@ -1,4 +1,5 @@
 import type { ChatMessage } from '@shared/ipc-protocol';
+import type { Language } from '@shared/types';
 
 /** Inputs to chunkUserTemplate — per spec §5.2 chunk-render. */
 export interface ChunkContext {
@@ -22,6 +23,44 @@ export interface PromptVariant {
   exemplars?: ChatMessage[];
   recommendedTemp: number;
   notes: string;
+}
+
+// ── Output-language adaptation (minimal EN support, 2026-06-10) ─────────────
+
+const OUTPUT_LANGUAGE: Record<Exclude<Language, 'ja'>, string> = {
+  en: 'English',
+  ko: 'Korean',
+  zh: 'Chinese',
+};
+
+// Matches the per-family "output must be Japanese" rule line in the
+// EN-authored prompts (lecture/meeting). The trailing wording differs per
+// family ("unless the lecture itself…" vs "unless the meeting itself…"),
+// so match the stable prefix and consume the rest of the line.
+const JA_RULE_LINE = /^- All user-visible text in the JSON MUST be Japanese[^\n]*$/m;
+
+/**
+ * Adapt a family system template to the session language.
+ *
+ * `ja` returns the template BYTE-IDENTICAL — v2.0 prompts were authored and
+ * eval'd as JA-only, and the baseline must not drift. For other languages:
+ *   - EN-authored prompts (lecture/meeting) get their JA output-rule line
+ *     swapped for the target-language rule.
+ *   - JA-native prompts (interview/brainstorm) get an explicit override
+ *     appended — a full native rewrite of those prompts is the proper v2.1
+ *     follow-up, gated on per-language eval.
+ */
+export function renderSystemTemplate(template: string, language: Language): string {
+  if (language === 'ja') return template;
+  const lang = OUTPUT_LANGUAGE[language];
+  const rule = `- All user-visible text in the JSON MUST be ${lang}, unless the source itself uses terms from another language (then preserve as-is).`;
+  if (JA_RULE_LINE.test(template)) {
+    return template.replace(JA_RULE_LINE, rule);
+  }
+  return (
+    template +
+    `\n\nLANGUAGE OVERRIDE: The source audio is in ${lang}. All user-visible text in the JSON MUST be ${lang}.`
+  );
 }
 
 export interface PromptSelectionOpts {

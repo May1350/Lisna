@@ -14,7 +14,7 @@ import path from 'node:path';
 import { ipcMain } from 'electron';
 import type { TranscriptSegment as LegacySegment } from '@shared/types';
 import { adaptToV2Transcript } from '@shared/note-schema';
-import type { NoteBase, NoteFamily } from '@shared/note-schema';
+import type { NoteBase, NoteFamily, NoteLanguage } from '@shared/note-schema';
 import type { GrammarCapableSidecar } from '../grammar-call';
 import {
   finalizeLecture,
@@ -66,6 +66,9 @@ export interface SessionContext {
   segments: readonly LegacySegment[];
   llmModelPath: string;
   sidecar: GrammarCapableSidecar;
+  /** Session language (minimal EN support, 2026-06-10). Drives prompt
+   * output-language adaptation + the Note meta. */
+  language: NoteLanguage;
 }
 
 export interface SessionFinalizeDeps {
@@ -171,6 +174,7 @@ async function routeLecture(
     sidecar: session.sidecar,
     modelProfile,
     promptVariantId,
+    language: session.language,
     onTelemetry: deps.onTelemetry,
   });
 
@@ -215,6 +219,7 @@ async function routeMeeting(
     sidecar: session.sidecar,
     modelProfile,
     promptVariantId,
+    language: session.language,
     diarizationStatus: 'disabled',
     onTelemetry: deps.onTelemetry,
   });
@@ -247,6 +252,7 @@ async function routeInterview(
     sidecar: session.sidecar,
     modelProfile,
     promptVariantId,
+    language: session.language,
     diarizationStatus: 'disabled',
     onTelemetry: deps.onTelemetry,
   });
@@ -277,6 +283,7 @@ async function routeBrainstorm(
     sidecar: session.sidecar,
     modelProfile,
     promptVariantId,
+    language: session.language,
     onTelemetry: deps.onTelemetry,
   });
 

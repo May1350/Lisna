@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { RecordingSource } from '@shared/ipc-protocol';
-import type { TranscriptSegment } from '@shared/types';
+import type { Language, TranscriptSegment } from '@shared/types';
 import { RecordingOrchestrator } from '../audio/orchestrator';
 import { createCapturer } from '../audio/worklet-capturer';
 import { SystemAudioUnavailableNotice } from '../components/SystemAudioUnavailableNotice';
@@ -34,6 +34,14 @@ export function Recording({ segments, onStop, onError }: Props) {
   // attempt and on completion. Step 5 §3.3 task 2.
   const [slowLoad, setSlowLoad] = useState(false);
   const [source, setSource] = useState<RecordingSource>('mic');
+  // Minimal EN support (2026-06-10) — ja/en only; ko/zh stay gated in main
+  // (ipc rejects them). Persisted so a lecture-course routine doesn't reset
+  // to ja every launch.
+  const [language, setLanguage] = useState<Language>(
+    () => (localStorage.getItem('lisna.language') === 'en' ? 'en' : 'ja'),
+  );
+  // Elapsed-seconds indicator. Counts while `running`; resets on each start.
+  const [elapsedSec, setElapsedSec] = useState(0);
   // Pessimistic default: assume system audio is unavailable until the
   // capabilities round-trip confirms it. A slow IPC response should NOT
   // let the user click the system radio and then fail downstream.
@@ -69,6 +77,16 @@ export function Recording({ segments, onStop, onError }: Props) {
     const t = setTimeout(() => setSlowLoad(true), SLOW_LOAD_HINT_MS);
     return () => clearTimeout(t);
   }, [starting]);
+
+  // Recording-elapsed ticker. Interval lives only while running; the start
+  // timestamp is captured at flip-true so a re-render can't skew the base.
+  useEffect(() => {
+    if (!running) return;
+    setElapsedSec(0);
+    const t0 = Date.now();
+    const t = setInterval(() => setElapsedSec(Math.floor((Date.now() - t0) / 1000)), 1000);
+    return () => clearInterval(t);
+  }, [running]);
 
   // Unmount cleanup. If the component unmounts while a recording is active
   // (Strict Mode dev double-mount, app close), tear down the audio
@@ -110,7 +128,7 @@ export function Recording({ segments, onStop, onError }: Props) {
       orchRef.current = orch;
       await orch.start(source);
       // Now mic is capturing. Chunks send but main drops them until session/start completes.
-      await window.lisna.startSession({ language: 'ja' });  // TODO(v2.1): settings UI for language
+      await window.lisna.startSession({ language });
       setRunning(true);
     } catch (err) {
       // Cleanup: tear down whatever started.
@@ -173,6 +191,29 @@ export function Recording({ segments, onStop, onError }: Props) {
         </label>
       </fieldset>
       {!systemAudioAvailable && <SystemAudioUnavailableNotice />}
+      <fieldset disabled={running || starting}>
+        <legend>Language</legend>
+        <label>
+          <input
+            type="radio"
+            name="language"
+            value="ja"
+            checked={language === 'ja'}
+            onChange={() => { setLanguage('ja'); localStorage.setItem('lisna.language', 'ja'); }}
+          />
+          日本語
+        </label>
+        <label>
+          <input
+            type="radio"
+            name="language"
+            value="en"
+            checked={language === 'en'}
+            onChange={() => { setLanguage('en'); localStorage.setItem('lisna.language', 'en'); }}
+          />
+          English
+        </label>
+      </fieldset>
       <button disabled={starting} onClick={running ? stop : start}>
         {running ? 'Stop' : starting ? (
           <>
@@ -180,6 +221,12 @@ export function Recording({ segments, onStop, onError }: Props) {
           </>
         ) : 'Start'}
       </button>
+      {running && (
+        <span style={{ marginLeft: '0.75em', fontFamily: 'monospace', fontVariantNumeric: 'tabular-nums' }}>
+          ● {Math.floor(elapsedSec / 60)}:{String(elapsedSec % 60).padStart(2, '0')}
+          <span style={{ color: '#888' }}> · {segments.length} segments</span>
+        </span>
+      )}
       {starting && slowLoad && (
         <p style={{ color: '#888', fontSize: '0.9em', marginTop: '0.25em' }}>
           (taking longer than usual…)

@@ -152,11 +152,21 @@ describe('main/ipc FSM', () => {
     await expect(ipcHandlers['session/start']!({}, { language: 'ja' })).rejects.toThrow('MODELS_NOT_CONFIGURED');
   });
 
-  it('session/start with language !== ja → UNSUPPORTED_LANGUAGE', async () => {
+  it('session/start rejects un-eval\'d languages (ko/zh) → UNSUPPORTED_LANGUAGE', async () => {
     const { win } = makeFakeWindow();
     const supervisor = makeFakeSupervisor({});
     ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
-    await expect(ipcHandlers['session/start']!({}, { language: 'en' })).rejects.toThrow('UNSUPPORTED_LANGUAGE');
+    await expect(ipcHandlers['session/start']!({}, { language: 'ko' })).rejects.toThrow('UNSUPPORTED_LANGUAGE');
+    await expect(ipcHandlers['session/start']!({}, { language: 'zh' })).rejects.toThrow('UNSUPPORTED_LANGUAGE');
+  });
+
+  it('session/start accepts en (minimal EN support, 2026-06-10)', async () => {
+    const { win } = makeFakeWindow();
+    const supervisor = makeFakeSupervisor({});
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+    // Resolves (no UNSUPPORTED_LANGUAGE) — full start-path behavior is
+    // covered by the ja FSM tests; language only changes the gate + STT load.
+    await expect(ipcHandlers['session/start']!({}, { language: 'en' })).resolves.toBeUndefined();
   });
 
   it('session/start when supervisor.getClient() returns null → SIDECAR_DOWN', async () => {
