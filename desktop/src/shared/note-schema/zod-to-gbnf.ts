@@ -34,6 +34,12 @@ interface ZodDef {
   // We currently only consult `kind === 'min'` to propagate non-empty to the
   // grammar; the rest stay a post-decode Zod concern.
   checks?: ReadonlyArray<{ kind: string; value?: number }>;
+  // ZodArray bounds — top-level fields on `_def` (NOT in `checks`, which is
+  // ZodString-only). Either may be null. Path G uses these to emit bounded
+  // GBNF quantifiers `{M-1,N-1}` so the LLM emits `]` at the schema-declared
+  // boundary instead of running until maxGenTokens truncates JSON mid-array.
+  minLength?: { value: number; message?: string } | null;
+  maxLength?: { value: number; message?: string } | null;
 }
 
 const getDef = (schema: z.ZodType): ZodDef =>
@@ -133,7 +139,34 @@ function emit(schema: z.ZodType, name: string, rules: string[], visited: Set<str
   if (def.typeName === 'ZodArray') {
     const elemRuleName = sanitize(`${name}_elem`);
     emit(def.type!, elemRuleName, rules, visited);
-    rules.push(`${name} ::= "[" ws (${elemRuleName} (ws "," ws ${elemRuleName})*)? ws "]"`);
+    // Path G — propagate ZodArray .min(M) / .max(N) into bounded GBNF.
+    // llama.cpp's GBNF supports `{m,n}` quantifiers natively (verified in
+    // deps/llama.cpp/grammars/README.md + canonical json.gbnf which uses
+    // `("," space item){9,99}` for the same shape). Bounding the array tells
+    // the LLM where to emit `]`, preventing the runaway-JSON failure mode
+    // that wastes the full maxGenTokens budget on a malformed truncation
+    // (memory: v2_track2_path_g_grammar_gap_2026-06-09 — observed
+    // CHUNK_FAILED:0 at position 8598 on the 2026-06-10 21-min real-record).
+    //
+    // M=0/null & N=null → unbounded `(elem (,elem)*)?`  (legacy behavior)
+    // M=0/null & N>=1   → bounded `(elem (,elem){0,N-1})?`  — 0 to N items
+    // M>=1  & N>=1      → bounded `elem (,elem){M-1,N-1}`  — M to N (no `?`)
+    // M>=1  & N=null    → `elem (,elem){M-1,}`  — M+ items, no upper bound
+    const minLen = def.minLength?.value;
+    const maxLen = def.maxLength?.value;
+    const hasMin = minLen != null && minLen >= 1;
+    const hasMax = maxLen != null && maxLen >= 1;
+    let body: string;
+    if (hasMin && hasMax) {
+      body = `${elemRuleName} (ws "," ws ${elemRuleName}){${minLen - 1},${maxLen - 1}}`;
+    } else if (hasMax) {
+      body = `(${elemRuleName} (ws "," ws ${elemRuleName}){0,${maxLen - 1}})?`;
+    } else if (hasMin) {
+      body = `${elemRuleName} (ws "," ws ${elemRuleName}){${minLen - 1},}`;
+    } else {
+      body = `(${elemRuleName} (ws "," ws ${elemRuleName})*)?`;
+    }
+    rules.push(`${name} ::= "[" ws ${body} ws "]"`);
     return;
   }
 

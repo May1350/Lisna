@@ -98,4 +98,39 @@ describe('zodToGbnf', () => {
     const gbnf = zodToGbnf(schema, 'X');
     expect(gbnf).toContain('X-text ::= json-string-nonempty');
   });
+
+  // ---- Path G: propagate ZodArray .min(M) / .max(N) into bounded GBNF ----
+  // llama.cpp's GBNF parser supports {m,n} quantifiers natively
+  // (deps/llama.cpp/grammars/README.md + canonical json.gbnf). Encoding the
+  // schema's array bounds into the grammar (a) helps the LLM emit `]` at the
+  // expected time — fixing the runaway-JSON `CHUNK_FAILED:0` failure
+  // (memory: v2_track2_path_g_grammar_gap_2026-06-09) — and (b) keeps the
+  // grammar O(1) bytes per bounded array (no cascading N-deep rules).
+  // Pattern C native quantifier per upstream README recommendation.
+
+  it('emits bounded {0,N-1} quantifier for z.array(T).max(N)', () => {
+    const schema = z.object({ items: z.array(z.string()).max(7) });
+    const gbnf = zodToGbnf(schema, 'X');
+    // 0–7 items: outer `?` admits empty, inner `{0,6}` admits 1–7 elements
+    expect(gbnf).toContain('X-items ::= "[" ws (X-items-elem (ws "," ws X-items-elem){0,6})? ws "]"');
+  });
+
+  it('emits {M-1,N-1} (no outer ?) for z.array(T).min(M).max(N) with M>=1', () => {
+    const schema = z.object({ items: z.array(z.string()).min(2).max(5) });
+    const gbnf = zodToGbnf(schema, 'X');
+    // 2–5 items: first element required, remaining count is in [M-1, N-1] = [1, 4]
+    expect(gbnf).toContain('X-items ::= "[" ws X-items-elem (ws "," ws X-items-elem){1,4} ws "]"');
+  });
+
+  it('emits {M-1,} (no outer ?, no upper bound) for z.array(T).min(M) only', () => {
+    const schema = z.object({ items: z.array(z.string()).min(2) });
+    const gbnf = zodToGbnf(schema, 'X');
+    expect(gbnf).toContain('X-items ::= "[" ws X-items-elem (ws "," ws X-items-elem){1,} ws "]"');
+  });
+
+  it('keeps unbounded * for z.array(T) with no bounds — no regression', () => {
+    const schema = z.object({ items: z.array(z.string()) });
+    const gbnf = zodToGbnf(schema, 'X');
+    expect(gbnf).toContain('X-items ::= "[" ws (X-items-elem (ws "," ws X-items-elem)*)? ws "]"');
+  });
 });
