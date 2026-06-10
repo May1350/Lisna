@@ -2,6 +2,7 @@
 #include "base64.h"
 #include "llm/llama_engine.h"
 #include "stt/whisper_engine.h"
+#include <chrono>
 #include <cstring>
 #include <iostream>
 #include <memory>
@@ -165,14 +166,24 @@ std::string dispatch(const std::string& jsonLine) {
     opts.temperature = req.value("temperature", 0.4f);
     opts.grammar = req.value("grammar", std::string{});
     if (req.contains("seed")) opts.seed = req["seed"].get<uint32_t>();
+    // Decode-speed instrumentation (1-min note target, 2026-06-10): count
+    // emitted tokens + wall time so the TS telemetry can compute tok/s per
+    // attempt. Discriminates "output too long" from "decode too slow"
+    // (grammar-sampling overhead / memory pressure) without offline reruns.
+    const auto gen_t0 = std::chrono::steady_clock::now();
+    size_t tokens_out = 0;
     const bool ok = g_llm->generate(msgs, opts,
                     [&](const std::string& tok) {
+      ++tokens_out;
       emit_event(nlohmann::json{
           {"id", id}, {"type", "token"}, {"token", tok}
       }.dump());
     });
     if (!ok) return err("grammar_setup", "generation setup failed (see prior log line)");
-    return nlohmann::json{{"id", id}, {"type", "done"}}.dump();
+    const auto gen_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - gen_t0).count();
+    return nlohmann::json{{"id", id}, {"type", "done"},
+        {"stats", {{"tokensOut", tokens_out}, {"genMs", gen_ms}}}}.dump();
   }
 
   return nlohmann::json{

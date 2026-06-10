@@ -22,6 +22,19 @@ interface SendOptions {
    * Default: 5000.
    */
   timeoutMs?: number;
+  /**
+   * Streaming only: invoked when the `done` line lands, with the sidecar's
+   * generation stats when present (decode-speed instrumentation, 2026-06-10).
+   * Older sidecar binaries omit `stats` — the callback then receives
+   * undefined; callers must treat it as optional.
+   */
+  onDone?: (stats?: GenerateStats) => void;
+}
+
+/** Sidecar-reported generation stats from the `done` stream line. */
+export interface GenerateStats {
+  tokensOut: number;
+  genMs: number;
 }
 
 /**
@@ -197,6 +210,13 @@ export class SidecarClient {
         signal();
       } else if (obj.type === 'done') {
         done = true;
+        if (opts.onDone) {
+          const s = (obj as { stats?: unknown }).stats;
+          const valid = typeof s === 'object' && s !== null
+            && typeof (s as GenerateStats).tokensOut === 'number'
+            && typeof (s as GenerateStats).genMs === 'number';
+          opts.onDone(valid ? (s as GenerateStats) : undefined);
+        }
         resetTimer();
         signal();
       } else if (obj.type === 'error') {
