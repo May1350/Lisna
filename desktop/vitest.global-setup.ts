@@ -25,6 +25,26 @@ function pkillSweep(): void {
   } catch {
     /* no zombies = happy path; pkill returns non-zero when no match */
   }
+  // Orphaned production-sidecar processes (ppid==1: their Electron/test
+  // parent died). The ppid guard means a founder's LIVE dev-app sidecar
+  // (parent = Electron, alive) is never touched, while binaries leaked by
+  // crashed integration tests or dev runs are reaped. Belt-and-suspenders
+  // with the in-binary parent watchdog (Layer A) — this also catches
+  // pre-watchdog binaries still on disk.
+  // Pattern anchored at end-of-line: the binary runs with no args, so its
+  // command line ENDS with the path; bash wrappers that merely contain it
+  // (e.g. integration-test middles) don't match.
+  try {
+    const out = execSync('pgrep -f "resources/sidecar$" || true', { encoding: 'utf8' });
+    for (const pidStr of out.trim().split('\n').filter(Boolean)) {
+      const ppid = execSync(`ps -o ppid= -p ${pidStr} || true`, { encoding: 'utf8' }).trim();
+      if (ppid === '1') {
+        try { process.kill(Number(pidStr), 'SIGKILL'); } catch { /* gone */ }
+      }
+    }
+  } catch {
+    /* sweep is best-effort */
+  }
 }
 
 export default function setup(): () => void {
