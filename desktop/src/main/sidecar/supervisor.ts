@@ -31,6 +31,13 @@ interface SupervisorOptions {
    * model warmup can plausibly cause.
    */
   healthyUptimeResetMs?: number;
+  /**
+   * Called with the new client on EVERY spawn (boot, crash-respawn, and
+   * restart()). Per-client wiring (event logging, etc.) belongs here, not on
+   * the boot-time client — listeners registered once at boot die silently
+   * with the first replaced process.
+   */
+  onSpawn?: (client: SidecarClient) => void;
 }
 
 /**
@@ -53,6 +60,7 @@ export class SidecarSupervisor {
   private shutdownPromise?: Promise<void>;
   private readonly onCrash: (msg: string) => void;
   private readonly onExit?: () => void;
+  private readonly onSpawn?: (client: SidecarClient) => void;
   private readonly maxFailures: number;
   private readonly restartDelayMs: number;
   private readonly healthyUptimeResetMs: number;
@@ -60,6 +68,7 @@ export class SidecarSupervisor {
   constructor(opts: SupervisorOptions) {
     this.onCrash = opts.onCrash;
     this.onExit = opts.onExit;
+    this.onSpawn = opts.onSpawn;
     this.maxFailures = opts.maxConsecutiveFailures ?? 2;
     this.restartDelayMs = opts.restartDelayMs ?? 500;
     this.healthyUptimeResetMs = opts.healthyUptimeResetMs ?? 60_000;
@@ -81,7 +90,8 @@ export class SidecarSupervisor {
   start(): SidecarClient {
     if (this.client) return this.client;
     const bin = this.resolveBinPath();
-    this.proc = spawn(bin, [], { stdio: ['pipe', 'pipe', 'pipe'] });
+    const proc = spawn(bin, [], { stdio: ['pipe', 'pipe', 'pipe'] });
+    this.proc = proc;
     // CRITICAL ORDER INVARIANT: SidecarClient must register its own
     // proc.on('exit', rejectAllPending) listener BEFORE supervisor's
     // proc.on('exit', handleExit) is attached. Node emits listeners in
@@ -92,14 +102,20 @@ export class SidecarSupervisor {
     // handleSidecarExit. Without this order, handleSidecarExit would clobber
     // state mid-finally and push session/error while the renderer already saw
     // a handler rejection. Do not reorder.
-    this.client = new SidecarClient(this.proc);
-    this.proc.on('exit', (code, sig) => this.handleExit(code, sig));
-    this.proc.on('error', (err) => log.error('[sidecar spawn error]', err));
+    this.client = new SidecarClient(proc);
+    // `proc` is threaded through so handleExit can verify the firing child is
+    // still the CURRENT one — a restart()-SIGKILLed child can emit its 'exit'
+    // after the kill-wait ceiling resolved and a fresh child spawned; without
+    // the identity check that stale exit re-enters the crash path against the
+    // fresh child (disowns it + wipes finalize state). See handleExit guard.
+    proc.on('exit', (code, sig) => this.handleExit(proc, code, sig));
+    proc.on('error', (err) => log.error('[sidecar spawn error]', err));
     // After a healthy uptime window, reset the failure counter so isolated
     // crashes much later don't immediately push us to the give-up threshold.
     this.healthyResetTimer = setTimeout(() => {
       this.failuresInARow = 0;
     }, this.healthyUptimeResetMs);
+    this.onSpawn?.(this.client);
     return this.client;
   }
 
@@ -144,7 +160,15 @@ export class SidecarSupervisor {
     this.client = undefined;
   }
 
-  private handleExit(code: number | null, sig: NodeJS.Signals | null): void {
+  private handleExit(proc: ChildProcess, code: number | null, sig: NodeJS.Signals | null): void {
+    // Stale-exit guard (reviewer-caught race, 2026-06-10): only the CURRENT
+    // child's exit may drive supervision. A restart()-killed child whose
+    // 'exit' arrives late (kernel reap >2s under swap pressure — the ceiling
+    // already resolved, flags reset, fresh child live) must be ignored, or it
+    // would disown the fresh child, fire onExit (wiping the in-flight
+    // finalize's transcript state, a P0-3 violation), and schedule a respawn
+    // that fights the live process.
+    if (proc !== this.proc) return;
     if (this.healthyResetTimer) {
       clearTimeout(this.healthyResetTimer);
       this.healthyResetTimer = undefined;
@@ -178,6 +202,55 @@ export class SidecarSupervisor {
       this.respawnTimer = undefined;
       if (!this.shuttingDown) this.start();
     }, this.restartDelayMs);
+  }
+
+  /**
+   * Deliberate kill + fresh spawn, for recovering from a WEDGED sidecar
+   * (e.g. a generate that stalls mid-decode: the single-threaded C++
+   * dispatch loop never reads the next request, so every retry queues
+   * behind the doomed generation — see the 2026-06-10 wedged-retry RCA).
+   *
+   * SIGKILL directly: the process is presumed stuck, and the sidecar has
+   * no SIGTERM handler anyway (kernel teardown either way). Crash-path
+   * side effects (onExit / respawn backoff / failure counting) are
+   * suppressed for the kill — this is supervision, not a crash.
+   */
+  async restart(): Promise<SidecarClient> {
+    if (this.shutdownPromise) throw new Error('supervisor already shut down');
+    this.shuttingDown = true; // gate handleExit crash-path side effects
+    if (this.respawnTimer) {
+      clearTimeout(this.respawnTimer);
+      this.respawnTimer = undefined;
+    }
+    // The old child's healthy-uptime timer must not survive into the fresh
+    // generation — in the ceiling-wins path start() re-arms before the old
+    // timer fires, and a stale reset of failuresInARow armed against a dead
+    // child could grant the fresh one an extra respawn before give-up.
+    if (this.healthyResetTimer) {
+      clearTimeout(this.healthyResetTimer);
+      this.healthyResetTimer = undefined;
+    }
+    const proc = this.proc;
+    if (proc) {
+      await new Promise<void>((resolve) => {
+        const ceiling = setTimeout(() => resolve(), 2000);
+        proc.once('exit', () => {
+          clearTimeout(ceiling);
+          resolve();
+        });
+        try {
+          proc.kill('SIGKILL');
+        } catch {
+          clearTimeout(ceiling);
+          resolve();
+        }
+      });
+    }
+    this.proc = undefined;
+    this.client = undefined;
+    this.shuttingDown = false;    // resume normal crash supervision
+    this.failuresInARow = 0;      // a deliberate restart is not a failure
+    return this.start();
   }
 
   /**

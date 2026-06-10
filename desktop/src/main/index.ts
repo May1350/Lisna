@@ -192,11 +192,14 @@ app.whenReady().then(async () => {
     // Single source of truth for renderer notification: clears session state
     // and pushes session/error from ipc.ts module scope.
     onExit: handleSidecarExit,
+    // Per-event log noise is keyed on type, not payload (sidecar event payloads
+    // contain ready/log/memory data — `type` alone is the breadcrumb). Wired
+    // via onSpawn (not once on the boot client) so the breadcrumbs survive
+    // crash-respawns and wedge-recovery restarts — a boot-only listener dies
+    // silently with the first replaced process.
+    onSpawn: (c) => c.onEvent((e) => log.info('[sidecar event]', e.type)),
   });
   const client = supervisor.start();
-  // Per-event log noise is keyed on type, not payload (sidecar event payloads
-  // contain ready/log/memory data — `type` alone is the breadcrumb).
-  client.onEvent((e) => log.info('[sidecar event]', e.type));
 
   try {
     const ready = await client.waitForReady(5000);
