@@ -9,6 +9,10 @@ import { CURRENT_SCHEMA_VERSION } from '../note-schema/forward-incompat';
  *
  * Stage 1 — JSON.parse (throws SyntaxError on malformed input — no wrap)
  * Stage 2 — Fill ids (Brainstorm only; all other families are a no-op here)
+ * Stage 2.5 — Drop empty user-visible items (founder P1, 2026-06-10): array
+ *            items whose primary text slot is blank are removed instead of
+ *            failing the chunk — fewer items is graceful degradation, an
+ *            empty item is a visible defect
  * Stage 3 — Fill provenance (walk recursively, fill `from` on every
  *            provenance-bearing leaf missing `from` — resolved via `ts`
  *            when present, else `'inferred'`)
@@ -43,6 +47,9 @@ export function runPostDecodePipeline(
     fillBrainstormIdeaIds(parsed);
   }
 
+  // Stage 2.5 — drop empty user-visible items
+  dropEmptyUserVisibleItems(parsed, family.id);
+
   // Stage 3 — provenance fill
   fillProvenanceRecursive(parsed, transcript);
 
@@ -55,6 +62,77 @@ export function runPostDecodePipeline(
   // Current implementation is a no-op for all families at the per-chunk stage.
 
   return validated;
+}
+
+/**
+ * Primary user-visible text keys. An array item (object) whose value at one
+ * of these keys is an empty/whitespace-only string is dropped; bare string
+ * array elements that are blank are dropped too. `heading` is deliberately
+ * NOT here — a lecture section without a heading is a structural failure
+ * (Zod min(1) → chunk retry), not a droppable list item.
+ *
+ * Grammar-side .min(1) (json-string-nonempty) blocks the literal "" at decode
+ * time; this stage catches what the grammar can't — whitespace-only strings
+ * and sanitizeEscapeLiteralsInStrings residue.
+ */
+const PRIMARY_TEXT_KEYS = ['text', 'term', 'expression', 'question', 'answer', 'name', 'theme', 'topic'];
+
+function isBlankString(v: unknown): boolean {
+  return typeof v === 'string' && v.trim() === '';
+}
+
+function shouldDropItem(item: unknown): boolean {
+  if (item === null || typeof item !== 'object' || Array.isArray(item)) return false;
+  const o = item as Record<string, unknown>;
+  return PRIMARY_TEXT_KEYS.some((k) => k in o && isBlankString(o[k]));
+}
+
+/**
+ * Stage 2.5 — drop array items whose primary text slot is blank (founder P1,
+ * 2026-06-10: a mode-collapsed 3B filled "" into qa_pairs[].question,
+ * themes[].name, quotable_lines[].text in production and every validation
+ * layer accepted it). Also exported for the orchestrator's merged-note path:
+ * interview/brainstorm merge-LLM output re-enters the note after the
+ * per-chunk pipeline ran, so the merged tree needs the same sweep before the
+ * final schema.parse.
+ *
+ * Mutates in place (same convention as fillProvenanceRecursive).
+ */
+export function dropEmptyUserVisibleItems(
+  parsed: Record<string, unknown>,
+  familyId?: string,
+): void {
+  dropEmptyTextItems(parsed);
+  // A brainstorm cluster whose ideas were all dropped violates ideas.min(1)
+  // at Stage 4 — the cluster itself is now meaningless, so drop it as well.
+  if (familyId === 'brainstorm') {
+    const clusters = parsed['idea_clusters'];
+    if (Array.isArray(clusters)) {
+      parsed['idea_clusters'] = clusters.filter((c) => {
+        const ideas = (c as Record<string, unknown> | null)?.['ideas'];
+        return Array.isArray(ideas) && ideas.length > 0;
+      });
+    }
+  }
+}
+
+function dropEmptyTextItems(node: unknown): void {
+  if (node === null || typeof node !== 'object') return;
+  if (Array.isArray(node)) {
+    for (const child of node) dropEmptyTextItems(child);
+    return;
+  }
+  const o = node as Record<string, unknown>;
+  for (const key of Object.keys(o)) {
+    const v = o[key];
+    if (Array.isArray(v)) {
+      const kept = v.filter((item) => !isBlankString(item) && !shouldDropItem(item));
+      o[key] = kept;
+      for (const item of kept) dropEmptyTextItems(item);
+    } else {
+      dropEmptyTextItems(v);
+    }
+  }
 }
 
 /**

@@ -88,7 +88,7 @@ describe('LectureNoteSchema', () => {
       generatedBy: { model: 'm', promptVersion: 1 },
       language: 'ja', durationSec: 1,
       sections: Array.from({ length: 11 }, (_, i) => ({
-        heading: `s${i}`, ts: i, summary: '',
+        heading: `s${i}`, ts: i, summary: 's',
         key_terms: [], examples: [], points: [],
       })),
     };
@@ -97,9 +97,9 @@ describe('LectureNoteSchema', () => {
 
   it('enforces .max(12) on key_terms per section (Path G)', () => {
     const baseSection = {
-      heading: 'h', ts: 0, summary: '', examples: [], points: [],
+      heading: 'h', ts: 0, summary: 's', examples: [], points: [],
       key_terms: Array.from({ length: 13 }, (_, i) => ({
-        term: `t${i}`, definition: '', ts: i, from: 'transcript',
+        term: `t${i}`, definition: 'd', ts: i, from: 'transcript',
       })),
     };
     expect(() => LectureNoteSchema.parse({
@@ -118,7 +118,7 @@ describe('LectureNoteSchema', () => {
       generatedBy: { model: 'm', promptVersion: 1 },
       language: 'ja', durationSec: 1,
       sections: [{
-        heading: 'h', ts: 0, summary: '',
+        heading: 'h', ts: 0, summary: 's',
         key_terms: [{ term: 'x', definition: 'y', ts: 5 }], // no `from`
         examples: [], points: [],
       }],
@@ -143,7 +143,7 @@ describe('LectureNoteSchema', () => {
       generatedBy: { model: 'm', promptVersion: 1 },
       language: 'ja', durationSec: 1,
       sections: [{
-        heading: 'h', ts: 0, summary: '',
+        heading: 'h', ts: 0, summary: 's',
         key_terms: [], examples: [], points: [],
         extras: [{
           type: 'procedure_steps',
@@ -171,7 +171,7 @@ describe('LectureNoteSchema', () => {
       generatedBy: { model: 'm', promptVersion: 1 },
       language: 'ja', durationSec: 1,
       sections: [{
-        heading: 'h', ts: 0, summary: '',
+        heading: 'h', ts: 0, summary: 's',
         key_terms: [], examples: [], points: [],
         extras: Array.from({ length: 9 }, (_, i) => makeStep(i)),
       }],
