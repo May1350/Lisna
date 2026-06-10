@@ -21,6 +21,20 @@ describe('NoteBase / Provenance / SpeakerRef Zod', () => {
     expect(() => NoteBaseSchema.parse(minimal)).not.toThrow();
   });
 
+  it('NoteBaseSchema rejects empty title (real-3B mode-collapse emits "" — spike 1.1 artifacts)', () => {
+    expect(() =>
+      NoteBaseSchema.parse({
+        schemaVersion: 1,
+        family: 'lecture',
+        title: '',
+        generatedAt: '2026-05-27T00:00:00Z',
+        generatedBy: { model: 'm', promptVersion: 1 },
+        language: 'ja',
+        durationSec: 1,
+      }),
+    ).toThrow();
+  });
+
   it('NoteBaseSchema rejects invalid family discriminator', () => {
     expect(() =>
       NoteBaseSchema.parse({

@@ -33,6 +33,26 @@ describe('BrainstormNoteSchema', () => {
     expect(() => BrainstormNoteSchema.parse({ ...validBrainstormFixture(), family: 'lecture' })).toThrow();
   });
 
+  // Same empty-slot class as the interview founder P1 (2026-06-10): without
+  // .min(1) the grammar lets a mode-collapsed model fill "" legally.
+  it('rejects empty idea_clusters[].theme', () => {
+    const base = validBrainstormFixture();
+    expect(() => BrainstormNoteSchema.parse({ ...base, idea_clusters: [{ ...base.idea_clusters[0]!, theme: '' }] })).toThrow();
+  });
+  it('rejects empty idea_clusters[].ideas[].text', () => {
+    const base = validBrainstormFixture();
+    expect(() => BrainstormNoteSchema.parse({
+      ...base,
+      idea_clusters: [{ theme: 'T', ideas: [{ id: '550e8400-e29b-41d4-a716-446655440000', text: '', ts: 1, from: 'transcript' as const }] }],
+    })).toThrow();
+  });
+  it('rejects empty parking_lot[].text', () => {
+    expect(() => BrainstormNoteSchema.parse({
+      ...validBrainstormFixture(),
+      parking_lot: [{ text: '', ts: 1, from: 'transcript' as const }],
+    })).toThrow();
+  });
+
   it('rejects when idea_clusters has 16 clusters (max 15)', () => {
     const base = validBrainstormFixture();
     const clusters = Array.from({ length: 16 }, (_, i) => ({

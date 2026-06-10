@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { zodToGbnf } from '@shared/note-schema/zod-to-gbnf';
 import { InterviewNoteSchema, type InterviewNote } from '../schema';
 import fixtureJson from '../migrations/v1-fixture.json';
 
@@ -44,6 +45,44 @@ describe('InterviewNoteSchema', () => {
 
   it('accepts inherited purpose-driven fields (conclusions + next_steps)', () => {
     expect(() => InterviewNoteSchema.parse({ ...validInterviewFixture(), conclusions: [{ text: '候補者は意思決定速度に優れる', from: 'inferred' as const }], next_steps: [{ text: '2次面接スケジュール送付', owner: 0, due: '来週月曜', ts: 1800, from: 'inferred' as const }] })).not.toThrow();
+  });
+});
+
+describe('InterviewNoteSchema — empty user-visible slots rejected (founder P1, 2026-06-10)', () => {
+  // Mode-collapsed 3B legally filled "" into these slots because the schema
+  // lacked .min(1) — the grammar emitted json-string (char*) and Zod passed.
+  // .min(1) makes the grammar emit json-string-nonempty (P0a mechanism).
+  it('rejects empty qa_pairs[].question', () => {
+    expect(() => InterviewNoteSchema.parse({ ...validInterviewFixture(), qa_pairs: [{ question: '', answer: 'A', ts: 0, asked_by: 0, answered_by: 1, from: 'transcript' as const }] })).toThrow();
+  });
+  it('rejects empty qa_pairs[].answer', () => {
+    expect(() => InterviewNoteSchema.parse({ ...validInterviewFixture(), qa_pairs: [{ question: 'Q', answer: '', ts: 0, asked_by: 0, answered_by: 1, from: 'transcript' as const }] })).toThrow();
+  });
+  it('rejects empty qa_pairs[].themes[] tag', () => {
+    expect(() => InterviewNoteSchema.parse({ ...validInterviewFixture(), qa_pairs: [{ question: 'Q', answer: 'A', ts: 0, asked_by: 0, answered_by: 1, themes: [''], from: 'transcript' as const }] })).toThrow();
+  });
+  it('rejects empty themes[].name', () => {
+    expect(() => InterviewNoteSchema.parse({ ...validInterviewFixture(), themes: [{ name: '', appears_at_ts: [0] }] })).toThrow();
+  });
+  it('rejects empty themes[].description when present', () => {
+    expect(() => InterviewNoteSchema.parse({ ...validInterviewFixture(), themes: [{ name: 'T', description: '', appears_at_ts: [0] }] })).toThrow();
+  });
+  it('rejects empty quotable_lines[].text', () => {
+    expect(() => InterviewNoteSchema.parse({ ...validInterviewFixture(), quotable_lines: [{ text: '', speakerRef: 0, ts: 0 }] })).toThrow();
+  });
+  it('rejects empty quotable_lines[].why_notable when present', () => {
+    expect(() => InterviewNoteSchema.parse({ ...validInterviewFixture(), quotable_lines: [{ text: 'q', speakerRef: 0, ts: 0, why_notable: '' }] })).toThrow();
+  });
+  it('rejects empty key_takeaways[].text', () => {
+    expect(() => InterviewNoteSchema.parse({ ...validInterviewFixture(), key_takeaways: [{ text: '', from: 'inferred' as const }] })).toThrow();
+  });
+  it('grammar emits json-string-nonempty for the user-visible slots', () => {
+    const gbnf = zodToGbnf(InterviewNoteSchema, 'InterviewNote');
+    expect(gbnf).toContain('InterviewNote-qa-pairs-elem-question ::= json-string-nonempty');
+    expect(gbnf).toContain('InterviewNote-qa-pairs-elem-answer ::= json-string-nonempty');
+    expect(gbnf).toContain('InterviewNote-themes-elem-name ::= json-string-nonempty');
+    expect(gbnf).toContain('InterviewNote-quotable-lines-elem-text ::= json-string-nonempty');
+    expect(gbnf).toContain('InterviewNote-key-takeaways-elem-text ::= json-string-nonempty');
   });
 });
 

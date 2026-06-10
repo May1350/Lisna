@@ -230,6 +230,44 @@ describe('finalizeMeeting', () => {
     expect(transcriptSection).not.toMatch(/Speaker 1 =/);
   });
 
+  it('diarization disabled → hallucinated speaker refs collapse to 0, participants dropped', async () => {
+    // Same class as the interview founder P1 (2026-06-10): with diarization
+    // off, the model can still emit arbitrary ints into SpeakerRef slots —
+    // grammar (json-number) and Zod (nonnegative) both accept them.
+    const raw = JSON.stringify({
+      schemaVersion: 1,
+      family: 'meeting',
+      title: 'テスト会議',
+      generatedAt: new Date().toISOString(),
+      generatedBy: { model: 'llama-3.2-3b-q4-km', promptVersion: 1 },
+      language: 'ja',
+      durationSec: 60,
+      purpose: 'プロジェクトの進捗確認',
+      executive_summary: 'プロジェクトは順調に進んでいます。',
+      topic_arc: [{ topic: '進捗', ts: 0, speakers_involved: [1, 2] }],
+      discussions: [{ topic: '進捗報告', ts_start: 0, summary: '報告がありました。' }],
+      decisions: [{ text: 'リリース日を決定', ts: 0, made_by: 2 }],
+      open_questions: [{ text: '予算は確定か', ts: 5, asked_by: 3 }],
+      next_steps: [{ text: '資料送付', owner: 4, ts: 5 }],
+      participants: [{ speakerRef: 1 }, { speakerRef: 2 }],
+    });
+    const sidecar = mockSidecar({ responses: [raw] });
+
+    const result = await finalizeMeeting({
+      sessionId: 'test',
+      transcript: makeSingleSpeakerTranscript(),
+      sidecar,
+      modelProfile,
+      diarizationStatus: 'disabled',
+    });
+
+    expect(result.note.topic_arc[0]!.speakers_involved).toEqual([0]);
+    expect(result.note.decisions[0]!.made_by).toBe(0);
+    expect(result.note.open_questions[0]!.asked_by).toBe(0);
+    expect(result.note.next_steps![0]!.owner).toBe(0);
+    expect(result.note.participants).toBeUndefined();
+  });
+
   it('diarization fallback: status fallback also triggers single-speaker warning', async () => {
     // 'fallback' and 'disabled' share the same !== 'ok' degrade branch; assert
     // 'fallback' explicitly so a future split of the branch can't silently drop it.

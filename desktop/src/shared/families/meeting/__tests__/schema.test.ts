@@ -28,6 +28,35 @@ describe('MeetingNoteSchema', () => {
     ).toThrow();
   });
 
+  // Empty-slot class (interview founder P1, 2026-06-10): optional user-visible
+  // strings must be absent-or-nonempty, never "".
+  it('rejects empty decisions[].rationale when present', () => {
+    expect(() =>
+      MeetingNoteSchema.parse({
+        ...minimal,
+        decisions: [{ text: 'x', rationale: '', ts: 1, from: 'transcript' }],
+      }),
+    ).toThrow();
+  });
+
+  it('rejects empty participants[].role when present', () => {
+    expect(() =>
+      MeetingNoteSchema.parse({
+        ...minimal,
+        participants: [{ speakerRef: 0, role: '' }],
+      }),
+    ).toThrow();
+  });
+
+  it('rejects empty next_steps[].due when present (purpose-driven base)', () => {
+    expect(() =>
+      MeetingNoteSchema.parse({
+        ...minimal,
+        next_steps: [{ text: 'x', due: '', ts: 1, from: 'transcript' }],
+      }),
+    ).toThrow();
+  });
+
   it('enforces MAX_DECISIONS (21 items throws)', () => {
     const validDecision = { text: 'x', ts: 1, from: 'transcript' };
     expect(() =>

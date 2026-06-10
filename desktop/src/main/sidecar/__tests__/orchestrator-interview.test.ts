@@ -213,6 +213,55 @@ describe('finalizeInterview', () => {
     expect(transcriptSection).not.toMatch(/Speaker 1 =/);
   });
 
+  it('diarization disabled → hallucinated speaker refs collapse to 0, participants dropped', async () => {
+    // Founder P1 (2026-06-10): single-speaker session, but the 3B invented
+    // 話者1〜4 in asked_by/answered_by/speakerRef — grammar (json-number) and
+    // Zod (nonnegative) both accept any int, so the refs must be normalized
+    // deterministically post-merge whenever diarization didn't run.
+    const sidecar = mockSidecar({
+      responses: [
+        makeInterviewNoteJson({
+          qa_pairs: [{ question: 'Q0', answer: 'A0', ts: 0, asked_by: 1, answered_by: 2 }],
+          quotable_lines: [{ text: '印象的な発言', speakerRef: 3, ts: 5 }],
+          participants: [
+            { speakerRef: 1, role: 'interviewer' },
+            { speakerRef: 2, role: 'interviewee' },
+          ],
+        }),
+      ],
+    });
+    const result = await finalizeInterview({
+      sessionId: 'test',
+      transcript: makeMultiSpeakerTranscript(),
+      sidecar,
+      modelProfile,
+      diarizationStatus: 'disabled',
+    });
+
+    const note = result.note as InterviewNote;
+    expect(note.qa_pairs[0]!.asked_by).toBe(0);
+    expect(note.qa_pairs[0]!.answered_by).toBe(0);
+    expect(note.quotable_lines[0]!.speakerRef).toBe(0);
+    // A single-speaker roster is meaningless — drop it rather than render 話者0 twice.
+    expect(note.participants).toBeUndefined();
+  });
+
+  it('diarization ok → speaker refs preserved as emitted', async () => {
+    const sidecar = mockSidecar({
+      responses: [makeInterviewNoteJson({ qa_pairs: [qaRaw('Q0', 'A0', 0)] })],
+    });
+    const result = await finalizeInterview({
+      sessionId: 'test',
+      transcript: makeMultiSpeakerTranscript(),
+      sidecar,
+      modelProfile,
+      diarizationStatus: 'ok',
+    });
+    const note = result.note as InterviewNote;
+    expect(note.qa_pairs[0]!.asked_by).toBe(0);
+    expect(note.qa_pairs[0]!.answered_by).toBe(1);
+  });
+
   it('empty transcript → throws EMPTY_TRANSCRIPT', async () => {
     const sidecar = mockSidecar();
     await expect(
