@@ -6,7 +6,7 @@ import electronUpdater from 'electron-updater';
 const { autoUpdater } = electronUpdater;
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { registerIpc, handleSidecarExit, handleSidecarGiveUp, setAppQuitting } from './ipc';
+import { registerIpc, handleSidecarExit, handleSidecarGiveUp, setAppQuitting, isSessionInFlight } from './ipc';
 import { resolveModels, registerModelIpc } from './model-resolver';
 import { installSystemAudioHandler } from './audio/system-audio-handler';
 import { SidecarSupervisor } from './sidecar/supervisor';
@@ -198,6 +198,12 @@ app.whenReady().then(async () => {
     // crash-respawns and wedge-recovery restarts — a boot-only listener dies
     // silently with the first replaced process.
     onSpawn: (c) => c.onEvent((e) => log.info('[sidecar event]', e.type)),
+    // Session-scoped respawn: only resurrect a dead sidecar while a session
+    // is actually in flight. An idle-time kill (user's Activity Monitor,
+    // jetsam, idle-stop policy) stays dead — the next session/start spawns
+    // lazily. Before this gate, the respawn loop fought the founder's
+    // force-quits until a machine reboot (2026-06-10).
+    shouldRespawn: isSessionInFlight,
   });
   const client = supervisor.start();
 

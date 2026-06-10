@@ -121,6 +121,53 @@ let _sidecarGaveUp = false;
 // the error to the renderer.
 let _sessionHandlerInFlight = false;
 
+// ── Session-scoped sidecar lifecycle (2026-06-10, founder reboot incident) ──
+// "Runs only when in use": the sidecar previously lived for the app's whole
+// lifetime, and after a finalize the 3 GB LLM stayed resident forever. On an
+// 8 GB machine that meant permanent swap pressure even while idle. Policy:
+//   - any session settle (success OR failure) → unload the LLM immediately
+//   - IDLE_STOP_MS with no session → kill the sidecar process entirely
+//   - next session/start lazily respawns (+~0.5 s) and reloads STT (~0.8 s)
+const IDLE_STOP_MS = 5 * 60_000;
+let _idleStopTimer: NodeJS.Timeout | null = null;
+let _depsRef: IpcDeps | null = null;
+
+function armIdleStop(): void {
+  if (_idleStopTimer) clearTimeout(_idleStopTimer);
+  _idleStopTimer = setTimeout(() => {
+    _idleStopTimer = null;
+    if (current !== null || recording) return; // session started meanwhile
+    const sup = _depsRef?.supervisor;
+    if (!sup?.getClient()) return; // already gone
+    sessionLog.idleStop();
+    void sup.stop();
+  }, IDLE_STOP_MS);
+}
+
+/** Respawn gate for the supervisor: a dead sidecar only matters when a
+ *  session is actually using it. Exported for index.ts wiring. */
+export function isSessionInFlight(): boolean {
+  return current !== null || recording;
+}
+
+function cancelIdleStop(): void {
+  if (_idleStopTimer) {
+    clearTimeout(_idleStopTimer);
+    _idleStopTimer = null;
+  }
+}
+
+/** Free the 3 GB LLM as soon as a session settles. Fire-and-forget — an
+ *  unload race with a dying sidecar is harmless (process exit frees it). */
+function unloadLlmIdle(): void {
+  const client = _depsRef?.supervisor.getClient();
+  if (!client) return;
+  const t0 = Date.now();
+  new LlamaCppLLM(client).unloadModel()
+    .then(() => sessionLog.phase('llm-unload-idle', Date.now() - t0))
+    .catch(() => { /* sidecar gone or model not loaded — equally unloaded */ });
+}
+
 // Captured by registerIpc — null only until first registerIpc call. handleSidecarExit
 // is invoked by main/index.ts via supervisor.onExit; supervisor.start() runs in
 // whenReady before registerIpc, but in practice no sidecar exit can fire before
@@ -161,6 +208,7 @@ export async function handleChunk(
 }
 
 export function registerIpc(deps: IpcDeps) {
+  _depsRef = deps;
   function safeSend(channel: string, payload: unknown) {
     const w = deps.getMainWindow();
     if (!w || w.isDestroyed()) return;
@@ -256,10 +304,19 @@ export function registerIpc(deps: IpcDeps) {
     // recording's transcript is GONE on first failure click — see memory
     // v2_30min_real_record_3_p0s_2026-06-09 for the incident this fixes.
     onSessionSettled: (result) => {
-      if (!result.ok) return;
-      current = null;
+      // Session-scoped lifecycle: the LLM's 3 GB leaves RAM the moment a
+      // finalize settles — success or failure. P0-3 still preserves the
+      // TRANSCRIPT (current) on failure for retry; the retry re-runs the
+      // unload-STT → load-LLM prep because _llmLoadedForCurrent resets.
+      unloadLlmIdle();
       _llmLoadedForCurrent = null;
+      if (!result.ok) {
+        armIdleStop();
+        return;
+      }
+      current = null;
       recording = false;
+      armIdleStop();
     },
     // Route (b) latency-decomposition telemetry → sessionLog (founder-visible
     // main.log). Per-event shape matches sessionLog.finalize* methods 1:1
@@ -294,6 +351,7 @@ export function registerIpc(deps: IpcDeps) {
     current = null;
     _llmLoadedForCurrent = null;
     recording = false;
+    armIdleStop();
   });
 
   ipcMain.handle(CHANNELS.sessionStart, async (_e, { language }: SessionStartPayload) => {
@@ -305,8 +363,19 @@ export function registerIpc(deps: IpcDeps) {
     if (language !== 'ja' && language !== 'en') throw new Error('UNSUPPORTED_LANGUAGE');
     const paths = deps.getModelPaths();
     if (!paths) throw new Error('MODELS_NOT_CONFIGURED');
-    const client = deps.supervisor.getClient();
-    if (!client) throw new Error('SIDECAR_DOWN');
+    cancelIdleStop();
+    // Lazy respawn: the idle-stop policy (or a user kill while idle) leaves
+    // no live sidecar — that is the EXPECTED state now, not an error. Spawn
+    // fresh and wait for ready before loading models.
+    let client = deps.supervisor.getClient();
+    if (!client) {
+      client = deps.supervisor.start();
+      try {
+        await client.waitForReady(5000);
+      } catch {
+        throw new Error('SIDECAR_DOWN');
+      }
+    }
     // Fresh adapters per session — survives sidecar respawn without holding
     // stale client refs. WhisperCppSTT / LlamaCppLLM constructors are pure
     // (just stash this.client), so per-session construction is cheap.

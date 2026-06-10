@@ -38,6 +38,16 @@ interface SupervisorOptions {
    * with the first replaced process.
    */
   onSpawn?: (client: SidecarClient) => void;
+  /**
+   * Session-scoped respawn gate (2026-06-10, founder reboot incident).
+   * Return true when a session is in flight (recording / finalize) — only
+   * then does an unexpected exit trigger a respawn. When idle, a kill is
+   * the USER's (or the OS's) decision and the supervisor must not fight it:
+   * the founder force-quit the sidecar in Activity Monitor and the respawn
+   * loop kept resurrecting a 3 GB process until a forced reboot. Default
+   * (absent) preserves the old always-respawn behavior for tests.
+   */
+  shouldRespawn?: () => boolean;
 }
 
 /**
@@ -61,6 +71,7 @@ export class SidecarSupervisor {
   private readonly onCrash: (msg: string) => void;
   private readonly onExit?: () => void;
   private readonly onSpawn?: (client: SidecarClient) => void;
+  private readonly shouldRespawn?: () => boolean;
   private readonly maxFailures: number;
   private readonly restartDelayMs: number;
   private readonly healthyUptimeResetMs: number;
@@ -69,6 +80,7 @@ export class SidecarSupervisor {
     this.onCrash = opts.onCrash;
     this.onExit = opts.onExit;
     this.onSpawn = opts.onSpawn;
+    this.shouldRespawn = opts.shouldRespawn;
     this.maxFailures = opts.maxConsecutiveFailures ?? 2;
     this.restartDelayMs = opts.restartDelayMs ?? 500;
     this.healthyUptimeResetMs = opts.healthyUptimeResetMs ?? 60_000;
@@ -180,6 +192,12 @@ export class SidecarSupervisor {
     // doesn't trigger false crash signals) and BEFORE the failure-counter
     // logic (so ipc.ts can clean up before a respawn schedules).
     this.onExit?.();
+    // Idle-kill is final: no session in flight means nobody needs this
+    // process, and resurrecting it fights the user/OS that killed it.
+    if (this.shouldRespawn && !this.shouldRespawn()) {
+      log.info('[sidecar] exit while idle — not respawning');
+      return;
+    }
     this.failuresInARow += 1;
     if (this.failuresInARow >= this.maxFailures) {
       this.onCrash(
@@ -202,6 +220,46 @@ export class SidecarSupervisor {
       this.respawnTimer = undefined;
       if (!this.shuttingDown) this.start();
     }, this.restartDelayMs);
+  }
+
+  /**
+   * Idle teardown (2026-06-10): kill the sidecar WITHOUT marking the
+   * supervisor shut down — a later start() spawns fresh. Used when no
+   * session has run for the idle window; models + process release their
+   * RAM entirely ("runs only when in use"). Suppresses crash side effects
+   * for the kill, then leaves the supervisor ready to spawn again.
+   */
+  async stop(): Promise<void> {
+    if (this.shutdownPromise) return; // terminal shutdown wins
+    this.shuttingDown = true;
+    if (this.respawnTimer) {
+      clearTimeout(this.respawnTimer);
+      this.respawnTimer = undefined;
+    }
+    if (this.healthyResetTimer) {
+      clearTimeout(this.healthyResetTimer);
+      this.healthyResetTimer = undefined;
+    }
+    const proc = this.proc;
+    if (proc) {
+      await new Promise<void>((resolve) => {
+        const ceiling = setTimeout(() => resolve(), 2000);
+        proc.once('exit', () => {
+          clearTimeout(ceiling);
+          resolve();
+        });
+        try {
+          proc.kill('SIGTERM'); // idle process exits instantly on stdin/sig
+        } catch {
+          clearTimeout(ceiling);
+          resolve();
+        }
+      });
+    }
+    this.proc = undefined;
+    this.client = undefined;
+    this.shuttingDown = false;
+    this.failuresInARow = 0;
   }
 
   /**

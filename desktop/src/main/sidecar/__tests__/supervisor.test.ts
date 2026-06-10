@@ -291,6 +291,54 @@ describe('SidecarSupervisor', () => {
     }
   });
 
+  // ── Session-scoped lifecycle (2026-06-10, founder reboot incident) ──
+
+  it('does NOT respawn after exit when shouldRespawn() is false (idle kill stays dead)', async () => {
+    const onExit = vi.fn();
+    const sup = new SidecarSupervisor({
+      onCrash: vi.fn(), onExit,
+      shouldRespawn: () => false,
+      maxConsecutiveFailures: 5, restartDelayMs: 10,
+    });
+    sup.start();
+    const proc = spawnMock.mock.results[0]!.value as FakeChild;
+    proc.emit('exit', null, 'SIGKILL');     // user force-quit while idle
+    expect(onExit).toHaveBeenCalledTimes(1); // state cleanup still signals
+    await new Promise((r) => setTimeout(r, 50));
+    expect(spawnMock).toHaveBeenCalledTimes(1); // NO resurrection
+  });
+
+  it('respawns after exit when shouldRespawn() is true (mid-session crash)', async () => {
+    const sup = new SidecarSupervisor({
+      onCrash: vi.fn(),
+      shouldRespawn: () => true,
+      maxConsecutiveFailures: 5, restartDelayMs: 10,
+    });
+    sup.start();
+    const proc = spawnMock.mock.results[0]!.value as FakeChild;
+    proc.emit('exit', 1, null);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(spawnMock).toHaveBeenCalledTimes(2); // P0-2 recovery preserved
+  });
+
+  it('stop() kills the child and a later start() spawns fresh', async () => {
+    const onExit = vi.fn();
+    const sup = new SidecarSupervisor({ onCrash: vi.fn(), onExit, restartDelayMs: 10000 });
+    sup.start();
+    const proc = spawnMock.mock.results[0]!.value as FakeChild;
+    const killSpy = vi.spyOn(proc, 'kill').mockImplementation(() => {
+      setTimeout(() => proc.emit('exit', null, 'SIGTERM'), 5);
+      return true;
+    });
+    await sup.stop();
+    expect(killSpy).toHaveBeenCalledWith('SIGTERM');
+    expect(sup.getClient()).toBeUndefined();
+    expect(onExit).not.toHaveBeenCalled();   // deliberate stop ≠ crash
+    const client = sup.start();              // lazy respawn on next session
+    expect(client).toBeDefined();
+    expect(spawnMock).toHaveBeenCalledTimes(2);
+  });
+
   it('onSpawn fires on boot, crash-respawn, and restart()', async () => {
     const onSpawn = vi.fn();
     const sup = new SidecarSupervisor({
