@@ -133,4 +133,82 @@ describe('SidecarSupervisor', () => {
 
     await pendingPromise;  // drain the rejection
   });
+
+  // ---- Zombie-defense Layer B: emergency-kill surface (2026-06-10) ----
+  // Founder-reported 10+ times: sidecar survives Electron death. These APIs
+  // let index.ts's process-level safety nets SIGKILL the child synchronously.
+
+  it('getPid() returns the live child pid, undefined after exit', () => {
+    const sup = new SidecarSupervisor({ onCrash: vi.fn(), restartDelayMs: 10000 });
+    expect(sup.getPid()).toBeUndefined();
+    sup.start();
+    expect(sup.getPid()).toBe(9999);
+    const proc = spawnMock.mock.results[0]!.value as FakeChild;
+    proc.emit('exit', 1, null);
+    expect(sup.getPid()).toBeUndefined();
+  });
+
+  it('panicKill() SIGKILLs synchronously and clears pid', () => {
+    const sup = new SidecarSupervisor({ onCrash: vi.fn(), restartDelayMs: 10000 });
+    sup.start();
+    const proc = spawnMock.mock.results[0]!.value as FakeChild;
+    const killSpy = vi.spyOn(proc, 'kill');
+    sup.panicKill();
+    expect(killSpy).toHaveBeenCalledWith('SIGKILL');
+    expect(sup.getPid()).toBeUndefined();
+  });
+
+  it('panicKill() cancels a pending respawn', async () => {
+    const sup = new SidecarSupervisor({ onCrash: vi.fn(), maxConsecutiveFailures: 5, restartDelayMs: 20 });
+    sup.start();
+    const proc = spawnMock.mock.results[0]!.value as FakeChild;
+    proc.emit('exit', 1, null);  // schedules respawn in 20ms
+    sup.panicKill();             // must cancel it
+    await new Promise((r) => setTimeout(r, 60));
+    expect(spawnMock).toHaveBeenCalledTimes(1);  // no respawn happened
+  });
+
+  it('panicKill() never throws when no child is running', () => {
+    const sup = new SidecarSupervisor({ onCrash: vi.fn() });
+    expect(() => sup.panicKill()).not.toThrow();
+  });
+
+  it('shutdown() is idempotent — concurrent callers share one promise', () => {
+    const sup = new SidecarSupervisor({ onCrash: vi.fn() });
+    sup.start();
+    const p1 = sup.shutdown();
+    const p2 = sup.shutdown();
+    expect(p1).toBe(p2);
+  });
+
+  it('shutdown() escalates SIGTERM → SIGKILL and resolves at hard ceiling even without exit event', async () => {
+    vi.useFakeTimers();
+    try {
+      const sup = new SidecarSupervisor({ onCrash: vi.fn() });
+      sup.start();
+      const proc = spawnMock.mock.results[0]!.value as FakeChild;
+      const killSpy = vi.spyOn(proc, 'kill');
+      const done = vi.fn();
+      void sup.shutdown().then(done);
+      expect(killSpy).toHaveBeenCalledWith('SIGTERM');
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(killSpy).toHaveBeenCalledWith('SIGKILL');
+      // Child never emits 'exit' (simulates a reaped-by-kernel process whose
+      // listener is stale) — ceiling must still resolve the promise at 2s.
+      await vi.advanceTimersByTimeAsync(500);
+      expect(done).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('shutdown() cancels a pending respawn', async () => {
+    const sup = new SidecarSupervisor({ onCrash: vi.fn(), maxConsecutiveFailures: 5, restartDelayMs: 20 });
+    sup.start();
+    const proc = spawnMock.mock.results[0]!.value as FakeChild;
+    proc.emit('exit', 1, null);  // schedules respawn in 20ms
+    void sup.shutdown();
+    await new Promise((r) => setTimeout(r, 60));
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+  });
 });

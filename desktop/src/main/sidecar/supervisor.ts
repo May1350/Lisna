@@ -48,7 +48,9 @@ export class SidecarSupervisor {
   private client?: SidecarClient;
   private failuresInARow = 0;
   private healthyResetTimer?: NodeJS.Timeout;
+  private respawnTimer?: NodeJS.Timeout;
   private shuttingDown = false;
+  private shutdownPromise?: Promise<void>;
   private readonly onCrash: (msg: string) => void;
   private readonly onExit?: () => void;
   private readonly maxFailures: number;
@@ -106,6 +108,42 @@ export class SidecarSupervisor {
     return this.client;
   }
 
+  /**
+   * PID of the live sidecar child, or undefined if none. Synchronous —
+   * safe to call from `process.on('exit')` where the event loop is gone
+   * and only sync code runs. Emergency-kill paths (index.ts exit safety
+   * net) read this to SIGKILL the child directly without awaiting the
+   * supervisor's async shutdown.
+   */
+  getPid(): number | undefined {
+    return this.proc?.pid;
+  }
+
+  /**
+   * Synchronous emergency teardown: SIGKILL the child immediately, clear
+   * all timers, mark shutting-down. Never throws, never awaits — callable
+   * from `process.on('exit')` and signal handlers where async work is lost.
+   * Normal teardown should use `shutdown()`; this is the last-resort path.
+   */
+  panicKill(): void {
+    this.shuttingDown = true;
+    if (this.healthyResetTimer) {
+      clearTimeout(this.healthyResetTimer);
+      this.healthyResetTimer = undefined;
+    }
+    if (this.respawnTimer) {
+      clearTimeout(this.respawnTimer);
+      this.respawnTimer = undefined;
+    }
+    try {
+      this.proc?.kill('SIGKILL');
+    } catch {
+      /* already gone */
+    }
+    this.proc = undefined;
+    this.client = undefined;
+  }
+
   private handleExit(code: number | null, sig: NodeJS.Signals | null): void {
     if (this.healthyResetTimer) {
       clearTimeout(this.healthyResetTimer);
@@ -133,31 +171,61 @@ export class SidecarSupervisor {
       attempt: this.failuresInARow,
       reason: `unexpected exit code=${code} sig=${sig}`,
     });
-    setTimeout(() => {
+    // Tracked so shutdown()/panicKill() can cancel a pending respawn —
+    // otherwise a quit during the backoff window respawns a sidecar with
+    // no supervisor watching it (orphan with extra steps).
+    this.respawnTimer = setTimeout(() => {
+      this.respawnTimer = undefined;
       if (!this.shuttingDown) this.start();
     }, this.restartDelayMs);
   }
 
-  /** SIGTERM the sidecar, escalate to SIGKILL after 1s, await full exit. */
-  async shutdown(): Promise<void> {
+  /**
+   * SIGTERM the sidecar, escalate to SIGKILL after 1.5s, hard ceiling 2s.
+   * Idempotent — concurrent callers share one promise, so before-quit and
+   * an exit-path race can both await without double-killing. Resolves even
+   * if the child never emits 'exit' (kernel reclaims a SIGKILLed process;
+   * waiting longer adds no safety, only quit latency).
+   */
+  shutdown(): Promise<void> {
+    if (this.shutdownPromise) return this.shutdownPromise;
     this.shuttingDown = true;
-    if (this.healthyResetTimer) clearTimeout(this.healthyResetTimer);
+    if (this.healthyResetTimer) {
+      clearTimeout(this.healthyResetTimer);
+      this.healthyResetTimer = undefined;
+    }
+    if (this.respawnTimer) {
+      clearTimeout(this.respawnTimer);
+      this.respawnTimer = undefined;
+    }
     const proc = this.proc;
-    if (!proc) return;
-    proc.kill('SIGTERM');
-    await new Promise<void>((resolve) => {
-      const t = setTimeout(() => {
+    if (!proc) {
+      this.shutdownPromise = Promise.resolve();
+      return this.shutdownPromise;
+    }
+    this.shutdownPromise = new Promise<void>((resolve) => {
+      try {
+        proc.kill('SIGTERM');
+      } catch {
+        resolve();
+        return;
+      }
+      const sigkillTimer = setTimeout(() => {
         try {
           proc.kill('SIGKILL');
         } catch {
           /* already gone */
         }
-        resolve();
-      }, 1000);
+      }, 1500);
+      // Hard ceiling: a SIGKILLed process is the kernel's to reap; if 'exit'
+      // hasn't fired by 2s the listener is stale, not the kill.
+      const ceilingTimer = setTimeout(() => resolve(), 2000);
       proc.once('exit', () => {
-        clearTimeout(t);
+        clearTimeout(sigkillTimer);
+        clearTimeout(ceilingTimer);
         resolve();
       });
     });
+    return this.shutdownPromise;
   }
 }
