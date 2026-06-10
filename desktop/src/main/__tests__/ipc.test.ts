@@ -135,6 +135,40 @@ describe('main/ipc FSM', () => {
       .rejects.toThrow('SESSION_ACTIVE');
   });
 
+  // Retry-route contract (2026-06-10) — the renderer's ErrorView retry routes
+  // back to familyPicking and re-invokes session/finalize against the
+  // preserved orchestrator. This test proves the re-invocation gets PAST the
+  // NO_ACTIVE_SESSION gate (getCurrentSession returns the preserved session;
+  // the LLM-load prep re-runs) and fails only downstream at the profile
+  // lookup ('/l' matches no known model filename) — i.e. the route is viable.
+  it('session/finalize FAILURE → re-finalize reaches the family route against preserved current', async () => {
+    const { win } = makeFakeWindow();
+    const supervisor = makeFakeSupervisor({});
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+    await ipcHandlers['session/start']!({}, { language: 'ja' });
+    await expect(ipcHandlers['session/finalize']!({}, { family: 'garbage' }))
+      .rejects.toThrow(/UNKNOWN_FAMILY/);
+    // NOT NO_ACTIVE_SESSION — the preserved orchestrator is reachable.
+    await expect(ipcHandlers['session/finalize']!({}, { family: 'lecture' }))
+      .rejects.toThrow('UNKNOWN_MODEL_PROFILE');
+  });
+
+  // Retry-route contract (2026-06-10) — the renderer's ErrorView discard
+  // button (破棄して新規録音) fires session/discard then returns to Recording.
+  // This proves the discard clears the P0-3-preserved orchestrator so the
+  // next Start is NOT rejected with SESSION_ACTIVE.
+  it('session/finalize FAILURE → session/discard → next session/start succeeds', async () => {
+    const { win } = makeFakeWindow();
+    const supervisor = makeFakeSupervisor({});
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+    await ipcHandlers['session/start']!({}, { language: 'ja' });
+    await expect(ipcHandlers['session/finalize']!({}, { family: 'garbage' }))
+      .rejects.toThrow(/UNKNOWN_FAMILY/);
+    await ipcHandlers['session/discard']!({}, undefined);
+    await expect(ipcHandlers['session/start']!({}, { language: 'ja' }))
+      .resolves.toBeUndefined();
+  });
+
   // The dual of the test above: if the sidecar exits (crash OR app close),
   // handleSidecarExit clears `current` — so the user CAN start a fresh
   // session after a crash without restarting the app. This is the escape

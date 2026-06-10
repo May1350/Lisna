@@ -9,6 +9,15 @@ interface Props {
   segments: TranscriptSegment[];
   onRetry: () => void;
   /**
+   * Retry-route fix (2026-06-10) — provided ONLY when the error came from a
+   * finalize failure, where P0-3 preserves the SessionOrchestrator in main.
+   * Renders the 破棄して新規録音 button (session/discard + fresh recording)
+   * alongside retry. Absent for crash / start-failure errors: main has
+   * already cleared the session there, so there is nothing to discard and
+   * onRetry alone (→ fresh recording) is the whole story.
+   */
+  onDiscard?: () => void;
+  /**
    * Step 5 §3.6 — true when supervisor has given up (2 consecutive sidecar
    * crashes). Replaces the Try Again button with a Restart Lisna button.
    * Try Again would just hit SIDECAR_GAVE_UP again until process exit.
@@ -30,7 +39,7 @@ interface Props {
  * also JA. If a future v2.1 introduces a settings UI for locale, add a
  * second map (`ERROR_MESSAGE_MAP_EN` etc.) and dispatch at toFriendly* level.
  */
-export function ErrorView({ message, segments, onRetry, permanent }: Props) {
+export function ErrorView({ message, segments, onRetry, onDiscard, permanent }: Props) {
   // Resolve copy. The permanent flag forces the SIDECAR_GAVE_UP message even
   // if `message` came in as a transient "engine restarted" string from an
   // earlier handleSidecarExit push that arrived before the give-up upgrade.
@@ -54,7 +63,26 @@ export function ErrorView({ message, segments, onRetry, permanent }: Props) {
       {permanent ? (
         <button onClick={() => void window.lisna.restartApp()}>Lisna を再起動</button>
       ) : (
-        <button onClick={onRetry}>もう一度試す</button>
+        <>
+          <button onClick={onRetry} data-testid="error-retry">
+            もう一度試す
+          </button>
+          {onDiscard && (
+            <button
+              onClick={onDiscard}
+              data-testid="error-discard"
+              style={{
+                marginLeft: 12,
+                background: 'transparent',
+                color: '#666',
+                border: '1px solid #ccc',
+                borderRadius: 4,
+              }}
+            >
+              破棄して新規録音
+            </button>
+          )}
+        </>
       )}
     </section>
   );

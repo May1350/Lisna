@@ -16,7 +16,20 @@ type View =
   | { kind: 'familyPicking'; segments: TranscriptSegment[] }
   | { kind: 'curatingV2'; segments: TranscriptSegment[]; progress: ProgressState | null }
   | { kind: 'note'; note: Note | NoteBase }
-  | { kind: 'error'; message: string; segments: TranscriptSegment[]; permanent?: boolean };
+  | {
+      kind: 'error';
+      message: string;
+      segments: TranscriptSegment[];
+      permanent?: boolean;
+      /**
+       * True when the error came from a finalize failure where main's P0-3
+       * contract preserves the SessionOrchestrator + transcript. Routes the
+       * retry button back to familyPicking (re-pick + re-finalize against the
+       * SAME session) and enables the discard button. Unset for crash /
+       * start-failure errors — main has already cleared the session there.
+       */
+      canRefinalize?: boolean;
+    };
 
 /**
  * Phase M Task 70 — top-level auth gate.
@@ -275,7 +288,31 @@ function renderView(view: View, setView: (next: View | ((p: View) => View)) => v
           message={view.message}
           segments={view.segments}
           permanent={view.permanent}
-          onRetry={() => setView({ kind: 'recording', segments: [] })}
+          onRetry={() => {
+            // Finalize failure: main still holds the orchestrator (P0-3) —
+            // route back to the picker so the user can re-pick the family
+            // (it may have been the problem) and re-invoke finalize against
+            // the same transcript. The old unconditional recording-route left
+            // the preserved session unreachable: Start rejected with
+            // SESSION_ACTIVE and the user was stuck.
+            if (view.canRefinalize) {
+              setView({ kind: 'familyPicking', segments: view.segments });
+              return;
+            }
+            // Crash / start-failure: main already cleared the session. The
+            // discard is an idempotent no-op there, but guarantees a stale
+            // orchestrator can never wedge the next Start on SESSION_ACTIVE.
+            void window.lisna.discardSession();
+            setView({ kind: 'recording', segments: [] });
+          }}
+          onDiscard={
+            view.canRefinalize
+              ? () => {
+                  void window.lisna.discardSession();
+                  setView({ kind: 'recording', segments: [] });
+                }
+              : undefined
+          }
         />
       );
   }
@@ -319,7 +356,14 @@ async function runFinalize(
       if (prev.kind === 'error') return prev;
       const segments = inFlightSegments(prev);
       const permanent = message.includes('SIDECAR_GAVE_UP') || undefined;
-      return { kind: 'error', message, segments, permanent };
+      // P0-3: main preserves the orchestrator on finalize failure, so retry
+      // can re-finalize — EXCEPT when the failure itself says the session is
+      // gone (NO_ACTIVE_SESSION: sidecar crashed mid-finalize and
+      // handleSidecarExit cleared it) or the give-up handler wiped state
+      // (permanent). Re-finalize would just bounce in those cases.
+      const canRefinalize =
+        (!permanent && !message.includes('NO_ACTIVE_SESSION')) || undefined;
+      return { kind: 'error', message, segments, permanent, canRefinalize };
     });
   }
 }
