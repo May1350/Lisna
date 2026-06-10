@@ -4,6 +4,50 @@ import type { SessionPhase } from '@shared/ipc-protocol';
 import { TIMEOUTS } from '../timeouts';
 
 describe('SessionOrchestrator', () => {
+  // Whisper transcribes each 10s chunk INDEPENDENTLY — segment timestamps are
+  // chunk-relative ([0,10]). Without the session offset, a 12-min recording's
+  // every segment claims to be in the first 10 seconds: live captions show
+  // resetting timestamps, and the finalize prompt feeds the LLM a transcript
+  // whose time anchors are all ~0, so the model fabricates section ts
+  // (observed 2026-06-10: 12-min EN lecture → uniform fake 12s ladder).
+  it('onChunk offsets chunk-relative segment ts to session time', async () => {
+    const fakeStt = {
+      loadModel: vi.fn(async () => {}),
+      unloadModel: vi.fn(async () => {}),
+      transcribe: vi.fn(async () => [
+        { startSec: 0.5, endSec: 3.2, text: 'first' },
+        { startSec: 4.0, endSec: 9.8, text: 'second' },
+      ]),
+    };
+    const orch = new SessionOrchestrator({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      stt: fakeStt as any, llm: {} as any,
+      sttModelPath: '/stt', llmModelPath: '/llm', language: 'ja',
+    });
+    await orch.start();
+    // Chunk at session offset 130s (e.g. the 14th 10s chunk).
+    const segs = await orch.onChunk(new Float32Array(16000), 130);
+    expect(segs.map((s) => s.startSec)).toEqual([130.5, 134.0]);
+    expect(segs.map((s) => s.endSec)).toEqual([133.2, 139.8]);
+    expect(orch.exposedSegments.map((s) => s.startSec)).toEqual([130.5, 134.0]);
+  });
+
+  it('onChunk without an offset keeps raw ts (back-compat default 0)', async () => {
+    const fakeStt = {
+      loadModel: vi.fn(async () => {}),
+      unloadModel: vi.fn(async () => {}),
+      transcribe: vi.fn(async () => [{ startSec: 1.0, endSec: 2.0, text: 'x' }]),
+    };
+    const orch = new SessionOrchestrator({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      stt: fakeStt as any, llm: {} as any,
+      sttModelPath: '/stt', llmModelPath: '/llm', language: 'ja',
+    });
+    await orch.start();
+    const segs = await orch.onChunk(new Float32Array(16000));
+    expect(segs[0]!.startSec).toBe(1.0);
+  });
+
   it('start → 2 chunks → stop → load LLM → generate → unload 순서', async () => {
     const events: string[] = [];
     const fakeStt = {

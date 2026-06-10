@@ -354,8 +354,25 @@ export class SessionOrchestrator {
     );
   }
 
-  async onChunk(audio: Float32Array): Promise<TranscriptSegment[]> {
-    const segs = await this.opts.stt.transcribe(audio);
+  /**
+   * Transcribe one audio chunk and accumulate its segments.
+   *
+   * `sessionOffsetSec` re-anchors Whisper's CHUNK-RELATIVE timestamps
+   * (each 10s chunk is transcribed independently, so every segment's
+   * startSec is in [0, chunkLen]) to session time. Without it, a long
+   * recording's transcript claims everything happened in the first few
+   * seconds — live captions show resetting timestamps, and the finalize
+   * prompt hands the LLM time anchors that are all ~0, so the model
+   * fabricates section ts (2026-06-10: 12-min EN lecture → uniform fake
+   * 12s ladder). Callers pass ChunkPayload.startMs / 1000.
+   */
+  async onChunk(audio: Float32Array, sessionOffsetSec = 0): Promise<TranscriptSegment[]> {
+    const raw = await this.opts.stt.transcribe(audio);
+    const segs = sessionOffsetSec === 0 ? raw : raw.map((s) => ({
+      ...s,
+      startSec: s.startSec + sessionOffsetSec,
+      endSec: s.endSec + sessionOffsetSec,
+    }));
     this.segments.push(...segs);
     return segs;
   }
