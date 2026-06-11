@@ -1013,6 +1013,13 @@ export interface FinalizeBrainstormArgs {
    * Defaults to 'ja' — the eval'd v2.0 baseline.
    */
   language?: NoteLanguage;
+  /**
+   * 'ok' = transcript carries real diarized speakerIds; 'fallback'/'disabled' =
+   * any SpeakerRef the model emits is a hallucination → collapse to 0 post-merge.
+   * Brainstorm requiresDiarization=false, so unlike meeting/interview the
+   * transcript itself is never degraded.
+   */
+  diarizationStatus: 'ok' | 'fallback' | 'disabled';
   onProgress?: (e:
     | { phase: 'chunk'; chunkIndex: number; totalChunks: number }
     | { phase: 'merge' }
@@ -1029,8 +1036,10 @@ export interface FinalizeBrainstormResult {
 
 /**
  * Finalize a brainstorm session. Brainstorm requiresDiarization=false (treated
- * single-speaker), so there is no diarization fallback — unlike finalizeMeeting/
- * finalizeInterview. The cross-chunk merge is the HYBRID runMergeLLMCall (Task
+ * single-speaker), so the transcript is never degraded — but model-hallucinated
+ * SpeakerRefs (ideas[].contributed_by, next_steps[].owner) still need the same
+ * post-merge collapse as finalizeMeeting/finalizeInterview when diarization
+ * didn't run. The cross-chunk merge is the HYBRID runMergeLLMCall (Task
  * 7): idea_clusters are synthesized by the merge LLM (semantically unifying
  * cross-chunk themes), and idea UUIDs are assigned by the post-decode pipeline.
  * On merge-LLM failure we fall back to a deterministic merge (first-chunk
@@ -1132,6 +1141,12 @@ export async function finalizeBrainstorm(
   // Merge-LLM output re-enters after the per-chunk pipeline — sweep empties
   // (and clusters left without ideas) before the final parse.
   dropEmptyUserVisibleItems(merged, 'brainstorm');
+  // Without diarization every SpeakerRef is a hallucination (founder P1,
+  // 2026-06-10): contributed_by/owner would render as phantom 話者N tags.
+  // Brainstorm has no participants roster, so the collapse alone suffices.
+  if (args.diarizationStatus !== 'ok') {
+    collapseSpeakerRefsToZero(merged);
+  }
 
   const note = fam.schema.parse(merged) as BrainstormNote;
   applyGeneratedMeta(note, {
