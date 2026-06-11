@@ -276,7 +276,10 @@ async function routeBrainstorm(
   const modelProfile = Object.values(modelProfiles).find((p) => p.filename === basename);
   if (!modelProfile) throw new Error('UNKNOWN_MODEL_PROFILE');
 
-  // Brainstorm requiresDiarization=false → no diarizationStatus (treated single-speaker).
+  // diarizationStatus: 'disabled' — same alpha rationale as routeMeeting.
+  // Brainstorm never degrades the transcript (requiresDiarization=false), but
+  // the post-merge collapse stops hallucinated ideas[].contributed_by /
+  // next_steps[].owner from rendering phantom 提案者: 話者N tags.
   const result = await finalizeBrainstorm({
     sessionId: session.sessionId,
     transcript,
@@ -284,6 +287,7 @@ async function routeBrainstorm(
     modelProfile,
     promptVariantId,
     language: session.language,
+    diarizationStatus: 'disabled',
     onTelemetry: deps.onTelemetry,
   });
 
