@@ -8,7 +8,7 @@ import {
 } from '../error-message-map';
 
 describe('error-message-map (JA)', () => {
-  it('covers all 20 known codes (Step 5 §3.2 + §5.1)', () => {
+  it('covers all 21 known codes (Step 5 §3.2 + §5.1 + fabrication guard)', () => {
     // Coverage contract: every code we throw from anywhere in main/ has a
     // corresponding JA copy. This list is duplicated in main/ipc.ts and
     // main/sidecar/timeouts.ts as bare string throws — if a new code is
@@ -23,6 +23,7 @@ describe('error-message-map (JA)', () => {
       'APP_QUIT',
       'UNSUPPORTED_LANGUAGE',
       'EMPTY_TRANSCRIPT',
+      'NOTE_LANGUAGE_MISMATCH',
       'STT_TIMEOUT',
       'LLM_LOAD_TIMEOUT',
       'LLM_UNLOAD_TIMEOUT',
@@ -119,5 +120,20 @@ describe('error-message-map (JA)', () => {
     expect(ERROR_MESSAGE_MAP_JA.LLM_LOAD_TIMEOUT).toMatch(/もう一度|再度|再試行/);
     expect(ERROR_MESSAGE_MAP_JA.LLM_UNLOAD_TIMEOUT).toMatch(/もう一度|再度|再試行/);
     expect(ERROR_MESSAGE_MAP_JA.GENERATE_TIMEOUT).toMatch(/もう一度|再度|再試行/);
+  });
+});
+
+// Fabrication guard (2026-06-12): NOTE_LANGUAGE_MISMATCH surfaces inside a
+// CHUNK_FAILED:<i>:NOTE_LANGUAGE_MISMATCH:ratio=… message — substring
+// resolution must map it to friendly copy with a retry hint (F1's
+// 「ノートを作り直す」 is the recovery path).
+describe('NOTE_LANGUAGE_MISMATCH (fabrication guard)', () => {
+  it('resolves the wrapped CHUNK_FAILED form via substring match', () => {
+    const raw = 'CHUNK_FAILED:0:NOTE_LANGUAGE_MISMATCH:ratio=0.012,checked=2841';
+    expect(toFriendlyJa(raw)).toBe(ERROR_MESSAGE_MAP_JA.NOTE_LANGUAGE_MISMATCH);
+  });
+
+  it('copy hints at retry (もう一度/再度) per ADR §3.5 style', () => {
+    expect(ERROR_MESSAGE_MAP_JA.NOTE_LANGUAGE_MISMATCH).toMatch(/もう一度|再度|再試行/);
   });
 });

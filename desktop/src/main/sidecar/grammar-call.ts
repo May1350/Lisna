@@ -63,6 +63,14 @@ export interface GrammarCallOpts<T> {
   maxAttempts: number;
   maxTokens: number;
   generator: LlmGenerator;
+  /**
+   * Session language for the grounding guard (`findLanguageMismatch`). When
+   * 'ja', an attempt whose user-visible strings carry ~zero Japanese script
+   * is rejected as fabrication (NOTE_LANGUAGE_MISMATCH) and retried. Omit to
+   * disable (en sessions — English can't be script-checked — and the
+   * merge-LLM path, which synthesizes from already-guarded partials).
+   */
+  expectedLanguage?: 'ja' | 'en' | 'ko';
 }
 
 /**
@@ -251,6 +259,79 @@ export function findEscapeLiteralInStrings(
   return null;
 }
 
+// ─── Language-mismatch guard (fabrication circuit-breaker, 2026-06-12) ────────
+//
+// Production incident (dump 2026-06-11T16-14-00-372Z): the 3B ignored a 9k-char
+// Japanese interview transcript and emitted a memorized ENGLISH boilerplate
+// template — grammar-valid, schema-valid, Zod-passing, so every structural
+// check stayed green and a 100%-fabricated note shipped to the founder. The
+// cheap, near-zero-false-positive symptom: a JA-session note whose user-visible
+// strings contain ~zero Japanese script CANNOT be grounded in a Japanese
+// transcript. This guard rejects the attempt so the existing fresh-seed retry
+// ladder gets a chance, and exhaustion fails LOUD instead of shipping fiction.
+//
+// What it deliberately does NOT catch: fabrication written IN Japanese (needs
+// term-overlap grounding — tier 2) and en-session fabrication (English can't
+// be script-checked). Those are the model/prompt track's job; this is a floor.
+
+/** Japanese-script codepoints: hiragana, katakana, kanji (+ExtA), halfwidth
+ * kana, JP punctuation. Mirrors `tokens.ts` CJK ranges MINUS fullwidth ASCII
+ * (Ａ-Ｚ should not count as "Japanese" here). */
+const JA_SCRIPT_RE = /[぀-ゟ゠-ヿ一-鿿㐀-䶿｡-ﾟ\u3000-〿]/g;
+
+/** System slots whose values are legitimately ASCII (enums, ids, ISO dates) —
+ * excluded so they can't dilute the ratio on short notes. */
+const LANGUAGE_CHECK_EXCLUDED_KEYS = new Set([
+  'family', 'language', 'from', 'model', 'generatedAt', 'experimentArmId',
+]);
+
+/** Below this many checked chars the note is too small to judge — stay inert
+ * (the schema's .min(1) floors make near-empty notes a separate failure). */
+const LANGUAGE_CHECK_MIN_CHARS = 100;
+
+/** A JA note dominated by English terms/LaTeX still sits well above this
+ * (measured ≥0.15 on real notes); the fabricated-English incident note was
+ * ~0.00. The wide margin is deliberate — #114 taught us a guard's own false
+ * positive burns every retry on legitimate output. */
+const JA_RATIO_MIN = 0.05;
+
+function collectCheckedText(value: unknown, out: string[]): void {
+  if (typeof value === 'string') {
+    out.push(value);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const v of value) collectCheckedText(v, out);
+    return;
+  }
+  if (value !== null && typeof value === 'object') {
+    for (const [k, v] of Object.entries(value)) {
+      if (LANGUAGE_CHECK_EXCLUDED_KEYS.has(k)) continue;
+      collectCheckedText(v, out);
+    }
+  }
+}
+
+/**
+ * Grounding guard: returns mismatch evidence when `expectedLanguage` is 'ja'
+ * but the note's user-visible text is not meaningfully Japanese. Null = pass
+ * (including: non-ja expectations, and notes under the size floor).
+ */
+export function findLanguageMismatch(
+  value: unknown,
+  expectedLanguage: 'ja' | 'en' | 'ko' | undefined,
+): { ratio: number; checkedChars: number } | null {
+  if (expectedLanguage !== 'ja') return null;
+  const parts: string[] = [];
+  collectCheckedText(value, parts);
+  const text = parts.join('');
+  if (text.length < LANGUAGE_CHECK_MIN_CHARS) return null;
+  const jaChars = (text.match(JA_SCRIPT_RE) ?? []).length;
+  const ratio = jaChars / text.length;
+  if (ratio >= JA_RATIO_MIN) return null;
+  return { ratio, checkedChars: text.length };
+}
+
 /**
  * Run a grammar-constrained LLM call with retry. Per Spike 0.1 take-4
  * contract (see `desktop/spikes/phase-0/01-zod-to-gbnf/decision-0.1-fail.md`
@@ -301,6 +382,12 @@ export async function callWithGrammar<T>(
       if (literal) {
         throw new Error(
           `ESCAPE_LITERAL_AT_${literal.path}:${JSON.stringify(literal.sample)}`,
+        );
+      }
+      const mismatch = findLanguageMismatch(sanitized, opts.expectedLanguage);
+      if (mismatch) {
+        throw new Error(
+          `NOTE_LANGUAGE_MISMATCH:ratio=${mismatch.ratio.toFixed(3)},checked=${mismatch.checkedChars}`,
         );
       }
       value = opts.schema.parse(sanitized);

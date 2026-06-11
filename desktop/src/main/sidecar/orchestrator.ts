@@ -140,6 +140,12 @@ interface RunChunkOpts {
    * diarization fallback degraded it to single-speaker (meeting/interview).
    */
   transcriptForPostDecode: SessionTranscript;
+  /**
+   * Session language for the fabrication circuit-breaker
+   * (`findLanguageMismatch` in callWithGrammar). finalize* passes
+   * `args.language ?? 'ja'`; 'ja' rejects near-zero-Japanese output.
+   */
+  expectedLanguage?: 'ja' | 'en' | 'ko';
   onTelemetry?: (e: FinalizeTelemetryEvent) => void;
 }
 
@@ -198,6 +204,7 @@ async function runChunkWithGrammar(opts: RunChunkOpts): Promise<RunChunkResult> 
         maxAttempts: 3,
         maxTokens: opts.tuning.maxGenTokens,
         generator: opts.generator,
+        expectedLanguage: opts.expectedLanguage,
       });
 
       const stats = emitGrammarAttempts(
@@ -219,8 +226,12 @@ async function runChunkWithGrammar(opts: RunChunkOpts): Promise<RunChunkResult> 
         // a fresh outer seed block (+10000) before failing the chunk. See
         // findEscapeLiteralInStrings + memory
         // v2_track2_escape_literal_phase1_2026-06-09.
+        // NOTE_LANGUAGE_MISMATCH (2026-06-12) gets the same treatment —
+        // template-fabrication is a mode-collapse cousin, and a fresh seed
+        // block is its only recovery short of a prompt/model change.
         if (
-          result.finalReason.startsWith('ESCAPE_LITERAL_AT_') &&
+          (result.finalReason.startsWith('ESCAPE_LITERAL_AT_') ||
+            result.finalReason.startsWith('NOTE_LANGUAGE_MISMATCH')) &&
           outerAttempt < POST_DECODE_OUTER_ATTEMPTS - 1
         ) {
           continue;
@@ -568,6 +579,7 @@ export async function finalizeLecture(
       tuning,
       generator,
       transcriptForPostDecode: args.transcript,
+      expectedLanguage: args.language ?? 'ja',
       onTelemetry: args.onTelemetry,
     });
     partials.push(chunkResult.validated as Partial<LectureNote>);
@@ -737,6 +749,7 @@ export async function finalizeMeeting(
       tuning,
       generator,
       transcriptForPostDecode: activeTranscript,
+      expectedLanguage: args.language ?? 'ja',
       onTelemetry: args.onTelemetry,
     });
     partials.push(chunkResult.validated as Partial<MeetingNote>);
@@ -907,6 +920,7 @@ export async function finalizeInterview(
       tuning,
       generator,
       transcriptForPostDecode: activeTranscript,
+      expectedLanguage: args.language ?? 'ja',
       onTelemetry: args.onTelemetry,
     });
     partials.push(chunkResult.validated as Record<string, unknown>);
@@ -1099,6 +1113,7 @@ export async function finalizeBrainstorm(
       tuning,
       generator,
       transcriptForPostDecode: args.transcript,
+      expectedLanguage: args.language ?? 'ja',
       onTelemetry: args.onTelemetry,
     });
     partials.push(chunkResult.validated as Record<string, unknown>);

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import {
   callWithGrammar,
   findEscapeLiteralInStrings,
+  findLanguageMismatch,
   sanitizeEscapeLiteralsInStrings,
   makeSidecarGenerator,
   makeGrammarSidecar,
@@ -559,5 +560,158 @@ describe('makeGrammarSidecar.generateWithGrammar (against /bin/cat)', () => {
     } finally {
       proc.kill('SIGKILL');
     }
+  });
+});
+
+// ─── Language-mismatch guard (2026-06-12 production fabrication incident) ─────
+//
+// Real failure (dump 2026-06-11T16-14-00-372Z): 3B ignored a 9k-char Japanese
+// interview transcript and emitted memorized ENGLISH finance boilerplate —
+// schema-valid, grammar-valid, Zod-passing, so every structural check stayed
+// green and a 100%-fabricated note shipped. The guard catches the wrong-script
+// symptom: a JA-session note whose user-visible strings contain ~zero Japanese
+// script cannot be grounded in a Japanese transcript.
+
+/** Abbreviated shape of the REAL fabricated note (English boilerplate, >100 chars). */
+const FABRICATED_EN_NOTE = {
+  schemaVersion: 1,
+  family: 'interview',
+  title: 'Interview with Speaker X',
+  generatedAt: '2023-02-20T14:30:00.000Z',
+  generatedBy: { model: 'JapaneseInterviewModel', promptVersion: 1 },
+  language: 'ja',
+  durationSec: 60,
+  purpose: 'This interview aims to discuss the recent trends and challenges in the Japanese finance industry.',
+  qa_pairs: [
+    {
+      question: 'What are the current trends in the Japanese finance industry?',
+      answer: 'There are several trends, including the increasing use of digital technologies and the growing importance of sustainability.',
+      ts: 0, asked_by: 0, answered_by: 0, from: 'transcript',
+    },
+  ],
+  key_takeaways: [
+    { text: 'There will be a growing focus on sustainability and digitalization in the industry.', from: 'inferred' },
+  ],
+};
+
+/** A grounded JA note of comparable size (what a healthy run produces). */
+const GROUNDED_JA_NOTE = {
+  schemaVersion: 1,
+  family: 'interview',
+  title: 'バランスシートの読み方 — 財務戦略インタビュー',
+  generatedAt: '2026-06-11T16:14:02.643Z',
+  generatedBy: { model: 'llama-3.2-3b-q4-km', promptVersion: 1 },
+  language: 'ja',
+  durationSec: 692,
+  purpose: 'バランスシートとPLの関係を、6社の財務諸表クイズを通じて解説するインタビュー。',
+  qa_pairs: [
+    {
+      question: 'この中で一番利益率が高い会社はどこですか？',
+      answer: 'ドコモかJTです。JTは独占企業なので営業利益率が高くなりがちです。',
+      ts: 202, asked_by: 0, answered_by: 0, from: 'transcript',
+    },
+  ],
+  key_takeaways: [
+    { text: 'ビジネスモデルがバランスシートの形を規定する。', from: 'transcript' },
+  ],
+};
+
+describe('findLanguageMismatch (helper)', () => {
+  it('flags the real fabricated-English note shape when expectedLanguage=ja', () => {
+    const r = findLanguageMismatch(FABRICATED_EN_NOTE, 'ja');
+    expect(r).not.toBeNull();
+    expect(r!.ratio).toBeLessThan(0.05);
+    expect(r!.checkedChars).toBeGreaterThanOrEqual(100);
+  });
+
+  it('passes a grounded JA note', () => {
+    expect(findLanguageMismatch(GROUNDED_JA_NOTE, 'ja')).toBeNull();
+  });
+
+  it('passes a JA note carrying LaTeX + English finance terms (the #114 class must NOT re-trigger)', () => {
+    const note = {
+      ...GROUNDED_JA_NOTE,
+      key_takeaways: [
+        { text: 'ROA は \\frac{\\text{利益}}{\\text{資本}} で計算され、IR の場面では 8〜10% が期待水準とされる。', from: 'transcript' },
+        { text: 'JR東日本のような固定資産の塊の会社は ROA が低く出やすい。', from: 'transcript' },
+      ],
+    };
+    expect(findLanguageMismatch(note, 'ja')).toBeNull();
+  });
+
+  it('stays inert below the 100-checked-chars floor (tiny notes are not judged)', () => {
+    const tiny = { title: 'OK', purpose: 'short english', language: 'ja', family: 'interview' };
+    expect(findLanguageMismatch(tiny, 'ja')).toBeNull();
+  });
+
+  it('stays inert for expectedLanguage=en and undefined (English cannot be script-checked)', () => {
+    expect(findLanguageMismatch(FABRICATED_EN_NOTE, 'en')).toBeNull();
+    expect(findLanguageMismatch(FABRICATED_EN_NOTE, undefined)).toBeNull();
+  });
+
+  it('excludes system keys (family/language/from/model/generatedAt) from the checked text', () => {
+    // All JA content; the only ASCII lives in excluded system slots. A naive
+    // walker that counted them would dilute the ratio — this asserts they
+    // simply don't participate (note stays clean).
+    const note = {
+      family: 'interview',
+      language: 'ja',
+      generatedAt: '2026-06-11T16:14:02.643Z',
+      generatedBy: { model: 'llama-3.2-3b-q4-km-with-a-very-long-ascii-identifier', promptVersion: 1 },
+      purpose: 'これは完全に日本語の本文です。語り手の内容を要約しています。財務の話。',
+      qa_pairs: [
+        { question: '営業利益率の平均はどのくらいですか？', answer: '日本の上場企業ではおよそ六パーセントです。', ts: 1, asked_by: 0, answered_by: 0, from: 'transcript' },
+      ],
+    };
+    const r = findLanguageMismatch(note, 'ja');
+    expect(r).toBeNull();
+  });
+});
+
+describe('callWithGrammar — language guard (NOTE_LANGUAGE_MISMATCH)', () => {
+  const fabricated = JSON.stringify(FABRICATED_EN_NOTE);
+  const grounded = JSON.stringify(GROUNDED_JA_NOTE);
+  const PassThrough = z.unknown();
+
+  function genFromQueue(responses: string[]): LlmGenerator {
+    let i = 0;
+    return vi.fn(async (req: { seed: number }) => ({
+      text: responses[Math.min(i++, responses.length - 1)]!,
+      seed: req.seed,
+    })) as unknown as LlmGenerator;
+  }
+
+  it('rejects a fabricated-English attempt and succeeds on the next JA attempt', async () => {
+    const result = await callWithGrammar({
+      prompt: 'P', schema: PassThrough, grammar: 'g', baseSeed: 7000,
+      temperature: 0.4, maxAttempts: 3, maxTokens: 256,
+      generator: genFromQueue([fabricated, grounded]),
+      expectedLanguage: 'ja',
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.attemptsUsed).toBe(2);
+    expect(result.attempts[0]!.ok).toBe(false);
+    expect(result.attempts[0]!.reason).toMatch(/^NOTE_LANGUAGE_MISMATCH/);
+    expect(result.attempts[1]!.ok).toBe(true);
+  });
+
+  it('exhausts with NOTE_LANGUAGE_MISMATCH as finalReason when every attempt is fabricated', async () => {
+    const result = await callWithGrammar({
+      prompt: 'P', schema: PassThrough, grammar: 'g', baseSeed: 7000,
+      temperature: 0.4, maxAttempts: 2, maxTokens: 256,
+      generator: genFromQueue([fabricated]),
+      expectedLanguage: 'ja',
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.finalReason).toMatch(/^NOTE_LANGUAGE_MISMATCH/);
+  });
+
+  it('stays inert when expectedLanguage is omitted (en sessions / merge path unchanged)', async () => {
+    const result = await callWithGrammar({
+      prompt: 'P', schema: PassThrough, grammar: 'g', baseSeed: 7000,
+      temperature: 0.4, maxAttempts: 1, maxTokens: 256,
+      generator: genFromQueue([fabricated]),
+    });
+    expect(result.ok).toBe(true);
   });
 });

@@ -30,6 +30,8 @@ export const ALL_ERROR_CODES = [
   'APP_QUIT',
   'UNSUPPORTED_LANGUAGE',
   'EMPTY_TRANSCRIPT',
+  // Fabrication guard (2026-06-12) — note content not in the session language
+  'NOTE_LANGUAGE_MISMATCH',
   // Step 5 §3.5 operation timeouts
   'STT_TIMEOUT',
   'LLM_LOAD_TIMEOUT',
@@ -77,6 +79,8 @@ export const ERROR_MESSAGE_MAP_JA: Record<ErrorCode, string> = {
     'この言語はまだサポートされていません。',
   EMPTY_TRANSCRIPT:
     '音声を検出できませんでした。もう一度録音してください。',
+  NOTE_LANGUAGE_MISMATCH:
+    'ノートを録音の言語で生成できなかったため、破棄しました。もう一度試すか、別のノート形式をお試しください。',
   STT_TIMEOUT:
     '文字起こしモデルの応答に時間がかかりすぎています。もう一度お試しください。',
   LLM_LOAD_TIMEOUT:
