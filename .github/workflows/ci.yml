@@ -82,11 +82,16 @@ jobs:
         # URLs, which is fine for build verification (no deploy).
         run: pnpm --filter extension build
 
-      - name: Cache Playwright browsers
-        # Chromium download is ~120 MB; cache by Playwright version
+      - name: Restore Playwright browser cache
+        # Chromium download is ~170 MB; cache by Playwright version
         # (encoded in @playwright/test inside pnpm-lock) so we only
-        # re-download on Playwright bumps.
-        uses: actions/cache@v4
+        # re-download on Playwright bumps. Restore/save are split so the
+        # save happens right after a successful install instead of in a
+        # post step — a job killed by timeout-minutes counts as cancelled
+        # and skips post steps, so the single-action form could never
+        # seed the cache once installs started hanging (2026-06 deadlock:
+        # every run re-downloaded, hung, and was cancelled again).
+        uses: actions/cache/restore@v4
         id: playwright-cache
         with:
           path: ~/.cache/ms-playwright
@@ -94,7 +99,24 @@ jobs:
 
       - name: Install Playwright Chromium
         if: steps.playwright-cache.outputs.cache-hit != 'true'
+        # Healthy install is <1 min; the step timeout turns a hung
+        # install into a fast, attributable step failure instead of a
+        # job-level cancel. Playwright <1.60.0 hung indefinitely after
+        # the download hit 100% on Node 24.16+ (extraction regression,
+        # microsoft/playwright#40998 / #41092; fixed in 1.60.0).
+        timeout-minutes: 5
         run: pnpm --filter extension exec playwright install --with-deps chromium
+
+      - name: Save Playwright browser cache
+        # Implicit success() applies on top of this if — a failed install
+        # skips the save, so a half-extracted browser dir can't poison
+        # the cache. Saving before the E2E step also means an E2E flake
+        # can't prevent the cache from seeding.
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ steps.playwright-cache.outputs.cache-primary-key }}
 
       - name: Install Playwright system deps
         # System libs (libnss3 etc.) aren't cached even when the
