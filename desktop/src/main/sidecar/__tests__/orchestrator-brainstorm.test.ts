@@ -1,14 +1,18 @@
 /**
  * Tests for finalizeBrainstorm (Plan 6 Task 13).
- * Mirrors finalizeInterview but brainstorm requiresDiarization=false (no
- * diarization fallback) and the merge-llm field is idea_clusters. Idea UUIDs
- * are assigned by the post-decode pipeline (Stage 2), not the LLM.
+ * Mirrors finalizeInterview but brainstorm requiresDiarization=false (the
+ * transcript is never degraded; hallucinated SpeakerRefs still collapse to 0
+ * post-merge when diarization didn't run) and the merge-llm field is
+ * idea_clusters. Idea UUIDs are assigned by the post-decode pipeline (Stage
+ * 2), not the LLM.
  *
  * Cases:
  *   1. single-chunk happy path → BrainstormNote, ideas carry UUIDs + from
  *   2. multi-chunk → idea_clusters synthesized by the merge LLM, UUIDs assigned
  *   3. merge LLM exhausts retries → deterministic fallback (first-chunk clusters) + warns
- *   4. empty transcript → throws EMPTY_TRANSCRIPT
+ *   4. diarization disabled → hallucinated contributed_by/owner collapse to 0
+ *   5. diarization ok → speaker refs preserved as emitted
+ *   6. empty transcript → throws EMPTY_TRANSCRIPT
  */
 import { describe, it, expect, beforeAll } from 'vitest';
 import { finalizeBrainstorm, type FinalizeBrainstormArgs } from '../orchestrator';
@@ -103,6 +107,7 @@ describe('finalizeBrainstorm', () => {
       transcript: makeTranscript(),
       sidecar,
       modelProfile,
+      diarizationStatus: 'ok',
     };
     const result = await finalizeBrainstorm(args);
 
@@ -131,6 +136,7 @@ describe('finalizeBrainstorm', () => {
       transcript: makeTranscript(),
       sidecar,
       modelProfile: profile,
+      diarizationStatus: 'ok',
     });
 
     expect(sidecar.calls).toHaveLength(3); // 2 chunks + 1 merge
@@ -158,6 +164,7 @@ describe('finalizeBrainstorm', () => {
       transcript: makeTranscript(),
       sidecar,
       modelProfile: profile,
+      diarizationStatus: 'ok',
     });
 
     const note = result.note as BrainstormNote;
@@ -165,6 +172,54 @@ describe('finalizeBrainstorm', () => {
     expect(note.idea_clusters[0]!.ideas[0]!.id).toMatch(UUID_RE);
     expect((note.validation_warnings ?? []).join(' ')).toMatch(/merge/i);
     expect(result.telemetry.validationWarnings.join(' ')).toMatch(/merge/i);
+  });
+
+  it('diarization disabled → hallucinated contributed_by/owner collapse to 0', async () => {
+    // Founder P1 family gap (2026-06-10, PR #108 covered meeting/interview only):
+    // ideas[].contributed_by and next_steps[].owner are unbounded json-number
+    // under grammar, so a diarization-less session can still render
+    // 提案者: 話者N. Same deterministic post-merge collapse as interview/meeting.
+    const sidecar = mockSidecar({
+      responses: [
+        makeBrainstormNoteJson({
+          idea_clusters: [
+            { theme: '高速化', ideas: [{ text: 'アイデア', ts: 0, contributed_by: 2 }] },
+          ],
+          next_steps: [{ text: 'やること', ts: 5, owner: 3 }],
+        }),
+      ],
+    });
+    const result = await finalizeBrainstorm({
+      sessionId: 'test',
+      transcript: makeTranscript(),
+      sidecar,
+      modelProfile,
+      diarizationStatus: 'disabled',
+    });
+
+    const note = result.note as BrainstormNote;
+    expect(note.idea_clusters[0]!.ideas[0]!.contributed_by).toBe(0);
+    expect(note.next_steps![0]!.owner).toBe(0);
+  });
+
+  it('diarization ok → speaker refs preserved as emitted', async () => {
+    const sidecar = mockSidecar({
+      responses: [
+        makeBrainstormNoteJson({
+          idea_clusters: [
+            { theme: '高速化', ideas: [{ text: 'アイデア', ts: 0, contributed_by: 1 }] },
+          ],
+        }),
+      ],
+    });
+    const result = await finalizeBrainstorm({
+      sessionId: 'test',
+      transcript: makeTranscript(),
+      sidecar,
+      modelProfile,
+      diarizationStatus: 'ok',
+    });
+    expect((result.note as BrainstormNote).idea_clusters[0]!.ideas[0]!.contributed_by).toBe(1);
   });
 
   it('empty transcript → throws EMPTY_TRANSCRIPT', async () => {
@@ -175,6 +230,7 @@ describe('finalizeBrainstorm', () => {
         transcript: { sessionId: 'empty', speakers: [{ id: 0 }], transcriptSegments: [] },
         sidecar,
         modelProfile,
+        diarizationStatus: 'ok',
       }),
     ).rejects.toThrow('EMPTY_TRANSCRIPT');
   });
