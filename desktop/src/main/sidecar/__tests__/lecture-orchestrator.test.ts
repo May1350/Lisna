@@ -128,7 +128,7 @@ describe('finalizeLecture', () => {
   it('1-chunk transcript → exactly 1 grammar call, note has family=lecture', async () => {
     const response = makeLectureNoteJson('導入', 0);
     const sidecar = mockSidecar({ responses: [response] });
-    // 3 short segments at default budget (8000 tokens) = trivially 1 chunk
+    // 3 short segments at default budget (3000 tokens) = trivially 1 chunk
     const transcript = makeTranscript(3);
 
     const args: FinalizeLectureArgs = {

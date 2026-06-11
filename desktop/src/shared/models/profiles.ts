@@ -35,8 +35,17 @@ export interface ModelProfile {
  *   Task 16 prompt-engineering re-evaluation.
  *
  * n_ctx=16384 chosen per memory feedback_llm_chat_template_sidecar:
- * 32K caused 8GB OOM. 8K = recommendedChunkTokens for dense families
- * (lecture, meeting); 7K for interview/brainstorm (more dialogue/idea density).
+ * 32K caused 8GB OOM.
+ *
+ * recommendedChunkTokens=3000 for every family on the 3B (default) profile.
+ * Lowered 2026-06-11 from 8000 (lecture/meeting) / 7000 (interview/brainstorm):
+ * a single ~7000-token prefill dies under 8 GB memory pressure (v0.1.4 retest —
+ * a 17.4-min interview finalized 3× with zero output). Smaller chunks keep each
+ * prefill survivable; partials then merge deterministically (lecture/meeting:
+ * concat-dedup) or via the tested interview/brainstorm merge. Reliability over
+ * nominal wall-time — a multi-chunk note that completes beats a single chunk
+ * that stalls. The 1B profile keeps its prior values until the adaptive-infra
+ * design phase sets its chunk size alongside RAM-based model selection.
  *
  * maxGenTokens=3000 calibrated per decision-0.2-path-f.md (reduced from
  * spike's 4096 — tail-risk mitigation).
@@ -53,10 +62,10 @@ export const modelProfiles: Record<string, ModelProfile> = {
     warmupRequired: true,
     ramBudgetMB: 3072,
     perFamily: {
-      lecture:    { recommendedChunkTokens: 8000, maxGenTokens: 3000, temperature: 0.4, tier: 'default'  },
-      meeting:    { recommendedChunkTokens: 8000, maxGenTokens: 3000, temperature: 0.4, tier: 'default'  },
-      interview:  { recommendedChunkTokens: 7000, maxGenTokens: 3500, temperature: 0.4, tier: 'default'  },
-      brainstorm: { recommendedChunkTokens: 7000, maxGenTokens: 3500, temperature: 0.5, tier: 'default'  },
+      lecture:    { recommendedChunkTokens: 3000, maxGenTokens: 3000, temperature: 0.4, tier: 'default'  },
+      meeting:    { recommendedChunkTokens: 3000, maxGenTokens: 3000, temperature: 0.4, tier: 'default'  },
+      interview:  { recommendedChunkTokens: 3000, maxGenTokens: 3500, temperature: 0.4, tier: 'default'  },
+      brainstorm: { recommendedChunkTokens: 3000, maxGenTokens: 3500, temperature: 0.5, tier: 'default'  },
     },
   },
   'llama-3.2-1b-q4-km': {
@@ -69,6 +78,9 @@ export const modelProfiles: Record<string, ModelProfile> = {
     bosTokenFix: 'dormant-bos',
     warmupRequired: true,
     ramBudgetMB: 1024,
+    // Chunk budgets here are still the pre-2026-06-11 values — the 1B profile is
+    // dev-only (no models.json multi-path / RAM detection yet), so they're inert
+    // in production. The adaptive-infra design phase sets the 1B chunk size.
     perFamily: {
       lecture:    { recommendedChunkTokens: 8000, maxGenTokens: 3000, temperature: 0.4, tier: 'fallback' },
       meeting:    { recommendedChunkTokens: 8000, maxGenTokens: 3000, temperature: 0.4, tier: 'fallback' },

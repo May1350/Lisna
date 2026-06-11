@@ -12,9 +12,9 @@ describe('ModelProfile Lecture tuning', () => {
     expect(p.perFamily.lecture.maxGenTokens).toBe(3000);
   });
 
-  it('3B profile lecture recommendedChunkTokens is 8000 (spec §2.3)', () => {
+  it('3B profile lecture recommendedChunkTokens is 3000 (memory-pressure multi-chunk, 2026-06-11)', () => {
     const p = getModelProfile('llama-3.2-3b-q4-km');
-    expect(p.perFamily.lecture.recommendedChunkTokens).toBe(8000);
+    expect(p.perFamily.lecture.recommendedChunkTokens).toBe(3000);
   });
 
   it('3B profile lecture temperature is 0.4', () => {
