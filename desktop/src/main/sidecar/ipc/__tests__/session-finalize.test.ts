@@ -295,14 +295,20 @@ describe('registerSessionFinalize', () => {
   // never calls session/stop, so finalize is the only path that returns the
   // main-side session FSM to idle. Without this callback the next session/start
   // rejects with SESSION_ACTIVE (the "already recording" bug).
-  it('(i) calls onSessionSettled with {ok:true} exactly once after a successful finalize', async () => {
+  // Debug dump (2026-06-11): the payload carries family + the parsed note so
+  // the caller can persist it to the per-finalize dump dir.
+  it('(i) calls onSessionSettled with {ok:true, family, note} exactly once after a successful finalize', async () => {
     const sidecar = makeMockSidecar(makeLectureNoteJson());
     const ctx = makeSessionContext({ sidecar });
     const onSessionSettled = vi.fn();
     const handler = setup(() => ctx, onSessionSettled);
     await handler({}, { family: 'lecture' });
     expect(onSessionSettled).toHaveBeenCalledTimes(1);
-    expect(onSessionSettled).toHaveBeenCalledWith({ ok: true });
+    expect(onSessionSettled).toHaveBeenCalledWith({
+      ok: true,
+      family: 'lecture',
+      note: expect.objectContaining({ family: 'lecture', schemaVersion: 1 }),
+    });
   });
 
   // (j) onSessionSettled fires even when finalize THROWS — the cleanup lives in
@@ -311,12 +317,18 @@ describe('registerSessionFinalize', () => {
   // P0-3 (2026-06-09): also asserts the `ok: false` discriminator the caller
   // uses to PRESERVE the orchestrator on failure (so retry sees the same
   // transcript instead of NO_ACTIVE_SESSION).
-  it('(j) calls onSessionSettled with {ok:false} exactly once when finalize throws', async () => {
+  // Debug dump (2026-06-11): the failure payload carries the error message so
+  // the dump's result.json records WHY the finalize failed.
+  it('(j) calls onSessionSettled with {ok:false, family, error} exactly once when finalize throws', async () => {
     const onSessionSettled = vi.fn();
     const handler = setup(() => null, onSessionSettled);
     await expect(handler({}, { family: 'lecture' })).rejects.toThrow('NO_ACTIVE_SESSION');
     expect(onSessionSettled).toHaveBeenCalledTimes(1);
-    expect(onSessionSettled).toHaveBeenCalledWith({ ok: false });
+    expect(onSessionSettled).toHaveBeenCalledWith({
+      ok: false,
+      family: 'lecture',
+      error: 'NO_ACTIVE_SESSION',
+    });
   });
 
   // (k) onTelemetry forwarding: every family route threads the callback through
@@ -371,7 +383,8 @@ describe('registerSessionFinalize', () => {
 
     // First attempt fails — orchestrator must be PRESERVED.
     await expect(handler({}, { family: 'lecture' })).rejects.toThrow();
-    expect(settledCalls).toEqual([{ ok: false }]);
+    expect(settledCalls).toHaveLength(1);
+    expect(settledCalls[0]).toMatchObject({ ok: false });
     expect(current).not.toBeNull();
     expect(current!.segments).toBe(segments); // same array reference
 
@@ -379,7 +392,8 @@ describe('registerSessionFinalize', () => {
     current = { ...current!, sidecar: healthySidecar };
     const result = await handler({}, { family: 'lecture' });
     expect(result.note).toMatchObject({ family: 'lecture' });
-    expect(settledCalls).toEqual([{ ok: false }, { ok: true }]);
+    expect(settledCalls).toHaveLength(2);
+    expect(settledCalls[1]).toMatchObject({ ok: true });
     // Now that finalize succeeded the wiring cleared current.
     expect(current).toBeNull();
   });
