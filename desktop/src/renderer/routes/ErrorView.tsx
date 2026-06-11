@@ -7,11 +7,24 @@ import {
 interface Props {
   message: string;
   segments: TranscriptSegment[];
+  /**
+   * Re-generate the note from the PRESERVED transcript. Routes to the family
+   * picker (App.tsx) so the user can pick a DIFFERENT family on retry — the
+   * common case is "interview failed → try lecture on the same recording"
+   * (interview needs diarization, which the alpha disables). Main keeps the
+   * session (`current`) alive on finalize failure (ipc.ts:354), so this
+   * re-invokes finalize against the same accumulated transcript.
+   */
   onRetry: () => void;
   /**
+   * Abandon this recording and start a new one (discards main-side session).
+   * The escape hatch when the transcript itself is not worth re-finalizing.
+   */
+  onDiscard: () => void;
+  /**
    * Step 5 §3.6 — true when supervisor has given up (2 consecutive sidecar
-   * crashes). Replaces the Try Again button with a Restart Lisna button.
-   * Try Again would just hit SIDECAR_GAVE_UP again until process exit.
+   * crashes). Replaces the action buttons with a Restart Lisna button: with a
+   * dead sidecar, re-finalize can't run — it would just hit SIDECAR_GAVE_UP.
    */
   permanent?: boolean;
 }
@@ -30,7 +43,7 @@ interface Props {
  * also JA. If a future v2.1 introduces a settings UI for locale, add a
  * second map (`ERROR_MESSAGE_MAP_EN` etc.) and dispatch at toFriendly* level.
  */
-export function ErrorView({ message, segments, onRetry, permanent }: Props) {
+export function ErrorView({ message, segments, onRetry, onDiscard, permanent }: Props) {
   // Resolve copy. The permanent flag forces the SIDECAR_GAVE_UP message even
   // if `message` came in as a transient "engine restarted" string from an
   // earlier handleSidecarExit push that arrived before the give-up upgrade.
@@ -52,9 +65,23 @@ export function ErrorView({ message, segments, onRetry, permanent }: Props) {
         </details>
       )}
       {permanent ? (
-        <button onClick={() => void window.lisna.restartApp()}>Lisna を再起動</button>
+        <button data-testid="error-restart" onClick={() => void window.lisna.restartApp()}>
+          Lisna を再起動
+        </button>
       ) : (
-        <button onClick={onRetry}>もう一度試す</button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12 }}>
+          {/* Primary: the transcript is NOT lost — re-make the note from it. */}
+          <button data-testid="error-retry-note" onClick={onRetry}>
+            ノートを作り直す
+          </button>
+          {/* Secondary: give up on this recording, start fresh. */}
+          <button data-testid="error-new-recording" onClick={onDiscard}>
+            新しい録音
+          </button>
+          {segments.length > 0 && (
+            <small style={{ color: '#666' }}>文字起こしは保持されています</small>
+          )}
+        </div>
       )}
     </section>
   );
