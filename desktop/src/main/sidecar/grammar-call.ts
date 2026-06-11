@@ -104,9 +104,16 @@ const LATEX_COMMANDS = [
 // is not load-bearing.
 const LATEX_COMMAND_PATTERN = `\\\\(?:${LATEX_COMMANDS.join('|')})(?![a-zA-Z])`;
 const LATEX_MASK_RE = new RegExp(LATEX_COMMAND_PATTERN, 'g');
-// Single pass: keep an allowlisted `\cmd` whole, drop any other backslash.
+// Single pass: keep an allowlisted `\cmd` whole, drop junk backslashes.
+// Junk matches as a RUN — but each backslash in the run carries a negative
+// lookahead so the run can never swallow a backslash that starts a kept
+// command (a greedy `\\\\+` would eat `\\frac`'s second backslash). Run
+// matching matters: with per-backslash drops, `\pi\\iri`'s two junk
+// backslashes each see `\` as a neighbor, skip the space, and fuse into
+// `\piiri` — which fails the final invariant (review round 2).
+const JUNK_BACKSLASH = `\\\\(?!(?:${LATEX_COMMANDS.join('|')})(?![a-zA-Z]))`;
 const KEEP_LATEX_OR_STRIP_RE = new RegExp(
-  `(${LATEX_COMMAND_PATTERN})|\\\\`,
+  `(${LATEX_COMMAND_PATTERN})|(?:${JUNK_BACKSLASH})+`,
   'g',
 );
 
@@ -120,10 +127,11 @@ const KEEP_LATEX_OR_STRIP_RE = new RegExp(
  *      (covers this run's `\\'<NL>...` and future variants — the reviewer's
  *      "enumerate the legitimate-content boundary, not the observed shapes"
  *      guidance; since 2026-06-11 the boundary includes LATEX_COMMANDS).
- *      A dropped backslash between two ASCII letters leaves a space, not
- *      nothing: plain deletion in `\frac\n{x}` would merge into `\fracn`,
- *      a string that fails `findEscapeLiteralInStrings` and burns every
- *      fresh-seed retry on a slot this function claimed to have repaired.
+ *      A dropped RUN of junk backslashes sitting between two ASCII letters
+ *      leaves a space, not nothing: plain deletion in `\frac\n{x}` or
+ *      `\pi\\iri` would merge into `\fracn` / `\piiri`, strings that fail
+ *      `findEscapeLiteralInStrings` and burn every fresh-seed retry on a
+ *      slot this function claimed to have repaired.
  *   3. Trim a leading/trailing run of ASCII quote / whitespace / control
  *      noise that typically wraps a recovered term in mode-collapse output.
  *      Full-width JA punctuation (e.g. `。「」`) is preserved.
@@ -140,10 +148,10 @@ function sanitizeStringValue(s: string): string {
   );
   out = out.replace(
     KEEP_LATEX_OR_STRIP_RE,
-    (_m, latex: string | undefined, offset: number, whole: string) => {
+    (m, latex: string | undefined, offset: number, whole: string) => {
       if (latex !== undefined) return latex;
       const prev = whole[offset - 1] ?? '';
-      const next = whole[offset + 1] ?? '';
+      const next = whole[offset + m.length] ?? '';
       return /[a-zA-Z]/.test(prev) && /[a-zA-Z]/.test(next) ? ' ' : '';
     },
   );

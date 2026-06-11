@@ -398,10 +398,41 @@ describe('LaTeX preservation — 2026-06-11 production false positive', () => {
       '\\frac\\theta',          // command + command — both kept
       'trailing backslash \\',
       '\\u30 incomplete \\uZZZZ invalid',
+      // Runs of ≥2 junk backslashes abutting a kept command (review round 2:
+      // per-backslash neighbor checks see `\` on one side and skip the space).
+      '\\pi\\\\iri',
+      '\\to\\\\hit',
+      '\\frac\\\\z',
+      'a\\pi\\\\b',
+      '\\\\frac{x}',             // junk run must NOT swallow a command's backslash
+      '\\frac\\\\\\theta',       // run sandwiched between two kept commands
     ];
     for (const s of inputs) {
       const { value } = sanitizeEscapeLiteralsInStrings({ s });
       expect(findEscapeLiteralInStrings(value), `input: ${JSON.stringify(s)}`).toBeNull();
+    }
+  });
+
+  it('lockstep contract holds under deterministic fuzz (2000 token soups)', () => {
+    // Seeded LCG so failures reproduce. Tokens chosen to stress every
+    // sanitize pass: kept commands, junk escapes, backslash runs, CJK,
+    // edge quotes/whitespace, \uXXXX literals (valid + truncated).
+    const tokens = [
+      '\\frac', '\\text', '\\pi', '\\theta', '\\to', '\\hit', '\\n', "\\'",
+      '\\', '\\\\', '\\u4eca', '\\u30', 'x', 'abc', '利益', '資本', '{', '}',
+      ' ', '"', "'", '\n',
+    ];
+    let s = 12345;
+    const rand = () => (s = (s * 48271) % 2147483647);
+    for (let i = 0; i < 2000; i++) {
+      const n = 1 + (rand() % 8);
+      let input = '';
+      for (let j = 0; j < n; j++) input += tokens[rand() % tokens.length];
+      const { value } = sanitizeEscapeLiteralsInStrings({ input });
+      expect(
+        findEscapeLiteralInStrings(value),
+        `fuzz #${i}: ${JSON.stringify(input)} → ${JSON.stringify((value as { input: string }).input)}`,
+      ).toBeNull();
     }
   });
 
