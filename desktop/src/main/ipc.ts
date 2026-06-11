@@ -1,4 +1,5 @@
 import os from 'node:os';
+import path from 'node:path';
 import { app, ipcMain, shell, type BrowserWindow } from 'electron';
 import type {
   AuthState,
@@ -17,9 +18,10 @@ import { makeRecoveringGrammarSidecar } from './sidecar/recovering-grammar-sidec
 import { WhisperCppSTT } from './engines/whisper-cpp-stt';
 import { LlamaCppLLM } from './engines/llama-cpp-llm';
 import { isMacAudioLoopbackSupported } from './platform/hardware-check';
-import { log, sessionLog } from './log';
+import { log, redactPath, sessionLog } from './log';
 import { loadToken } from './auth/keychain';
 import { registerSessionFinalize } from './sidecar/ipc/session-finalize';
+import { createSessionDump, type SessionDump } from './session-debug-dump';
 
 export const CHANNELS = {
   startRecording: 'recording/start',
@@ -120,6 +122,11 @@ let _sidecarGaveUp = false;
 // session/error push when the in-flight handler's IPC rejection will surface
 // the error to the renderer.
 let _sessionHandlerInFlight = false;
+// Debug dump for the finalize in flight (2026-06-11, coverage-collapse
+// diagnosis). Created in getCurrentSession (one dir per finalize invocation,
+// retries included), finalized + cleared in onSessionSettled. Null when the
+// dump is disabled (LISNA_DISABLE_SESSION_DUMP=1) or unavailable.
+let _activeDump: SessionDump | null = null;
 
 // ── Session-scoped sidecar lifecycle (2026-06-10, founder reboot incident) ──
 // "Runs only when in use": the sidecar previously lived for the app's whole
@@ -224,6 +231,29 @@ export function registerIpc(deps: IpcDeps) {
       const client = deps.supervisor.getClient();
       if (!paths || !client) return null;
 
+      // Debug dump (2026-06-11): one dir per finalize invocation under
+      // <userData>/sessions/. Created BEFORE the LLM-load step so even a
+      // load failure leaves the transcript on disk — the 13-min coverage-
+      // collapse incident was undiagnosable because neither the transcript
+      // nor the prompts/raw output ever persisted. app.getPath is guarded:
+      // a harness without it just runs the finalize undumped.
+      try {
+        _activeDump = createSessionDump({
+          baseDir: path.join(app.getPath('userData'), 'sessions'),
+        });
+      } catch {
+        _activeDump = null;
+      }
+      if (_activeDump) {
+        log.info('[finalize:dump]', redactPath(_activeDump.dir));
+        _activeDump.writeTranscript({
+          sessionId: 'live',
+          language: current.language,
+          llmModel: path.basename(paths.llmPath),
+          segments: current.exposedSegments,
+        });
+      }
+
       // Spec §9 — the v2 finalize path needs the LLM loaded before
       // generateWithGrammar can succeed (else `not_loaded`). Mirror the
       // 8GB-safe sequence orchestrator.stop() uses internally:
@@ -251,38 +281,45 @@ export function registerIpc(deps: IpcDeps) {
         _llmLoadedForCurrent = current;
       }
 
+      // Wedged-retry fix (2026-06-10): resolve the client LAZILY per
+      // generate call and restart + LLM-reload on a no-progress stall, so
+      // callWithGrammar's fresh-seed retries hit a live process instead of
+      // queueing behind a doomed generation in the single-threaded C++
+      // dispatch loop. See recovering-grammar-sidecar.ts for the RCA.
+      const recoveringSidecar = makeRecoveringGrammarSidecar({
+        getSidecar: () => {
+          const c = deps.supervisor.getClient();
+          return c ? makeGrammarSidecar(c) : null;
+        },
+        recover: async () => {
+          log.warn('[finalize] generate stalled (no progress) — restarting sidecar + reloading LLM');
+          const t0 = Date.now();
+          try {
+            const fresh = await deps.supervisor.restart();
+            await fresh.waitForReady(5000);
+            await new LlamaCppLLM(fresh).loadModel(paths.llmPath);
+            sessionLog.phase('llm-reload-recovery', Date.now() - t0);
+          } catch (e) {
+            // Force the next session/finalize call to re-run the full
+            // unload-STT → load-LLM prep instead of trusting the cache.
+            _llmLoadedForCurrent = null;
+            throw e;
+          }
+        },
+      });
+
       return {
         sessionId: 'live',   // placeholder — real session-ID assignment lands in Task 13
         segments: current.exposedSegments,
         llmModelPath: paths.llmPath,
         // Gate above admits only ja/en, both valid NoteLanguage values.
         language: current.language as NoteLanguage,
-        // Wedged-retry fix (2026-06-10): resolve the client LAZILY per
-        // generate call and restart + LLM-reload on a no-progress stall, so
-        // callWithGrammar's fresh-seed retries hit a live process instead of
-        // queueing behind a doomed generation in the single-threaded C++
-        // dispatch loop. See recovering-grammar-sidecar.ts for the RCA.
-        sidecar: makeRecoveringGrammarSidecar({
-          getSidecar: () => {
-            const c = deps.supervisor.getClient();
-            return c ? makeGrammarSidecar(c) : null;
-          },
-          recover: async () => {
-            log.warn('[finalize] generate stalled (no progress) — restarting sidecar + reloading LLM');
-            const t0 = Date.now();
-            try {
-              const fresh = await deps.supervisor.restart();
-              await fresh.waitForReady(5000);
-              await new LlamaCppLLM(fresh).loadModel(paths.llmPath);
-              sessionLog.phase('llm-reload-recovery', Date.now() - t0);
-            } catch (e) {
-              // Force the next session/finalize call to re-run the full
-              // unload-STT → load-LLM prep instead of trusting the cache.
-              _llmLoadedForCurrent = null;
-              throw e;
-            }
-          },
-        }),
+        // Dump wrap sits OUTSIDE the recovery wrapper so the recorded calls
+        // are exactly what callWithGrammar issued (prompt, seed, raw output
+        // per attempt) — including attempts that stall and recover.
+        sidecar: _activeDump
+          ? _activeDump.wrapSidecar(recoveringSidecar)
+          : recoveringSidecar,
       };
     },
     // The v2 Stop flow ends here, not at session/stop — so finalize owns the
@@ -304,6 +341,10 @@ export function registerIpc(deps: IpcDeps) {
     // recording's transcript is GONE on first failure click — see memory
     // v2_30min_real_record_3_p0s_2026-06-09 for the incident this fixes.
     onSessionSettled: (result) => {
+      // Debug dump tail: persist the parsed note (success) or the failure
+      // reason, then drop the handle — the next finalize creates a fresh dir.
+      _activeDump?.writeResult(result);
+      _activeDump = null;
       // Session-scoped lifecycle: the LLM's 3 GB leaves RAM the moment a
       // finalize settles — success or failure. P0-3 still preserves the
       // TRANSCRIPT (current) on failure for retry; the retry re-runs the

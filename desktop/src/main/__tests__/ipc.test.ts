@@ -1,13 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import type { ChunkPayload } from '@shared/ipc-protocol';
 
 // Mock electron's ipcMain — capture the handlers registered so tests can invoke them.
 // Also mock app.relaunch/quit so the restart IPC handler doesn't actually kill
-// the test process; tests assert the calls landed.
+// the test process; tests assert the calls landed. app.getPath backs the
+// finalize debug dump — the default (undefined) impl makes the dump silently
+// unavailable, mirroring tests that don't care about it; the dump wiring test
+// points it at a tmp dir.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const ipcHandlers: Record<string, (e: any, payload: any) => Promise<any>> = {};
 const appRelaunch = vi.fn();
 const appQuit = vi.fn();
+const appGetPath = vi.fn();
 vi.mock('electron', () => ({
   ipcMain: {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -18,6 +25,7 @@ vi.mock('electron', () => ({
   app: {
     relaunch: (...args: unknown[]) => appRelaunch(...args),
     quit: (...args: unknown[]) => appQuit(...args),
+    getPath: (...args: unknown[]) => appGetPath(...args),
   },
 }));
 
@@ -217,6 +225,88 @@ describe('main/ipc FSM', () => {
     ipc.handleSidecarExit();
     await expect(ipcHandlers['session/start']!({}, { language: 'ja' }))
       .resolves.toBeUndefined();
+  });
+
+  // Debug dump (2026-06-11) — every finalize persists {transcript, exact
+  // prompts, raw LLM output per attempt, parsed note} under
+  // <userData>/sessions/<timestamp>/ so the next coverage-collapse incident
+  // is diagnosable post-hoc (the 13-min founder lecture was not).
+  it('session/finalize writes a debug dump: transcript + llm calls + note + result', async () => {
+    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-ipc-userdata-'));
+    appGetPath.mockReturnValue(userDataDir);
+    try {
+      const { win } = makeFakeWindow();
+      const noteJson = JSON.stringify({
+        schemaVersion: 1,
+        family: 'lecture',
+        title: 'テスト講義',
+        generatedAt: new Date().toISOString(),
+        generatedBy: { model: 'llama-3.2-3b-q4-km', promptVersion: 1 },
+        language: 'ja',
+        durationSec: 60,
+        sections: [
+          {
+            heading: 'セクション',
+            ts: 0,
+            summary: 'テストの要約です。',
+            key_terms: [],
+            examples: [],
+            points: [{ text: '重要な点', ts: 0, important: true }],
+          },
+        ],
+      });
+      // Real makeGrammarSidecar streams from client.sendStream — fake yields
+      // the whole note JSON as one token and reports decode stats via onDone.
+      const client = {
+        send: vi.fn(async () => ({})),
+        sendStream: vi.fn(
+          (_req: unknown, opts: { onDone?: (s: { tokensOut: number; genMs: number }) => void }) => {
+            opts.onDone?.({ tokensOut: 5, genMs: 10 });
+            return (async function* () { yield noteJson; })();
+          },
+        ),
+      };
+      const supervisor = makeFakeSupervisor(client);
+      ipc.registerIpc({
+        getMainWindow: () => win,
+        supervisor,
+        getModelPaths: () => ({ sttPath: '/s', llmPath: '/models/Llama-3.2-3B-Instruct-Q4_K_M.gguf' }),
+      });
+      await ipcHandlers['session/start']!({}, { language: 'ja' });
+      const payload: ChunkPayload = {
+        index: 0, source: 'mic', startMs: 0, endMs: 2000, samples: new Float32Array(32000),
+      };
+      await ipcHandlers['recording/chunk']!({ sender: { send: vi.fn() } }, payload);
+
+      const result = await ipcHandlers['session/finalize']!({}, { family: 'lecture' });
+      expect(result.note).toMatchObject({ family: 'lecture' });
+
+      const sessionsDir = path.join(userDataDir, 'sessions');
+      const dumps = fs.readdirSync(sessionsDir);
+      expect(dumps).toHaveLength(1);
+      const dir = path.join(sessionsDir, dumps[0]!);
+
+      const transcript = JSON.parse(fs.readFileSync(path.join(dir, 'transcript.json'), 'utf8'));
+      expect(transcript.segmentCount).toBe(1);
+      expect(transcript.segments[0]).toMatchObject({ text: 'こんにちは' });
+      expect(transcript.llmModel).toBe('Llama-3.2-3B-Instruct-Q4_K_M.gguf');
+
+      const calls = fs
+        .readFileSync(path.join(dir, 'llm-calls.ndjson'), 'utf8')
+        .trimEnd().split('\n').map((l) => JSON.parse(l));
+      expect(calls.length).toBeGreaterThan(0);
+      expect(calls[0].prompt).toContain('こんにちは');   // exact prompt persisted
+      expect(calls[0].rawText).toBe(noteJson);            // raw model output persisted
+      expect(calls[0].ok).toBe(true);
+
+      const resultJson = JSON.parse(fs.readFileSync(path.join(dir, 'result.json'), 'utf8'));
+      expect(resultJson).toMatchObject({ ok: true, family: 'lecture' });
+      const note = JSON.parse(fs.readFileSync(path.join(dir, 'note.json'), 'utf8'));
+      expect(note).toMatchObject({ family: 'lecture', title: 'テスト講義' });
+    } finally {
+      appGetPath.mockReset();
+      fs.rmSync(userDataDir, { recursive: true, force: true });
+    }
   });
 
   it('recording/chunk before session/start → silent no-op', async () => {

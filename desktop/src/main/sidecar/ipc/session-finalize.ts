@@ -71,6 +71,17 @@ export interface SessionContext {
   language: NoteLanguage;
 }
 
+/**
+ * Settle payload for `onSessionSettled`. Beyond the `ok` discriminator the
+ * caller uses for FSM cleanup, it carries the parsed note (success) or the
+ * error message (failure) so the per-finalize debug dump can persist them
+ * (2026-06-11 — the 13-min coverage-collapse incident was undiagnosable
+ * because neither the note nor the failure reason ever hit disk).
+ */
+export type SessionSettleResult =
+  | { ok: true; family: NoteFamily; note: NoteBase }
+  | { ok: false; family: NoteFamily; error: string };
+
 export interface SessionFinalizeDeps {
   /**
    * Returns the current session context or null if no session is active.
@@ -94,7 +105,7 @@ export interface SessionFinalizeDeps {
    * `session/finalize` against the same accumulated transcript — discarding
    * the orchestrator on every failed attempt is the bug this signature fixes.
    */
-  onSessionSettled?: (result: { ok: boolean }) => void;
+  onSessionSettled?: (result: SessionSettleResult) => void;
 
   /**
    * Optional telemetry sink — production wires this to `sessionLog.finalize*`
@@ -123,7 +134,7 @@ export function registerSessionFinalize(deps: SessionFinalizeDeps): void {
   ipcMain.handle(SESSION_FINALIZE_CHANNEL, async (_e, args: SessionFinalizeArgs): Promise<SessionFinalizeResult> => {
     const { family, promptVariant } = args;
 
-    let ok = false;
+    let settle: SessionSettleResult = { ok: false, family, error: 'FINALIZE_NOT_RUN' };
     try {
       // ── Family routing ────────────────────────────────────────────────────
       let result: SessionFinalizeResult;
@@ -134,14 +145,18 @@ export function registerSessionFinalize(deps: SessionFinalizeDeps): void {
       // TypeScript exhaustiveness guard — 'family' is typed but callers can
       // send anything over IPC (un-typed JSON), so the runtime check matters.
       else throw new Error(`UNKNOWN_FAMILY:${family as string}`);
-      ok = true;
+      settle = { ok: true, family, note: result.note };
       return result;
+    } catch (err) {
+      settle = { ok: false, family, error: err instanceof Error ? err.message : String(err) };
+      throw err;
     } finally {
       // Always notify — the caller (main/ipc.ts) uses `ok` to decide whether
       // to clear the orchestrator. On failure (ok=false) the orchestrator is
       // PRESERVED so the renderer's ErrorView retry can re-invoke finalize
-      // against the same accumulated transcript (P0-3, 2026-06-09).
-      deps.onSessionSettled?.({ ok });
+      // against the same accumulated transcript (P0-3, 2026-06-09). The note /
+      // error ride along for the per-finalize debug dump.
+      deps.onSessionSettled?.(settle);
     }
   });
 }
