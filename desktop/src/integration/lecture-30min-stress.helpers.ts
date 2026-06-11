@@ -6,11 +6,11 @@
  * retune `JA_VOCAB` average length and/or seg count below):
  *   estimateTokens for CJK is 0.6 t/char. Vocab averages 22 chars (all CJK)
  *   → ~13 tokens per segment. 900 segs × 13 = ~11,700 content tokens,
- *   comfortably OVER the 8000 production default (see
- *   `desktop/src/shared/models/profiles.ts` perFamily.lecture.recommended
- *   ChunkTokens). chunkTranscript splits into 2 chunks reliably (615-seg
- *   first chunk + ~285-seg remainder, with silence-snap shifting the
- *   boundary ±30s). EXPECTED_CHUNKS_AT_DEFAULT=2.
+ *   ~3.9× the 3000 production default (lowered 2026-06-11 for memory-pressure
+ *   multi-chunking — see `desktop/src/shared/models/profiles.ts`
+ *   perFamily.lecture.recommendedChunkTokens). chunkTranscript splits into
+ *   4 chunks (with silence-snap shifting boundaries ±30s).
+ *   EXPECTED_CHUNKS_AT_DEFAULT=4.
  *   900 segs × 3s = 2700s = 45 min recording — "30+ min" principle holds.
  *
  *   NOTE: chunkTranscript counts ONLY segment text (~13 t/seg). The
@@ -22,8 +22,8 @@ import type { SessionTranscript } from '../shared/note-schema/transcript';
 
 // Constants pinned by hand math, NOT by calling the SUT — both the chunker
 // and the synth-density math must hold for sanity test (1a) to pass.
-export const EXPECTED_CHUNKS_AT_DEFAULT = 2;
-export const PROD_LECTURE_BUDGET = 8000;
+export const EXPECTED_CHUNKS_AT_DEFAULT = 4;
+export const PROD_LECTURE_BUDGET = 3000;
 
 // ─── Synthetic 45-min JA transcript (deterministic) ─────────────────────────
 

@@ -4,7 +4,7 @@
  *
  * Spawns the prebuilt sidecar (same pattern as
  * `chunked-note.escape-literal-repro.test.ts`), runs finalizeLecture against
- * the 45-min synth transcript at the production 8000-token budget, asserts:
+ * the 45-min synth transcript at the production 3000-token budget, asserts:
  *   - chunkCount === EXPECTED_CHUNKS_AT_DEFAULT (matches mocked-leg pin)
  *   - schema valid
  *   - sections.length in [chunkCount, MAX_SECTIONS=10]

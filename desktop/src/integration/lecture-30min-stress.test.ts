@@ -6,20 +6,20 @@
  *    불가능하진 않아야"
  *
  * finalizeLecture must chunk a long transcript via the PRODUCTION default
- * 8000-token budget (NOT a test-only override) and merge all chunks into
+ * 3000-token budget (NOT a test-only override) and merge all chunks into
  * a valid LectureNote. A 30-min recording should just take longer, not
  * structurally break.
  *
  * Three mocked logic tests (runs in CI on every push):
  *   (a) chunkTranscript splits the 45-min synth into exactly
- *       EXPECTED_CHUNKS_AT_DEFAULT=2 at the production 8000-token budget.
+ *       EXPECTED_CHUNKS_AT_DEFAULT=4 at the production 3000-token budget.
  *       Pinned literal, NOT recomputed from chunkTranscript itself
  *       (would be circular).
  *   (b) finalizeLecture e2e via mock sidecar: one distinct heading per
- *       chunk → assert sections.length === 2, EXACT-SET equality of
+ *       chunk → assert sections.length === 4, EXACT-SET equality of
  *       headings (catches "later chunks silently dropped" subset case,
  *       not just total collapse), sections sorted by ts, schema valid,
- *       telemetry.chunkCount = 2, seed-per-chunk = 5000+i (no spurious
+ *       telemetry.chunkCount = 4, seed-per-chunk = 5000+i (no spurious
  *       outer retry on healthy responses).
  *   (c) bad-middle-chunk: healthy first chunk + malformed second →
  *       assert CHUNK_FAILED:1 throw. Proves the orchestrator does NOT
@@ -47,7 +47,7 @@ import {
 } from './lecture-30min-stress.helpers';
 
 describe('finalizeLecture 30-min stress (mocked)', () => {
-  it('(a) chunkTranscript splits the synth into exactly EXPECTED_CHUNKS at default 8000-token budget', () => {
+  it('(a) chunkTranscript splits the synth into exactly EXPECTED_CHUNKS at default 3000-token budget', () => {
     // The PRODUCTION default — NOT a test-only override. Catches BOTH a
     // chunker regression AND a synth-density drift. Pin to literal so the
     // e2e tests below can reuse without circular reasoning.
