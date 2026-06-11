@@ -333,6 +333,76 @@ describe('sanitizeEscapeLiteralsInStrings (helper)', () => {
   });
 });
 
+describe('LaTeX preservation — 2026-06-11 production false positive', () => {
+  // Founder's 13-min JA finance lecture: the model legitimately wrote ROE as
+  // LaTeX in a formula slot (formula promptHint says "LaTeX-style fine"), and
+  // the all-backslash nuke rendered it as `frac{text{利益}}{text{資本}}`
+  // (main.log `[finalize:lecture] sanitized=2`, 2026-06-11 11:04:06).
+  const ROE_LATEX = 'ROE = \\frac{\\text{利益}}{\\text{資本}}';
+
+  it('sanitize preserves the exact production LaTeX expression unchanged', () => {
+    const input = {
+      sections: [{ extras: [{ type: 'formula', expression: ROE_LATEX }] }],
+    };
+    const r = sanitizeEscapeLiteralsInStrings(input);
+    expect(r.value).toEqual(input);
+    expect(r.sanitizedSlots).toEqual([]);
+  });
+
+  it('final invariant does NOT flag allowlisted LaTeX (a hit would burn every retry on legit output)', () => {
+    expect(findEscapeLiteralInStrings({ expression: ROE_LATEX })).toBeNull();
+  });
+
+  it('preserves common math commands beyond the production pair', () => {
+    const s = '\\sqrt{2} \\times \\pi \\cdot \\alpha \\leq \\sum x_i';
+    const r = sanitizeEscapeLiteralsInStrings({ expression: s });
+    expect(r.value).toEqual({ expression: s });
+    expect(r.sanitizedSlots).toEqual([]);
+  });
+
+  it('still nukes mode-collapse junk in the SAME string while keeping LaTeX', () => {
+    const r = sanitizeEscapeLiteralsInStrings({
+      expression: "\\'\n\\u4eca\\u306eROE = \\frac{\\text{利益}}{\\text{資本}}",
+    });
+    expect(r.value).toEqual({
+      expression: '今のROE = \\frac{\\text{利益}}{\\text{資本}}',
+    });
+    expect(r.sanitizedSlots).toEqual(['$.expression']);
+  });
+
+  it('non-allowlisted backslash junk is still flagged by the final invariant', () => {
+    // `\hit` is not a LaTeX command — the union detector must keep firing.
+    const r = findEscapeLiteralInStrings({ body: 'before \\hit after' });
+    expect(r).not.toBeNull();
+    expect(r!.path).toBe('$.body');
+  });
+
+  it('end-to-end: callWithGrammar passes LaTeX through untouched on attempt 1', async () => {
+    // Raw model text is properly JSON-escaped LaTeX (`\\frac` in the wire
+    // bytes) — JSON.parse yields runtime `\frac…`, which must survive.
+    const generator: LlmGenerator = vi.fn(async ({ seed }) => ({
+      text: '{"name":"ROE = \\\\frac{\\\\text{利益}}{\\\\text{資本}}","n":1}',
+      seed,
+    }));
+    const out = await callWithGrammar({
+      prompt: 'p',
+      schema: SimpleSchema,
+      grammar: 'g',
+      baseSeed: 5000,
+      temperature: 0.4,
+      maxAttempts: 3,
+      maxTokens: 1024,
+      generator,
+    });
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      expect(out.attemptsUsed).toBe(1);
+      expect(out.attempts[0]!.sanitizedSlots).toBeUndefined();
+      expect(out.value).toEqual({ name: ROE_LATEX, n: 1 });
+    }
+  });
+});
+
 describe('callWithGrammar — sanitize recovers in same attempt (no retry)', () => {
   it('sanitizes the founder shape on attempt 1, records sanitizedSlots, ok=true', async () => {
     const generator: LlmGenerator = vi.fn(async ({ seed }) => ({

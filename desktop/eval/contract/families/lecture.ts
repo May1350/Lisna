@@ -78,10 +78,54 @@ const slotsEmergeWhenExpected: ContractRule = {
   },
 };
 
+// Fingerprint of the 2026-06-11 sanitizer false positive: a brace-taking
+// LaTeX command that lost its backslash (`frac{text{利益}}…` shown to the
+// founder). These command names immediately followed by `{` never occur in
+// healthy JA/EN prose, so a hit means sanitizeEscapeLiteralsInStrings (or a
+// future stage) stripped legitimate LaTeX again.
+const STRIPPED_LATEX_RE =
+  /(?<!\\)\b(?:frac|dfrac|tfrac|text|textbf|textit|sqrt|mathrm|mathbf|mathit|mathbb|mathcal|operatorname|overline|underline|hat|bar|vec|tilde|begin|end)\{/;
+
+function collectStrippedLatexHits(value: unknown, path: string, hits: string[]): void {
+  if (typeof value === 'string') {
+    if (STRIPPED_LATEX_RE.test(value)) hits.push(`${path}: ${value.slice(0, 60)}`);
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((v, i) => collectStrippedLatexHits(v, `${path}[${i}]`, hits));
+    return;
+  }
+  if (value !== null && typeof value === 'object') {
+    for (const [k, v] of Object.entries(value)) {
+      collectStrippedLatexHits(v, `${path}.${k}`, hits);
+    }
+  }
+}
+
+const noStrippedLatexResidue: ContractRule = {
+  id: 'lecture-no-stripped-latex-residue',
+  severity: 'warning',
+  description:
+    'No string slot may contain a LaTeX command stripped of its backslash — the sanitizer-regression fingerprint.',
+  run: ({ note }) => {
+    const hits: string[] = [];
+    collectStrippedLatexHits(note, '$', hits);
+    return {
+      pass: hits.length === 0,
+      message:
+        hits.length === 0
+          ? 'no stripped-LaTeX residue'
+          : `stripped-LaTeX residue in ${hits.length} slot(s): ${hits.join('; ')}`,
+      detail: { hits },
+    };
+  },
+};
+
 export const LECTURE_RULES: ContractRule[] = [
   sectionsMin3,
   sectionsHaveKeyTerms,
   fromTranscriptRatio,
   slotsEmergeWhenExpected,
   parrotingRule,
+  noStrippedLatexResidue,
 ];

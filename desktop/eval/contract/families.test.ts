@@ -76,6 +76,49 @@ describe('LECTURE_RULES', () => {
     const r = LECTURE_RULES.find(x => x.id === 'lecture-from-transcript-ratio')!.run(baseInput(note));
     expect(r.pass).toBe(false);
   });
+
+  it('warns on stripped-LaTeX residue (sanitizer false-positive fingerprint, 2026-06-11)', () => {
+    // What the founder saw when sanitizeEscapeLiteralsInStrings nuked the
+    // backslashes off legit LaTeX: `frac{text{…}}` with no backslash.
+    const note = {
+      ...lectureNoteValid,
+      sections: [
+        {
+          ...lectureNoteValid.sections[0],
+          extras: [{
+            type: 'formula', ts: 0, from: 'transcript',
+            expression: 'ROE = frac{text{利益}}{text{資本}}',
+          }],
+        },
+        ...lectureNoteValid.sections.slice(1),
+      ],
+    };
+    const rule = LECTURE_RULES.find(x => x.id === 'lecture-no-stripped-latex-residue');
+    expect(rule).toBeDefined();
+    const r = rule!.run(baseInput(note));
+    expect(r.pass).toBe(false);
+    expect(r.message).toContain('expression');
+  });
+
+  it('does NOT flag intact LaTeX or plain prose', () => {
+    const note = {
+      ...lectureNoteValid,
+      sections: [
+        {
+          ...lectureNoteValid.sections[0],
+          extras: [{
+            type: 'formula', ts: 0, from: 'transcript',
+            expression: 'ROE = \\frac{\\text{利益}}{\\text{資本}}',
+          }],
+        },
+        ...lectureNoteValid.sections.slice(1),
+      ],
+    };
+    const rule = LECTURE_RULES.find(x => x.id === 'lecture-no-stripped-latex-residue');
+    expect(rule).toBeDefined();
+    const r = rule!.run(baseInput(note));
+    expect(r.pass).toBe(true);
+  });
 });
 
 describe('MEETING_RULES', () => {

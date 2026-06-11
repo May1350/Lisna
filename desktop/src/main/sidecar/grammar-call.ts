@@ -66,14 +66,60 @@ export interface GrammarCallOpts<T> {
 }
 
 /**
+ * LaTeX commands that legitimately carry a backslash in note string slots.
+ * The Lecture formula slot's promptHint explicitly invites LaTeX
+ * ("LaTeX-style fine" — `shared/families/lecture/slots/formula.ts`), so the
+ * legitimate-content boundary is NOT "no backslashes" — it's "no backslashes
+ * except LaTeX commands". First production firing of the sanitizer
+ * (2026-06-11, founder 13-min JA finance lecture) was a false positive:
+ * `\frac{\text{利益}}{\text{資本}}` was stripped to `frac{text{利益}}…`.
+ *
+ * Allowlist (not a generic `\[a-z]+` pattern) so mode-collapse junk that
+ * happens to look like a word escape (`\n…`, `\u…`, `\hit`) is still nuked.
+ */
+const LATEX_COMMANDS = [
+  // structure / text
+  'frac', 'dfrac', 'tfrac', 'text', 'textbf', 'textit', 'mathrm', 'mathbf',
+  'mathit', 'mathcal', 'mathbb', 'operatorname', 'left', 'right', 'begin',
+  'end', 'overline', 'underline', 'hat', 'bar', 'vec', 'tilde', 'dot', 'ddot',
+  // operators / functions
+  'times', 'cdot', 'div', 'pm', 'mp', 'sqrt', 'sum', 'prod', 'int', 'lim',
+  'log', 'ln', 'exp', 'sin', 'cos', 'tan', 'max', 'min', 'infty', 'partial',
+  'nabla',
+  // relations
+  'le', 'leq', 'ge', 'geq', 'neq', 'approx', 'equiv', 'sim', 'propto', 'in',
+  'notin', 'subset', 'supset', 'cup', 'cap', 'forall', 'exists',
+  // arrows / dots
+  'to', 'rightarrow', 'leftarrow', 'Rightarrow', 'Leftarrow',
+  'leftrightarrow', 'mapsto', 'dots', 'cdots', 'ldots', 'vdots',
+  // greek
+  'alpha', 'beta', 'gamma', 'delta', 'epsilon', 'varepsilon', 'zeta', 'eta',
+  'theta', 'iota', 'kappa', 'lambda', 'mu', 'nu', 'xi', 'pi', 'rho', 'sigma',
+  'tau', 'upsilon', 'phi', 'varphi', 'chi', 'psi', 'omega', 'Gamma', 'Delta',
+  'Theta', 'Lambda', 'Xi', 'Pi', 'Sigma', 'Phi', 'Psi', 'Omega',
+];
+
+// `(?![a-zA-Z])` so `\textbf` can't half-match as `\text` + junk `bf` —
+// regex alternation backtracks into the longer alternative, so list order
+// is not load-bearing.
+const LATEX_COMMAND_PATTERN = `\\\\(?:${LATEX_COMMANDS.join('|')})(?![a-zA-Z])`;
+const LATEX_MASK_RE = new RegExp(LATEX_COMMAND_PATTERN, 'g');
+// Single pass: keep an allowlisted `\cmd` whole, drop any other backslash.
+const KEEP_LATEX_OR_STRIP_RE = new RegExp(
+  `(${LATEX_COMMAND_PATTERN})|\\\\`,
+  'g',
+);
+
+/**
  * Sanitize one JS string: shape-AGNOSTIC mode-collapse recovery.
  *
  * Three passes (in order):
  *   1. Decode any `\uXXXX` literal sequences via String.fromCharCode (covers
  *      the founder-reported shape where `今` ASCII renders as 6 chars).
- *   2. Nuke any remaining backslashes (covers this run's `\\'<NL>...` and
- *      future variants — the reviewer's "enumerate the legitimate-content
- *      boundary, not the observed shapes" guidance).
+ *   2. Nuke any remaining backslashes EXCEPT allowlisted LaTeX commands
+ *      (covers this run's `\\'<NL>...` and future variants — the reviewer's
+ *      "enumerate the legitimate-content boundary, not the observed shapes"
+ *      guidance; since 2026-06-11 the boundary includes LATEX_COMMANDS).
  *   3. Trim a leading/trailing run of ASCII quote / whitespace / control
  *      noise that typically wraps a recovered term in mode-collapse output.
  *      Full-width JA punctuation (e.g. `。「」`) is preserved.
@@ -85,7 +131,7 @@ function sanitizeStringValue(s: string): string {
   let out = s.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex: string) =>
     String.fromCharCode(parseInt(hex, 16)),
   );
-  out = out.replace(/\\/g, '');
+  out = out.replace(KEEP_LATEX_OR_STRIP_RE, (_m, latex?: string) => latex ?? '');
   out = out.replace(/^['"\s\n\r\t]+/, '').replace(/['"\s\n\r\t]+$/, '');
   return out;
 }
@@ -99,9 +145,10 @@ function sanitizeStringValue(s: string): string {
  * Caller runs this BEFORE the `findEscapeLiteralInStrings` final-invariant
  * check, so the detector only fires when sanitize couldn't recover.
  *
- * Heuristic assumes no production family legitimately needs backslashes in
- * string content. If a future (Code-)family does, route generation through
- * a separate path that skips this stage.
+ * Heuristic assumes the only legitimate backslashes in production string
+ * content are LaTeX commands (LATEX_COMMANDS). If a future (Code-)family
+ * needs arbitrary backslashes, route generation through a separate path
+ * that skips this stage.
  */
 export function sanitizeEscapeLiteralsInStrings<T>(
   value: T,
@@ -133,20 +180,24 @@ function walk(value: unknown, path: string, slots: string[]): unknown {
 
 /**
  * Walk a JSON-parsed value; return the first string-typed leaf containing a
- * backslash, along with its JSON path. Healthy JA notes do not contain
- * backslashes in any string slot — a backslash in the DECODED value is the
- * fingerprint of grammar-mode-collapsed output where the model emitted
- * source-code-style escape sequences (`\\u…`, `\\'`, `\\n`) as literal text.
+ * backslash OUTSIDE an allowlisted LaTeX command, along with its JSON path.
+ * Healthy JA notes contain backslashes only as LaTeX (see LATEX_COMMANDS) —
+ * any other backslash in the DECODED value is the fingerprint of
+ * grammar-mode-collapsed output where the model emitted source-code-style
+ * escape sequences (`\\u…`, `\\'`, `\\n`) as literal text.
  *
  * Used as the FINAL INVARIANT after `sanitizeEscapeLiteralsInStrings` — a
  * positive hit means sanitize couldn't recover the slot, so we burn the
- * attempt and trigger the existing fresh-seed retry contract.
+ * attempt and trigger the existing fresh-seed retry contract. MUST share
+ * LATEX_COMMANDS with sanitize: anything sanitize preserves but this flags
+ * would burn every retry on legitimate output.
  *
  * Background: founder smoke 2026-06-09; see memory
- * `v2_track2_escape_literal_phase1_2026-06-09`.
+ * `v2_track2_escape_literal_phase1_2026-06-09`. LaTeX exemption added after
+ * the 2026-06-11 production false positive.
  *
  * Caveat (future-proofing): the heuristic assumes no production family
- * legitimately needs backslashes in string content. If a future
+ * legitimately needs non-LaTeX backslashes in string content. If a future
  * (Code-)family does, gate this at the family-aware `runPostDecodePipeline`
  * layer instead.
  */
@@ -155,7 +206,7 @@ export function findEscapeLiteralInStrings(
   path = '$',
 ): { path: string; sample: string } | null {
   if (typeof value === 'string') {
-    if (value.includes('\\')) {
+    if (value.replace(LATEX_MASK_RE, '').includes('\\')) {
       return { path, sample: value.slice(0, 40) };
     }
     return null;

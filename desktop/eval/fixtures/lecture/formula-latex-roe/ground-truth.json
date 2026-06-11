@@ -1,0 +1,10 @@
+{
+  "fixtureId": "formula-latex-roe",
+  "expectedKeyTerms": ["ROE", "株主資本利益率", "デュポン分解", "財務レバレッジ"],
+  "expectedFormulas": [
+    "ROE = \\frac{\\text{利益}}{\\text{資本}}",
+    "ROE = \\frac{\\text{当期純利益}}{\\text{自己資本}}",
+    "ROE = 利益 ÷ 資本",
+    "ROE = 売上高純利益率 × 総資産回転率 × 財務レバレッジ"
+  ]
+}
