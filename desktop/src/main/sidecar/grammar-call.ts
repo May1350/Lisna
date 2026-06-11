@@ -12,6 +12,11 @@ import { TIMEOUTS } from './timeouts';
  */
 export type LlmGenerator = (opts: {
   prompt: string;
+  /** Optional system turn. When set, the sidecar emits a true `system` role
+   *  message (chat-template-applied by the GGUF) instead of the caller
+   *  pre-concatenating system+user into one user turn — the single-user-turn
+   *  shape drove the 2026-06-12 fabrication incident. */
+  system?: string;
   grammar: string;
   seed: number;
   temperature: number;
@@ -56,6 +61,8 @@ export type GrammarCallResult<T> = GrammarCallSuccess<T> | GrammarCallFailure;
 
 export interface GrammarCallOpts<T> {
   prompt: string;
+  /** Optional system turn — forwarded to the generator (see LlmGenerator). */
+  system?: string;
   schema: z.ZodType<T>;
   grammar: string;
   baseSeed: number;
@@ -364,6 +371,7 @@ export async function callWithGrammar<T>(
     try {
       const r = await opts.generator({
         prompt: opts.prompt,
+        system: opts.system,
         grammar: opts.grammar,
         seed,
         temperature: opts.temperature,
@@ -422,6 +430,7 @@ export async function callWithGrammar<T>(
 export interface GrammarCapableSidecar {
   generateWithGrammar(req: {
     prompt: string;
+    system?: string;
     grammar: string;
     seed: number;
     temperature: number;
@@ -435,8 +444,8 @@ export interface GrammarCapableSidecar {
  * to the real client.
  */
 export function makeSidecarGenerator(client: GrammarCapableSidecar): LlmGenerator {
-  return async ({ prompt, grammar, seed, temperature, maxTokens }) =>
-    client.generateWithGrammar({ prompt, grammar, seed, temperature, maxTokens });
+  return async ({ prompt, system, grammar, seed, temperature, maxTokens }) =>
+    client.generateWithGrammar({ prompt, system, grammar, seed, temperature, maxTokens });
 }
 
 /**
@@ -448,13 +457,15 @@ export function makeSidecarGenerator(client: GrammarCapableSidecar): LlmGenerato
  */
 export function makeGrammarSidecar(client: SidecarClient): GrammarCapableSidecar {
   return {
-    async generateWithGrammar({ prompt, grammar, seed, temperature, maxTokens }) {
+    async generateWithGrammar({ prompt, system, grammar, seed, temperature, maxTokens }) {
       let text = '';
       let stats: { tokensOut: number; genMs: number } | undefined;
       for await (const tok of client.sendStream(
         {
           type: 'generate',
-          messages: [{ role: 'user', content: prompt }],
+          messages: system
+            ? [{ role: 'system', content: system }, { role: 'user', content: prompt }]
+            : [{ role: 'user', content: prompt }],
           grammar,
           seed,
           temperature,

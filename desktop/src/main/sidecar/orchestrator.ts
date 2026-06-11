@@ -124,7 +124,10 @@ interface RunChunkOpts {
   fam: FamilyCoreDefinition<NoteBase>;
   chunkIndex: number;
   totalChunks: number;
-  combinedPrompt: string;
+  /** System turn — sent as a true `system` role message (role split, 2026-06-12). */
+  systemPrompt: string;
+  /** User turn — chunk header + rendered transcript + instruction tail. */
+  userPrompt: string;
   grammar: string;
   /**
    * Family-specific base seed (lecture 5000+i, meeting 6000+i, interview
@@ -196,7 +199,8 @@ async function runChunkWithGrammar(opts: RunChunkOpts): Promise<RunChunkResult> 
     for (let outerAttempt = 0; outerAttempt < POST_DECODE_OUTER_ATTEMPTS; outerAttempt++) {
       outerAttemptsUsed = outerAttempt + 1;
       const result = await callWithGrammar<unknown>({
-        prompt: opts.combinedPrompt,
+        prompt: opts.userPrompt,
+        system: opts.systemPrompt,
         schema: z.unknown(),
         grammar: opts.grammar,
         baseSeed: opts.baseSeed + outerAttempt * POST_DECODE_SEED_OFFSET,
@@ -566,14 +570,15 @@ export async function finalizeLecture(
       totalChunks: chunks.length,
       transcript: renderTranscriptChunk(chunks[i]!),
     });
-    const combinedPrompt = `${renderSystemTemplate(prompt.systemTemplate, args.language ?? 'ja')}\n\n${userPrompt}`;
+    const systemPrompt = renderSystemTemplate(prompt.systemTemplate, args.language ?? 'ja');
 
     const chunkResult = await runChunkWithGrammar({
       family: 'lecture',
       fam,
       chunkIndex: i,
       totalChunks: chunks.length,
-      combinedPrompt,
+      systemPrompt,
+      userPrompt,
       grammar,
       baseSeed: 5000 + i,
       tuning,
@@ -733,7 +738,7 @@ export async function finalizeMeeting(
       totalChunks: chunks.length,
       transcript: renderTranscriptWithSpeakers(chunks[i]!, activeTranscript.speakers),
     });
-    const combinedPrompt = `${renderSystemTemplate(prompt.systemTemplate, args.language ?? 'ja')}\n\n${userPrompt}`;
+    const systemPrompt = renderSystemTemplate(prompt.systemTemplate, args.language ?? 'ja');
 
     // baseSeed 6000 (lecture 5000) keeps seeds distinct across families; with
     // POST_DECODE_SEED_OFFSET=10000, lecture outer 1 (15000+i) and meeting
@@ -743,7 +748,8 @@ export async function finalizeMeeting(
       fam,
       chunkIndex: i,
       totalChunks: chunks.length,
-      combinedPrompt,
+      systemPrompt,
+      userPrompt,
       grammar,
       baseSeed: 6000 + i,
       tuning,
@@ -906,7 +912,7 @@ export async function finalizeInterview(
       totalChunks: chunks.length,
       transcript: renderTranscriptWithSpeakers(chunks[i]!, activeTranscript.speakers),
     });
-    const combinedPrompt = `${renderSystemTemplate(prompt.systemTemplate, args.language ?? 'ja')}\n\n${userPrompt}`;
+    const systemPrompt = renderSystemTemplate(prompt.systemTemplate, args.language ?? 'ja');
 
     // baseSeed 7000 (lecture 5000, meeting 6000) keeps seeds distinct across families.
     const chunkResult = await runChunkWithGrammar({
@@ -914,7 +920,8 @@ export async function finalizeInterview(
       fam,
       chunkIndex: i,
       totalChunks: chunks.length,
-      combinedPrompt,
+      systemPrompt,
+      userPrompt,
       grammar,
       baseSeed: 7000 + i,
       tuning,
@@ -1099,7 +1106,7 @@ export async function finalizeBrainstorm(
       totalChunks: chunks.length,
       transcript: renderTranscriptWithSpeakers(chunks[i]!, args.transcript.speakers),
     });
-    const combinedPrompt = `${renderSystemTemplate(prompt.systemTemplate, args.language ?? 'ja')}\n\n${userPrompt}`;
+    const systemPrompt = renderSystemTemplate(prompt.systemTemplate, args.language ?? 'ja');
 
     // baseSeed 8000 (lecture 5000, meeting 6000, interview 7000) keeps seeds distinct.
     const chunkResult = await runChunkWithGrammar({
@@ -1107,7 +1114,8 @@ export async function finalizeBrainstorm(
       fam,
       chunkIndex: i,
       totalChunks: chunks.length,
-      combinedPrompt,
+      systemPrompt,
+      userPrompt,
       grammar,
       baseSeed: 8000 + i,
       tuning,
