@@ -275,7 +275,17 @@ function renderView(view: View, setView: (next: View | ((p: View) => View)) => v
           message={view.message}
           segments={view.segments}
           permanent={view.permanent}
-          onRetry={() => setView({ kind: 'recording', segments: [] })}
+          // Re-make the note from the PRESERVED transcript: route to the family
+          // picker so the user can switch family on retry (e.g. interview →
+          // lecture). Main keeps `current` alive on finalize failure
+          // (ipc.ts:354), so FamilyPicker → finalize re-runs against the same
+          // accumulated transcript — no re-recording, no lost captions.
+          onRetry={() => setView({ kind: 'familyPicking', segments: view.segments })}
+          // Abandon this recording: drop main-side session, start fresh.
+          onDiscard={() => {
+            void window.lisna.discardSession();
+            setView({ kind: 'recording', segments: [] });
+          }}
         />
       );
   }
