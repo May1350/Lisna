@@ -4,7 +4,7 @@ import { validateEvalBaselines } from './_validator';
 describe('validateEvalBaselines', () => {
   it('accepts registered IDs that exist', async () => {
     const result = await validateEvalBaselines({
-      lecture: ['procedural-physics-em', 'narrative-ukraine-russia'],
+      lecture: ['procedural-physics-em', 'narrative-ukraine-russia', 'formula-latex-roe'],
       meeting: ['sprint-planning-4spk'],
       interview: [], brainstorm: [],
     }, 'eval/fixtures');

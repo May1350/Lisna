@@ -1,0 +1,11 @@
+{
+  "fixtureId": "formula-latex-roe",
+  "family": "lecture",
+  "language": "ja",
+  "durationSec": 80,
+  "bucketSeconds": 10,
+  "scenarioTags": ["formula", "latex", "sanitizer-regression"],
+  "expectedSlots": ["formula"],
+  "sourceUrl": null,
+  "notes": "Regression fixture for the 2026-06-11 sanitizer LaTeX false positive: founder's 13-min JA finance lecture induced a formula extra rendered as LaTeX, and sanitizeEscapeLiteralsInStrings stripped the backslashes (user saw frac{text{...}}). Finance lecture defining ROE as a fraction; the formula promptHint says LaTeX-style is fine, so the rendered expression must keep its backslashes. Guarded by contract rule lecture-no-stripped-latex-residue."
+}
