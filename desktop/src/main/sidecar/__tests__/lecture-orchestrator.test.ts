@@ -511,3 +511,86 @@ describe('finalizeLecture', () => {
     });
   });
 });
+
+// ─── Language guard at the finalize level (fabrication circuit-breaker) ───────
+//
+// Production incident 2026-06-11: the 3B emitted memorized ENGLISH boilerplate
+// for a Japanese recording — schema-valid, so it shipped. finalize* threads
+// `expectedLanguage` (args.language, default 'ja') into callWithGrammar, and
+// runChunkWithGrammar's outer-retry treats NOTE_LANGUAGE_MISMATCH like
+// ESCAPE_LITERAL_AT_ (fresh +10000 seed block before failing the chunk).
+describe('finalizeLecture — NOTE_LANGUAGE_MISMATCH guard', () => {
+  /** Schema-valid lecture note whose content is English fabrication (>100
+   *  checked chars) — the ONLY tripwire is the language guard. */
+  function makeEnglishLectureNoteJson(): string {
+    return JSON.stringify({
+      schemaVersion: 1,
+      family: 'lecture',
+      title: 'Introduction to Modern Finance',
+      generatedAt: new Date().toISOString(),
+      generatedBy: { model: 'llama-3.2-3b-q4-km', promptVersion: 1 },
+      language: 'ja',
+      durationSec: 1800,
+      sections: [
+        {
+          heading: 'Current Trends in the Finance Industry',
+          ts: 0,
+          summary:
+            'This section discusses the increasing use of digital technologies and the growing importance of sustainability in the modern finance industry.',
+          key_terms: [{ term: 'sustainability', definition: 'a generic invented definition', ts: 0 }],
+          examples: [],
+          points: [{ text: 'There will be a growing focus on digitalization.', ts: 0, important: true }],
+        },
+      ],
+    });
+  }
+
+  it('fabricated-English chunks burn inner+outer retries, then a JA response succeeds', async () => {
+    // Inner ladder (maxAttempts=3) rejects 3 English attempts on outer 0 →
+    // NOTE_LANGUAGE_MISMATCH finalReason → outer predicate continues → outer 1
+    // serves JA → success.
+    const en = makeEnglishLectureNoteJson();
+    const sidecar = mockSidecar({
+      responses: [en, en, en, makeLectureNoteJson('実際の講義セクション', 0)],
+    });
+    const events: FinalizeTelemetryEvent[] = [];
+
+    const result = await finalizeLecture({
+      sessionId: 'lang-guard-recovers',
+      transcript: makeTranscript(3),
+      sidecar,
+      modelProfile,
+      onTelemetry: (e) => events.push(e),
+    });
+
+    expect(result.note.sections[0]!.heading).toBe('実際の講義セクション');
+    const attempts = events.filter((e) => e.kind === 'attempt') as Array<
+      Extract<FinalizeTelemetryEvent, { kind: 'attempt' }>
+    >;
+    expect(attempts).toHaveLength(4);
+    for (const a of attempts.slice(0, 3)) {
+      expect(a.ok).toBe(false);
+      expect(a.reason).toMatch(/^NOTE_LANGUAGE_MISMATCH/);
+    }
+    expect(attempts[3]!.ok).toBe(true);
+    const chunkDone = events.filter((e) => e.kind === 'chunk-done') as Array<
+      Extract<FinalizeTelemetryEvent, { kind: 'chunk-done' }>
+    >;
+    expect(chunkDone[0]!.outerAttempts).toBe(2);
+  });
+
+  it('all-English exhaustion fails LOUD with NOTE_LANGUAGE_MISMATCH in CHUNK_FAILED (never ships fiction)', async () => {
+    // Every attempt (3 inner × POST_DECODE_OUTER_ATTEMPTS=2 outer) must serve
+    // English — the mock falls back to '{}' when responses run out, which
+    // would divert the failure into the POST_DECODE_ZOD path instead.
+    const sidecar = mockSidecar({ responses: Array(6).fill(makeEnglishLectureNoteJson()) });
+    await expect(
+      finalizeLecture({
+        sessionId: 'lang-guard-exhausts',
+        transcript: makeTranscript(3),
+        sidecar,
+        modelProfile,
+      }),
+    ).rejects.toThrow(/^CHUNK_FAILED:0:NOTE_LANGUAGE_MISMATCH/);
+  });
+});
