@@ -30,15 +30,15 @@ type MockOpts = {
 
 function mockSidecar(
   opts: MockOpts = {},
-): GrammarCapableSidecar & { calls: Array<{ prompt: string; grammar: string; seed: number }> } {
+): GrammarCapableSidecar & { calls: Array<{ prompt: string; system?: string; grammar: string; seed: number }> } {
   const responses = opts.responses;
   const failures = opts.failuresPerCall ?? {};
-  const calls: Array<{ prompt: string; grammar: string; seed: number }> = [];
+  const calls: Array<{ prompt: string; system?: string; grammar: string; seed: number }> = [];
   let successCallIdx = 0;
   return {
     calls,
     async generateWithGrammar(req) {
-      calls.push({ prompt: req.prompt, grammar: req.grammar, seed: req.seed });
+      calls.push({ prompt: req.prompt, system: req.system, grammar: req.grammar, seed: req.seed });
       if (failures[successCallIdx] && failures[successCallIdx]! > 0) {
         failures[successCallIdx]!--;
         throw new Error('mock-fail');
@@ -592,5 +592,33 @@ describe('finalizeLecture — NOTE_LANGUAGE_MISMATCH guard', () => {
         modelProfile,
       }),
     ).rejects.toThrow(/^CHUNK_FAILED:0:NOTE_LANGUAGE_MISMATCH/);
+  });
+});
+
+// ─── System/user role split at the finalize level (2026-06-12) ────────────────
+//
+// The grammar path previously concatenated system+user into ONE user turn;
+// on the real incident transcript that shape produced English fabrication
+// while a true system turn produced grounded JA (groundingJa 0.95, same v1
+// prompt, llama-completion --jinja -sys). finalize* must pass the rendered
+// system template as `system` and ONLY the chunk user template as `prompt`.
+describe('finalizeLecture — system/user role split', () => {
+  it('sends the system template as a separate system turn, transcript in the user turn', async () => {
+    const sidecar = mockSidecar({ responses: [makeLectureNoteJson('章', 0)] });
+    await finalizeLecture({
+      sessionId: 'role-split',
+      transcript: makeTranscript(3),
+      sidecar,
+      modelProfile,
+    });
+    const call = sidecar.calls[0]!;
+    expect(call.system).toBeDefined();
+    // System turn = the lecture system template (identifying marker), and it
+    // must NOT leak into the user prompt anymore.
+    expect(call.system!).toContain('LectureNote');
+    expect(call.prompt).not.toContain(call.system!.slice(0, 40));
+    // User turn = chunk header + rendered transcript.
+    expect(call.prompt).toMatch(/Chunk 1 of 1/);
+    expect(call.prompt).toContain('Transcript:');
   });
 });

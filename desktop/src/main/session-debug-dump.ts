@@ -118,8 +118,9 @@ class SessionDumpImpl implements SessionDump {
           seed: req.seed,
           temperature: req.temperature,
           maxTokens: req.maxTokens,
-          promptChars: req.prompt.length,
+          promptChars: (req.system?.length ?? 0) + req.prompt.length,
           grammarFile,
+          system: req.system,
           prompt: req.prompt,
         };
         const t0 = Date.now();

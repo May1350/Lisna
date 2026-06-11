@@ -715,3 +715,77 @@ describe('callWithGrammar — language guard (NOTE_LANGUAGE_MISMATCH)', () => {
     expect(result.ok).toBe(true);
   });
 });
+
+// ─── System/user role split (fabrication root-cause #2, 2026-06-12) ───────────
+//
+// The grammar finalize path collapsed system+user into ONE user turn
+// (`combinedPrompt`), unlike the legacy plain-text path (ja-note-v1) which
+// splits roles. On the real incident transcript, the SAME v1 prompt produces
+// grounded JA via proper system+user roles (llama-completion --jinja -sys,
+// groundingJa 0.95) but English fabrication via the single-user-turn path.
+// makeGrammarSidecar must emit a true system turn when `system` is provided.
+describe('makeGrammarSidecar — system/user role split (against /bin/cat)', () => {
+  it('sends [{system},{user}] when system is provided', async () => {
+    const proc = spawn('cat', [], { stdio: ['pipe', 'pipe', 'pipe'] });
+    try {
+      const client = new SidecarClient(proc);
+      const sidecar = makeGrammarSidecar(client);
+      let sent: Record<string, unknown> | null = null;
+      client.onRawLine((line) => {
+        let obj: Record<string, unknown>;
+        try { obj = JSON.parse(line) as Record<string, unknown>; } catch { return; }
+        if (obj.type !== 'generate') return;
+        sent = obj;
+        proc.stdin!.write(JSON.stringify({ id: obj.id, type: 'token', token: '{}' }) + '\n');
+        proc.stdin!.write(JSON.stringify({ id: obj.id, type: 'done' }) + '\n');
+      });
+      await sidecar.generateWithGrammar({
+        prompt: 'USER-PART', system: 'SYSTEM-PART', grammar: 'g', seed: 1, temperature: 0.4, maxTokens: 8,
+      });
+      expect(sent).not.toBeNull();
+      expect(sent!.messages).toEqual([
+        { role: 'system', content: 'SYSTEM-PART' },
+        { role: 'user', content: 'USER-PART' },
+      ]);
+    } finally {
+      proc.kill('SIGKILL');
+    }
+  });
+
+  it('omits the system turn when system is not provided (back-compat)', async () => {
+    const proc = spawn('cat', [], { stdio: ['pipe', 'pipe', 'pipe'] });
+    try {
+      const client = new SidecarClient(proc);
+      const sidecar = makeGrammarSidecar(client);
+      let sent: Record<string, unknown> | null = null;
+      client.onRawLine((line) => {
+        let obj: Record<string, unknown>;
+        try { obj = JSON.parse(line) as Record<string, unknown>; } catch { return; }
+        if (obj.type !== 'generate') return;
+        sent = obj;
+        proc.stdin!.write(JSON.stringify({ id: obj.id, type: 'token', token: '{}' }) + '\n');
+        proc.stdin!.write(JSON.stringify({ id: obj.id, type: 'done' }) + '\n');
+      });
+      await sidecar.generateWithGrammar({ prompt: 'U', grammar: 'g', seed: 1, temperature: 0.4, maxTokens: 8 });
+      expect(sent!.messages).toEqual([{ role: 'user', content: 'U' }]);
+    } finally {
+      proc.kill('SIGKILL');
+    }
+  });
+});
+
+describe('callWithGrammar — system passthrough', () => {
+  it('forwards opts.system to the generator on every attempt', async () => {
+    const seen: Array<string | undefined> = [];
+    const generator: LlmGenerator = vi.fn(async ({ seed, system }) => {
+      seen.push(system);
+      return { text: JSON.stringify({ name: 'ok', n: 1 }), seed };
+    });
+    const out = await callWithGrammar({
+      prompt: 'U', system: 'SYS', schema: SimpleSchema, grammar: 'g',
+      baseSeed: 1, temperature: 0.4, maxAttempts: 1, maxTokens: 8, generator,
+    });
+    expect(out.ok).toBe(true);
+    expect(seen).toEqual(['SYS']);
+  });
+});
