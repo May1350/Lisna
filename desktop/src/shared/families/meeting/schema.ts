@@ -23,7 +23,7 @@ export const MeetingNoteSchema = PurposeDrivenNoteSchema.extend({
     .array(
       z.object({
         speakerRef: SpeakerRefSchema,
-        role: z.string().optional(),
+        role: z.string().min(1).optional(),
       }),
     )
     .max(MAX_PARTICIPANTS)
@@ -52,7 +52,7 @@ export const MeetingNoteSchema = PurposeDrivenNoteSchema.extend({
     .array(
       z.object({
         text: z.string().min(1),
-        rationale: z.string().optional(),
+        rationale: z.string().min(1).optional(),
         ts: z.number().nonnegative(),
         made_by: SpeakerRefSchema.optional(),
         from: ProvenanceSchema,

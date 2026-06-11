@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { runPostDecodePipeline } from '../pipeline';
 import { LectureFamilyCore } from '../../families/lecture/core';
 import { InterviewFamilyCore } from '../../families/interview/core';
+import { BrainstormFamilyCore } from '../../families/brainstorm/core';
 import { ProvenanceSchema, NoteBaseSchema } from '../../note-schema';
 import type { FamilyCoreDefinition } from '../../families';
 import type { NoteBase } from '../../note-schema/base';
@@ -346,5 +347,105 @@ describe('Stage 3 — provenance fill on qa_pairs (Interview)', () => {
       qa_pairs: Array<{ from: string }>;
     };
     expect(note.qa_pairs[0]!.from).toBe('inferred');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Stage 2.5 — empty user-visible items dropped (founder P1, 2026-06-10).
+// A mode-collapsed 3B fills "" into text slots; grammar .min(1) blocks the
+// literal "" at decode time, but whitespace-only strings and sanitizer
+// residue still get through. Dropping the item beats failing the chunk:
+// fewer items is graceful degradation, an empty item is a visible defect.
+// ---------------------------------------------------------------------------
+
+function makeInterviewRawWith(over: Record<string, unknown>): string {
+  return JSON.stringify({
+    schemaVersion: 1,
+    family: 'interview',
+    title: 'Test Interview',
+    generatedAt: '2026-05-29T00:00:00.000Z',
+    generatedBy: { model: 'test-model', promptVersion: 1 },
+    language: 'ja',
+    durationSec: 120,
+    purpose: 'test purpose',
+    subject_summary: 'a subject summary',
+    qa_pairs: [],
+    themes: [],
+    quotable_lines: [],
+    key_takeaways: [],
+    ...over,
+  });
+}
+
+describe('Stage 2.5 — drops empty user-visible items before Zod parse', () => {
+  it('drops qa_pairs whose question or answer is empty/whitespace-only', () => {
+    const raw = makeInterviewRawWith({
+      qa_pairs: [
+        { question: 'Q', answer: 'A', ts: 5, asked_by: 0, answered_by: 1 },
+        { question: '', answer: 'answer without question', ts: 6, asked_by: 0, answered_by: 1 },
+        { question: 'question without answer', answer: '   ', ts: 7, asked_by: 0, answered_by: 1 },
+      ],
+    });
+    const note = runPostDecodePipeline(raw, InterviewFamilyCore, TRANSCRIPT_WITH_TS5) as {
+      qa_pairs: Array<{ question: string }>;
+    };
+    expect(note.qa_pairs).toHaveLength(1);
+    expect(note.qa_pairs[0]!.question).toBe('Q');
+  });
+
+  it('drops themes with empty name, quotable_lines with blank text, key_takeaways with empty text', () => {
+    const raw = makeInterviewRawWith({
+      themes: [
+        { name: '', appears_at_ts: [0] },
+        { name: 'T', appears_at_ts: [5] },
+      ],
+      quotable_lines: [{ text: '  ', speakerRef: 0, ts: 5 }],
+      key_takeaways: [{ text: '' }],
+    });
+    const note = runPostDecodePipeline(raw, InterviewFamilyCore, TRANSCRIPT_WITH_TS5) as {
+      themes: Array<{ name: string }>;
+      quotable_lines: unknown[];
+      key_takeaways: unknown[];
+    };
+    expect(note.themes).toHaveLength(1);
+    expect(note.themes[0]!.name).toBe('T');
+    expect(note.quotable_lines).toHaveLength(0);
+    expect(note.key_takeaways).toHaveLength(0);
+  });
+
+  it('drops empty string tags inside qa_pairs[].themes', () => {
+    const raw = makeInterviewRawWith({
+      qa_pairs: [
+        { question: 'Q', answer: 'A', ts: 5, asked_by: 0, answered_by: 1, themes: ['', 'tag', '  '] },
+      ],
+    });
+    const note = runPostDecodePipeline(raw, InterviewFamilyCore, TRANSCRIPT_WITH_TS5) as {
+      qa_pairs: Array<{ themes: string[] }>;
+    };
+    expect(note.qa_pairs[0]!.themes).toEqual(['tag']);
+  });
+
+  it('drops brainstorm ideas with blank text, and clusters left with no ideas', () => {
+    const raw = JSON.stringify({
+      schemaVersion: 1,
+      family: 'brainstorm',
+      title: 'Test Brainstorm',
+      generatedAt: '2026-05-29T00:00:00.000Z',
+      generatedBy: { model: 'test-model', promptVersion: 1 },
+      language: 'ja',
+      durationSec: 120,
+      purpose: 'test purpose',
+      idea_clusters: [
+        { theme: 'valid', ideas: [{ text: 'good idea', ts: 5 }, { text: '', ts: 6 }] },
+        { theme: 'all-empty', ideas: [{ text: ' ', ts: 7 }] },
+      ],
+    });
+    const note = runPostDecodePipeline(raw, BrainstormFamilyCore, TRANSCRIPT_WITH_TS5) as {
+      idea_clusters: Array<{ theme: string; ideas: Array<{ text: string }> }>;
+    };
+    expect(note.idea_clusters).toHaveLength(1);
+    expect(note.idea_clusters[0]!.theme).toBe('valid');
+    expect(note.idea_clusters[0]!.ideas).toHaveLength(1);
+    expect(note.idea_clusters[0]!.ideas[0]!.text).toBe('good idea');
   });
 });

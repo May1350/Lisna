@@ -15,11 +15,11 @@ const MAX_EXTRAS_PER_SECTION = 8;
 export const LectureSectionSchema = z.object({
   heading: z.string().min(1).max(MAX_HEADING_CHARS),
   ts: z.number().nonnegative(),
-  summary: z.string(),
-  takeaway: z.string().optional(),
+  summary: z.string().min(1),
+  takeaway: z.string().min(1).optional(),
   key_terms: z.array(z.object({
     term: z.string().min(1),
-    definition: z.string(),
+    definition: z.string().min(1),
     ts: z.number().nonnegative(),
     from: ProvenanceSchema,
   })).max(MAX_KEY_TERMS_PER_SECTION),
@@ -39,9 +39,9 @@ export const LectureSectionSchema = z.object({
 
 export const LectureNoteSchema = NoteBaseSchema.extend({
   family: z.literal('lecture'),
-  course: z.string().optional(),
-  lecturer: z.string().optional(),
-  tldr: z.string().optional(),
+  course: z.string().min(1).optional(),
+  lecturer: z.string().min(1).optional(),
+  tldr: z.string().min(1).optional(),
   sections: z.array(LectureSectionSchema).max(MAX_SECTIONS),
 }).strict();
 

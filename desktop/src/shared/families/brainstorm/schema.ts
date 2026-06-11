@@ -12,12 +12,12 @@ export const BrainstormNoteSchema = PurposeDrivenNoteSchema.extend({
   family: z.literal('brainstorm'),
   idea_clusters: z.array(
     z.object({
-      theme: z.string().max(120),
+      theme: z.string().min(1).max(120),
       ideas: z
         .array(
           z.object({
             id: postDecodeOnly(z.string().uuid()),
-            text: z.string().max(1000),
+            text: z.string().min(1).max(1000),
             contributed_by: SpeakerRefSchema.optional(),
             ts: z.number().nonnegative(),
             from: ProvenanceSchema,
@@ -30,7 +30,7 @@ export const BrainstormNoteSchema = PurposeDrivenNoteSchema.extend({
   parking_lot: z
     .array(
       z.object({
-        text: z.string().max(800),
+        text: z.string().min(1).max(800),
         ts: z.number().nonnegative(),
         from: ProvenanceSchema,
       }),

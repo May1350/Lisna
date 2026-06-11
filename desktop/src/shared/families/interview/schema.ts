@@ -24,15 +24,18 @@ export const InterviewNoteSchema = PurposeDrivenNoteSchema.extend({
     )
     .max(MAX_PARTICIPANTS)
     .optional(),
+  // User-visible text slots carry .min(1) so the grammar emits
+  // json-string-nonempty — a mode-collapsed model could otherwise legally
+  // fill "" (founder P1, 2026-06-10: empty question/name/text in production).
   qa_pairs: z
     .array(
       z.object({
-        question: z.string().max(1500),
-        answer: z.string().max(3000),
+        question: z.string().min(1).max(1500),
+        answer: z.string().min(1).max(3000),
         ts: z.number().nonnegative(),
         asked_by: SpeakerRefSchema,
         answered_by: SpeakerRefSchema,
-        themes: z.array(z.string().max(80)).max(MAX_THEMES_PER_QA).optional(),
+        themes: z.array(z.string().min(1).max(80)).max(MAX_THEMES_PER_QA).optional(),
         from: ProvenanceSchema,
       }),
     )
@@ -40,8 +43,8 @@ export const InterviewNoteSchema = PurposeDrivenNoteSchema.extend({
   themes: z
     .array(
       z.object({
-        name: z.string().max(120),
-        description: z.string().max(500).optional(),
+        name: z.string().min(1).max(120),
+        description: z.string().min(1).max(500).optional(),
         appears_at_ts: z.array(z.number().nonnegative()).max(MAX_TS_PER_THEME),
       }),
     )
@@ -49,17 +52,17 @@ export const InterviewNoteSchema = PurposeDrivenNoteSchema.extend({
   quotable_lines: z
     .array(
       z.object({
-        text: z.string().max(500),
+        text: z.string().min(1).max(500),
         speakerRef: SpeakerRefSchema,
         ts: z.number().nonnegative(),
-        why_notable: z.string().max(300).optional(),
+        why_notable: z.string().min(1).max(300).optional(),
       }),
     )
     .max(MAX_QUOTABLE_LINES),
   key_takeaways: z
     .array(
       z.object({
-        text: z.string().max(800),
+        text: z.string().min(1).max(800),
         from: ProvenanceSchema,
       }),
     )

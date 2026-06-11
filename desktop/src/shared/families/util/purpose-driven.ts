@@ -22,7 +22,7 @@ export const PurposeDrivenNoteSchema = NoteBaseSchema.extend({
       z.object({
         text: z.string().min(1),
         owner: SpeakerRefSchema.optional(),
-        due: z.string().optional(),
+        due: z.string().min(1).optional(),
         ts: z.number().nonnegative(),
         from: ProvenanceSchema,
       }),

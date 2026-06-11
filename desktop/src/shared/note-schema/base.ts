@@ -47,7 +47,7 @@ export type NoteLanguage = z.infer<typeof LanguageSchema>;
 export const NoteBaseSchema = z.object({
   schemaVersion: z.number().int().positive(),
   family: NoteFamilySchema,
-  title: z.string(),
+  title: z.string().min(1),
   generatedAt: z.string(),                          // ISO datetime
   generatedBy: z.object({
     model: z.string(),

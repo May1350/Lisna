@@ -29,6 +29,49 @@ describe('LectureNoteSchema', () => {
     expect(() => LectureNoteSchema.parse({ family: 'lecture' })).toThrow();
   });
 
+  // Same empty-slot class as the interview founder P1 (2026-06-10). P0a added
+  // .min(1) to heading/term/examples/points but left summary + definition open.
+  it('rejects empty sections[].summary', () => {
+    expect(() => LectureNoteSchema.parse({
+      schemaVersion: 1, family: 'lecture', title: 't',
+      generatedAt: '2026-05-27T12:00:00.000Z',
+      generatedBy: { model: 'm', promptVersion: 1 },
+      language: 'ja', durationSec: 1,
+      sections: [{ heading: 'h', ts: 0, summary: '', key_terms: [], examples: [], points: [] }],
+    })).toThrow();
+  });
+
+  it('rejects empty optional user-visible strings when present (takeaway/tldr/course/lecturer)', () => {
+    const base = {
+      schemaVersion: 1, family: 'lecture', title: 't',
+      generatedAt: '2026-05-27T12:00:00.000Z',
+      generatedBy: { model: 'm', promptVersion: 1 },
+      language: 'ja', durationSec: 1,
+      sections: [{ heading: 'h', ts: 0, summary: 's', key_terms: [], examples: [], points: [] }],
+    };
+    expect(() => LectureNoteSchema.parse({ ...base, tldr: '' })).toThrow();
+    expect(() => LectureNoteSchema.parse({ ...base, course: '' })).toThrow();
+    expect(() => LectureNoteSchema.parse({ ...base, lecturer: '' })).toThrow();
+    expect(() => LectureNoteSchema.parse({
+      ...base,
+      sections: [{ heading: 'h', ts: 0, summary: 's', takeaway: '', key_terms: [], examples: [], points: [] }],
+    })).toThrow();
+  });
+
+  it('rejects empty key_terms[].definition', () => {
+    expect(() => LectureNoteSchema.parse({
+      schemaVersion: 1, family: 'lecture', title: 't',
+      generatedAt: '2026-05-27T12:00:00.000Z',
+      generatedBy: { model: 'm', promptVersion: 1 },
+      language: 'ja', durationSec: 1,
+      sections: [{
+        heading: 'h', ts: 0, summary: 's',
+        key_terms: [{ term: 'x', definition: '', ts: 0, from: 'transcript' }],
+        examples: [], points: [],
+      }],
+    })).toThrow();
+  });
+
   it('rejects wrong family discriminator', () => {
     expect(() => LectureNoteSchema.parse({
       schemaVersion: 1, family: 'meeting', title: 't',
@@ -45,7 +88,7 @@ describe('LectureNoteSchema', () => {
       generatedBy: { model: 'm', promptVersion: 1 },
       language: 'ja', durationSec: 1,
       sections: Array.from({ length: 11 }, (_, i) => ({
-        heading: `s${i}`, ts: i, summary: '',
+        heading: `s${i}`, ts: i, summary: 's',
         key_terms: [], examples: [], points: [],
       })),
     };
@@ -54,9 +97,9 @@ describe('LectureNoteSchema', () => {
 
   it('enforces .max(12) on key_terms per section (Path G)', () => {
     const baseSection = {
-      heading: 'h', ts: 0, summary: '', examples: [], points: [],
+      heading: 'h', ts: 0, summary: 's', examples: [], points: [],
       key_terms: Array.from({ length: 13 }, (_, i) => ({
-        term: `t${i}`, definition: '', ts: i, from: 'transcript',
+        term: `t${i}`, definition: 'd', ts: i, from: 'transcript',
       })),
     };
     expect(() => LectureNoteSchema.parse({
@@ -75,7 +118,7 @@ describe('LectureNoteSchema', () => {
       generatedBy: { model: 'm', promptVersion: 1 },
       language: 'ja', durationSec: 1,
       sections: [{
-        heading: 'h', ts: 0, summary: '',
+        heading: 'h', ts: 0, summary: 's',
         key_terms: [{ term: 'x', definition: 'y', ts: 5 }], // no `from`
         examples: [], points: [],
       }],
@@ -100,7 +143,7 @@ describe('LectureNoteSchema', () => {
       generatedBy: { model: 'm', promptVersion: 1 },
       language: 'ja', durationSec: 1,
       sections: [{
-        heading: 'h', ts: 0, summary: '',
+        heading: 'h', ts: 0, summary: 's',
         key_terms: [], examples: [], points: [],
         extras: [{
           type: 'procedure_steps',
@@ -128,7 +171,7 @@ describe('LectureNoteSchema', () => {
       generatedBy: { model: 'm', promptVersion: 1 },
       language: 'ja', durationSec: 1,
       sections: [{
-        heading: 'h', ts: 0, summary: '',
+        heading: 'h', ts: 0, summary: 's',
         key_terms: [], examples: [], points: [],
         extras: Array.from({ length: 9 }, (_, i) => makeStep(i)),
       }],

@@ -22,7 +22,8 @@ import type { NoteBase } from '@shared/note-schema';
 import { zodToGbnf } from '@shared/note-schema/zod-to-gbnf';
 import { chunkTranscript } from '@shared/note-schema/chunking';
 import { estimateTokens } from '@shared/note-schema/tokens';
-import { runPostDecodePipeline } from '@shared/post-decode/pipeline';
+import { runPostDecodePipeline, dropEmptyUserVisibleItems } from '@shared/post-decode/pipeline';
+import { collapseSpeakerRefsToZero } from '@shared/post-decode/collapse-speaker-refs';
 import { applyGeneratedMeta } from '@shared/note-schema/apply-generated-meta';
 import { deterministicMerge } from '@shared/post-decode/deterministic-merge';
 import { runMergeLLMCall } from './merge-llm';
@@ -757,6 +758,14 @@ export async function finalizeMeeting(
     ];
   }
 
+  // Without diarization every SpeakerRef the model emitted is a hallucination
+  // (founder P1, 2026-06-10) — normalize to the lone speaker 0 and drop the
+  // now-meaningless roster.
+  if (args.diarizationStatus !== 'ok') {
+    collapseSpeakerRefsToZero(merged);
+    delete merged.participants;
+  }
+
   const note = fam.schema.parse(merged) as MeetingNote;
   applyGeneratedMeta(note, {
     generatedAt: generationStartedAt,
@@ -941,6 +950,16 @@ export async function finalizeInterview(
     ];
   }
 
+  // The merge-LLM path re-enters LLM-derived prose AFTER the per-chunk
+  // pipeline ran, so the merged tree needs the same empty-item sweep — and
+  // without diarization every SpeakerRef is a hallucination (founder P1,
+  // 2026-06-10): normalize to 0 and drop the roster.
+  dropEmptyUserVisibleItems(merged, 'interview');
+  if (args.diarizationStatus !== 'ok') {
+    collapseSpeakerRefsToZero(merged);
+    delete merged.participants;
+  }
+
   const note = fam.schema.parse(merged) as InterviewNote;
   applyGeneratedMeta(note, {
     generatedAt: generationStartedAt,
@@ -1109,6 +1128,10 @@ export async function finalizeBrainstorm(
       ...warnings,
     ];
   }
+
+  // Merge-LLM output re-enters after the per-chunk pipeline — sweep empties
+  // (and clusters left without ideas) before the final parse.
+  dropEmptyUserVisibleItems(merged, 'brainstorm');
 
   const note = fam.schema.parse(merged) as BrainstormNote;
   applyGeneratedMeta(note, {
