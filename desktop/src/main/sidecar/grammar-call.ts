@@ -120,9 +120,16 @@ const KEEP_LATEX_OR_STRIP_RE = new RegExp(
  *      (covers this run's `\\'<NL>...` and future variants — the reviewer's
  *      "enumerate the legitimate-content boundary, not the observed shapes"
  *      guidance; since 2026-06-11 the boundary includes LATEX_COMMANDS).
+ *      A dropped backslash between two ASCII letters leaves a space, not
+ *      nothing: plain deletion in `\frac\n{x}` would merge into `\fracn`,
+ *      a string that fails `findEscapeLiteralInStrings` and burns every
+ *      fresh-seed retry on a slot this function claimed to have repaired.
  *   3. Trim a leading/trailing run of ASCII quote / whitespace / control
  *      noise that typically wraps a recovered term in mode-collapse output.
  *      Full-width JA punctuation (e.g. `。「」`) is preserved.
+ *
+ * CONTRACT: output must always satisfy `findEscapeLiteralInStrings` (the
+ * two share LATEX_COMMANDS) — see the lockstep test in grammar-call.test.ts.
  *
  * Returns the cleaned string; caller compares to the original to decide
  * whether anything was sanitized.
@@ -131,7 +138,15 @@ function sanitizeStringValue(s: string): string {
   let out = s.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex: string) =>
     String.fromCharCode(parseInt(hex, 16)),
   );
-  out = out.replace(KEEP_LATEX_OR_STRIP_RE, (_m, latex?: string) => latex ?? '');
+  out = out.replace(
+    KEEP_LATEX_OR_STRIP_RE,
+    (_m, latex: string | undefined, offset: number, whole: string) => {
+      if (latex !== undefined) return latex;
+      const prev = whole[offset - 1] ?? '';
+      const next = whole[offset + 1] ?? '';
+      return /[a-zA-Z]/.test(prev) && /[a-zA-Z]/.test(next) ? ' ' : '';
+    },
+  );
   out = out.replace(/^['"\s\n\r\t]+/, '').replace(/['"\s\n\r\t]+$/, '');
   return out;
 }

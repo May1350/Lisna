@@ -377,6 +377,34 @@ describe('LaTeX preservation — 2026-06-11 production false positive', () => {
     expect(r!.path).toBe('$.body');
   });
 
+  it('junk escape ABUTTING a kept command cannot corrupt it (merge case)', () => {
+    // Dropping the junk backslash in `\frac\n{x}` must not merge `n` onto
+    // `frac` — `\fracn` would fail the final invariant and burn every
+    // fresh-seed retry on a slot sanitize claimed to have repaired.
+    const r = sanitizeEscapeLiteralsInStrings({
+      a: '\\frac\\n{x}',
+      b: '\\to\\hit',
+    });
+    expect(r.value).toEqual({ a: '\\frac n{x}', b: '\\to hit' });
+    expect(r.sanitizedSlots).toEqual(['$.a', '$.b']);
+    // Sanitize output must ALWAYS satisfy the final invariant.
+    expect(findEscapeLiteralInStrings(r.value)).toBeNull();
+  });
+
+  it('sanitize output never trips the final invariant (lockstep contract)', () => {
+    const inputs = [
+      "\\'\n\\u4eca\\u306e就職活動\\'\n",
+      'cat\\hit dog',
+      '\\frac\\theta',          // command + command — both kept
+      'trailing backslash \\',
+      '\\u30 incomplete \\uZZZZ invalid',
+    ];
+    for (const s of inputs) {
+      const { value } = sanitizeEscapeLiteralsInStrings({ s });
+      expect(findEscapeLiteralInStrings(value), `input: ${JSON.stringify(s)}`).toBeNull();
+    }
+  });
+
   it('end-to-end: callWithGrammar passes LaTeX through untouched on attempt 1', async () => {
     // Raw model text is properly JSON-escaped LaTeX (`\\frac` in the wire
     // bytes) — JSON.parse yields runtime `\frac…`, which must survive.
