@@ -122,7 +122,28 @@ bool LlamaEngine::load(const std::string& path) {
   // thing this widens is the gate on per-call prompt token count.
   // DO NOT REVERT to the default without rerunning a 30-min stress prompt.
   cp.n_batch = cp.n_ctx;
+  // q8_0 KV cache: halves the 16K KV from ~1.8GB (fp16) to ~0.9GB. On 8GB
+  // machines fp16 KV + ~2GB weights left so little headroom that decode
+  // pages were evicted mid-generate — founder retest 2026-06-11: two
+  // stall→restart cycles burned 178s of a 212s finalize, and tokPerSec
+  // rose 6.8→11.3 as concurrent apps closed (memory pressure, not compute,
+  // is the decode bottleneck). Quantized V requires Flash Attention, which
+  // resolves on under AUTO for this model on Metal; if a backend resolves
+  // FA off, init returns nullptr and we retry with fp16 KV below — a slow
+  // load must never become a failed load (sidecar load failure has been an
+  // alpha-killing P0 twice).
+  cp.type_k = GGML_TYPE_Q8_0;
+  cp.type_v = GGML_TYPE_Q8_0;
   impl_->ctx = llama_init_from_model(impl_->model, cp);
+  if (!impl_->ctx) {
+    lisna::ipc::emit_event(nlohmann::json{
+        {"type", "log"}, {"level", "warn"}, {"source", "system"},
+        {"message", "llm ctx init with q8_0 KV cache failed — retrying with fp16 KV"}
+    }.dump());
+    cp.type_k = GGML_TYPE_F16;
+    cp.type_v = GGML_TYPE_F16;
+    impl_->ctx = llama_init_from_model(impl_->model, cp);
+  }
   if (!impl_->ctx) {
     llama_model_free(impl_->model);
     impl_->model = nullptr;
