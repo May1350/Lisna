@@ -74,14 +74,14 @@ export function Recording({ segments, onStop, onError, onOpenHistory }: Props) {
 
   // F2 history list: fetch dump summaries when idle (not running/starting).
   // Refreshes each time a recording ends (running flips false). Best-effort:
-  // an IPC error just hides the list rather than surfacing an error banner.
+  // an IPC error leaves dumps=[] (the empty-state line) — no error banner.
   useEffect(() => {
     if (running || starting) return;
     let cancelled = false;
     void window.lisna
       .listDumps()
       .then((d) => { if (!cancelled) setDumps(d); })
-      .catch(() => { /* history is best-effort; an IPC error just hides it */ });
+      .catch(() => { /* best-effort; failure leaves the empty state showing */ });
     return () => { cancelled = true; };
   }, [running, starting]);
 
