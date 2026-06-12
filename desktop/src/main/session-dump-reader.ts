@@ -30,9 +30,20 @@ function resolveDumpDir(baseDir: string, id: string): string {
   if (!DUMP_DIR_RE.test(id)) throw new Error('INVALID_DUMP_ID');
   const dir = path.join(baseDir, id);
   if (!fs.existsSync(dir)) throw new Error('DUMP_NOT_FOUND');
-  const real = fs.realpathSync(dir);
-  if (path.dirname(real) !== fs.realpathSync(baseDir)) {
-    throw new Error('INVALID_DUMP_ID');
+  let real: string;
+  try {
+    real = fs.realpathSync(dir);
+    if (path.dirname(real) !== fs.realpathSync(baseDir)) {
+      throw new Error('INVALID_DUMP_ID');
+    }
+  } catch (e) {
+    if (e instanceof Error && e.message === 'INVALID_DUMP_ID') throw e;
+    // dir vanished (concurrent newest-20 prune) or became unreadable between
+    // existsSync and realpath — keep the documented error contract; never
+    // leak a raw ENOENT/EACCES (absolute path) across the IPC boundary.
+    throw new Error(
+      (e as NodeJS.ErrnoException).code === 'ENOENT' ? 'DUMP_NOT_FOUND' : 'DUMP_UNREADABLE',
+    );
   }
   return real;
 }
@@ -47,6 +58,8 @@ export function listDumps(baseDir: string): DumpSummary[] {
   try {
     names = fs
       .readdirSync(baseDir, { withFileTypes: true })
+      // symlinks excluded: isDirectory() is lstat-based — loadDumpTranscript's
+      // realpath guard is the load-time backstop
       .filter((e) => e.isDirectory() && DUMP_DIR_RE.test(e.name))
       .map((e) => e.name)
       .sort()

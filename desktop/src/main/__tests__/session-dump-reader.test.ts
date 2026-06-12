@@ -2,7 +2,7 @@
  * Tests for session-dump-reader — Electron-free (injected baseDir on tmp
  * dirs), mirroring the session-debug-dump lifecycle test pattern.
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -122,5 +122,36 @@ describe('loadDumpTranscript', () => {
     fs.mkdirSync(dir);
     fs.writeFileSync(path.join(dir, 'transcript.json'), '{nope');
     expect(() => loadDumpTranscript(base, '2026-06-10T01-00-00-000Z')).toThrow('DUMP_UNREADABLE');
+  });
+
+  it('maps a realpath failure after existsSync into the contract (TOCTOU vs concurrent prune)', () => {
+    // The newest-20 prune (session-debug-dump.ts) runs on every live finalize
+    // while the viewer reads in parallel. If the dump dir vanishes between
+    // existsSync and realpathSync, the raw ENOENT (with an absolute path)
+    // must NOT leak across the IPC boundary. A chmod-based simulation cannot
+    // reach this branch — removing search permission on the parent makes
+    // existsSync itself return false (Node swallows EACCES), short-circuiting
+    // to DUMP_NOT_FOUND before realpath ever runs (verified empirically). So:
+    // stub the existsSync answer to "it was there a moment ago" and let the
+    // REAL fs.realpathSync hit the FS where the dir genuinely does not exist.
+    const existsSpy = vi.spyOn(fs, 'existsSync').mockReturnValue(true);
+    try {
+      expect(() => loadDumpTranscript(base, '2026-06-10T01-00-00-000Z')).toThrow('DUMP_NOT_FOUND');
+    } finally {
+      existsSpy.mockRestore();
+    }
+    // EACCES flavor: the dir became unreadable (not gone) mid-sequence.
+    writeDump('2026-06-10T01-00-00-000Z', T1);
+    const eacces = Object.assign(new Error("EACCES: permission denied, lstat '/x'"), {
+      code: 'EACCES',
+    });
+    const realpathSpy = vi.spyOn(fs, 'realpathSync').mockImplementation(() => {
+      throw eacces;
+    });
+    try {
+      expect(() => loadDumpTranscript(base, '2026-06-10T01-00-00-000Z')).toThrow('DUMP_UNREADABLE');
+    } finally {
+      realpathSpy.mockRestore();
+    }
   });
 });
