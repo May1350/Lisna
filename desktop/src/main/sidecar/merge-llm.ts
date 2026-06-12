@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { callWithGrammar, type LlmGenerator } from './grammar-call';
+import type { SamplingParams } from '@shared/ipc-protocol';
 import { familyCoreRegistry, selectPromptVariant, type MergeStrategy } from '@shared/families';
 import { deterministicMerge } from '@shared/post-decode/deterministic-merge';
 import { runPostDecodePipeline } from '@shared/post-decode/pipeline';
@@ -22,6 +23,8 @@ export interface RunMergeOpts {
   temperature?: number;
   maxAttempts?: number;
   maxTokens?: number;
+  /** Sampler knobs forwarded verbatim to callWithGrammar (spec sampler-alignment §5). */
+  sampling?: SamplingParams;
 }
 
 export interface MergeResultOk {
@@ -98,6 +101,7 @@ export async function runMergeLLMCall(opts: RunMergeOpts): Promise<MergeResult> 
     maxAttempts: opts.maxAttempts ?? 3,
     maxTokens: opts.maxTokens ?? 4096,
     generator: opts.generator,
+    sampling: opts.sampling,
   });
 
   if (!result.ok) {

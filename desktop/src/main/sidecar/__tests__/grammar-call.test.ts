@@ -789,3 +789,22 @@ describe('callWithGrammar — system passthrough', () => {
     expect(seen).toEqual(['SYS']);
   });
 });
+
+describe('callWithGrammar — sampling threading', () => {
+  it('threads sampling through to the generator verbatim', async () => {
+    const sampling = {
+      topK: 40, topP: 0.95, minP: 0.05, repeatPenalty: 1.0,
+      repeatLastN: 64, dryMultiplier: 0.8, dryBase: 1.75, dryAllowedLength: 2,
+      dryPenaltyLastN: -1,
+    };
+    const generator: LlmGenerator = vi.fn(async ({ seed }) => ({
+      text: JSON.stringify({ name: 'ok', n: 1 }), seed,
+    }));
+    await callWithGrammar({
+      prompt: 'p', schema: SimpleSchema, grammar: 'root ::= "x"',
+      baseSeed: 1, temperature: 0.4, maxAttempts: 1, maxTokens: 100,
+      generator, sampling,
+    });
+    expect(generator).toHaveBeenCalledWith(expect.objectContaining({ sampling }));
+  });
+});
