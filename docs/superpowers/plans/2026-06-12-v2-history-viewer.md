@@ -554,6 +554,14 @@ Delete `routeLecture`, `routeMeeting`, `routeInterview`, `routeBrainstorm` (line
 ```ts
 // ─── family routing (consolidated — was 4 near-identical route* fns) ────────
 
+/** Runtime family gate — IPC payloads are un-typed JSON. Checked BEFORE any
+ *  session resolution so UNKNOWN_FAMILY precedes NO_ACTIVE_SESSION (the
+ *  pre-consolidation ordering; existing test case (g) sends family 'garbage'
+ *  with a NULL session and expects UNKNOWN_FAMILY:). */
+const KNOWN_FAMILIES: ReadonlySet<string> = new Set([
+  'lecture', 'meeting', 'interview', 'brainstorm',
+]);
+
 /**
  * Adapt a SessionContext (live OR dump-sourced) and dispatch to the family
  * finalizer. Lecture takes no diarizationStatus; the other three run the
@@ -601,6 +609,10 @@ Inside `registerSessionFinalize`, replace the family-routing block (the `if (fam
 
 ```ts
       // ── Family routing ────────────────────────────────────────────────────
+      // Family gate FIRST: preserves the pre-consolidation ordering where
+      // UNKNOWN_FAMILY beats NO_ACTIVE_SESSION — test (g) sends 'garbage'
+      // with a NULL session and expects UNKNOWN_FAMILY:.
+      if (!KNOWN_FAMILIES.has(family)) throw new Error(`UNKNOWN_FAMILY:${family as string}`);
       const session = await deps.getCurrentSession();
       if (!session) throw new Error('NO_ACTIVE_SESSION');
       const result = await routeFamily(session, family, promptVariant, deps.onTelemetry);
@@ -608,12 +620,12 @@ Inside `registerSessionFinalize`, replace the family-routing block (the `if (fam
       return result;
 ```
 
-(The `UNKNOWN_FAMILY` throw now lives inside `routeFamily`. NOTE the ordering nuance: previously the UNKNOWN_FAMILY check ran BEFORE `getCurrentSession`; now an unknown family with no active session throws NO_ACTIVE_SESSION first. Check the existing test (g): it passes a valid session mock with an unknown family, so it still sees `UNKNOWN_FAMILY:` — behavior preserved for every existing case.)
+(`routeFamily` keeps its own `else throw UNKNOWN_FAMILY` as an exhaustiveness backstop — unreachable through this handler, still load-bearing for any direct caller. The gate sits INSIDE the try so the unknown-family failure still flows through `settle` → `onSessionSettled`, exactly as the old chain did.)
 
 - [ ] **Step 3: Run the existing suite to verify behavior preservation**
 
 Run: `pnpm --filter @lisna/desktop exec vitest run src/main/sidecar/ipc/__tests__/session-finalize.test.ts`
-Expected: PASS, zero test-file edits. If (g) fails on ordering, STOP and re-check Step 2 — do not edit the test.
+Expected: PASS, zero test-file edits — including case (g) (`'garbage'` family + NULL session → `UNKNOWN_FAMILY:`), whose ordering the `KNOWN_FAMILIES` pre-check preserves. Any failure = STOP and report BLOCKED; do not edit the test.
 
 - [ ] **Step 4: Lint + commit**
 
@@ -801,6 +813,9 @@ export function registerSessionFinalize(deps: SessionFinalizeDeps): void {
 
     let settle: SessionSettleResult = { ok: false, family, error: 'FINALIZE_NOT_RUN' };
     try {
+      // Family gate first — preserves UNKNOWN_FAMILY-before-NO_ACTIVE_SESSION
+      // ordering (test (g)); inside the try so settle still fires.
+      if (!KNOWN_FAMILIES.has(family)) throw new Error(`UNKNOWN_FAMILY:${family as string}`);
       const session = await deps.getCurrentSession();
       if (!session) throw new Error('NO_ACTIVE_SESSION');
       const result = await routeFamily(session, family, promptVariant, deps.onTelemetry);
@@ -826,6 +841,9 @@ export function registerSessionFinalize(deps: SessionFinalizeDeps): void {
 
     let settle: SessionSettleResult = { ok: false, family, error: 'FINALIZE_NOT_RUN' };
     try {
+      // Same family gate as the live channel — and BEFORE getDumpSession so a
+      // garbage family can't trigger an LLM load.
+      if (!KNOWN_FAMILIES.has(family)) throw new Error(`UNKNOWN_FAMILY:${family as string}`);
       const session = await getDumpSession(id);
       const result = await routeFamily(session, family, promptVariant, deps.onTelemetry);
       settle = { ok: true, family, note: result.note };

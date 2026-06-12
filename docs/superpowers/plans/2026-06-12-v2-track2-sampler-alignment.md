@@ -312,7 +312,7 @@ lisna::llm::GenOpts gen_opts_from(const nlohmann::json& req) {
 
 - [ ] **Step 4: Build + run gtest**
 
-Run: `cd desktop/sidecar && bash scripts/build.sh` (the script's test leg builds `sidecar_tests` and runs `ctest --output-on-failure` — `scripts/build.sh:14-15`).
+Run: `cd desktop/sidecar && bash scripts/build.sh test` (the `test` MODE builds `sidecar_tests` + runs `ctest --output-on-failure` — `scripts/build.sh:11-16`; the no-arg default is the RELEASE leg and runs NO tests).
 Expected: all tests PASS including the 4 new ones. (First run after Step 2 alone should FAIL compile — that's the red step; Steps 2→4 are the TDD cycle compressed because a C++ compile error IS the failing state.)
 
 - [ ] **Step 5: Commit**
@@ -416,7 +416,7 @@ In `json_protocol.cpp`, replace the final `return` of the generate branch (lines
 
 - [ ] **Step 3: Build + full ctest**
 
-Run: `cd desktop/sidecar && bash scripts/build.sh`
+Run: `cd desktop/sidecar && bash scripts/build.sh test`
 Expected: compiles clean; all sidecar tests PASS (the chain change has no model-less unit coverage — `gen_opts_from` tests + the rig matrix are its proof; existing tests assert nothing about the old chain values).
 
 - [ ] **Step 4: Commit**
@@ -430,14 +430,14 @@ git commit -m "feat(sidecar): aligned sampler chain (penalty off, +min_p +DRY) +
 
 ### Task 4: Sidecar rebuild + bundle verify
 
-- [ ] **Step 1:** Run the canonical rebuild (the `lisna-sidecar-rebuild` skill flow): `cd desktop/sidecar && bash scripts/build.sh`
-- [ ] **Step 2:** Verify the binary was copied to the app bundle path:
+- [ ] **Step 1:** Run the canonical RELEASE rebuild (the `lisna-sidecar-rebuild` skill flow): `cd desktop/sidecar && bash scripts/build.sh` — the release leg builds `lisna_sidecar` and copies it to `desktop/resources/sidecar` (`scripts/build.sh:22`, `CMakeLists.txt:29`).
+- [ ] **Step 2:** Verify the copy:
 
 ```bash
-md5 desktop/sidecar/build/release/sidecar desktop/resources/sidecar
+md5 desktop/sidecar/build/release/lisna_sidecar desktop/resources/sidecar
 ```
 
-Expected: both hashes IDENTICAL (if `build.sh` doesn't copy, `cp desktop/sidecar/build/release/sidecar desktop/resources/sidecar` then re-verify).
+Expected: both hashes IDENTICAL (if the copy didn't happen, `cp desktop/sidecar/build/release/lisna_sidecar desktop/resources/sidecar` then re-verify).
 
 - [ ] **Step 3:** Commit the binary if `desktop/resources/sidecar` is git-tracked (check `git status` — follow whatever the repo's existing pattern is; if gitignored, no commit and note it in the task report).
 
@@ -510,7 +510,13 @@ export interface GenerateStats {
 
 (add `import type { SamplingParams } from '@shared/ipc-protocol';`)
 - `runChunkWithGrammar`'s `callWithGrammar` call gains `sampling: opts.tuning.sampling,`.
-- Each of the 4 call sites (`:575/:746/:918/:1112`) constructs `tuning` from the per-family profile row — find each `tuning: {...}` construction and add `sampling: args.modelProfile.sampling` (the exact receiver variable name differs per finalize*; match the existing `temperature`/`maxGenTokens` source object).
+- The 4 finalizers each do `const tuning = args.modelProfile.perFamily['<family>'];` (`orchestrator.ts:547/720/894/1088`) — a direct reference to the `PerFamilyTuning` row, which has NO `sampling` field (it lives at MODEL level on `ModelProfile`). Rewrite each of the 4 assignments to:
+
+```ts
+  const tuning = { ...args.modelProfile.perFamily['<family>'], sampling: args.modelProfile.sampling };
+```
+
+(tsc pinpoints all 4 sites the moment `RunChunkOpts.tuning` gains the `sampling` field; the `runChunkWithGrammar` call sites at `:575/:746/:918/:1112` then pass the enriched `tuning` through unchanged.)
 
 (d) `merge-llm.ts` + any other `callWithGrammar(` production caller found by `grep -rn "callWithGrammar(" desktop/src/`: pass `sampling: <modelProfile>.sampling` the same way (merge calls have the modelProfile in scope; if one genuinely doesn't, pass nothing — C++ aligned defaults apply — and note it in the task report).
 
@@ -872,7 +878,7 @@ function dropNearDuplicateItems(node: unknown): void {
 }
 ```
 
-Also update the pipeline's header comment (the stage list at lines 8-21) to include Stage 3.6 + 3.8 and to correct the stale "Stage 5 dedup no-op" note (Stage 5 stays a no-op; the real dedup now lives pre-Zod at 3.8 — say why: `.min(N)` gating).
+Also update the pipeline's header comment (the stage list at lines 9-22) to include Stage 3.6 + 3.8 and to correct the stale "Stage 5 dedup no-op" note (Stage 5 stays a no-op; the real dedup now lives pre-Zod at 3.8 — say why: `.min(N)` gating).
 
 - [ ] **Step 3: Run + regression check**
 

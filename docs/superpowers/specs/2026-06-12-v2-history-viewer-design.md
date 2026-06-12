@@ -34,7 +34,7 @@ endSec, text, noSpeechProb?}]) · `llm-calls.ndjson` · `grammar-N.gbnf` ·
 Dir names match `DUMP_DIR_RE` (`session-debug-dump.ts:27`).
 
 - Retention stays newest-20 (`DEFAULT_MAX_SESSIONS`,
-  `session-debug-dump.ts:25`). Expanding retention is a non-goal; if the
+  `session-debug-dump.ts:24`). Expanding retention is a non-goal; if the
   test loop needs more, bump the constant — not this feature's concern.
 - `LISNA_DISABLE_SESSION_DUMP=1` ⇒ no dumps ⇒ empty history. Documented
   behavior, not an error state.
@@ -49,7 +49,7 @@ Three additions to `desktop/src/main/ipc.ts` CHANNELS:
    `{ id (dir name), recordedAt (parsed from dir name), language,
    llmModel, segmentCount, durationSec, family?, ok? }`.
    `transcript.json` already persists top-level `segmentCount` and
-   `durationSec` (`session-debug-dump.ts:103-104`, review P2-2) — prefer
+   `durationSec` (`session-debug-dump.ts:104-105`, review P2-2) — prefer
    them, falling back to `segments` only when absent; `language/llmModel`
    from the same file; `family/ok` from `result.json` when present.
    A dir whose `transcript.json` is missing/unparseable yields
