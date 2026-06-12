@@ -28,5 +28,6 @@ namespace lisna::ipc {
   // Build engine GenOpts from a validated `generate` request. Exposed for
   // unit tests — value-level proof that sampling fields reach the struct.
   // PRECONDITION: shape guards already ran (sampling is an object if present).
+  // Unknown sampling keys are silently ignored (matches top-level field leniency).
   lisna::llm::GenOpts gen_opts_from(const nlohmann::json& req);
 }

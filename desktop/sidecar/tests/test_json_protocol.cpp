@@ -439,3 +439,13 @@ TEST(GenerateRequest, RejectsNonNumericSamplingField) {
   EXPECT_EQ(out["type"], "error");
   EXPECT_EQ(out["code"], "invalid_type");
 }
+
+TEST(GenOptsFrom, FloatForIntFieldTruncates) {
+  // nlohmann's .value("topK", int_default) static_casts the float to int.
+  // 50.7 → 50. Pin this so the truncation can't silently change to rounding.
+  json req = {{"id", "1"}, {"type", "generate"},
+              {"messages", json::array({{{"role", "user"}, {"content", "hi"}}})},
+              {"sampling", {{"topK", 50.7}}}};
+  auto opts = lisna::ipc::gen_opts_from(req);
+  EXPECT_EQ(opts.topK, 50);
+}
