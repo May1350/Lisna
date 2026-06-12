@@ -32,7 +32,6 @@ import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SidecarClient } from '../src/main/sidecar/client';
 import { LlamaCppLLM } from '../src/main/engines/llama-cpp-llm';
-import { TIMEOUTS } from '../src/main/sidecar/timeouts';
 import { zodToGbnf } from '../src/shared/note-schema/zod-to-gbnf';
 import { familyCoreRegistry } from '../src/shared/families';
 import '../src/shared/families/interview/core'; // side-effect: register interview family
@@ -41,6 +40,7 @@ import { adaptToV2Transcript } from '../src/shared/note-schema/adapt-legacy-tran
 import { chunkTranscript } from '../src/shared/note-schema/chunking';
 import { modelProfiles } from '../src/shared/models/profiles';
 import type { SessionTranscript } from '../src/shared/note-schema/transcript';
+import { nearDupRate, NEAR_DUP_THRESHOLD } from '../src/shared/post-decode/dedup';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SIDECAR_BIN = resolve(__dirname, '../resources/sidecar');
@@ -63,6 +63,13 @@ const VARIANT_ID = arg('variant', 'interview-v1');
 const SEED = Number(arg('seed', '7000'));
 const LABEL = arg('label', VARIANT_ID);
 const MAX_TOKENS_OVERRIDE = Number(arg('max-tokens', '0')) || null;
+// Sweep knob (falsification matrix R1-R3): JSON object of SamplingParams.
+// Empty = send nothing → C++ aligned defaults. Example:
+//   --sampling '{"repeatPenalty":1.1,"repeatLastN":64}'
+const SAMPLING = (() => {
+  const raw = arg('sampling', '');
+  return raw ? (JSON.parse(raw) as Record<string, number>) : null;
+})();
 
 // ─── prompt assembly (mirrors finalizeInterview 1:1) ──────────────────────────
 
@@ -154,6 +161,33 @@ function scoreNote(note: unknown, transcriptText: string, durationSec: number): 
   };
 }
 
+// ─── loop metric ─────────────────────────────────────────────────────────────
+
+/** Per-array near-dup rates over the parsed note (loop metric, spec 7). */
+function loopMetrics(note: unknown, path = '$', out: Record<string, number> = {}): Record<string, number> {
+  if (Array.isArray(note)) {
+    const texts = note
+      .map((item) =>
+        typeof item === 'string'
+          ? item
+          : item && typeof item === 'object'
+            ? Object.entries(item as Record<string, unknown>)
+                .filter(([k, v]) => typeof v === 'string' && !['from', 'id'].includes(k))
+                .map(([, v]) => v as string)
+                .join(' ')
+            : '',
+      )
+      .filter((t) => t.length > 0);
+    if (texts.length >= 2) out[path] = nearDupRate(texts, NEAR_DUP_THRESHOLD);
+    for (const item of note) loopMetrics(item, `${path}[]`, out);
+    return out;
+  }
+  if (note && typeof note === 'object') {
+    for (const [k, v] of Object.entries(note)) loopMetrics(v, `${path}.${k}`, out);
+  }
+  return out;
+}
+
 // ─── main ─────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -206,7 +240,8 @@ async function main(): Promise<void> {
     // 180s window: the cold-cache first decode can exceed the production 60s
     // no-progress timeout on a swap-pressured 8GB machine; production absorbs
     // this via supervisor respawn+reload, the rig just waits longer once.
-    for await (const _ of client.sendStream(
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    for await (const _tok of client.sendStream(
       { type: 'generate', messages: [{ role: 'user', content: 'こんにちは' }], seed: 1, temperature: 0.4, maxTokens: 16 },
       { timeoutMs: 180_000 },
     )) { /* drain */ }
@@ -225,7 +260,8 @@ async function main(): Promise<void> {
     console.log('[rig] primer (real prompt, PLAIN no-grammar, maxTokens=8, up to 600s)…');
     const tp = Date.now();
     try {
-      for await (const _ of client.sendStream(
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      for await (const _tok of client.sendStream(
         { type: 'generate', messages: [{ role: 'user', content: prompt }], seed: 1, temperature: tuning.temperature, maxTokens: 8 },
         { timeoutMs: 600_000 },
       )) { /* drain */ }
@@ -235,7 +271,7 @@ async function main(): Promise<void> {
     }
 
     let text = '';
-    let stats: { tokensOut: number; genMs: number } | undefined;
+    let stats: { tokensOut: number; genMs: number; appliedSampling?: Record<string, number> } | undefined;
     const t0 = Date.now();
     for await (const tok of client.sendStream(
       {
@@ -245,6 +281,7 @@ async function main(): Promise<void> {
         seed: SEED,
         temperature: tuning.temperature,
         maxTokens,
+        ...(SAMPLING ? { sampling: SAMPLING } : {}),
       },
       // 300s window (vs production 60s no-progress): under swap pressure the
       // ~3k-token prefill alone can exceed 60s — the rig measures PROMPT
@@ -254,6 +291,7 @@ async function main(): Promise<void> {
     )) {
       text += tok;
     }
+    const appliedSampling = stats?.appliedSampling ?? null;
     const wallMs = Date.now() - t0;
 
     let note: unknown = null;
@@ -279,11 +317,17 @@ async function main(): Promise<void> {
     }
 
     const scores = note ? scoreNote(note, transcriptText, raw.durationSec) : null;
+    const loopM = loopMetrics(note);
     const result = {
       label: LABEL, variantId: VARIANT_ID, seed: SEED, dump: DUMP,
+      samplingRequested: SAMPLING,
+      appliedSampling,
       promptChars: prompt.length, wallMs, tokensOut: stats?.tokensOut, genMs: stats?.genMs,
       rawTokPerSec: stats ? +(stats.tokensOut / (stats.genMs / 1000)).toFixed(1) : undefined,
-      parseError, scores, note,
+      parseError, scores,
+      loopMetrics: loopM,
+      maxLoopRate: Math.max(0, ...Object.values(loopM)),
+      note,
     };
 
     mkdirSync(OUT_DIR, { recursive: true });
