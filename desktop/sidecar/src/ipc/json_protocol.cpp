@@ -2,6 +2,7 @@
 #include "base64.h"
 #include "llm/llama_engine.h"
 #include "stt/whisper_engine.h"
+#include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <iostream>
@@ -18,6 +19,115 @@ namespace {
 std::unique_ptr<lisna::stt::WhisperEngine> g_stt;
 std::unique_ptr<lisna::llm::LlamaEngine> g_llm;
 } // namespace
+
+// ---------------------------------------------------------------------------
+// Utf8Carry — implementation
+// ---------------------------------------------------------------------------
+
+// Returns the number of continuation bytes (0x80-0xBF) required after a
+// given lead byte to complete one code point, or -1 if the byte is not a
+// valid lead byte.
+//   0xxxxxxx → 0   (ASCII, self-contained)
+//   110xxxxx → 1
+//   1110xxxx → 2
+//   11110xxx → 3   (max valid Unicode lead)
+//   10xxxxxx → -1  (continuation — not a lead byte)
+//   11111xxx → -1  (overlong/invalid)
+static int utf8_continuation_count(unsigned char b) {
+  if (b < 0x80) return 0;
+  if (b < 0xC0) return -1; // continuation byte
+  if (b < 0xE0) return 1;
+  if (b < 0xF0) return 2;
+  if (b < 0xF8) return 3;
+  return -1; // 0xF8-0xFF: invalid
+}
+
+// Scan the tail of `s` (at most 3 bytes from the end) for an incomplete
+// leading sequence: a lead byte that does not yet have all its required
+// continuation bytes. Returns the index of that lead byte, or s.size()
+// if the tail is structurally complete.
+static size_t find_incomplete_lead(const std::string& s) {
+  const size_t len = s.size();
+  // Walk backwards at most 3 bytes (max continuations for a 4-byte seq).
+  for (size_t i = 1; i <= std::min<size_t>(3, len); ++i) {
+    size_t pos = len - i;
+    unsigned char b = static_cast<unsigned char>(s[pos]);
+    int need = utf8_continuation_count(b);
+    if (need < 0) {
+      // It's a continuation byte — keep scanning backwards for the lead.
+      continue;
+    }
+    // It's a lead (or ASCII). Count how many continuation bytes follow it.
+    int have = static_cast<int>(i) - 1;
+    if (have < need) {
+      // Lead byte at `pos` is incomplete: it needs `need` continuations but
+      // only `have` follow it within the current buffer tail.
+      return pos;
+    }
+    // Complete — the tail starting at `pos` is a valid, closed code point.
+    break;
+  }
+  return len; // tail is complete
+}
+
+// Validate bytes [begin, end) as structurally valid UTF-8 walking forward.
+// Drops (skips) any byte sequence that is structurally invalid (bad lead byte
+// or wrong number of continuations). Returns only the bytes that form valid
+// complete code points.
+static std::string utf8_keep_valid(const std::string& s, size_t begin, size_t end) {
+  std::string out;
+  out.reserve(end - begin);
+  size_t i = begin;
+  while (i < end) {
+    unsigned char b = static_cast<unsigned char>(s[i]);
+    int need = utf8_continuation_count(b);
+    if (need < 0) {
+      // Stray continuation byte — drop and advance.
+      ++i;
+      continue;
+    }
+    // need == 0: ASCII self-contained; need > 0: multi-byte lead.
+    size_t seq_end = i + 1 + static_cast<size_t>(need);
+    if (seq_end > end) {
+      // Would run past the buffer — incomplete, drop.
+      break;
+    }
+    // Verify the required continuation bytes.
+    bool ok = true;
+    for (size_t j = i + 1; j < seq_end; ++j) {
+      unsigned char c = static_cast<unsigned char>(s[j]);
+      if (c < 0x80 || c > 0xBF) { ok = false; break; }
+    }
+    if (ok) {
+      out.append(s, i, static_cast<size_t>(need) + 1);
+    }
+    i = seq_end;
+  }
+  return out;
+}
+
+std::string Utf8Carry::take(const std::string& piece) {
+  pending_ += piece;
+  // Find whether the tail of pending_ ends mid-code-point.
+  size_t split = find_incomplete_lead(pending_);
+  // Everything before `split` is a complete run; validate it for structural
+  // validity (drops any garbage bytes) then carry only the tail [split, end).
+  std::string emit_candidate = utf8_keep_valid(pending_, 0, split);
+  pending_ = pending_.substr(split); // keep incomplete tail (max 3 bytes)
+  return emit_candidate;
+}
+
+std::string Utf8Carry::flush() {
+  // Validate whatever remains; an incomplete trailing sequence is dropped.
+  size_t split = find_incomplete_lead(pending_);
+  std::string out = utf8_keep_valid(pending_, 0, split);
+  pending_.clear();
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// dispatch / dispatch_or_error
+// ---------------------------------------------------------------------------
 
 std::string dispatch(const std::string& jsonLine) {
   auto req = nlohmann::json::parse(jsonLine);
@@ -167,19 +277,39 @@ std::string dispatch(const std::string& jsonLine) {
     opts.grammar = req.value("grammar", std::string{});
     if (req.contains("seed")) opts.seed = req["seed"].get<uint32_t>();
     // Decode-speed instrumentation (1-min note target, 2026-06-10): count
-    // emitted tokens + wall time so the TS telemetry can compute tok/s per
-    // attempt. Discriminates "output too long" from "decode too slow"
-    // (grammar-sampling overhead / memory pressure) without offline reruns.
+    // sampled tokens + wall time so the TS telemetry can compute tok/s per
+    // attempt. tokens_out is incremented on every lambda CALL (one per sampled
+    // token) so tok/s stays sampled-token-based even though the Utf8Carry may
+    // merge pieces into fewer emitted lines.
     const auto gen_t0 = std::chrono::steady_clock::now();
     size_t tokens_out = 0;
-    const bool ok = g_llm->generate(msgs, opts,
-                    [&](const std::string& tok) {
-      ++tokens_out;
+    Utf8Carry carry;
+    try {
+      const bool ok = g_llm->generate(msgs, opts,
+                      [&](const std::string& tok) {
+        ++tokens_out;  // count every sampled token call, not emitted lines
+        const std::string out = carry.take(tok);
+        if (out.empty()) return;
+        // Belt-and-braces: replace overload so even a logic gap in Utf8Carry
+        // can never throw type_error.316 mid-stream and hang the client again.
+        emit_event(nlohmann::json{
+            {"id", id}, {"type", "token"}, {"token", out}
+        }.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace));
+      });
+      if (!ok) return err("grammar_setup", "generation setup failed (see prior log line)");
+    } catch (const std::exception& e) {
+      // Binds the real request id so the client rejects immediately instead of
+      // hanging 300s waiting for a matching id on the error line (the old path
+      // emitted id:"-" via dispatch_or_error's catch, which the client ignored).
+      return err("generate_failed", std::string("generation threw: ") + e.what());
+    }
+    // Flush any carry remainder (model stopped mid-char — rare but possible).
+    const std::string rest = carry.flush();
+    if (!rest.empty()) {
       emit_event(nlohmann::json{
-          {"id", id}, {"type", "token"}, {"token", tok}
-      }.dump());
-    });
-    if (!ok) return err("grammar_setup", "generation setup failed (see prior log line)");
+          {"id", id}, {"type", "token"}, {"token", rest}
+      }.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace));
+    }
     const auto gen_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - gen_t0).count();
     return nlohmann::json{{"id", id}, {"type", "done"},
