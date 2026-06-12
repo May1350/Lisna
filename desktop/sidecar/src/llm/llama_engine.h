@@ -13,6 +13,21 @@ struct GenOpts {
   std::string grammar = "";       // GBNF source; empty = no grammar sampler (plain path)
   uint32_t seed = 0xFFFFFFFFu;    // == LLAMA_DEFAULT_SEED (random). Literal here so this
                                   // header need not include <llama.h> (see header note above).
+
+  // Sampler knobs (spec 2026-06-12-v2-track2-sampler-alignment section 5).
+  // Defaults = llama.cpp common defaults (common.h:214-243) + DRY enabled —
+  // an envelope that omits `sampling` gets ALIGNED behavior, never the
+  // legacy chain (top_k 50 / top_p 0.9 / penalty 1.1) that drove the
+  // 2026-06-12 English-fabrication incident.
+  int topK = 40;
+  float topP = 0.95f;
+  float minP = 0.05f;
+  float repeatPenalty = 1.0f;     // 1.0 = penalties sampler OMITTED from the chain
+  int repeatLastN = 64;           // inert while repeatPenalty == 1.0
+  float dryMultiplier = 0.8f;     // 0.0 = DRY sampler omitted
+  float dryBase = 1.75f;
+  int dryAllowedLength = 2;
+  int dryPenaltyLastN = -1;       // -1 = scan whole context
 };
 
 /**
