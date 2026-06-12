@@ -2,7 +2,9 @@
 
 - **Date**: 2026-06-12
 - **Status**: Design APPROVED in founder session 2026-06-12 (scope + approach A
-  with pre-approved B fallback). Spec review pending.
+  with pre-approved B fallback). Expert-reviewed same day (independent opus
+  reviewer, APPROVE-WITH-FIXES; F1-F5 applied — grammar-mode confound
+  corrected, suspects re-ranked co-equal, attribution discipline added).
 - **Lane**: ai-infra (C++ sidecar + TS main path)
 - **Related**:
   - Memory `v2_track2_overnight_sampler_isolation_2026-06-12` (isolation matrix)
@@ -46,7 +48,8 @@ defaults (`desktop/sidecar/deps/llama.cpp/common/common.h:214-243`):
 | min_p | — (absent) | 0.05 |
 | repeat penalty | **1.1 over last 64, applied AFTER top_k/top_p** | **1.0 = OFF** |
 | DRY sampler | — (absent) | present, disabled by default (multiplier 0.0) |
-| architecture | bespoke grammar-first `llama_sampler_chain` | `common_sampler` |
+| architecture | bespoke `llama_sampler_chain` | `common_sampler` |
+| grammar mode | grammar-first HARD MASK — chain samplers run on the masked set | `grammar_first=false` LAZY (default) — chain runs on full vocab; grammar validates the pick, resamples on rejection (`common/sampling.h:65`, `sampling.cpp:577-617`) |
 | KV cache | q8_0 (+FA auto) | fp16 default |
 
 **Defect 2 — looping (judges' C/C+ residual).** The grounded CLI output —
@@ -54,16 +57,28 @@ penalty OFF — repeats 3 unique qa pairs 4-5×, covering only 68s of a 692s
 recording. Looping survives with the penalty off; fabrication appears with it
 on.
 
-**Primary suspect & coupling.** The 1.1 repeat penalty over the last 64
-tokens systematically down-weights recurring JA subword tokens inside
-grammar-constrained JSON (JA reuses a small set of byte/subword pieces far
-more densely than English). Penalized JA candidates lose to English
-alternates and generation slides into English template prose — read as
-fabrication. With the penalty off (CLI), JA survives but nothing suppresses
-phrase-level repetition — read as looping. One knob, two failure modes; they
-must be designed together. Irony noted for the record: the 1.1 penalty was
-added 2026-05-15 to stop a 1B infinite loop, did not stop phrase looping, and
-is now the prime fabrication suspect.
+**Co-equal prime suspects & coupling** (ranking per expert review F1/F2 —
+the overnight memory itself names the masking/sampling-order difference as
+the suspected mechanism; the code read adds the penalty):
+
+1. **Repeat penalty 1.1 / last 64** — systematically down-weights recurring
+   JA subword tokens inside grammar-constrained JSON (JA reuses a small set
+   of byte/subword pieces far more densely than English); penalized JA
+   candidates lose to English alternates and generation slides into English
+   template prose.
+2. **Grammar application mode** — the sidecar hard-masks invalid tokens
+   BEFORE the truncation samplers; the known-good CLI ran
+   `common_sampler`'s default `grammar_first=false` (lazy
+   rejection-resample on full-vocab logits). The two suspects interact: on
+   a masked+truncated candidate set, a penalized JA token has fewer JA
+   alternates to lose to, so English survivors win far more easily than
+   they would on full vocab.
+
+With the penalty off (CLI), JA survives but nothing suppresses phrase-level
+repetition — read as looping. One knob family, two failure modes; designed
+together. Irony for the record: the 1.1 penalty was added 2026-05-15 to
+stop a 1B infinite loop, did not stop phrase looping, and sits at the
+center of the fabrication mechanism.
 
 **Defect 3 — ts scale (cheap).** Note `ts` slots arrive as 0-1 fractions
 (0.23 ≈ 23s into the recording) instead of seconds.
@@ -130,17 +145,30 @@ grammar (unchanged, grammar-first)
   the enable. Sequence breakers: upstream default `{"\n", ":", "\"", "*"}`
   (`common.h:243`); the `"` breaker resets matching at JSON string boundaries,
   which keeps DRY from chaining matches across separate slots.
-- **Order rationale**: mirrors upstream `common_sampler` order
-  (penalties → dry → truncation → temp → dist). Grammar stays FIRST —
-  same shape as `common_sampler`'s `grammar_first` mode; the single-pass form
-  cannot empty the candidate set and is the configuration we can A/B against
-  params without conflating two changes at once.
+- **Order rationale**: mirrors upstream `common_sampler` chain order
+  (penalties → dry → truncation → temp → dist). Grammar stays FIRST
+  (single-pass hard mask; the candidate set cannot empty). **Corrected per
+  review F1**: this is NOT the same shape as the known-good CLI, which ran
+  `grammar_first=false` — common_sampler's default LAZY mode (chain on
+  full-vocab logits; grammar validates the pick and resamples on rejection,
+  `common/sampling.h:65`, `sampling.cpp:577-617`). Grammar application mode
+  is therefore a path difference that R1-R3 does NOT control; it is
+  answered by the B fallback, which adopts the lazy mode wholesale.
+  Retaining grammar-first keeps this change param-only and single-pass-safe.
+- **min_p regime note** (review F4): in this chain min_p prunes the
+  grammar-masked set, whereas the CLI's min_p pruned full vocab. Its
+  individual effect is not isolated by R1 — acceptable: the goal is
+  matching CLI output quality, not per-knob attribution.
 - **Known regression risk**: dropping the 1.1 penalty re-exposes, in theory,
   token-level runaway (the 2026-05-15 1B incident). Cover: DRY targets exactly
   that shape; `maxTokens` caps the damage; the fresh-seed retry ladder and
   Layer 3 catch garbage. Evidence: CLI runs with penalty OFF on the real
-  transcript produced bounded phrase loops, no runaway. 1B is non-default and
-  gets re-evaluated in the adaptive spec.
+  transcript produced bounded phrase loops, no runaway. Additionally
+  (review F5): the 2026-05-15 incident was co-fixed by the n_ctx 16K bump
+  (`llama_engine.cpp:110`, still in place), so removing the penalty does
+  not re-expose the original overflow trigger — DRY covers the phrase-loop
+  residual specifically. 1B is non-default and gets re-evaluated in the
+  adaptive spec.
 
 ## 5. Sampling params promoted to TS (single source of truth)
 
@@ -230,6 +258,14 @@ is a prompt change, so it lands with an eval fixture per `testing.md`.
 Each × 3 seeds (7000/8000/9000) on the founder dump (transcript NEVER
 committed — rig reads from `@lisna/desktop/sessions/` dumps).
 
+**Attribution discipline** (review F2): R1 moves several knobs at once
+(top_k/top_p/min_p/penalty/DRY). An R1 PASS clears the merge gate and
+ships, but by itself attributes nothing. The penalty verdict comes ONLY
+from R2-vs-R1; the grammar-mode/architecture verdict comes ONLY from the B
+fallback if it fires. If R2 unexpectedly ALSO passes (fabrication not
+reproduced), the decision doc records "penalty not reproduced as sole
+cause; alignment empirically sufficient" rather than forcing attribution.
+
 **Merge gate** (ALL must hold):
 
 1. R1: groundingJa ≥ 0.9 AND jaRatio comfortably above the #118 mismatch
@@ -265,7 +301,7 @@ release gates (entitlements / Finder-launch smoke / dylib load / TCC prompt).
 | 1B token-runaway re-exposure with penalty off | section 4 note: DRY + maxTokens + retry + Layer 3; 1B non-default until adaptive spec |
 | TS↔C++ param schema drift | C++ parse unit tests + TS envelope unit tests; params-echo in rig output proves end-to-end delivery |
 | q8_0 KV is still a path difference vs CLI | accepted consciously; R4 escalation documents the control if A and B both fail |
-| Latency regression from DRY/min_p | both are O(candidates) per token, negligible vs grammar mask; gate 4 measures it |
+| Latency regression from DRY/min_p | DRY adds an O(context) history-suffix scan per token (`dryPenaltyLastN=-1`, n_ctx 16K) — upstream warns such scans can get slow; NOT asserted negligible a priori. Gate 4 (G6 ±10% tok/s) measures the net effect | 
 | Dedup drops legitimately similar items (two real qa pairs with near-identical wording) | Jaccard 0.85 is conservative; threshold is a plan-stage tunable with rig evidence |
 
 ## 9. Rollout

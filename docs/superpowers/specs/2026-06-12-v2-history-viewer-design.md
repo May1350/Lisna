@@ -1,7 +1,10 @@
 # v2 — Recording History Viewer (F2) (Design)
 
 - **Date**: 2026-06-12
-- **Status**: Design APPROVED in founder session 2026-06-12. Spec review pending.
+- **Status**: Design APPROVED in founder session 2026-06-12. Expert-reviewed
+  same day (independent opus reviewer, APPROVE-WITH-FIXES; P0-1/P0-2/P0-3 +
+  P1-1/P1-2 + P2-1/P2-2/P2-3 applied — regen dump-skip, factored shared
+  finalize helper, origin-aware retry edge).
 - **Lane**: app-design (renderer) + main-process IPC
 - **Origin**: F2 from the 2026-06-11 session (memory
   `v2_track2_v015_interview_diarization_2026-06-11`) — decided as follow-up,
@@ -44,24 +47,45 @@ Three additions to `desktop/src/main/ipc.ts` CHANNELS:
 
 1. **`session/listDumps`** → `DumpSummary[]`, newest first:
    `{ id (dir name), recordedAt (parsed from dir name), language,
-   llmModel, segmentCount, durationSec (last segment endSec, 0 when
-   empty), family?, ok? }`. `language/llmModel/segmentCount/durationSec`
-   from `transcript.json`; `family/ok` from `result.json` when present.
+   llmModel, segmentCount, durationSec, family?, ok? }`.
+   `transcript.json` already persists top-level `segmentCount` and
+   `durationSec` (`session-debug-dump.ts:103-104`, review P2-2) — prefer
+   them, falling back to `segments` only when absent; `language/llmModel`
+   from the same file; `family/ok` from `result.json` when present.
    A dir whose `transcript.json` is missing/unparseable yields
    `{ id, recordedAt, unreadable: true }` instead of being dropped —
    the list shows it as unselectable (section 5).
 2. **`session/loadDump`** `{ id }` → full `transcript.json` payload.
-   `id` MUST match `DUMP_DIR_RE` (path-traversal guard) and resolve to a
-   direct child of the sessions base dir.
+   `id` MUST match `DUMP_DIR_RE` AND the resolved (realpath) target's
+   parent must EQUAL the sessions base dir — resolve-and-compare
+   equality, not string prefix (review P1-2). The guard applies to both
+   `loadDump` and `finalizeFromDump`; handlers read only the known
+   filenames within the dir.
 3. **`session/finalizeFromDump`** `{ id, family }` → same return shape as
-   `session/finalize` (`{ noteId, note }`). Internally reuses the F1
-   machinery: the same finalize executor `session/finalize` runs
-   (LLM lazy-load via `getCurrentSession()` swap, family `finalize*`
-   fns, telemetry, #113 dump-wrapping — the rerun produces its OWN new
-   dump dir), with the transcript sourced from the dump file instead of
-   the preserved in-memory `current`. Family is caller-chosen (F1
-   already allows family change). Guard: rejected with a typed error
-   while a live session is active (`SESSION_ACTIVE` semantics unchanged).
+   `session/finalize` (`{ noteId, note }`). **Corrected per review
+   P0-2**: this is NEW plumbing that shares machinery via a factored
+   helper — NOT a literal reuse of the `session/finalize` executor. That
+   executor is hard-wired to the module-global live session
+   (`getCurrentSession()`/`current`, `ipc.ts:228-324`); F1 works by NOT
+   clearing `current` on failure, not by transcript injection. The new
+   handler: (a) builds its own `SessionContext` from the dump
+   (`segments`, `language`, `llmModel`); (b) calls the SAME
+   load-and-finalize helper, factored out of `ipc.ts:269-323` (LLM
+   lazy-load + recovering-sidecar + family `route*`/`finalize*` dispatch
+   + telemetry), so live and from-dump runs traverse an IDENTICAL
+   sampler/recovery path — the apples-to-apples property this tool
+   exists for; (c) **skips dump-writing for the regen run** (per-call
+   flag threaded to the dump-wrap step, NOT the global env var) —
+   review P0-1: under newest-20 retention, dumping every regen would
+   evict the very source dump under repeated test. Consequence:
+   regenerated notes are screen-only (NoteView); persisting them is a
+   non-goal alongside saved-note re-viewing (section 6). Family is
+   caller-chosen (F1 already allows family change). Guards:
+   `SESSION_ACTIVE` typed error while a live session is active, PLUS a
+   new main-side `_finalizeInFlight` re-entrancy guard rejecting
+   concurrent `finalize`/`finalizeFromDump` with a typed error (review
+   P1-1 — `SESSION_ACTIVE` checks only `current` and does not cover
+   finalize-vs-finalize).
 
 Reader helpers live next to `session-debug-dump.ts` (same module owns the
 dir-shape knowledge; Electron-free with injected baseDir, matching its
@@ -69,8 +93,10 @@ existing test pattern).
 
 ## 4. Renderer
 
-- **Entry point**: the idle block of
-  `desktop/src/renderer/routes/Recording.tsx` gains a History section —
+- **Entry point**: the not-recording state of
+  `desktop/src/renderer/routes/Recording.tsx` (`running === false` —
+  review P2-1: there is no separate idle component) gains a History
+  section —
   list of `DumpSummary` rows (time, duration, language, family/status
   badge, llmModel). Empty state: one quiet line ("まだ履歴がありません" /
   EN equivalent per existing UI language convention).
@@ -82,7 +108,15 @@ existing test pattern).
   `window.lisna.finalize` pattern; same for `listDumps`/`loadDump`) →
   joins the existing
   `curatingV2 → note` flow (`NoteRenderProgress`, `NoteView`) unchanged.
-  Failure joins `ErrorView` unchanged (F1 retry buttons included).
+  Failure routes to `ErrorView` with a NEW origin-aware retry edge
+  (review P0-3): the error state carries `origin: {kind:'live'} |
+  {kind:'dump'; id}`, and retry for dump origin re-dispatches
+  `finalizeFromDump({id, family})` — the existing retry edge re-invokes
+  the LIVE `session/finalize` against `current` (`App.tsx:283` → `:323`),
+  which is null for history regens and would deterministically fail
+  `NO_ACTIVE_SESSION`. The regenerate button carries the same
+  `submitting` in-flight guard discipline as `FamilyPickerStep`
+  (double-fire = two concurrent generate streams over one sidecar).
 - Back navigation: History → idle Recording; regenerated note's existing
   close path returns to idle Recording.
 - Work-surface rules apply (web-design.md scope-boundary): tokens only,
@@ -92,8 +126,9 @@ existing test pattern).
 
 - Unreadable dump (missing/corrupt `transcript.json`): listed as
   "読み込み不可", not clickable. Never throws the list.
-- `finalizeFromDump` failures surface through the existing finalize error
-  path (ErrorView + F1 retry) — no new error UI.
+- `finalizeFromDump` failures surface in `ErrorView`; retry re-dispatches
+  per the origin-aware edge (section 4) — no new error UI beyond the
+  origin field.
 - Concurrent-session guard per section 3 item 3.
 
 ## 6. Non-goals (v1)
@@ -112,11 +147,17 @@ existing test pattern).
   Electron-free — same pattern as existing `session-debug-dump`
   lifecycle tests): happy path, unreadable dir, empty base, id-guard
   rejection (traversal attempt), ordering.
-- `finalizeFromDump` routing unit test: dump transcript reaches the
-  finalize executor; SESSION_ACTIVE guard; return shape parity with
-  `session/finalize`.
+- `finalizeFromDump` unit tests (review P2-3 — each review defect gets a
+  named case): (i) builds `SessionContext` from the dump WITHOUT a live
+  `current`, return shape parity with `session/finalize`; (ii) regen run
+  writes NO new dump dir — source dump survives repeated regens (P0-1);
+  (iii) `SESSION_ACTIVE` + `_finalizeInFlight` re-entrancy rejections
+  (P1-1); (iv) id-guard resolve-parent rejection — traversal attempt +
+  non-child path (P1-2).
 - Renderer: FSM transition tests (idle → history → curatingV2 → note;
-  error path), History list render states (rows / unreadable / empty).
+  error path INCLUDING dump-origin retry re-dispatching
+  `finalizeFromDump`, P0-3), History list render states (rows /
+  unreadable / empty).
 - Per `testing.md`: no new backend routes, no curator prompt branches —
   no fixture/baseline additions needed.
 
@@ -126,9 +167,12 @@ existing test pattern).
 2. Selecting a dump → transcript renders → family picked → regenerate →
    NoteView, end-to-end (mock-sidecar path in CI; real-3B on founder
    machine).
-3. Regeneration failure lands in ErrorView with F1 retry available.
-4. `pnpm --filter @lisna/desktop verify` green.
-5. Desktop version bump per `artifact-version-bump` rides the
+3. Regeneration failure lands in ErrorView and its retry re-runs the DUMP
+   regeneration (origin-aware edge), not the live finalize.
+4. Repeated regeneration leaves the source dump intact (regen runs write
+   no dumps; retention untouched).
+5. `pnpm --filter @lisna/desktop verify` green.
+6. Desktop version bump per `artifact-version-bump` rides the
    implementing PR.
 
 ## 9. Sequencing
