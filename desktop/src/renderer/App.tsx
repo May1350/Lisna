@@ -8,6 +8,7 @@ import { SignInView } from './routes/SignInView';
 import { FamilyPickerStep } from './components/FamilyPickerStep';
 import { NoteRenderProgress, type ProgressState } from './components/NoteRenderProgress';
 import type { Note, TranscriptSegment } from '@shared/types';
+import type { FinalizeProgressPayload } from '@shared/ipc-protocol';
 import type { NoteBase, NoteFamily } from '@shared/note-schema';
 
 export type ErrorOrigin = { kind: 'live' } | { kind: 'dump'; id: string };
@@ -140,6 +141,22 @@ function AuthenticatedApp() {
     });
   }, []);
 
+  // Finalize progress (founder ask 2026-06-13): main's onTelemetry forwards
+  // the orchestrator's attempt-start / chunk-done / finalize-done events so
+  // curatingV2 shows real chunk/attempt state instead of a static spinner.
+  // Only curatingV2 consumes them; events arriving in any other view are
+  // dropped (e.g. the error transition already won against a trailing
+  // chunk-done from the failed finalize).
+  useEffect(() => {
+    return window.lisna.onFinalizeProgress((msg) => {
+      setView((prev) =>
+        prev.kind === 'curatingV2'
+          ? { ...prev, progress: applyFinalizeProgress(prev.progress, msg) }
+          : prev,
+      );
+    });
+  }, []);
+
   // §5.1 — on mount, query main for the boot-resolved ModelStatus.
   // Safe to call here without race: main/index.ts registers models/status
   // BEFORE createWindow (Task 7), so the handler is always present by the
@@ -250,7 +267,11 @@ function renderView(view: View, setView: (next: View | ((p: View) => View)) => v
           onRegenerate={(family, segments) => {
             // Mirror the live picker flow: mount progress synchronously,
             // then run the from-dump finalize.
-            setView({ kind: 'curatingV2', segments: [...segments], progress: { phase: 'loading' } });
+            setView({
+              kind: 'curatingV2',
+              segments: [...segments],
+              progress: { phase: 'loading', startedAt: Date.now() },
+            });
             void runFinalizeFromDump(view.id, family, setView);
           }}
         />
@@ -271,7 +292,11 @@ function renderView(view: View, setView: (next: View | ((p: View) => View)) => v
             // generate loop).
             setView((prev) =>
               prev.kind === 'familyPicking'
-                ? { kind: 'curatingV2', segments: prev.segments, progress: { phase: 'loading' } }
+                ? {
+                    kind: 'curatingV2',
+                    segments: prev.segments,
+                    progress: { phase: 'loading', startedAt: Date.now() },
+                  }
                 : prev,
             );
             void runFinalize(family, setView);
@@ -326,6 +351,53 @@ export function retryViewFor(error: {
   return error.origin?.kind === 'dump'
     ? { kind: 'history', id: error.origin.id }
     : { kind: 'familyPicking', segments: error.segments };
+}
+
+/**
+ * Fold one main-pushed finalize-progress event into the curatingV2
+ * ProgressState. Pure (exported for tests). Every transition is driven by a
+ * REAL orchestrator telemetry event — no simulated progress.
+ *
+ * `startedAt` is renderer-clock state set when curatingV2 mounts; it must
+ * survive every transition because it feeds the elapsed-time line.
+ */
+export function applyFinalizeProgress(
+  prev: ProgressState | null,
+  msg: FinalizeProgressPayload,
+): ProgressState | null {
+  const startedAt = prev?.startedAt;
+  switch (msg.kind) {
+    case 'attempt-start':
+      return {
+        phase: 'chunk',
+        chunkIndex: msg.chunkIndex,
+        totalChunks: msg.totalChunks,
+        attempt: msg.attempt,
+        attemptMax: msg.maxAttempts,
+        startedAt,
+      };
+    case 'chunk-done': {
+      if (msg.chunkIndex < msg.totalChunks - 1) {
+        // Next chunk's prompt is being built; its attempt-start follows in
+        // ms and fills the attempt counter back in.
+        return {
+          phase: 'chunk',
+          chunkIndex: msg.chunkIndex + 1,
+          totalChunks: msg.totalChunks,
+          startedAt,
+        };
+      }
+      // Last chunk: multi-chunk runs continue into the merge step (the
+      // interview/brainstorm merge is a real LLM call — can take a while);
+      // a single-chunk run has no merge, so keep the final chunk state until
+      // finalize-done / the note arrives.
+      return msg.totalChunks > 1 ? { phase: 'merge', startedAt } : prev;
+    }
+    case 'finalize-done':
+      // Remaining work before the IPC promise resolves: result-dump write +
+      // FSM settle — ms, rendered as the persist phase.
+      return { phase: 'persist', startedAt };
+  }
 }
 
 /**

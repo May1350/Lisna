@@ -469,6 +469,99 @@ describe('finalizeLecture', () => {
       expect(chunkDone[0]!.freshSeedRetries).toBe(1);
     });
 
+    // ─── attempt-start (finalize progress UI, 2026-06-13) ─────────────────────
+    // 'attempt'/'chunk-done' fire only AFTER work completes, so the renderer
+    // can't show "attempt 2 running now" from them. attempt-start fires at the
+    // top of each generation attempt; the overall counter spans outer
+    // fresh-seed blocks (outer × inner-3 + inner attempt) out of maxAttempts 6.
+
+    it('emits attempt-start BEFORE the completed attempt event, with chunk context', async () => {
+      const sidecar = mockSidecar({ responses: [makeLectureNoteJson('Sec', 0)] });
+      const events: FinalizeTelemetryEvent[] = [];
+
+      await finalizeLecture({
+        sessionId: 'tel-start',
+        transcript: makeTranscript(3),
+        sidecar,
+        modelProfile,
+        onTelemetry: (e) => events.push(e),
+      });
+
+      const starts = events.filter((e) => e.kind === 'attempt-start');
+      expect(starts).toHaveLength(1);
+      expect(starts[0]).toEqual({
+        kind: 'attempt-start',
+        family: 'lecture',
+        chunkIndex: 0,
+        totalChunks: 1,
+        attempt: 1,
+        maxAttempts: 6,
+        seed: 5000,
+      });
+      // Ordering: the start precedes the completed 'attempt' record.
+      expect(events.findIndex((e) => e.kind === 'attempt-start')).toBeLessThan(
+        events.findIndex((e) => e.kind === 'attempt'),
+      );
+    });
+
+    it('inner retry numbers attempt-start sequentially within the chunk (2 of 6)', async () => {
+      const sidecar = mockSidecar({
+        responses: [makeLectureNoteJson('Sec', 0)],
+        failuresPerCall: { 0: 1 },
+      });
+      const events: FinalizeTelemetryEvent[] = [];
+
+      await finalizeLecture({
+        sessionId: 'tel-start-retry',
+        transcript: makeTranscript(3),
+        sidecar,
+        modelProfile,
+        onTelemetry: (e) => events.push(e),
+      });
+
+      const starts = events.filter((e) => e.kind === 'attempt-start') as Array<
+        Extract<FinalizeTelemetryEvent, { kind: 'attempt-start' }>
+      >;
+      expect(starts.map((s) => ({ attempt: s.attempt, seed: s.seed }))).toEqual([
+        { attempt: 1, seed: 5000 },
+        { attempt: 2, seed: 5100 },
+      ]);
+      expect(starts.every((s) => s.maxAttempts === 6)).toBe(true);
+    });
+
+    it('outer fresh-seed block continues the overall attempt-start count (4 of 6)', async () => {
+      // Outer attempt 0 fails post-decode (missing sections) → outer attempt 1
+      // succeeds. Overall attempt = outer × 3 + inner = 4 on the second block.
+      const invalidJson = JSON.stringify({
+        schemaVersion: 1,
+        family: 'lecture',
+        title: 'タイトル',
+        generatedAt: new Date().toISOString(),
+        generatedBy: { model: 'llama-3.2-3b-q4-km', promptVersion: 1 },
+        language: 'ja',
+        durationSec: 60,
+        // missing: sections — Stage 4 throws ZodError
+      });
+      const sidecar = mockSidecar({ responses: [invalidJson, makeLectureNoteJson('セクション', 0)] });
+      const events: FinalizeTelemetryEvent[] = [];
+
+      await finalizeLecture({
+        sessionId: 'tel-start-outer',
+        transcript: makeTranscript(3),
+        sidecar,
+        modelProfile,
+        onTelemetry: (e) => events.push(e),
+      });
+
+      const starts = events.filter((e) => e.kind === 'attempt-start') as Array<
+        Extract<FinalizeTelemetryEvent, { kind: 'attempt-start' }>
+      >;
+      expect(starts.map((s) => ({ attempt: s.attempt, seed: s.seed }))).toEqual([
+        { attempt: 1, seed: 5000 },
+        { attempt: 4, seed: 15000 },
+      ]);
+    });
+
     it('omitting onTelemetry is a no-op (no throws, finalize succeeds)', async () => {
       // Negative: explicit guard that the callback is optional.
       const sidecar = mockSidecar({ responses: [makeLectureNoteJson('Sec', 0)] });

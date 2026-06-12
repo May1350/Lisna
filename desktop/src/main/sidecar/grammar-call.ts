@@ -78,6 +78,13 @@ export interface GrammarCallOpts<T> {
    * merge-LLM path, which synthesizes from already-guarded partials).
    */
   expectedLanguage?: 'ja' | 'en' | 'ko';
+  /**
+   * Fired synchronously at the top of each attempt, BEFORE the generator
+   * call — feeds the renderer's live finalize progress ("attempt N running
+   * now"). The completed records in `attempts[]` only materialize after the
+   * generator settles, which on-device means minutes of silence per attempt.
+   */
+  onAttemptStart?: (attempt: number, seed: number) => void;
 }
 
 /**
@@ -361,6 +368,7 @@ export async function callWithGrammar<T>(
 
   for (let attempt = 1; attempt <= opts.maxAttempts; attempt++) {
     const seed = opts.baseSeed + (attempt - 1) * 100;
+    opts.onAttemptStart?.(attempt, seed);
     const t0 = Date.now();
     let ok = false;
     let reason: string | undefined;

@@ -47,6 +47,25 @@ export type { FinalizeFamily };
 
 export type FinalizeTelemetryEvent =
   | {
+      // Fired at the TOP of each generation attempt (the other events fire
+      // only after work settles — useless for "what is running right now").
+      // Feeds the renderer's curatingV2 progress via ipc.ts →
+      // toFinalizeProgressPayload (founder ask 2026-06-13: real progress, no
+      // simulation). Cost: one synchronous callback per attempt — attempts
+      // are minutes apart, nothing touches the LLM path.
+      kind: 'attempt-start';
+      family: FinalizeFamily;
+      chunkIndex: number;
+      totalChunks: number;
+      /** 1-indexed attempt about to run, counted ACROSS outer fresh-seed
+       * blocks: outerAttempt × INNER_GRAMMAR_ATTEMPTS + inner attempt.
+       * ≥2 means the previous attempt failed (UI shows 再試行 N/M). */
+      attempt: number;
+      /** Worst-case attempts for this chunk (outer × inner). */
+      maxAttempts: number;
+      seed: number;
+    }
+  | {
       kind: 'attempt';
       family: FinalizeFamily;
       chunkIndex: number;
@@ -179,6 +198,9 @@ interface RunChunkResult {
  *
  * Telemetry semantics also preserved:
  *
+ *   - emits one `attempt-start` event at the TOP of every inner attempt (via
+ *     callWithGrammar's onAttemptStart), with the chunk-spanning overall
+ *     counter — the renderer's live progress feed;
  *   - emits one `attempt` event per inner attempt via emitGrammarAttempts;
  *   - emits exactly one `chunk-done` event in a try/finally so a throw still
  *     surfaces the partial timing (founder log attribution invariant).
@@ -205,10 +227,21 @@ async function runChunkWithGrammar(opts: RunChunkOpts): Promise<RunChunkResult> 
         grammar: opts.grammar,
         baseSeed: opts.baseSeed + outerAttempt * POST_DECODE_SEED_OFFSET,
         temperature: opts.tuning.temperature,
-        maxAttempts: 3,
+        maxAttempts: INNER_GRAMMAR_ATTEMPTS,
         maxTokens: opts.tuning.maxGenTokens,
         generator: opts.generator,
         expectedLanguage: opts.expectedLanguage,
+        onAttemptStart: (attempt, seed) => {
+          opts.onTelemetry?.({
+            kind: 'attempt-start',
+            family: opts.family,
+            chunkIndex: opts.chunkIndex,
+            totalChunks: opts.totalChunks,
+            attempt: outerAttempt * INNER_GRAMMAR_ATTEMPTS + attempt,
+            maxAttempts: POST_DECODE_OUTER_ATTEMPTS * INNER_GRAMMAR_ATTEMPTS,
+            seed,
+          });
+        },
       });
 
       const stats = emitGrammarAttempts(
@@ -293,8 +326,12 @@ async function runChunkWithGrammar(opts: RunChunkOpts): Promise<RunChunkResult> 
 // `finalize*` with no recovery. The constants below bound a small outer
 // retry loop in both `finalizeLecture` and `finalizeMeeting`.
 
-/** Max outer attempts (inclusive of the first try). With inner `maxAttempts: 3`,
- *  worst-case 2×3=6 generations per chunk (~2 min on the 8GB box). */
+/** Inner retry budget per callWithGrammar invocation (+100-stride seed per
+ *  attempt). Shared between the call itself and the attempt-start overall
+ *  counter so the UI's "再試行 N/M" math cannot drift from the real budget. */
+const INNER_GRAMMAR_ATTEMPTS = 3;
+/** Max outer attempts (inclusive of the first try). With INNER_GRAMMAR_ATTEMPTS
+ *  inner, worst-case 2×3=6 generations per chunk (~2 min on the 8GB box). */
 const POST_DECODE_OUTER_ATTEMPTS = 2;
 /** Seed-block size per outer attempt. Strictly larger than `callWithGrammar`'s
  *  inner retry stride (`baseSeed + 0/+100/+200`), so outer attempts cannot

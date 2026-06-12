@@ -24,6 +24,7 @@ import { isMacAudioLoopbackSupported } from './platform/hardware-check';
 import { log, redactPath, sessionLog } from './log';
 import { loadToken } from './auth/keychain';
 import { registerSessionFinalize } from './sidecar/ipc/session-finalize';
+import { toFinalizeProgressPayload } from './sidecar/ipc/finalize-progress';
 import { createSessionDump, type SessionDump } from './session-debug-dump';
 
 export const CHANNELS = {
@@ -77,6 +78,10 @@ export const CHANNELS = {
   /** renderer → main: F2 — regenerate a note from a dump transcript.
    *  Registered in session-finalize.ts (SESSION_FINALIZE_FROM_DUMP_CHANNEL). */
   sessionFinalizeFromDump: 'session/finalize-from-dump',
+  /** main → renderer: real chunk/attempt progress while a finalize (live or
+   *  from-dump) runs. Derived 1:1 from orchestrator telemetry — see
+   *  toFinalizeProgressPayload for the field-stripping contract. */
+  sessionFinalizeProgress: 'session/finalize-progress',
 } as const;
 
 export interface IpcDeps {
@@ -426,7 +431,14 @@ export function registerIpc(deps: IpcDeps) {
     // so a new FinalizeTelemetryEvent variant fails to compile here until
     // you wire it to the matching log method.
     onTelemetry: (e) => {
+      // Renderer progress feed (founder ask 2026-06-13): forward the minimal
+      // chunk/attempt shape so curatingV2 shows real work state. The mapper
+      // strips reason/family/seed — keep all forwarding behind it.
+      const progress = toFinalizeProgressPayload(e);
+      if (progress) safeSend(CHANNELS.sessionFinalizeProgress, progress);
       switch (e.kind) {
+        case 'attempt-start':
+          return; // renderer-only; the completed attempt below carries the log breadcrumb
         case 'attempt':
           sessionLog.finalizeAttempt(e);
           return;
