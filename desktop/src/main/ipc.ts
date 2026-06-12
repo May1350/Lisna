@@ -14,7 +14,10 @@ import type { NoteLanguage } from '@shared/note-schema';
 import type { SidecarSupervisor } from './sidecar/supervisor';
 import { SessionOrchestrator } from './sidecar/orchestrator';
 import { makeGrammarSidecar } from './sidecar/grammar-call';
+import type { GrammarCapableSidecar } from './sidecar/grammar-call';
 import { makeRecoveringGrammarSidecar } from './sidecar/recovering-grammar-sidecar';
+import { buildDumpSessionContext } from './dump-finalize-context';
+import { listDumps, loadDumpTranscript } from './session-dump-reader';
 import { WhisperCppSTT } from './engines/whisper-cpp-stt';
 import { LlamaCppLLM } from './engines/llama-cpp-llm';
 import { isMacAudioLoopbackSupported } from './platform/hardware-check';
@@ -67,6 +70,13 @@ export const CHANNELS = {
    *  Lecture branch dispatches finalizeLecture; other families throw
    *  FAMILY_NOT_IMPLEMENTED:<family>:<future-plan>. */
   sessionFinalize: 'session/finalize',
+  /** renderer → main: F2 history viewer — list #113 dump summaries. */
+  sessionListDumps: 'session/list-dumps',
+  /** renderer → main: F2 — full transcript of one dump. */
+  sessionLoadDump: 'session/load-dump',
+  /** renderer → main: F2 — regenerate a note from a dump transcript.
+   *  Registered in session-finalize.ts (SESSION_FINALIZE_FROM_DUMP_CHANNEL). */
+  sessionFinalizeFromDump: 'session/finalize-from-dump',
 } as const;
 
 export interface IpcDeps {
@@ -182,6 +192,62 @@ function unloadLlmIdle(): void {
 // optional-chain guards against any future reordering.
 let _safeSend: ((channel: string, payload: unknown) => void) | null = null;
 
+type SidecarClientLike = NonNullable<ReturnType<SidecarSupervisor['getClient']>>;
+
+/** Where finalize reads + the viewer lists dumps. Single source for the path. */
+function sessionsBaseDir(): string {
+  return path.join(app.getPath('userData'), 'sessions');
+}
+
+/**
+ * Spec §9 finalize prep, shared by the live path (getCurrentSession) and the
+ * from-dump path: unload STT (idempotent) → load LLM, with the phase
+ * breadcrumbs the founder-visible main.log timing decomposition relies on.
+ */
+async function loadLlmForFinalize(client: SidecarClientLike, llmPath: string): Promise<void> {
+  const stt = new WhisperCppSTT(client);
+  const llm = new LlamaCppLLM(client);
+  const sttT0 = Date.now();
+  await stt.unloadModel().catch(() => {
+    // STT may not have been loaded (no recording happened, or already
+    // unloaded by a prior finalize). Either way, proceed to LLM load.
+  });
+  sessionLog.phase('stt-unload-finalize', Date.now() - sttT0);
+  const llmT0 = Date.now();
+  await llm.loadModel(llmPath);
+  sessionLog.phase('llm-load-finalize', Date.now() - llmT0);
+}
+
+/**
+ * Wedged-retry recovery wrapper (2026-06-10 RCA in recovering-grammar-sidecar
+ * .ts), shared by live + from-dump finalize paths. Resolves the client LAZILY
+ * per generate call; on a no-progress stall restarts the sidecar + reloads
+ * the LLM so fresh-seed retries hit a live process.
+ */
+function makeRecoveringSidecarFor(llmPath: string): GrammarCapableSidecar {
+  return makeRecoveringGrammarSidecar({
+    getSidecar: () => {
+      const c = _depsRef?.supervisor.getClient();
+      return c ? makeGrammarSidecar(c) : null;
+    },
+    recover: async () => {
+      log.warn('[finalize] generate stalled (no progress) — restarting sidecar + reloading LLM');
+      const t0 = Date.now();
+      try {
+        const fresh = await _depsRef!.supervisor.restart();
+        await fresh.waitForReady(5000);
+        await new LlamaCppLLM(fresh).loadModel(llmPath);
+        sessionLog.phase('llm-reload-recovery', Date.now() - t0);
+      } catch (e) {
+        // Force the next finalize to re-run the full
+        // unload-STT → load-LLM prep instead of trusting the cache.
+        _llmLoadedForCurrent = null;
+        throw e;
+      }
+    },
+  });
+}
+
 /**
  * Exported for unit testing — the chunk handler exposed as a pure function. The
  * production code uses the inline IPC handler registered in registerIpc; tests
@@ -239,7 +305,7 @@ export function registerIpc(deps: IpcDeps) {
       // a harness without it just runs the finalize undumped.
       try {
         _activeDump = createSessionDump({
-          baseDir: path.join(app.getPath('userData'), 'sessions'),
+          baseDir: sessionsBaseDir(),
         });
       } catch {
         _activeDump = null;
@@ -267,17 +333,7 @@ export function registerIpc(deps: IpcDeps) {
       // generation (visible later via [finalize:*] attempts). Without these,
       // a ~4-min run with a 25 s LLM load looks identical to a 25 s retry.
       if (_llmLoadedForCurrent !== current) {
-        const stt = new WhisperCppSTT(client);
-        const llm = new LlamaCppLLM(client);
-        const sttT0 = Date.now();
-        await stt.unloadModel().catch(() => {
-          // STT may not have been loaded (no recording happened, or already
-          // unloaded by a prior finalize). Either way, proceed to LLM load.
-        });
-        sessionLog.phase('stt-unload-finalize', Date.now() - sttT0);
-        const llmT0 = Date.now();
-        await llm.loadModel(paths.llmPath);
-        sessionLog.phase('llm-load-finalize', Date.now() - llmT0);
+        await loadLlmForFinalize(client, paths.llmPath);
         _llmLoadedForCurrent = current;
       }
 
@@ -286,27 +342,7 @@ export function registerIpc(deps: IpcDeps) {
       // callWithGrammar's fresh-seed retries hit a live process instead of
       // queueing behind a doomed generation in the single-threaded C++
       // dispatch loop. See recovering-grammar-sidecar.ts for the RCA.
-      const recoveringSidecar = makeRecoveringGrammarSidecar({
-        getSidecar: () => {
-          const c = deps.supervisor.getClient();
-          return c ? makeGrammarSidecar(c) : null;
-        },
-        recover: async () => {
-          log.warn('[finalize] generate stalled (no progress) — restarting sidecar + reloading LLM');
-          const t0 = Date.now();
-          try {
-            const fresh = await deps.supervisor.restart();
-            await fresh.waitForReady(5000);
-            await new LlamaCppLLM(fresh).loadModel(paths.llmPath);
-            sessionLog.phase('llm-reload-recovery', Date.now() - t0);
-          } catch (e) {
-            // Force the next session/finalize call to re-run the full
-            // unload-STT → load-LLM prep instead of trusting the cache.
-            _llmLoadedForCurrent = null;
-            throw e;
-          }
-        },
-      });
+      const recoveringSidecar = makeRecoveringSidecarFor(paths.llmPath);
 
       return {
         sessionId: 'live',   // placeholder — real session-ID assignment lands in Task 13
@@ -321,6 +357,24 @@ export function registerIpc(deps: IpcDeps) {
           ? _activeDump.wrapSidecar(recoveringSidecar)
           : recoveringSidecar,
       };
+    },
+    // F2 history viewer — from-dump finalize context. NO dump is created for
+    // regen runs (P0-1; buildDumpSessionContext never calls createSessionDump).
+    getDumpSession: async (id: string) => {
+      cancelIdleStop(); // regen is "in use" — settle re-arms via onSessionSettled
+      return buildDumpSessionContext(id, {
+        baseDir: sessionsBaseDir(),
+        isLiveSessionActive: () => current !== null || recording,
+        getClient: () => deps.supervisor.getClient() ?? null,
+        startClient: async () => {
+          const c = deps.supervisor.start();
+          await c.waitForReady(5000);
+          return c;
+        },
+        getModelPaths: () => deps.getModelPaths(),
+        loadLlm: loadLlmForFinalize,
+        makeSidecar: makeRecoveringSidecarFor,
+      });
     },
     // The v2 Stop flow ends here, not at session/stop — so finalize owns the
     // idle-return. Mirror the session/stop finally block (lines below): clear
@@ -382,6 +436,11 @@ export function registerIpc(deps: IpcDeps) {
       }
     },
   });
+
+  // ── F2 history viewer: dump list + transcript (read-only) ────────────────
+  ipcMain.handle(CHANNELS.sessionListDumps, async () => listDumps(sessionsBaseDir()));
+  ipcMain.handle(CHANNELS.sessionLoadDump, async (_e, payload: { id: string }) =>
+    loadDumpTranscript(sessionsBaseDir(), payload.id));
 
   // Discard route (2026-06-10, founder request): Stop previously forced every
   // session into FamilyPicker → finalize — an empty/unwanted recording had no
