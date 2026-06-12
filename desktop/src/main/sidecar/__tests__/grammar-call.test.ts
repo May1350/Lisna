@@ -550,6 +550,7 @@ describe('makeGrammarSidecar.generateWithGrammar (against /bin/cat)', () => {
       });
       const out = await sidecar.generateWithGrammar({
         prompt: 'P', grammar: 'root ::= "{"', seed: 4242, temperature: 0.4, maxTokens: 256,
+        sampling: { topK: 40 },
       });
       expect(out).toEqual({ text: '{"a":1}', seed: 4242 });
       expect(sent).not.toBeNull();
@@ -557,6 +558,7 @@ describe('makeGrammarSidecar.generateWithGrammar (against /bin/cat)', () => {
       expect(sent!.grammar).toBe('root ::= "{"');
       expect(sent!.seed).toBe(4242);
       expect(sent!.maxTokens).toBe(256);
+      expect(sent!.sampling).toEqual({ topK: 40 });
     } finally {
       proc.kill('SIGKILL');
     }
