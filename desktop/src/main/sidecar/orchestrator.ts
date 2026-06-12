@@ -1,6 +1,6 @@
 import type { STTEngine, LLMEngine, Language, TranscriptSegment, ChatMessage } from '@shared/engine-interfaces';
 import type { Note } from '@shared/types';
-import type { SessionPhase } from '@shared/ipc-protocol';
+import type { SessionPhase, SamplingParams } from '@shared/ipc-protocol';
 import { withTimeout } from '@shared/with-timeout';
 import { buildJaNoteV1Prompt } from './prompts/ja-note-v1';
 import { TIMEOUTS, TIMEOUT_CODES } from './timeouts';
@@ -174,7 +174,7 @@ interface RunChunkOpts {
    * offset (POST_DECODE_SEED_OFFSET) on top.
    */
   baseSeed: number;
-  tuning: { temperature: number; maxGenTokens: number };
+  tuning: { temperature: number; maxGenTokens: number; sampling: Required<SamplingParams> };
   generator: LlmGenerator;
   /**
    * SessionTranscript fed into runPostDecodePipeline for `from`-provenance
@@ -268,6 +268,7 @@ export async function runChunkWithGrammar(opts: RunChunkOpts): Promise<RunChunkR
         seed: pass1Seed,
         temperature: opts.tuning.temperature,
         maxTokens: PASS1_MAX_TOKENS,
+        sampling: opts.tuning.sampling,
       });
       genUsed++;
       const prose = p1res.text;
@@ -301,6 +302,7 @@ export async function runChunkWithGrammar(opts: RunChunkOpts): Promise<RunChunkR
           maxAttempts: 1,
           maxTokens: opts.tuning.maxGenTokens,
           generator: opts.generator,
+          sampling: opts.tuning.sampling,
           expectedLanguage: opts.expectedLanguage,
           onAttemptStart: (_attempt, seed) => {
             opts.onTelemetry?.({
@@ -645,7 +647,7 @@ export async function finalizeLecture(
   );
 
   // ── Correction J: chunk the transcript ────────────────────────────────────
-  const tuning = args.modelProfile.perFamily['lecture'];
+  const tuning = { ...args.modelProfile.perFamily['lecture'], sampling: args.modelProfile.sampling };
   const chunks = chunkTranscript(args.transcript, tuning.recommendedChunkTokens);
 
   if (chunks.length === 0) {
@@ -833,7 +835,7 @@ export async function finalizeMeeting(
     validationWarnings.push(degraded.warning);
   }
 
-  const tuning = args.modelProfile.perFamily['meeting'];
+  const tuning = { ...args.modelProfile.perFamily['meeting'], sampling: args.modelProfile.sampling };
   const chunks = chunkTranscript(activeTranscript, tuning.recommendedChunkTokens);
 
   if (chunks.length === 0) {
@@ -1019,7 +1021,7 @@ export async function finalizeInterview(
     validationWarnings.push(degraded.warning);
   }
 
-  const tuning = args.modelProfile.perFamily['interview'];
+  const tuning = { ...args.modelProfile.perFamily['interview'], sampling: args.modelProfile.sampling };
   const chunks = chunkTranscript(activeTranscript, tuning.recommendedChunkTokens);
 
   if (chunks.length === 0) {
@@ -1087,6 +1089,7 @@ export async function finalizeInterview(
       transcript: activeTranscript,
       baseSeed: 7500,
       generator,
+      sampling: args.modelProfile.sampling,
     });
     if (r.ok) {
       merged = r.merged as unknown as Record<string, unknown>;
@@ -1225,7 +1228,7 @@ export async function finalizeBrainstorm(
     args.promptVariantId ? { userPreference: args.promptVariantId } : undefined,
   );
 
-  const tuning = args.modelProfile.perFamily['brainstorm'];
+  const tuning = { ...args.modelProfile.perFamily['brainstorm'], sampling: args.modelProfile.sampling };
   const chunks = chunkTranscript(args.transcript, tuning.recommendedChunkTokens);
 
   if (chunks.length === 0) {
@@ -1290,6 +1293,7 @@ export async function finalizeBrainstorm(
       transcript: args.transcript,
       baseSeed: 8500,
       generator,
+      sampling: args.modelProfile.sampling,
     });
     if (r.ok) {
       merged = r.merged as unknown as Record<string, unknown>;

@@ -1,5 +1,6 @@
 import type { z } from 'zod';
 import type { SidecarClient } from './client';
+import type { SamplingParams } from '@shared/ipc-protocol';
 import { TIMEOUTS } from './timeouts';
 
 /**
@@ -21,7 +22,8 @@ export type LlmGenerator = (opts: {
   seed: number;
   temperature: number;
   maxTokens: number;
-}) => Promise<{ text: string; seed: number; stats?: { tokensOut: number; genMs: number } }>;
+  sampling?: SamplingParams;
+}) => Promise<{ text: string; seed: number; stats?: { tokensOut: number; genMs: number; appliedSampling?: Record<string, number> } }>;
 
 /** Per-attempt observability record. Surfaces in both success + failure shapes. */
 export interface GrammarAttempt {
@@ -70,6 +72,9 @@ export interface GrammarCallOpts<T> {
   maxAttempts: number;
   maxTokens: number;
   generator: LlmGenerator;
+  /** Sampler knobs forwarded verbatim to the generator on every attempt.
+   *  Omitting yields the C++ aligned defaults (spec sampler-alignment §5). */
+  sampling?: SamplingParams;
   /**
    * Session language for the grounding guard (`findLanguageMismatch`). When
    * 'ja', an attempt whose user-visible strings carry ~zero Japanese script
@@ -384,6 +389,7 @@ export async function callWithGrammar<T>(
         seed,
         temperature: opts.temperature,
         maxTokens: opts.maxTokens,
+        sampling: opts.sampling,
       });
       stats = r.stats;
       const parsed = JSON.parse(r.text);
@@ -443,7 +449,8 @@ export interface GrammarCapableSidecar {
     seed: number;
     temperature: number;
     maxTokens: number;
-  }): Promise<{ text: string; seed: number; stats?: { tokensOut: number; genMs: number } }>;
+    sampling?: SamplingParams;
+  }): Promise<{ text: string; seed: number; stats?: { tokensOut: number; genMs: number; appliedSampling?: Record<string, number> } }>;
 }
 
 /**
@@ -452,8 +459,8 @@ export interface GrammarCapableSidecar {
  * to the real client.
  */
 export function makeSidecarGenerator(client: GrammarCapableSidecar): LlmGenerator {
-  return async ({ prompt, system, grammar, seed, temperature, maxTokens }) =>
-    client.generateWithGrammar({ prompt, system, grammar, seed, temperature, maxTokens });
+  return async ({ prompt, system, grammar, seed, temperature, maxTokens, sampling }) =>
+    client.generateWithGrammar({ prompt, system, grammar, seed, temperature, maxTokens, sampling });
 }
 
 /**
@@ -465,9 +472,9 @@ export function makeSidecarGenerator(client: GrammarCapableSidecar): LlmGenerato
  */
 export function makeGrammarSidecar(client: SidecarClient): GrammarCapableSidecar {
   return {
-    async generateWithGrammar({ prompt, system, grammar, seed, temperature, maxTokens }) {
+    async generateWithGrammar({ prompt, system, grammar, seed, temperature, maxTokens, sampling }) {
       let text = '';
-      let stats: { tokensOut: number; genMs: number } | undefined;
+      let stats: { tokensOut: number; genMs: number; appliedSampling?: Record<string, number> } | undefined;
       for await (const tok of client.sendStream(
         {
           type: 'generate',
@@ -478,6 +485,7 @@ export function makeGrammarSidecar(client: SidecarClient): GrammarCapableSidecar
           seed,
           temperature,
           maxTokens,
+          sampling,
         },
         { timeoutMs: TIMEOUTS.GENERATE_NO_PROGRESS_MS, onDone: (s) => { stats = s; } },
       )) {
