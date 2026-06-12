@@ -118,6 +118,7 @@ class SessionDumpImpl implements SessionDump {
           seed: req.seed,
           temperature: req.temperature,
           maxTokens: req.maxTokens,
+          sampling: req.sampling,
           promptChars: (req.system?.length ?? 0) + req.prompt.length,
           grammarFile,
           system: req.system,
@@ -133,6 +134,7 @@ class SessionDumpImpl implements SessionDump {
             rawText: r.text,
             tokensOut: r.stats?.tokensOut,
             genMs: r.stats?.genMs,
+            appliedSampling: r.stats?.appliedSampling,
           });
           return r;
         } catch (err) {

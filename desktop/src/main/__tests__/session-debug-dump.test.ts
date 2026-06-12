@@ -106,6 +106,26 @@ describe('createSessionDump', () => {
     expect(r2.text).toBe('{"title":"テスト"}');
   });
 
+  it('wrapSidecar records sampling and appliedSampling in the ndjson line', async () => {
+    const dump = createSessionDump({ baseDir })!;
+    const inner: GrammarCapableSidecar = {
+      generateWithGrammar: vi.fn().mockResolvedValue({
+        text: '{"ok":1}',
+        seed: 5000,
+        stats: { tokensOut: 5, genMs: 10, appliedSampling: { topK: 40 } },
+      }),
+    };
+    const wrapped = dump.wrapSidecar(inner);
+    await wrapped.generateWithGrammar({ ...CALL_OPTS, sampling: { topK: 40 } });
+
+    const lines = readNdjson(dump.dir);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({
+      sampling: { topK: 40 },
+      appliedSampling: { topK: 40 },
+    });
+  });
+
   it('wrapSidecar records a failed call with the error and rethrows', async () => {
     const dump = createSessionDump({ baseDir })!;
     const inner: GrammarCapableSidecar = {
