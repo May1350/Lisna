@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import type { RecordingSource } from '@shared/ipc-protocol';
+import type { DumpSummary, RecordingSource } from '@shared/ipc-protocol';
 import type { Language, TranscriptSegment } from '@shared/types';
 import { RecordingOrchestrator } from '../audio/orchestrator';
 import { createCapturer } from '../audio/worklet-capturer';
+import { HistoryList } from '../components/HistoryList';
 import { SystemAudioUnavailableNotice } from '../components/SystemAudioUnavailableNotice';
 import { Spinner } from '../components/Spinner';
 
@@ -24,9 +25,14 @@ interface Props {
    */
   onStop: () => void;
   onError: (message: string) => void;
+  /**
+   * F2 — parent owns the FSM; Recording signals the user's intent to open a
+   * history entry and the parent transitions to { kind: 'history', id }.
+   */
+  onOpenHistory: (id: string) => void;
 }
 
-export function Recording({ segments, onStop, onError }: Props) {
+export function Recording({ segments, onStop, onError, onOpenHistory }: Props) {
   const [running, setRunning] = useState(false);
   const [starting, setStarting] = useState(false);
   // Flips true SLOW_LOAD_HINT_MS into the `starting=true` window so we can
@@ -46,6 +52,7 @@ export function Recording({ segments, onStop, onError }: Props) {
   // capabilities round-trip confirms it. A slow IPC response should NOT
   // let the user click the system radio and then fail downstream.
   const [systemAudioAvailable, setSystemAudioAvailable] = useState(false);
+  const [dumps, setDumps] = useState<DumpSummary[]>([]);
   const orchRef = useRef<RecordingOrchestrator | null>(null);
   // Synchronous re-click guard within a single component instance. setState is
   // async — a second click that arrives before the next React render still
@@ -64,6 +71,19 @@ export function Recording({ segments, onStop, onError }: Props) {
       cancelled = true;
     };
   }, []);
+
+  // F2 history list: fetch dump summaries when idle (not running/starting).
+  // Refreshes each time a recording ends (running flips false). Best-effort:
+  // an IPC error just hides the list rather than surfacing an error banner.
+  useEffect(() => {
+    if (running || starting) return;
+    let cancelled = false;
+    void window.lisna
+      .listDumps()
+      .then((d) => { if (!cancelled) setDumps(d); })
+      .catch(() => { /* history is best-effort; an IPC error just hides it */ });
+    return () => { cancelled = true; };
+  }, [running, starting]);
 
   // Slow-load hint timer. Schedule once when `starting` flips true; clear
   // on cleanup so a fast resolution doesn't leave a stale flip pending. The
@@ -244,6 +264,7 @@ export function Recording({ segments, onStop, onError }: Props) {
           </ul>
         </div>
       )}
+      {!running && !starting && <HistoryList dumps={dumps} onOpen={onOpenHistory} />}
     </section>
   );
 }

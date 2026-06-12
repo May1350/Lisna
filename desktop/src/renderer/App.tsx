@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Recording } from './routes/Recording';
+import { History } from './routes/History';
 import { NoteView } from './routes/NoteView';
 import { ErrorView } from './routes/ErrorView';
 import { SetupView } from './routes/SetupView';
@@ -9,14 +10,17 @@ import { NoteRenderProgress, type ProgressState } from './components/NoteRenderP
 import type { Note, TranscriptSegment } from '@shared/types';
 import type { NoteBase, NoteFamily } from '@shared/note-schema';
 
+export type ErrorOrigin = { kind: 'live' } | { kind: 'dump'; id: string };
+
 type View =
   | { kind: 'booting' }
   | { kind: 'setup'; initialStep: 'stt' | 'llm'; initialError?: string }
   | { kind: 'recording'; segments: TranscriptSegment[] }
+  | { kind: 'history'; id: string }
   | { kind: 'familyPicking'; segments: TranscriptSegment[] }
   | { kind: 'curatingV2'; segments: TranscriptSegment[]; progress: ProgressState | null }
   | { kind: 'note'; note: Note | NoteBase }
-  | { kind: 'error'; message: string; segments: TranscriptSegment[]; permanent?: boolean };
+  | { kind: 'error'; message: string; segments: TranscriptSegment[]; permanent?: boolean; origin?: ErrorOrigin };
 
 /**
  * Phase M Task 70 — top-level auth gate.
@@ -235,6 +239,20 @@ function renderView(view: View, setView: (next: View | ((p: View) => View)) => v
               return { kind: 'error', message, segments, permanent };
             })
           }
+          onOpenHistory={(id) => setView({ kind: 'history', id })}
+        />
+      );
+    case 'history':
+      return (
+        <History
+          id={view.id}
+          onBack={() => setView({ kind: 'recording', segments: [] })}
+          onRegenerate={(family, segments) => {
+            // Mirror the live picker flow: mount progress synchronously,
+            // then run the from-dump finalize.
+            setView({ kind: 'curatingV2', segments: [...segments], progress: { phase: 'loading' } });
+            void runFinalizeFromDump(view.id, family, setView);
+          }}
         />
       );
     case 'familyPicking':
@@ -280,7 +298,9 @@ function renderView(view: View, setView: (next: View | ((p: View) => View)) => v
           // lecture). Main keeps `current` alive on finalize failure
           // (ipc.ts:354), so FamilyPicker → finalize re-runs against the same
           // accumulated transcript — no re-recording, no lost captions.
-          onRetry={() => setView({ kind: 'familyPicking', segments: view.segments })}
+          // Review P0-3: from-dump errors route back to History (no live
+          // session exists to retry against); live/legacy errors keep F1 edge.
+          onRetry={() => setView(retryViewFor(view))}
           // Abandon this recording: drop main-side session, start fresh.
           onDiscard={() => {
             void window.lisna.discardSession();
@@ -289,6 +309,23 @@ function renderView(view: View, setView: (next: View | ((p: View) => View)) => v
         />
       );
   }
+}
+
+/**
+ * Review P0-3: ErrorView's retry edge is origin-aware. Live-origin (or
+ * legacy origin-less) failures keep the F1 edge — familyPicking against the
+ * preserved live transcript (`current` survives failure, ipc.ts P0-3). A
+ * from-dump failure has NO live session, so retry routes back to the History
+ * detail where the family is re-pickable and regenerate re-dispatches
+ * finalizeFromDump.
+ */
+export function retryViewFor(error: {
+  origin?: ErrorOrigin;
+  segments: TranscriptSegment[];
+}): View {
+  return error.origin?.kind === 'dump'
+    ? { kind: 'history', id: error.origin.id }
+    : { kind: 'familyPicking', segments: error.segments };
 }
 
 /**
@@ -330,6 +367,34 @@ async function runFinalize(
       const segments = inFlightSegments(prev);
       const permanent = message.includes('SIDECAR_GAVE_UP') || undefined;
       return { kind: 'error', message, segments, permanent };
+    });
+  }
+}
+
+/**
+ * From-dump twin of runFinalize. Failure carries `origin: {kind:'dump', id}`
+ * so the ErrorView retry edge routes back to History (review P0-3) instead
+ * of the live finalize (which would deterministically NO_ACTIVE_SESSION).
+ */
+async function runFinalizeFromDump(
+  id: string,
+  family: NoteFamily,
+  setView: (next: View | ((p: View) => View)) => void,
+): Promise<void> {
+  try {
+    const result = await window.lisna.finalizeFromDump({ id, family });
+    setView({ kind: 'note', note: result.note });
+  } catch (err) {
+    const message = String((err as Error)?.message ?? err);
+    if (message.includes('APP_QUIT')) return;
+    setView((prev) => {
+      if (prev.kind === 'error') return prev;
+      return {
+        kind: 'error',
+        message,
+        segments: inFlightSegments(prev),
+        origin: { kind: 'dump', id },
+      };
     });
   }
 }
