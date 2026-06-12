@@ -4,6 +4,7 @@ import type { NoteFamily } from '@shared/note-schema';
 import type { TranscriptSegment } from '@shared/types';
 import { FamilyPickerStep } from '../components/FamilyPickerStep';
 import { Spinner } from '../components/Spinner';
+import { toFriendlyJa } from '../i18n/error-message-map';
 
 /**
  * F2 history viewer — detail route. Read-only transcript + family picker +
@@ -63,9 +64,11 @@ export function History({ id, onBack, onRegenerate }: Props) {
   }, [id]);
 
   if (error) {
+    // Raw contract codes (DUMP_NOT_FOUND etc.) must never reach the user —
+    // resolve through the same JA map as ErrorView / ModelPickerStep.
     return (
       <section data-testid="history-detail-error">
-        <p>履歴を読み込めませんでした ({error})</p>
+        <p>{toFriendlyJa(error)}</p>
         <button onClick={onBack}>← 戻る</button>
       </section>
     );

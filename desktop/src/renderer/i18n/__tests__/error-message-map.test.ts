@@ -8,7 +8,7 @@ import {
 } from '../error-message-map';
 
 describe('error-message-map (JA)', () => {
-  it('covers all 21 known codes (Step 5 §3.2 + §5.1 + fabrication guard)', () => {
+  it('covers all 24 known codes (Step 5 §3.2 + §5.1 + fabrication guard + history dumps)', () => {
     // Coverage contract: every code we throw from anywhere in main/ has a
     // corresponding JA copy. This list is duplicated in main/ipc.ts and
     // main/sidecar/timeouts.ts as bare string throws — if a new code is
@@ -36,6 +36,10 @@ describe('error-message-map (JA)', () => {
       'MODEL_READ_FAILED',
       'PICKER_CANCELLED',
       'MODEL_SAVE_FAILED',
+      // F2 history viewer — loadDump contract (session-dump-reader.ts)
+      'INVALID_DUMP_ID',
+      'DUMP_NOT_FOUND',
+      'DUMP_UNREADABLE',
     ];
     expect(ALL_ERROR_CODES).toEqual(expect.arrayContaining(expectedCodes));
     expect(ALL_ERROR_CODES).toHaveLength(expectedCodes.length);
