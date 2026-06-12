@@ -63,6 +63,28 @@ export interface ChatMessage {
   content: string;
 }
 
+/**
+ * Sampler knobs for `generate` — single-sourced from `profiles.ts`
+ * (spec 2026-06-12-v2-track2-sampler-alignment section 5). All optional at
+ * the IPC boundary; the C++ GenOpts defaults equal the ALIGNED values, so an
+ * omitted field still yields aligned behavior (NOT the legacy chain).
+ * `repeatPenalty` 1.0 = off (rig-only knob in practice — it reproduces the
+ * legacy fabrication config in the falsification matrix).
+ */
+export interface SamplingParams {
+  topK?: number;
+  topP?: number;
+  minP?: number;
+  repeatPenalty?: number;
+  repeatLastN?: number;
+  /** 0.0 disables DRY entirely. */
+  dryMultiplier?: number;
+  dryBase?: number;
+  dryAllowedLength?: number;
+  /** -1 = scan the whole context. */
+  dryPenaltyLastN?: number;
+}
+
 export type SidecarRequest =
   | { id: string; type: 'ping' }
   | { id: string; type: 'load'; kind: 'stt'; path: string; language: Language }
@@ -84,6 +106,9 @@ export type SidecarRequest =
       grammar?: string;
       /** RNG seed. Present only on the grammar-constrained (retry) path. */
       seed?: number;
+      /** Sampler knobs (spec sampler-alignment section 5). Omitted fields
+       *  fall back to the C++ aligned defaults. */
+      sampling?: SamplingParams;
     };
 
 export type SidecarResponse =
