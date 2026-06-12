@@ -318,8 +318,18 @@ std::string dispatch(const std::string& jsonLine) {
     }
     const auto gen_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - gen_t0).count();
+    // Delivery proof (spec section 5): echo the values the chain actually
+    // used so the rig + #113 dumps can verify end-to-end param transport
+    // instead of trusting the request.
     return nlohmann::json{{"id", id}, {"type", "done"},
-        {"stats", {{"tokensOut", tokens_out}, {"genMs", gen_ms}}}}.dump();
+        {"stats", {{"tokensOut", tokens_out}, {"genMs", gen_ms},
+                   {"appliedSampling", {
+                       {"topK", opts.topK}, {"topP", opts.topP}, {"minP", opts.minP},
+                       {"repeatPenalty", opts.repeatPenalty}, {"repeatLastN", opts.repeatLastN},
+                       {"dryMultiplier", opts.dryMultiplier}, {"dryBase", opts.dryBase},
+                       {"dryAllowedLength", opts.dryAllowedLength},
+                       {"dryPenaltyLastN", opts.dryPenaltyLastN},
+                       {"temperature", opts.temperature}, {"maxTokens", opts.maxTokens}}}}}}.dump();
   }
 
   return nlohmann::json{
