@@ -385,4 +385,57 @@ TEST(Utf8Carry, NlohmannDumpReplaceHandlerDoesNotThrowOnInvalidByte) {
   nlohmann::json reparsed;
   ASSERT_NO_THROW(reparsed = nlohmann::json::parse(out));
   (void)reparsed;
+// ─── gen_opts_from: sampling parsing (spec sampler-alignment section 5) ─────
+
+TEST(GenOptsFrom, DefaultsAreAlignedWhenSamplingOmitted) {
+  json req = {{"id", "1"}, {"type", "generate"},
+              {"messages", json::array({{{"role", "user"}, {"content", "hi"}}})}};
+  auto opts = lisna::ipc::gen_opts_from(req);
+  EXPECT_EQ(opts.topK, 40);
+  EXPECT_FLOAT_EQ(opts.topP, 0.95f);
+  EXPECT_FLOAT_EQ(opts.minP, 0.05f);
+  EXPECT_FLOAT_EQ(opts.repeatPenalty, 1.0f);
+  EXPECT_EQ(opts.repeatLastN, 64);
+  EXPECT_FLOAT_EQ(opts.dryMultiplier, 0.8f);
+  EXPECT_FLOAT_EQ(opts.dryBase, 1.75f);
+  EXPECT_EQ(opts.dryAllowedLength, 2);
+  EXPECT_EQ(opts.dryPenaltyLastN, -1);
+  EXPECT_EQ(opts.maxTokens, 1024);
+  EXPECT_FLOAT_EQ(opts.temperature, 0.4f);
+}
+
+TEST(GenOptsFrom, SamplingOverridesApply) {
+  json req = {{"id", "1"}, {"type", "generate"},
+              {"messages", json::array({{{"role", "user"}, {"content", "hi"}}})},
+              {"maxTokens", 3000}, {"temperature", 0.5},
+              {"sampling", {{"topK", 50}, {"topP", 0.9}, {"minP", 0.0},
+                            {"repeatPenalty", 1.1}, {"repeatLastN", 64},
+                            {"dryMultiplier", 0.0}}}};
+  auto opts = lisna::ipc::gen_opts_from(req);
+  EXPECT_EQ(opts.topK, 50);
+  EXPECT_FLOAT_EQ(opts.topP, 0.9f);
+  EXPECT_FLOAT_EQ(opts.minP, 0.0f);
+  EXPECT_FLOAT_EQ(opts.repeatPenalty, 1.1f);   // legacy-config reproduction (matrix R2/R3)
+  EXPECT_FLOAT_EQ(opts.dryMultiplier, 0.0f);   // DRY disabled per request
+  EXPECT_FLOAT_EQ(opts.dryBase, 1.75f);        // unspecified field keeps default
+}
+
+TEST(GenerateRequest, RejectsNonObjectSampling) {
+  // Through the public dispatch path: shape errors surface BEFORE the
+  // engine-state check, so this works with no model loaded.
+  json req = {{"id", "9"}, {"type", "generate"},
+              {"messages", json::array({{{"role", "user"}, {"content", "hi"}}})},
+              {"sampling", "fast"}};
+  auto out = json::parse(lisna::ipc::dispatch_or_error(req.dump()));
+  EXPECT_EQ(out["type"], "error");
+  EXPECT_EQ(out["code"], "invalid_type");
+}
+
+TEST(GenerateRequest, RejectsNonNumericSamplingField) {
+  json req = {{"id", "9"}, {"type", "generate"},
+              {"messages", json::array({{{"role", "user"}, {"content", "hi"}}})},
+              {"sampling", {{"topK", "many"}}}};
+  auto out = json::parse(lisna::ipc::dispatch_or_error(req.dump()));
+  EXPECT_EQ(out["type"], "error");
+  EXPECT_EQ(out["code"], "invalid_type");
 }

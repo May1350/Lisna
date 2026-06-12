@@ -268,14 +268,20 @@ std::string dispatch(const std::string& jsonLine) {
       return err("invalid_type", "grammar must be string");
     if (req.contains("seed") && !req["seed"].is_number_integer())
       return err("invalid_type", "seed must be integer");
+    // sampling shape guard (spec sampler-alignment section 5): object of
+    // numeric fields. Validated BEFORE engine state like grammar/seed above.
+    if (req.contains("sampling")) {
+      if (!req["sampling"].is_object())
+        return err("invalid_type", "sampling must be object");
+      for (const auto& [k, v] : req["sampling"].items()) {
+        if (!v.is_number())
+          return err("invalid_type", "sampling." + k + " must be number");
+      }
+    }
     // Engine-state check runs AFTER shape validation so callers get accurate
     // diagnostics regardless of order.
     if (!g_llm || !g_llm->loaded()) return err("not_loaded", "llm not loaded");
-    lisna::llm::GenOpts opts;
-    opts.maxTokens = req.value("maxTokens", 1024);
-    opts.temperature = req.value("temperature", 0.4f);
-    opts.grammar = req.value("grammar", std::string{});
-    if (req.contains("seed")) opts.seed = req["seed"].get<uint32_t>();
+    lisna::llm::GenOpts opts = gen_opts_from(req);
     // Decode-speed instrumentation (1-min note target, 2026-06-10): count
     // sampled tokens + wall time so the TS telemetry can compute tok/s per
     // attempt. tokens_out is incremented on every lambda CALL (one per sampled
@@ -319,6 +325,27 @@ std::string dispatch(const std::string& jsonLine) {
   return nlohmann::json{
       {"id", id}, {"type", "error"}, {"code", "unimpl"}, {"message", type}
   }.dump();
+}
+
+lisna::llm::GenOpts gen_opts_from(const nlohmann::json& req) {
+  lisna::llm::GenOpts opts;
+  opts.maxTokens = req.value("maxTokens", opts.maxTokens);
+  opts.temperature = req.value("temperature", opts.temperature);
+  opts.grammar = req.value("grammar", std::string{});
+  if (req.contains("seed")) opts.seed = req["seed"].get<uint32_t>();
+  if (req.contains("sampling")) {
+    const auto& s = req["sampling"];
+    opts.topK = s.value("topK", opts.topK);
+    opts.topP = s.value("topP", opts.topP);
+    opts.minP = s.value("minP", opts.minP);
+    opts.repeatPenalty = s.value("repeatPenalty", opts.repeatPenalty);
+    opts.repeatLastN = s.value("repeatLastN", opts.repeatLastN);
+    opts.dryMultiplier = s.value("dryMultiplier", opts.dryMultiplier);
+    opts.dryBase = s.value("dryBase", opts.dryBase);
+    opts.dryAllowedLength = s.value("dryAllowedLength", opts.dryAllowedLength);
+    opts.dryPenaltyLastN = s.value("dryPenaltyLastN", opts.dryPenaltyLastN);
+  }
+  return opts;
 }
 
 std::string dispatch_or_error(const std::string& jsonLine) {
