@@ -53,6 +53,9 @@ export async function buildDumpSessionContext<C>(
       throw new Error('SIDECAR_DOWN');
     }
   }
+  // loadLlm failures propagate RAW (no contract code) on purpose — the live
+  // finalize path surfaces llm.loadModel errors the same way; only the spawn
+  // above maps to SIDECAR_DOWN.
   await deps.loadLlm(client, paths.llmPath);
 
   return {

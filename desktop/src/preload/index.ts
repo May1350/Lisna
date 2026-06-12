@@ -76,7 +76,9 @@ contextBridge.exposeInMainWorld('lisna', {
   /**
    * Regenerate a note from a dump transcript. Same result shape as
    * `finalize`. Rejects with SESSION_ACTIVE while recording, and with
-   * FINALIZE_IN_FLIGHT when another finalize is running.
+   * FINALIZE_IN_FLIGHT when another finalize is running. Can also reject
+   * with the dump-context guard codes — see getDumpSession in
+   * session-finalize.ts for the full set.
    */
   finalizeFromDump: (args: SessionFinalizeFromDumpArgs): Promise<SessionFinalizeResult> =>
     ipcRenderer.invoke(CHANNELS.sessionFinalizeFromDump, args),

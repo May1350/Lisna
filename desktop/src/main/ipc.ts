@@ -234,6 +234,9 @@ function makeRecoveringSidecarFor(llmPath: string): GrammarCapableSidecar {
       log.warn('[finalize] generate stalled (no progress) — restarting sidecar + reloading LLM');
       const t0 = Date.now();
       try {
+        // `!` is safe: recover is only reachable via a sidecar handed out AFTER
+        // registerIpc set _depsRef; getSidecar's `?.` handles the pre-registerIpc
+        // construction window (never reached in production).
         const fresh = await _depsRef!.supervisor.restart();
         await fresh.waitForReady(5000);
         await new LlamaCppLLM(fresh).loadModel(llmPath);
@@ -362,6 +365,10 @@ export function registerIpc(deps: IpcDeps) {
     // regen runs (P0-1; buildDumpSessionContext never calls createSessionDump).
     getDumpSession: async (id: string) => {
       cancelIdleStop(); // regen is "in use" — settle re-arms via onSessionSettled
+      // loadLlm runs UNCONDITIONALLY here (no _llmLoadedForCurrent-style cache):
+      // every settle runs unloadLlmIdle, so a dump-run cache would be defeated
+      // on the back-to-back regen path anyway. Do not "optimize" this into a
+      // stale-cache bug.
       return buildDumpSessionContext(id, {
         baseDir: sessionsBaseDir(),
         isLiveSessionActive: () => current !== null || recording,
@@ -457,6 +464,9 @@ export function registerIpc(deps: IpcDeps) {
   ipcMain.handle(CHANNELS.sessionStart, async (_e, { language }: SessionStartPayload) => {
     if (_sidecarGaveUp) throw new Error('SIDECAR_GAVE_UP');
     if (current !== null) throw new Error('SESSION_ACTIVE');
+    // NOTE: a from-dump finalize holds finalizeInFlight WITHOUT setting `current`,
+    // so this guard alone doesn't block start-during-regen — the renderer FSM
+    // (curatingV2 has no record button) gates that overlap.
     // Minimal EN support (2026-06-10): ja + en accepted. ko/zh stay gated —
     // prompts are adapted via renderSystemTemplate but un-eval'd, and the
     // bundled STT models cover ja (kotoba) / multilingual (large-v3-turbo).
