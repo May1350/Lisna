@@ -22,8 +22,11 @@ const ROWS: DumpSummary[] = [
 ];
 
 describe('HistoryList', () => {
-  it('renders nothing for an empty list', () => {
-    expect(renderToStaticMarkup(<HistoryList dumps={[]} onOpen={() => {}} />)).toBe('');
+  it('renders the quiet empty-state line for an empty list', () => {
+    const html = renderToStaticMarkup(<HistoryList dumps={[]} onOpen={() => {}} />);
+    expect(html).toContain('まだ履歴がありません');
+    expect(html).toContain('history-section');
+    expect(html).not.toContain('history-row-');
   });
 
   it('renders a button row per readable dump with duration + status badge', () => {

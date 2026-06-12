@@ -5,6 +5,10 @@ import type { DumpSummary } from '@shared/ipc-protocol';
  * Recording view. Pure/presentational (static-markup testable); the parent
  * fetches via window.lisna.listDumps(). Work-surface rules: tokens only,
  * no decoration (web-design.md scope-boundary).
+ *
+ * Empty list: renders the section with a quiet placeholder line per spec §4
+ * ("まだ履歴がありません") — NOT null. Returning null hides the section
+ * entirely, which is spec-wrong; the heading should be present for orientation.
  */
 interface Props {
   dumps: DumpSummary[];
@@ -22,7 +26,14 @@ function formatRecordedAt(iso: string): string {
 }
 
 export function HistoryList({ dumps, onOpen }: Props) {
-  if (dumps.length === 0) return null;
+  if (dumps.length === 0) {
+    return (
+      <div data-testid="history-section">
+        <h3>History</h3>
+        <p style={{ color: '#999', fontSize: '0.9em' }}>まだ履歴がありません</p>
+      </div>
+    );
+  }
   return (
     <div data-testid="history-section">
       <h3>History</h3>
