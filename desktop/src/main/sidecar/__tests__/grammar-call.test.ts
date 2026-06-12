@@ -789,3 +789,24 @@ describe('callWithGrammar — system passthrough', () => {
     expect(seen).toEqual(['SYS']);
   });
 });
+
+describe('callWithGrammar — onAttemptStart hook (finalize progress UI)', () => {
+  it('fires before each attempt generator call with (attempt, seed)', async () => {
+    const order: string[] = [];
+    let calls = 0;
+    const generator: LlmGenerator = async ({ seed }) => {
+      order.push(`gen:${seed}`);
+      calls++;
+      if (calls === 1) throw new Error('fail-once');
+      return { text: JSON.stringify({ name: 'ok', n: 1 }), seed };
+    };
+    const out = await callWithGrammar({
+      prompt: 'p', schema: SimpleSchema, grammar: 'g', baseSeed: 3000,
+      temperature: 0.5, maxAttempts: 3, maxTokens: 256, generator,
+      onAttemptStart: (attempt, seed) => order.push(`start:${attempt}:${seed}`),
+    });
+    expect(out.ok).toBe(true);
+    // Each start precedes its generator call; the retry start carries the +100 seed.
+    expect(order).toEqual(['start:1:3000', 'gen:3000', 'start:2:3100', 'gen:3100']);
+  });
+});

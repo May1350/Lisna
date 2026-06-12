@@ -8,6 +8,7 @@ import type {
   SessionStartPayload,
   SessionPhasePayload,
   SessionErrorPayload,
+  FinalizeProgressPayload,
   ModelStatus,
   ModelSlot,
   PickResult,
@@ -106,6 +107,17 @@ contextBridge.exposeInMainWorld('lisna', {
   },
 
   /**
+   * Subscribe to real finalize progress (chunk N/M, attempt, phase) pushed
+   * while `finalize` / `finalizeFromDump` runs. Returns an unsubscribe
+   * function — same useEffect-cleanup contract as onChunk / onPhase.
+   */
+  onFinalizeProgress: (cb: (msg: FinalizeProgressPayload) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, msg: FinalizeProgressPayload) => cb(msg);
+    ipcRenderer.on(CHANNELS.sessionFinalizeProgress, listener);
+    return () => ipcRenderer.removeListener(CHANNELS.sessionFinalizeProgress, listener);
+  },
+
+  /**
    * Step 5 §3.6 — fire-and-forget restart. Calls main's lifecycle/restart IPC
    * which runs `app.relaunch() + app.quit()`. The current window's webContents
    * will be torn down by the resulting before-quit cycle, so the returned
@@ -174,6 +186,7 @@ declare global {
       finalizeFromDump(args: SessionFinalizeFromDumpArgs): Promise<SessionFinalizeResult>;
       onPhase(cb: (msg: SessionPhasePayload) => void): () => void;
       onSessionError(cb: (msg: SessionErrorPayload) => void): () => void;
+      onFinalizeProgress(cb: (msg: FinalizeProgressPayload) => void): () => void;
       restartApp(): Promise<void>;
       getModelStatus(): Promise<ModelStatus>;
       pickModel(slot: ModelSlot): Promise<PickResult>;

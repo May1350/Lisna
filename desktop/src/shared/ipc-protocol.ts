@@ -134,6 +134,33 @@ export interface SessionErrorPayload {
   permanent?: boolean;
 }
 
+// --- v2 finalize progress (founder ask 2026-06-13) ---
+
+/**
+ * Pushed main → renderer over CHANNELS.sessionFinalizeProgress while a
+ * session/finalize (live or from-dump) runs. Each payload is derived 1:1
+ * from a real FinalizeTelemetryEvent emission in the orchestrator — never
+ * synthesized (no fake progress). Granularity is chunk/attempt/phase; there
+ * is deliberately NO per-token event (IPC overhead on the generate path).
+ *
+ * Deliberately minimal: no family/seed/latency, and no `reason` — failure
+ * reasons can embed note-content samples (ESCAPE_LITERAL_AT_<path>:"…"),
+ * which the shape-only PII contract keeps out of this channel.
+ */
+export type FinalizeProgressPayload =
+  | {
+      kind: 'attempt-start';
+      /** 0-based. */
+      chunkIndex: number;
+      totalChunks: number;
+      /** 1-indexed attempt within the current chunk; ≥2 = retrying. */
+      attempt: number;
+      /** Worst-case attempts per chunk (outer × inner retry budget). */
+      maxAttempts: number;
+    }
+  | { kind: 'chunk-done'; chunkIndex: number; totalChunks: number }
+  | { kind: 'finalize-done' };
+
 // --- Step 5 §5.1 — first-run model resolver ---
 
 /**
