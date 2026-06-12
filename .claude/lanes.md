@@ -208,9 +208,6 @@ Format per line — fields separated by `|`:
 <!-- BEGIN PARSEABLE -->
 .|desktop/ docs/ backend/ infra/ shared/ .claude/|controller
 .claude/worktrees/spec-docs|docs/ .claude/commands/ .claude/skills/ .claude/hooks/ .claude/launch.json .claude/worktrees/|spec-docs
-.claude/worktrees/ci-playwright-fix|extension/package.json|ci-fix
-.claude/worktrees/sanitizer-latex-fix|desktop/src/main/ desktop/eval/|sanitizer-latex-fix
-.claude/worktrees/history-viewer|desktop/ docs/|history-viewer
-.claude/worktrees/sampler-alignment|desktop/src/shared/ desktop/sidecar/ desktop/__tests__/ desktop/eval/ desktop/scripts/|sampler-alignment
+.claude/worktrees/sampler-alignment|desktop/src/main/ desktop/src/shared/ desktop/sidecar/ desktop/__tests__/ desktop/eval/ desktop/scripts/|sampler-alignment
 seams: package.json pnpm-lock.yaml pnpm-workspace.yaml .github/workflows/ CLAUDE.md docs/PRD.md .claude/rules/ .claude/lanes.md .gitignore .gitattributes README.md tsconfig
 <!-- END PARSEABLE -->
