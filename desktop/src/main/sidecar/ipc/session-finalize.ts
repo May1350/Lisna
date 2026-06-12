@@ -119,10 +119,29 @@ export interface SessionFinalizeDeps {
    * `onSessionSettled`.
    */
   onTelemetry?: (e: FinalizeTelemetryEvent) => void;
+
+  /**
+   * F2 history viewer — resolve a dump-sourced SessionContext (ipc.ts wires
+   * buildDumpSessionContext). THROWS its guard errors (SESSION_ACTIVE /
+   * INVALID_DUMP_ID / DUMP_NOT_FOUND / DUMP_UNREADABLE / MODELS_NOT_CONFIGURED
+   * / SIDECAR_DOWN / UNSUPPORTED_LANGUAGE) rather than returning null — unlike
+   * getCurrentSession, "no such context" is always a caller error here.
+   *
+   * When omitted, session/finalize-from-dump rejects with DUMP_FINALIZE_UNAVAILABLE.
+   */
+  getDumpSession?: (id: string) => Promise<SessionContext>;
 }
 
-// ─── channel constant (mirrors CHANNELS in ipc.ts) ───────────────────────────
+// ─── channel constants (mirrors CHANNELS in ipc.ts) ──────────────────────────
 export const SESSION_FINALIZE_CHANNEL = 'session/finalize' as const;
+export const SESSION_FINALIZE_FROM_DUMP_CHANNEL = 'session/finalize-from-dump' as const;
+
+export interface SessionFinalizeFromDumpArgs {
+  /** Dump dir name under <userData>/sessions — validated main-side. */
+  id: string;
+  family: NoteFamily;
+  promptVariant?: string;
+}
 
 // ─── family routing (consolidated — was 4 near-identical route* fns) ────────
 
@@ -188,12 +207,25 @@ async function routeFamily(
 // ─── registration ────────────────────────────────────────────────────────────
 
 /**
- * Register the `session/finalize` ipcMain handler with the given deps.
+ * Register the `session/finalize` and `session/finalize-from-dump` ipcMain
+ * handlers with the given deps.
  * Call once from registerIpc() in main/ipc.ts.
+ *
+ * Both channels share a single `finalizeInFlight` flag (closure-scoped, fresh
+ * per registration call so test re-registrations each get a clean flag).
+ * Review P1-1: SESSION_ACTIVE only checked the live `current`; nothing
+ * prevented two concurrent finalizes (renderer double-fire, or live-vs-dump)
+ * from racing two generate streams over the single-threaded sidecar. One flag
+ * covers both channels registered by this call.
  */
 export function registerSessionFinalize(deps: SessionFinalizeDeps): void {
+  let finalizeInFlight = false;
+
   ipcMain.handle(SESSION_FINALIZE_CHANNEL, async (_e, args: SessionFinalizeArgs): Promise<SessionFinalizeResult> => {
     const { family, promptVariant } = args;
+
+    if (finalizeInFlight) throw new Error('FINALIZE_IN_FLIGHT');
+    finalizeInFlight = true;
 
     let settle: SessionSettleResult = { ok: false, family, error: 'FINALIZE_NOT_RUN' };
     try {
@@ -211,11 +243,42 @@ export function registerSessionFinalize(deps: SessionFinalizeDeps): void {
       settle = { ok: false, family, error: err instanceof Error ? err.message : String(err) };
       throw err;
     } finally {
+      finalizeInFlight = false;
       // Always notify — the caller (main/ipc.ts) uses `ok` to decide whether
       // to clear the orchestrator. On failure (ok=false) the orchestrator is
       // PRESERVED so the renderer's ErrorView retry can re-invoke finalize
       // against the same accumulated transcript (P0-3, 2026-06-09). The note /
       // error ride along for the per-finalize debug dump.
+      deps.onSessionSettled?.(settle);
+    }
+  });
+
+  ipcMain.handle(SESSION_FINALIZE_FROM_DUMP_CHANNEL, async (_e, args: SessionFinalizeFromDumpArgs): Promise<SessionFinalizeResult> => {
+    const { id, family, promptVariant } = args;
+
+    const getDumpSession = deps.getDumpSession;
+    if (!getDumpSession) throw new Error('DUMP_FINALIZE_UNAVAILABLE');
+    if (finalizeInFlight) throw new Error('FINALIZE_IN_FLIGHT');
+    finalizeInFlight = true;
+
+    let settle: SessionSettleResult = { ok: false, family, error: 'FINALIZE_NOT_RUN' };
+    try {
+      // Same family gate as the live channel — before getDumpSession so a
+      // garbage family can't trigger an LLM load.
+      if (!KNOWN_FAMILIES.has(family)) throw new Error(`UNKNOWN_FAMILY:${family as string}`);
+      const session = await getDumpSession(id);
+      const result = await routeFamily(session, family, promptVariant, deps.onTelemetry);
+      settle = { ok: true, family, note: result.note };
+      return result;
+    } catch (err) {
+      settle = { ok: false, family, error: err instanceof Error ? err.message : String(err) };
+      throw err;
+    } finally {
+      finalizeInFlight = false;
+      // Shared settle sink: ipc.ts unloads the LLM + re-arms idle-stop. The
+      // live-FSM mutations in there are no-ops for dump runs (`current` is
+      // null — the SESSION_ACTIVE guard in getDumpSession ensures it) and
+      // `_activeDump` is null (no dump created — P0-1), so reuse is safe.
       deps.onSessionSettled?.(settle);
     }
   });
