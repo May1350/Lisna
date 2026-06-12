@@ -124,6 +124,67 @@ export interface SessionFinalizeDeps {
 // ─── channel constant (mirrors CHANNELS in ipc.ts) ───────────────────────────
 export const SESSION_FINALIZE_CHANNEL = 'session/finalize' as const;
 
+// ─── family routing (consolidated — was 4 near-identical route* fns) ────────
+
+/** Runtime family gate — IPC payloads are un-typed JSON. Checked BEFORE any
+ * session resolution so UNKNOWN_FAMILY precedes NO_ACTIVE_SESSION (the
+ * pre-consolidation ordering; existing test case (g) sends family 'garbage'
+ * with a NULL session and expects UNKNOWN_FAMILY:). */
+const KNOWN_FAMILIES: ReadonlySet<string> = new Set([
+  'lecture', 'meeting', 'interview', 'brainstorm',
+]);
+
+/**
+ * Adapt a SessionContext (live OR dump-sourced) and dispatch to the family
+ * finalizer. Lecture takes no diarizationStatus; the other three run the
+ * alpha 'disabled' collapse (Plan 4 Phase B diarization is not yet plumbed
+ * into SessionContext, so multi-speaker families collapse to single-speaker
+ * and emit SINGLE_SPEAKER_WARNING). Brainstorm also disables diarization to
+ * stop hallucinated ideas[].contributed_by / next_steps[].owner from
+ * rendering phantom 提案者: 話者N tags.
+ *
+ * Accepts session as a parameter (rather than resolving getCurrentSession()
+ * internally) so the same function can be called with a dump-sourced context
+ * by the session/finalize-from-dump channel (Task 4).
+ */
+async function routeFamily(
+  session: SessionContext,
+  family: NoteFamily,
+  promptVariantId: string | undefined,
+  onTelemetry: SessionFinalizeDeps['onTelemetry'],
+): Promise<SessionFinalizeResult> {
+  // 1. Adapt legacy segments → v2 SessionTranscript
+  const transcript = adaptToV2Transcript(session.segments, session.sessionId);
+
+  // 2. Look up ModelProfile by llmModelPath filename
+  const basename = path.basename(session.llmModelPath);
+  const modelProfile = Object.values(modelProfiles).find((p) => p.filename === basename);
+  if (!modelProfile) throw new Error('UNKNOWN_MODEL_PROFILE');
+
+  const common = {
+    sessionId: session.sessionId,
+    transcript,
+    sidecar: session.sidecar,
+    modelProfile,
+    promptVariantId,
+    language: session.language,
+    onTelemetry,
+  };
+
+  // 3. Dispatch to the family finalizer
+  let result;
+  if (family === 'lecture') result = await finalizeLecture(common);
+  else if (family === 'meeting') result = await finalizeMeeting({ ...common, diarizationStatus: 'disabled' });
+  else if (family === 'interview') result = await finalizeInterview({ ...common, diarizationStatus: 'disabled' });
+  else if (family === 'brainstorm') result = await finalizeBrainstorm({ ...common, diarizationStatus: 'disabled' });
+  // Runtime exhaustiveness backstop — callers may send un-typed JSON over IPC.
+  // Unreachable through the handler (KNOWN_FAMILIES gate precedes this call)
+  // but load-bearing for any direct caller of routeFamily.
+  else throw new Error(`UNKNOWN_FAMILY:${family as string}`);
+
+  return { noteId: result.telemetry.noteId, note: result.note };
+}
+
 // ─── registration ────────────────────────────────────────────────────────────
 
 /**
@@ -137,14 +198,13 @@ export function registerSessionFinalize(deps: SessionFinalizeDeps): void {
     let settle: SessionSettleResult = { ok: false, family, error: 'FINALIZE_NOT_RUN' };
     try {
       // ── Family routing ────────────────────────────────────────────────────
-      let result: SessionFinalizeResult;
-      if (family === 'lecture') result = await routeLecture(deps, promptVariant);
-      else if (family === 'meeting') result = await routeMeeting(deps, promptVariant);
-      else if (family === 'interview') result = await routeInterview(deps, promptVariant);
-      else if (family === 'brainstorm') result = await routeBrainstorm(deps, promptVariant);
-      // TypeScript exhaustiveness guard — 'family' is typed but callers can
-      // send anything over IPC (un-typed JSON), so the runtime check matters.
-      else throw new Error(`UNKNOWN_FAMILY:${family as string}`);
+      // Family gate FIRST: preserves the pre-consolidation ordering where
+      // UNKNOWN_FAMILY beats NO_ACTIVE_SESSION — test (g) sends 'garbage'
+      // with a NULL session and expects UNKNOWN_FAMILY:.
+      if (!KNOWN_FAMILIES.has(family)) throw new Error(`UNKNOWN_FAMILY:${family as string}`);
+      const session = await deps.getCurrentSession();
+      if (!session) throw new Error('NO_ACTIVE_SESSION');
+      const result = await routeFamily(session, family, promptVariant, deps.onTelemetry);
       settle = { ok: true, family, note: result.note };
       return result;
     } catch (err) {
@@ -159,152 +219,4 @@ export function registerSessionFinalize(deps: SessionFinalizeDeps): void {
       deps.onSessionSettled?.(settle);
     }
   });
-}
-
-// ─── lecture route ────────────────────────────────────────────────────────────
-
-async function routeLecture(
-  deps: SessionFinalizeDeps,
-  promptVariantId: string | undefined,
-): Promise<SessionFinalizeResult> {
-  // 1. Read live session (this awaits the spec §9 LLM-load step)
-  const session = await deps.getCurrentSession();
-  if (!session) throw new Error('NO_ACTIVE_SESSION');
-
-  // 2. Adapt legacy segments → v2 SessionTranscript
-  //    Lecture is single-speaker (requiresDiarization: false) → speakerId = 0
-  const transcript = adaptToV2Transcript(session.segments, session.sessionId);
-
-  // 3. Look up ModelProfile by llmModelPath filename
-  const basename = path.basename(session.llmModelPath);
-  const modelProfile = Object.values(modelProfiles).find(
-    (p) => p.filename === basename,
-  );
-  if (!modelProfile) throw new Error('UNKNOWN_MODEL_PROFILE');
-
-  // 4. Delegate to finalizeLecture
-  const result = await finalizeLecture({
-    sessionId: session.sessionId,
-    transcript,
-    sidecar: session.sidecar,
-    modelProfile,
-    promptVariantId,
-    language: session.language,
-    onTelemetry: deps.onTelemetry,
-  });
-
-  // 5. Return placeholder noteId + the structured note. We thread
-  // telemetry.noteId (currently the 'live' placeholder; Task 13 assigns the
-  // real persistence ID) and the orchestrator-produced LectureNote so the
-  // renderer can render immediately without a second IPC round-trip.
-  return { noteId: result.telemetry.noteId, note: result.note };
-}
-
-// ─── meeting route ────────────────────────────────────────────────────────────
-
-async function routeMeeting(
-  deps: SessionFinalizeDeps,
-  promptVariantId: string | undefined,
-): Promise<SessionFinalizeResult> {
-  // 1. Read live session (this awaits the spec §9 LLM-load step)
-  const session = await deps.getCurrentSession();
-  if (!session) throw new Error('NO_ACTIVE_SESSION');
-
-  // 2. Adapt legacy segments → v2 SessionTranscript.
-  //    adaptToV2Transcript assigns speakerId=0 — fine for the alpha path because
-  //    diarizationStatus='disabled' collapses to single-speaker anyway.
-  const transcript = adaptToV2Transcript(session.segments, session.sessionId);
-
-  // 3. Look up ModelProfile by llmModelPath filename
-  const basename = path.basename(session.llmModelPath);
-  const modelProfile = Object.values(modelProfiles).find(
-    (p) => p.filename === basename,
-  );
-  if (!modelProfile) throw new Error('UNKNOWN_MODEL_PROFILE');
-
-  // 4. Delegate to finalizeMeeting.
-  //    diarizationStatus: 'disabled' — Plan 4 Phase B native diarization is not
-  //    yet plumbed into SessionContext, so the alpha meeting path collapses to
-  //    single-speaker and emits SINGLE_SPEAKER_WARNING into validation_warnings.
-  //    When Plan 4 B lands, SessionContext gains diarized turns and this flips
-  //    to 'ok'.
-  const result = await finalizeMeeting({
-    sessionId: session.sessionId,
-    transcript,
-    sidecar: session.sidecar,
-    modelProfile,
-    promptVariantId,
-    language: session.language,
-    diarizationStatus: 'disabled',
-    onTelemetry: deps.onTelemetry,
-  });
-
-  return { noteId: result.telemetry.noteId, note: result.note };
-}
-
-// ─── interview route ───────────────────────────────────────────────────────────
-
-async function routeInterview(
-  deps: SessionFinalizeDeps,
-  promptVariantId: string | undefined,
-): Promise<SessionFinalizeResult> {
-  // 1. Read live session (this awaits the spec §9 LLM-load step)
-  const session = await deps.getCurrentSession();
-  if (!session) throw new Error('NO_ACTIVE_SESSION');
-
-  const transcript = adaptToV2Transcript(session.segments, session.sessionId);
-
-  const basename = path.basename(session.llmModelPath);
-  const modelProfile = Object.values(modelProfiles).find((p) => p.filename === basename);
-  if (!modelProfile) throw new Error('UNKNOWN_MODEL_PROFILE');
-
-  // diarizationStatus: 'disabled' — same alpha rationale as routeMeeting: Plan 4
-  // Phase B native diarization is not yet plumbed into SessionContext, so the
-  // interview path collapses to single-speaker and emits SINGLE_SPEAKER_WARNING.
-  const result = await finalizeInterview({
-    sessionId: session.sessionId,
-    transcript,
-    sidecar: session.sidecar,
-    modelProfile,
-    promptVariantId,
-    language: session.language,
-    diarizationStatus: 'disabled',
-    onTelemetry: deps.onTelemetry,
-  });
-
-  return { noteId: result.telemetry.noteId, note: result.note };
-}
-
-// ─── brainstorm route ──────────────────────────────────────────────────────────
-
-async function routeBrainstorm(
-  deps: SessionFinalizeDeps,
-  promptVariantId: string | undefined,
-): Promise<SessionFinalizeResult> {
-  // 1. Read live session (this awaits the spec §9 LLM-load step)
-  const session = await deps.getCurrentSession();
-  if (!session) throw new Error('NO_ACTIVE_SESSION');
-
-  const transcript = adaptToV2Transcript(session.segments, session.sessionId);
-
-  const basename = path.basename(session.llmModelPath);
-  const modelProfile = Object.values(modelProfiles).find((p) => p.filename === basename);
-  if (!modelProfile) throw new Error('UNKNOWN_MODEL_PROFILE');
-
-  // diarizationStatus: 'disabled' — same alpha rationale as routeMeeting.
-  // Brainstorm never degrades the transcript (requiresDiarization=false), but
-  // the post-merge collapse stops hallucinated ideas[].contributed_by /
-  // next_steps[].owner from rendering phantom 提案者: 話者N tags.
-  const result = await finalizeBrainstorm({
-    sessionId: session.sessionId,
-    transcript,
-    sidecar: session.sidecar,
-    modelProfile,
-    promptVariantId,
-    language: session.language,
-    diarizationStatus: 'disabled',
-    onTelemetry: deps.onTelemetry,
-  });
-
-  return { noteId: result.telemetry.noteId, note: result.note };
 }
