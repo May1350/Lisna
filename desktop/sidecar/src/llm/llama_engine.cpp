@@ -253,19 +253,27 @@ bool LlamaEngine::generate(const std::vector<ChatMessage>& messages, const GenOp
   llama_token new_token = 0;
   char piece_buf[256];
 
-  while (generated < opts.maxTokens) {
-    if (llama_decode(impl_->ctx, batch) != 0) break;
-    new_token = llama_sampler_sample(smpl, impl_->ctx, -1);
-    if (llama_vocab_is_eog(impl_->vocab, new_token)) break;
+  // Wrap the decode loop so smpl is freed even if onToken throws (e.g. the
+  // Utf8Carry belt-and-braces JSON emit — any gap would re-expose the
+  // type_error.316 hang without this guard).
+  try {
+    while (generated < opts.maxTokens) {
+      if (llama_decode(impl_->ctx, batch) != 0) break;
+      new_token = llama_sampler_sample(smpl, impl_->ctx, -1);
+      if (llama_vocab_is_eog(impl_->vocab, new_token)) break;
 
-    // special=false: chat-template markers (e.g. `<|eot_id|>`) render as
-    // empty so they don't leak into the streamed token JSON.
-    const int32_t n = llama_token_to_piece(
-        impl_->vocab, new_token, piece_buf, sizeof(piece_buf), 0, false);
-    if (n > 0) onToken(std::string(piece_buf, n));
+      // special=false: chat-template markers (e.g. `<|eot_id|>`) render as
+      // empty so they don't leak into the streamed token JSON.
+      const int32_t n = llama_token_to_piece(
+          impl_->vocab, new_token, piece_buf, sizeof(piece_buf), 0, false);
+      if (n > 0) onToken(std::string(piece_buf, n));
 
-    ++generated;
-    batch = llama_batch_get_one(&new_token, 1);
+      ++generated;
+      batch = llama_batch_get_one(&new_token, 1);
+    }
+  } catch (...) {
+    llama_sampler_free(smpl);
+    throw;
   }
 
   llama_sampler_free(smpl);
