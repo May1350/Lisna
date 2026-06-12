@@ -45,6 +45,10 @@ export const ALL_ERROR_CODES = [
   'MODEL_READ_FAILED',
   'PICKER_CANCELLED',
   'MODEL_SAVE_FAILED',
+  // F2 history viewer (2026-06-12) — loadDump contract (session-dump-reader.ts)
+  'INVALID_DUMP_ID',
+  'DUMP_NOT_FOUND',
+  'DUMP_UNREADABLE',
 ] as const;
 
 export type ErrorCode = (typeof ALL_ERROR_CODES)[number];
@@ -103,6 +107,12 @@ export const ERROR_MESSAGE_MAP_JA: Record<ErrorCode, string> = {
     '選択がキャンセルされました。続行するにはファイルを選択してください。',
   MODEL_SAVE_FAILED:
     'モデル情報の保存に失敗しました。ディスクの空き容量とアクセス権限をご確認ください。',
+  INVALID_DUMP_ID:
+    'この録音履歴を開けませんでした。一覧から選び直してください。',
+  DUMP_NOT_FOUND:
+    'この録音履歴は見つかりませんでした。削除された可能性があります。',
+  DUMP_UNREADABLE:
+    'この録音履歴のデータが破損していて読み込めませんでした。',
 };
 
 /**

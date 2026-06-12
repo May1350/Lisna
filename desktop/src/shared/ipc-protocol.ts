@@ -194,3 +194,35 @@ export interface ModelPickPayload {
 export interface AuthState {
   signedIn: boolean;
 }
+
+// --- F2 history viewer (spec 2026-06-12-v2-history-viewer-design) ---
+
+/**
+ * One row of the History list. Derived from a #113 dump dir:
+ * `recordedAt` from the dir name; `language/llmModel/segmentCount/durationSec`
+ * from transcript.json's precomputed top-level fields; `family/ok` from
+ * result.json when present. `unreadable: true` rows render unselectable.
+ */
+export interface DumpSummary {
+  /** Dump dir name, e.g. `2026-06-11T03-00-00-000Z` (+ optional `-N`). */
+  id: string;
+  /** ISO timestamp parsed from the dir name. */
+  recordedAt: string;
+  language?: string;
+  llmModel?: string;
+  segmentCount?: number;
+  durationSec?: number;
+  family?: string;
+  ok?: boolean;
+  unreadable?: boolean;
+}
+
+/** Full transcript.json payload of one dump (see session-debug-dump.ts). */
+export interface DumpTranscript {
+  sessionId: string;
+  language: string;
+  llmModel: string;
+  segmentCount?: number;
+  durationSec?: number;
+  segments: TranscriptSegment[];
+}

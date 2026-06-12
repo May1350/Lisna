@@ -12,11 +12,14 @@ import type {
   ModelSlot,
   PickResult,
   ModelPickPayload,
+  DumpSummary,
+  DumpTranscript,
 } from '@shared/ipc-protocol';
 import type { Note } from '@shared/types';
 import type {
   SessionFinalizeArgs,
   SessionFinalizeResult,
+  SessionFinalizeFromDumpArgs,
 } from '../main/sidecar/ipc/session-finalize';
 
 contextBridge.exposeInMainWorld('lisna', {
@@ -59,6 +62,26 @@ contextBridge.exposeInMainWorld('lisna', {
    */
   finalize: (args: SessionFinalizeArgs): Promise<SessionFinalizeResult> =>
     ipcRenderer.invoke(CHANNELS.sessionFinalize, args),
+
+  // --- F2 history viewer ---
+
+  /** Newest-first summaries of past finalize dumps (#113 tree). */
+  listDumps: (): Promise<DumpSummary[]> =>
+    ipcRenderer.invoke(CHANNELS.sessionListDumps),
+
+  /** Full transcript of one dump. Throws INVALID_DUMP_ID / DUMP_NOT_FOUND / DUMP_UNREADABLE. */
+  loadDump: (id: string): Promise<DumpTranscript> =>
+    ipcRenderer.invoke(CHANNELS.sessionLoadDump, { id }),
+
+  /**
+   * Regenerate a note from a dump transcript. Same result shape as
+   * `finalize`. Rejects with SESSION_ACTIVE while recording, and with
+   * FINALIZE_IN_FLIGHT when another finalize is running. Can also reject
+   * with the dump-context guard codes — see getDumpSession in
+   * session-finalize.ts for the full set.
+   */
+  finalizeFromDump: (args: SessionFinalizeFromDumpArgs): Promise<SessionFinalizeResult> =>
+    ipcRenderer.invoke(CHANNELS.sessionFinalizeFromDump, args),
 
   /**
    * Subscribe to phase indicator events during session/start and session/stop.
@@ -146,6 +169,9 @@ declare global {
       /** Drop the stopped session without generating a note (discard route). */
       discardSession(): Promise<void>;
       finalize(args: SessionFinalizeArgs): Promise<SessionFinalizeResult>;
+      listDumps(): Promise<DumpSummary[]>;
+      loadDump(id: string): Promise<DumpTranscript>;
+      finalizeFromDump(args: SessionFinalizeFromDumpArgs): Promise<SessionFinalizeResult>;
       onPhase(cb: (msg: SessionPhasePayload) => void): () => void;
       onSessionError(cb: (msg: SessionErrorPayload) => void): () => void;
       restartApp(): Promise<void>;

@@ -23,8 +23,8 @@ import type { GrammarCapableSidecar } from './sidecar/grammar-call';
 
 const DEFAULT_MAX_SESSIONS = 20;
 
-/** `2026-06-11T03-00-00-000Z` (+ optional `-N` collision suffix). */
-const DUMP_DIR_RE = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z(-\d+)?$/;
+/** Exported for session-dump-reader.ts — single source of the dir-name shape. */
+export const DUMP_DIR_RE = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z(-\d+)?$/;
 
 export interface SessionDumpOptions {
   /** Parent dir for dump dirs — production passes `<userData>/sessions`. */

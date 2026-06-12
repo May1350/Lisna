@@ -1,8 +1,8 @@
 /**
- * Tests for registerSessionFinalize (Task 10, updated Task 6).
+ * Tests for registerSessionFinalize (Task 10, updated Task 4).
  *
- * Mocks `electron.ipcMain.handle` to capture the registered handler, then
- * invokes it directly. No Electron binary required.
+ * Mocks `electron.ipcMain.handle` to capture registered handlers by channel,
+ * then invokes them directly. No Electron binary required.
  *
  * Test cases:
  *   (a) family: 'meeting', valid session + mock sidecar    → resolves { noteId, note: MeetingNote }
@@ -15,20 +15,19 @@
  *   (h) family: 'meeting', no active session               → throws NO_ACTIVE_SESSION
  */
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
-import type { SessionFinalizeArgs, SessionFinalizeDeps, SessionContext } from '../session-finalize';
+import type { SessionFinalizeDeps, SessionContext } from '../session-finalize';
 import type { GrammarCapableSidecar } from '../../grammar-call';
 import type { TranscriptSegment as LegacySegment } from '@shared/types';
 
 // ─── mock electron ─────────────────────────────────────────────────────────
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-let capturedHandler: ((e: unknown, args: SessionFinalizeArgs) => Promise<any>) | undefined;
+type AnyHandler = (e: unknown, args: any) => Promise<any>;
+const captured = new Map<string, AnyHandler>();
 
 vi.mock('electron', () => ({
   ipcMain: {
     handle: vi.fn((channel: string, handler: unknown) => {
-      if (channel === 'session/finalize') {
-        capturedHandler = handler as typeof capturedHandler;
-      }
+      captured.set(channel, handler as AnyHandler);
     }),
   },
 }));
@@ -159,7 +158,7 @@ beforeAll(async () => {
 let registerSessionFinalize: (deps: SessionFinalizeDeps) => void;
 
 beforeEach(async () => {
-  capturedHandler = undefined;
+  captured.clear();
   vi.clearAllMocks();
   // Re-import after clearing so ipcMain.handle captures a fresh handler
   const mod = await import('../session-finalize');
@@ -181,8 +180,9 @@ function setup(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     onTelemetry: onTelemetry as any,
   });
-  if (!capturedHandler) throw new Error('Handler not registered — ipcMain.handle mock not capturing session/finalize');
-  return capturedHandler;
+  const handler = captured.get('session/finalize');
+  if (!handler) throw new Error('Handler not registered — ipcMain.handle mock not capturing session/finalize');
+  return handler;
 }
 
 // ─── tests ─────────────────────────────────────────────────────────────────
@@ -396,5 +396,101 @@ describe('registerSessionFinalize', () => {
     expect(settledCalls[1]).toMatchObject({ ok: true });
     // Now that finalize succeeded the wiring cleared current.
     expect(current).toBeNull();
+  });
+});
+
+// ─── session/finalize-from-dump ───────────────────────────────────────────
+
+describe('session/finalize-from-dump', () => {
+  function dumpSession(): SessionContext {
+    return {
+      sessionId: 'dump:2026-06-10T01-00-00-000Z',
+      segments: [
+        { startSec: 0, endSec: 2, text: 'こんにちは', noSpeechProb: 0.01 } as LegacySegment,
+      ],
+      llmModelPath: '/models/Llama-3.2-3B-Instruct-Q4_K_M.gguf',
+      sidecar: makeMockSidecar(makeLectureNoteJson()),
+      language: 'ja' as const,
+    };
+  }
+
+  it('routes a dump session through the same family dispatch (shape parity)', async () => {
+    const getDumpSession = vi.fn(async () => dumpSession());
+    registerSessionFinalize({
+      getCurrentSession: async () => null, // no live session — must NOT matter
+      getDumpSession,
+    });
+    const handler = captured.get('session/finalize-from-dump')!;
+    const res = await handler({}, { id: '2026-06-10T01-00-00-000Z', family: 'lecture' });
+    expect(getDumpSession).toHaveBeenCalledWith('2026-06-10T01-00-00-000Z');
+    expect(res.note.family).toBe('lecture');
+    expect(typeof res.noteId).toBe('string'); // shape parity with session/finalize
+  });
+
+  it('propagates getDumpSession guard errors (SESSION_ACTIVE)', async () => {
+    registerSessionFinalize({
+      getCurrentSession: async () => null,
+      getDumpSession: async () => { throw new Error('SESSION_ACTIVE'); },
+    });
+    const handler = captured.get('session/finalize-from-dump')!;
+    await expect(handler({}, { id: 'x', family: 'lecture' })).rejects.toThrow('SESSION_ACTIVE');
+  });
+
+  it('rejects when registered without getDumpSession', async () => {
+    registerSessionFinalize({ getCurrentSession: async () => null });
+    const handler = captured.get('session/finalize-from-dump')!;
+    await expect(handler({}, { id: 'x', family: 'lecture' })).rejects.toThrow('DUMP_FINALIZE_UNAVAILABLE');
+  });
+
+  it('notifies onSessionSettled on success and failure (dump leg)', async () => {
+    const settles: unknown[] = [];
+    registerSessionFinalize({
+      getCurrentSession: async () => null,
+      getDumpSession: async () => dumpSession(),
+      onSessionSettled: (r) => settles.push(r),
+    });
+    const handler = captured.get('session/finalize-from-dump')!;
+    await handler({}, { id: '2026-06-10T01-00-00-000Z', family: 'lecture' });
+    expect(settles).toEqual([expect.objectContaining({ ok: true, family: 'lecture' })]);
+  });
+});
+
+// ─── finalize in-flight guard (review P1-1) ───────────────────────────────
+
+describe('finalize in-flight guard (review P1-1)', () => {
+  it('rejects a concurrent finalize while one is in flight, allows after settle', async () => {
+    // A session whose sidecar never resolves until released.
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const slowSidecar: GrammarCapableSidecar = {
+      generateWithGrammar: vi.fn(async () => {
+        await gate;
+        return { text: makeLectureNoteJson(), seed: 42 };
+      }),
+    };
+    const session: SessionContext = {
+      sessionId: 'live',
+      segments: [{ startSec: 0, endSec: 2, text: 'テスト', noSpeechProb: 0.01 } as LegacySegment],
+      llmModelPath: '/models/Llama-3.2-3B-Instruct-Q4_K_M.gguf',
+      sidecar: slowSidecar,
+      language: 'ja',
+    };
+    registerSessionFinalize({
+      getCurrentSession: async () => session,
+      getDumpSession: async () => session,
+    });
+    const live = captured.get('session/finalize')!;
+    const fromDump = captured.get('session/finalize-from-dump')!;
+
+    const first = live({}, { family: 'lecture' });
+    // Concurrent second call on EITHER channel rejects synchronously-fast.
+    await expect(fromDump({}, { id: 'x', family: 'lecture' })).rejects.toThrow('FINALIZE_IN_FLIGHT');
+    await expect(live({}, { family: 'lecture' })).rejects.toThrow('FINALIZE_IN_FLIGHT');
+
+    release();
+    await first; // settles fine
+    // Guard released — a new call proceeds past the in-flight rejection.
+    const second = await fromDump({}, { id: 'x', family: 'lecture' });
+    expect(second.note.family).toBe('lecture');
   });
 });
