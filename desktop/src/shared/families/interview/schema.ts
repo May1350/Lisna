@@ -69,3 +69,13 @@ export const InterviewNoteSchema = PurposeDrivenNoteSchema.extend({
     .max(MAX_KEY_TAKEAWAYS),
 }).strict();
 export type InterviewNote = z.infer<typeof InterviewNoteSchema>;
+
+/** Top-level array caps for the post-merge cap-fit pass
+ * (consolidate-conversation.ts). Single source = the `.max()` bounds above. */
+export const INTERVIEW_ARRAY_CAPS = {
+  participants: MAX_PARTICIPANTS,
+  qa_pairs: MAX_QA_PAIRS,
+  themes: MAX_THEMES,
+  quotable_lines: MAX_QUOTABLE_LINES,
+  key_takeaways: MAX_KEY_TAKEAWAYS,
+} as const;

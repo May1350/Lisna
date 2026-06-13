@@ -41,7 +41,12 @@ export function dedupFitArray<T>(
   let deduped = 0;
   for (const x of arr) {
     const tg = trigrams(keyFn(x));
-    if (kept.some((k) => jaccard(tg, k.tg) >= DEDUP_T)) {
+    // Short keys (< 3 chars, e.g. a numeric speakerRef) produce empty trigram
+    // sets, and jaccard treats empty∩empty as 1.0 — which would collapse all
+    // distinct short keys into one. Only run the near-dup check when BOTH sides
+    // have trigrams; otherwise treat the item as distinct (cap-slice still applies).
+    const isDup = tg.size > 0 && kept.some((k) => k.tg.size > 0 && jaccard(tg, k.tg) >= DEDUP_T);
+    if (isDup) {
       deduped++;
       continue;
     }

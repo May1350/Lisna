@@ -68,4 +68,13 @@ describe('dedupFitArray', () => {
     expect(kept.length).toBe(3); // 3 unique survivors, all fit
     expect(stats.truncated).toBe(0);
   });
+
+  it('does not over-dedup short keys (< 3 chars → empty trigrams)', () => {
+    // Numeric speakerRef-style keys "0".."19" are all < 3 chars → empty trigram
+    // sets; jaccard(∅,∅)=1 would collapse them to one. They must stay distinct.
+    const arr = Array.from({ length: 20 }, (_, i) => ({ ref: i }));
+    const { kept, stats } = dedupFitArray(arr, (x) => String(x.ref), 12);
+    expect(stats.deduped).toBe(0);
+    expect(kept.length).toBe(12); // cap-slice only, no false dedup
+  });
 });
