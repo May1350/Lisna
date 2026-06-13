@@ -11,6 +11,9 @@ import { judgeNote } from '../judges/llm-judge';
 import { judgeContentFidelity } from '../judges/content-fidelity-judge';
 import { buildRetryHistogram } from '../metrics/retry-histogram';
 import { computeSlotDistribution } from '../metrics/slot-distribution';
+import { faithfulnessPrepass } from '../faithfulness-prepass';
+import { judgeFaithfulness, gateFromVerdicts, type FaithfulnessResult } from '../judges/faithfulness-judge';
+import { computeCoverage } from '../coverage';
 import type { FixtureResult } from '../baseline/format';
 import type { PipelineRunner } from './pipeline-stub';
 import { z } from 'zod';
@@ -69,6 +72,24 @@ export async function runSingleFixture(opts: {
     retryHistogram: buildRetryHistogram(pipelineResult.retryAttempts),
     slotDistribution: meta.family === 'lecture' ? computeSlotDistribution(pipelineResult.note) : undefined,
   };
+
+  // ── Phase 1: deterministic pre-pass + coverage (always; no LLM) ─────────────
+  const transcriptText = transcript.transcripts.map(b => b.text).join('');
+  const prepass = faithfulnessPrepass(pipelineResult.note, transcriptText);
+  result.coverage = computeCoverage(meta.family, pipelineResult.note, groundTruth);
+
+  // The judge runs only when an answer key (facts[]) exists AND the LLM half is
+  // enabled. The pre-pass language flip alone can fail the gate without a judge.
+  let judge: FaithfulnessResult | undefined;
+  if (!opts.skipLlmJudge && groundTruth?.facts && groundTruth.facts.length > 0) {
+    judge = await judgeFaithfulness({ family: meta.family, note: pipelineResult.note, groundTruth, judgeModelId: opts.judgeModelId });
+  }
+  // Combined gate: a language flip fails outright; otherwise the judge decides
+  // (when present). With no judge and no flip, the gate is PASS (pre-pass-clean).
+  const gate: 'PASS' | 'FAIL' = prepass.languageFlip
+    ? 'FAIL'
+    : (judge ? gateFromVerdicts(judge.unsupportedCount) : 'PASS');
+  result.faithfulness = { prepass, judge, gate };
 
   if (!opts.skipLlmJudge) {
     result.judge = await judgeNote({ family: meta.family, note: pipelineResult.note, transcript, groundTruth, judgeModelId: opts.judgeModelId });

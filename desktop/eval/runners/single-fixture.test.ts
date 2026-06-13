@@ -1,7 +1,19 @@
 // desktop/eval/runners/single-fixture.test.ts
 import { describe, it, expect } from 'vitest';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { runSingleFixture } from './single-fixture';
 import { STUB_RUNNER } from './pipeline-stub';
+
+function writeFixture(dir: string, meta: object, transcript: object, groundTruth?: object): string {
+  const d = join(dir, 'interview', 'tmp-fab');
+  mkdirSync(d, { recursive: true });
+  writeFileSync(join(d, 'meta.json'), JSON.stringify(meta));
+  writeFileSync(join(d, 'transcript.json'), JSON.stringify(transcript));
+  if (groundTruth) writeFileSync(join(d, 'ground-truth.json'), JSON.stringify(groundTruth));
+  return d;
+}
 
 describe('runSingleFixture (stub)', () => {
   it('runs the Lecture procedural-physics-em fixture with stub runner, skipping LLM judge', async () => {
@@ -41,5 +53,43 @@ describe('runSingleFixture (stub)', () => {
     });
     expect(r2.family).toBe('brainstorm');
     expect(r2.contractTest.overall).toBe('PASS');
+  });
+});
+
+describe('runSingleFixture — Phase 1 faithfulness + coverage (no LLM judge)', () => {
+  it('always runs the deterministic pre-pass and reports a gate', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'fx-'));
+    try {
+      const dir = writeFixture(root,
+        { fixtureId: 'tmp-fab', family: 'interview', language: 'ja', durationSec: 100, bucketSeconds: 10, scenarioTags: [], expectedSlots: [], sourceUrl: null },
+        { bucket_seconds: 10, transcripts: [{ ts: 0, text: '売上は前年比で減少した', speakerId: 0 }] },
+        { fixtureId: 'tmp-fab', facts: ['売上は前年比で減少した'], qaPairs: [{ q: '売上の状況', a: '減少', mustAppear: true }] },
+      );
+      const r = await runSingleFixture({ fixtureDir: dir, runner: STUB_RUNNER, skipLlmJudge: true });
+      expect(r.faithfulness).toBeDefined();
+      expect(r.faithfulness!.prepass).toBeDefined();
+      expect(['PASS', 'FAIL']).toContain(r.faithfulness!.gate);
+      expect(r.faithfulness!.judge).toBeUndefined(); // skipLlmJudge → no judge call
+      expect(r.coverage).toBeDefined();
+      expect(r.coverage!.total).toBe(1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('gates FAIL when the stub note is an English flip of a JA fixture', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'fx-'));
+    try {
+      const dir = writeFixture(root,
+        { fixtureId: 'tmp-fab', family: 'interview', language: 'ja', durationSec: 100, bucketSeconds: 10, scenarioTags: [], expectedSlots: [], sourceUrl: null },
+        { bucket_seconds: 10, transcripts: [{ ts: 0, text: '売上は前年比で減少した', speakerId: 0 }] },
+        { fixtureId: 'tmp-fab', facts: ['売上は前年比で減少した'] },
+      );
+      const r = await runSingleFixture({ fixtureDir: dir, runner: STUB_RUNNER, skipLlmJudge: true });
+      expect(r.faithfulness!.prepass.languageFlip).toBe(true);
+      expect(r.faithfulness!.gate).toBe('FAIL');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

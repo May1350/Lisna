@@ -78,3 +78,41 @@ describe('FixtureTranscriptSchema', () => {
     expect(FixtureTranscriptSchema.safeParse(t).success).toBe(false);
   });
 });
+
+describe('FixtureGroundTruthSchema — Phase 1 answer-key fields', () => {
+  it('accepts a facts[] answer key', () => {
+    const gt = {
+      fixtureId: 'finance-fabrication-2spk',
+      facts: ['月次の売上は前年比で減少した', '原価率の改善を最優先にする'],
+      qaPairs: [{ q: '売上の状況は', a: '前年比で減少', mustAppear: true }],
+    };
+    expect(FixtureGroundTruthSchema.safeParse(gt).success).toBe(true);
+  });
+
+  it('accepts qaPairs without mustAppear (back-compat with existing fixtures)', () => {
+    const gt = {
+      fixtureId: 'pm-candidate-2spk',
+      qaPairs: [{ q: 'プロダクト失敗体験', a: 'ユーザー調査不足' }],
+    };
+    const parsed = FixtureGroundTruthSchema.safeParse(gt);
+    expect(parsed.success).toBe(true);
+  });
+
+  it('accepts expectedKeyTerms as bare strings (lecture back-compat)', () => {
+    const gt = { fixtureId: 'lec', expectedKeyTerms: ['電位', '静電ポテンシャル'] };
+    expect(FixtureGroundTruthSchema.safeParse(gt).success).toBe(true);
+  });
+
+  it('accepts expectedKeyTerms as importance-tagged objects', () => {
+    const gt = {
+      fixtureId: 'lec',
+      expectedKeyTerms: [{ term: '電位', mustAppear: true }, { term: '余談', mustAppear: false }],
+    };
+    expect(FixtureGroundTruthSchema.safeParse(gt).success).toBe(true);
+  });
+
+  it('rejects a fact entry that is not a string', () => {
+    const gt = { fixtureId: 'x', facts: ['ok', 42] };
+    expect(FixtureGroundTruthSchema.safeParse(gt).success).toBe(false);
+  });
+});

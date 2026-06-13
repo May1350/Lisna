@@ -43,6 +43,33 @@ const SlotDistributionSchema = z.object({
   byType: z.record(z.string(), z.number().int().nonnegative()),
 });
 
+const FaithfulnessSchema = z.object({
+  prepass: z.object({
+    jaRatio: z.number(),
+    languageFlip: z.boolean(),
+    groundingJa: z.number(),
+    groundingAscii: z.number(),
+  }),
+  judge: z.object({
+    verdicts: z.array(z.object({
+      claim: z.string(),
+      verdict: z.enum(['supported', 'unsupported', 'partial']),
+      span: z.string(),
+    })),
+    unsupportedCount: z.number().int().nonnegative(),
+    overall: z.enum(['PASS', 'FAIL']),
+    judgeModelId: z.string(),
+  }).optional(),                                       // optional — skipped when no facts[] or skipLlmJudge
+  gate: z.enum(['PASS', 'FAIL']),                      // combined prepass+judge verdict
+});
+
+const CoverageSchema = z.object({
+  captured: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative(),
+  ratio: z.number(),
+  missing: z.array(z.string()),
+});
+
 export const FixtureResultSchema = z.object({
   fixtureId: z.string(),
   family: z.enum(['lecture', 'meeting', 'interview', 'brainstorm']),
@@ -51,7 +78,9 @@ export const FixtureResultSchema = z.object({
   contentFidelity: ContentFidelitySchema.optional(),    // optional — Lecture-default, others on demand
   retryHistogram: RetryHistogramSchema.optional(),
   slotDistribution: SlotDistributionSchema.optional(),
-  derScore: z.number().optional(),                      // Plan 4 lift, see Task 24
+  faithfulness: FaithfulnessSchema.optional(),         // Phase 1 gate — present when fixture has facts[] or for a flip pre-pass
+  coverage: CoverageSchema.optional(),                 // Phase 1 scored coverage
+  derScore: z.number().optional(),                     // Plan 4 lift, see Task 24
   runMs: z.number().nonnegative(),
 });
 export type FixtureResult = z.infer<typeof FixtureResultSchema>;

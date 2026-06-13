@@ -5,6 +5,7 @@ import { MEETING_RULES } from './families/meeting';
 import { INTERVIEW_RULES } from './families/interview';
 import { BRAINSTORM_RULES } from './families/brainstorm';
 import type { RuleInput } from './contract-test';
+import type { FixtureGroundTruth } from '../fixtures/_schema';
 
 const lectureNoteValid = {
   schemaVersion: 1, family: 'lecture', title: 'Test', generatedAt: '2026-05-27T00:00:00Z',
@@ -223,5 +224,52 @@ describe('BRAINSTORM_RULES', () => {
     const res = BRAINSTORM_RULES.find(r => r.id === 'brainstorm-unique-idea-ids')!
       .run({ family: 'brainstorm', note: bad, transcript: { transcripts: [] } as any });
     expect(res.pass).toBe(false);
+  });
+});
+
+describe('interview-ground-truth-qa-coverage honours mustAppear', () => {
+  const rule = INTERVIEW_RULES.find(r => r.id === 'interview-ground-truth-qa-coverage')!;
+  const transcript = { bucket_seconds: 10, speakers: [{ id: 0 }], transcripts: [{ ts: 0, text: 'x', speakerId: 0 }] };
+
+  it('ignores mustAppear:false points in the denominator', () => {
+    const groundTruth: FixtureGroundTruth = {
+      fixtureId: 'fx',
+      qaPairs: [
+        { q: '財務状況', a: 'x', mustAppear: true },
+        { q: '雑談', a: 'y', mustAppear: false },
+      ],
+    };
+    const note = { qa_pairs: [{ question: '財務状況について', answer: 'x' }] };
+    const res = rule.run({ family: 'interview', note, transcript: transcript as any, groundTruth });
+    // 1/1 required covered → 100% → pass; the 雑談 optional point is excluded.
+    expect(res.message).toContain('1/1');
+    expect(res.pass).toBe(true);
+  });
+
+  it('fails when a required point is missing', () => {
+    const groundTruth: FixtureGroundTruth = { fixtureId: 'fx', qaPairs: [{ q: 'A', a: 'a', mustAppear: true }, { q: 'B', a: 'b', mustAppear: true }] };
+    const note = { qa_pairs: [{ question: 'A thing', answer: 'x' }] };
+    const res = rule.run({ family: 'interview', note, transcript: transcript as any, groundTruth });
+    expect(res.message).toContain('1/2');
+    expect(res.pass).toBe(false); // 50% < 60% threshold
+  });
+});
+
+describe('lecture-ground-truth-keyterm-coverage', () => {
+  const rule = LECTURE_RULES.find(r => r.id === 'lecture-ground-truth-keyterm-coverage')!;
+  const transcript = { bucket_seconds: 10, speakers: [{ id: 0 }], transcripts: [{ ts: 0, text: 'x', speakerId: 0 }] };
+
+  it('passes N/A when no expectedKeyTerms', () => {
+    const res = rule.run({ family: 'lecture', note: { sections: [] }, transcript: transcript as any, groundTruth: { fixtureId: 'x' } });
+    expect(res.pass).toBe(true);
+    expect(res.message).toContain('N/A');
+  });
+
+  it('counts mustAppear key terms found anywhere in the note', () => {
+    const groundTruth = { fixtureId: 'lec', expectedKeyTerms: [{ term: '電位', mustAppear: true }, { term: '静電ポテンシャル', mustAppear: true }] };
+    const note = { sections: [{ heading: '電位', summary: '電位の説明', key_terms: [{ term: '電位' }] }] };
+    const res = rule.run({ family: 'lecture', note, transcript: transcript as any, groundTruth });
+    expect(res.message).toContain('1/2');
+    expect(res.pass).toBe(false); // 50% < 60%
   });
 });

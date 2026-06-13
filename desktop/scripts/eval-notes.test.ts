@@ -63,3 +63,17 @@ describe('eval-notes resolveRunner', () => {
     }
   });
 });
+
+import { __testOnly_gateVerdict } from '../eval/scorecard';
+import type { FixtureResult } from '../eval/baseline/format';
+
+describe('eval-notes faithfulness exit gate (helper contract)', () => {
+  it('a FAIL faithfulness fixture yields a FAIL suite verdict', () => {
+    const fail: FixtureResult = {
+      fixtureId: 'finance-fabrication-2spk', family: 'interview',
+      contractTest: { schemaParse: 'PASS', overall: 'PASS', findings: [] }, runMs: 1,
+      faithfulness: { prepass: { jaRatio: 0, languageFlip: true, groundingJa: 0, groundingAscii: 0 }, gate: 'FAIL' },
+    };
+    expect(__testOnly_gateVerdict([fail])).toBe('FAIL');
+  });
+});

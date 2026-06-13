@@ -1,6 +1,7 @@
 // desktop/eval/contract/families/lecture.ts
 import type { ContractRule } from '../contract-test';
 import { parrotingRule } from '../anti-parroting';
+import { computeCoverage } from '../../coverage';
 
 // Per spec §3.3 + §7.2 + P7. Encodes the v1-plateau insight:
 // mode-collapse looks like a "valid but bland" note where each section
@@ -121,6 +122,22 @@ const noStrippedLatexResidue: ContractRule = {
   },
 };
 
+const groundTruthKeyTermCoverage: ContractRule = {
+  id: 'lecture-ground-truth-keyterm-coverage',
+  severity: 'warning',
+  description: '≥60% of mustAppear ground-truth key terms appear somewhere in the note.',
+  run: ({ note, groundTruth }) => {
+    if (!groundTruth?.expectedKeyTerms) return { pass: true, message: 'no expectedKeyTerms, rule N/A' };
+    const cov = computeCoverage('lecture', note, groundTruth);
+    if (cov.total === 0) return { pass: true, message: 'no mustAppear key terms, rule N/A' };
+    return {
+      pass: cov.ratio >= 0.6,
+      message: `${cov.captured}/${cov.total} key terms covered (${(cov.ratio * 100).toFixed(0)}%)`,
+      detail: { ratio: cov.ratio, missing: cov.missing },
+    };
+  },
+};
+
 export const LECTURE_RULES: ContractRule[] = [
   sectionsMin3,
   sectionsHaveKeyTerms,
@@ -128,4 +145,5 @@ export const LECTURE_RULES: ContractRule[] = [
   slotsEmergeWhenExpected,
   parrotingRule,
   noStrippedLatexResidue,
+  groundTruthKeyTermCoverage,
 ];

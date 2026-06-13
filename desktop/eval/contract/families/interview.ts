@@ -1,5 +1,6 @@
 // desktop/eval/contract/families/interview.ts
 import type { ContractRule } from '../contract-test';
+import { computeCoverage } from '../../coverage';
 
 const requiresQaPairs: ContractRule = {
   id: 'interview-qa-pairs-min-3',
@@ -39,25 +40,18 @@ const themesNonEmpty: ContractRule = {
 const groundTruthQaCoverage: ContractRule = {
   id: 'interview-ground-truth-qa-coverage',
   severity: 'warning',
-  description: '≥60% of ground-truth qaPairs questions appear in the note (substring).',
+  description: '≥60% of mustAppear ground-truth qaPairs questions appear in the note (substring).',
   run: ({ note, groundTruth }) => {
     if (!groundTruth?.qaPairs) return { pass: true, message: 'no ground-truth qaPairs, rule N/A' };
-    const required = groundTruth.qaPairs;
-    const noteQs: string[] = (note.qa_pairs ?? []).map((p: any) => String(p.question ?? ''));
-    const matched = required.filter(req => noteQs.some(q => normContains(q, req.q)));
-    const ratio = matched.length / required.length;
+    const cov = computeCoverage('interview', note, groundTruth);
+    if (cov.total === 0) return { pass: true, message: 'no mustAppear qaPairs, rule N/A' };
     return {
-      pass: ratio >= 0.6,
-      message: `${matched.length}/${required.length} ground-truth Qs covered (${(ratio * 100).toFixed(0)}%)`,
-      detail: { ratio },
+      pass: cov.ratio >= 0.6,
+      message: `${cov.captured}/${cov.total} ground-truth Qs covered (${(cov.ratio * 100).toFixed(0)}%)`,
+      detail: { ratio: cov.ratio, missing: cov.missing },
     };
   },
 };
-
-function normContains(h: string, n: string): boolean {
-  const norm = (s: string) => s.replace(/\s+/g, '').toLowerCase();
-  return norm(h).includes(norm(n));
-}
 
 export const INTERVIEW_RULES: ContractRule[] = [
   requiresQaPairs,
