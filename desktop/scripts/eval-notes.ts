@@ -3,7 +3,7 @@ import { join, resolve, dirname } from 'node:path';
 import { runFamilySuite } from '../eval/runners/family-suite';
 import { runRegression } from '../eval/runners/regression';
 import { saveBaseline } from '../eval/baseline/store';
-import { formatScorecard } from '../eval/scorecard';
+import { formatScorecard, __testOnly_gateVerdict } from '../eval/scorecard';
 import { STUB_RUNNER } from '../eval/runners/pipeline-stub';
 import { makeOfflineRunner } from '../eval/runners/offline';
 import { modelProfiles } from '../src/shared/models/profiles';
@@ -86,6 +86,10 @@ async function main(): Promise<void> {
       judgeModelId: opts.judgeModelId,
     });
     console.log(formatScorecard(reg.after.results, reg.diff));
+    if (__testOnly_gateVerdict(reg.after.results) === 'FAIL') {
+      console.error('FAITHFULNESS GATE FAILED — fabrication/flip in the new run');
+      process.exitCode = 3;
+    }
     if (reg.diff.summary.regression) {
       console.error('REGRESSION — exiting non-zero');
       process.exitCode = 2;
@@ -101,6 +105,10 @@ async function main(): Promise<void> {
     onProgress: (id, _, idx, total) => console.log(`  [${idx}/${total}] ${id} ... done`),
   });
   console.log(formatScorecard(results));
+  if (__testOnly_gateVerdict(results) === 'FAIL') {
+    console.error('FAITHFULNESS GATE FAILED — one or more notes contain fabrication or a language flip');
+    process.exitCode = 3;
+  }
   if (opts.saveAs) {
     saveBaseline(join(BASELINE_DIR, `${opts.saveAs}.json`), {
       savedAt: new Date().toISOString(),
