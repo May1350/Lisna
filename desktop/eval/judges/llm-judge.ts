@@ -29,7 +29,7 @@ const FAMILY_PROMPTS: Record<NoteFamily, string> = {
 let _groqClient: OpenAI | undefined;
 let _anthClient: Anthropic | undefined;
 
-function groq(): OpenAI {
+export function groqClient(): OpenAI {
   if (!_groqClient) {
     const apiKey = process.env.GROQ_API_KEY;
     if (!apiKey) throw new Error('GROQ_API_KEY not set');
@@ -38,7 +38,7 @@ function groq(): OpenAI {
   return _groqClient;
 }
 
-function anth(): Anthropic {
+export function anthropicClient(): Anthropic {
   if (!_anthClient) {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
@@ -102,7 +102,7 @@ export async function judgeNote<F extends NoteFamily>(req: JudgeRequest<F>): Pro
 }
 
 async function judgeViaGroq<F extends NoteFamily>(family: F, modelId: string, systemPrompt: string, userPrompt: string): Promise<JudgeResult<F>> {
-  const res = await groq().chat.completions.create({
+  const res = await groqClient().chat.completions.create({
     model: modelId,
     messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
     response_format: { type: 'json_object' },
@@ -115,7 +115,7 @@ async function judgeViaGroq<F extends NoteFamily>(family: F, modelId: string, sy
 }
 
 async function judgeViaAnthropic<F extends NoteFamily>(family: F, modelId: string, systemPrompt: string, userPrompt: string): Promise<JudgeResult<F>> {
-  const res = await anth().messages.create({
+  const res = await anthropicClient().messages.create({
     model: modelId,
     max_tokens: 1500,
     system: systemPrompt + '\n\nReturn ONLY a JSON object — no prose, no markdown fences.',
