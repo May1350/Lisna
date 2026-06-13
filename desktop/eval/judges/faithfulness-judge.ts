@@ -95,8 +95,12 @@ function extractClaims(family: NoteFamily, note: any): string {
     out.key_takeaways = note.key_takeaways ?? [];
     out.quotable_lines = note.quotable_lines ?? [];
   } else if (family === 'brainstorm') {
+    // conclusions/next_steps are inherited from PurposeDrivenNote but are NOT
+    // rendered for brainstorm (see brainstorm/renderer.tsx) — only idea_clusters
+    // + parking_lot reach the user. Score what's user-visible, matching
+    // content-fidelity-judge's brainstorm branch.
     out.idea_clusters = note.idea_clusters ?? [];
-    out.conclusions = note.conclusions ?? [];
+    out.parking_lot = note.parking_lot ?? [];
   }
   return JSON.stringify(out, null, 2);
 }
@@ -143,3 +147,4 @@ async function judgeViaGroq(modelId: string, userPrompt: string): Promise<Faithf
 }
 
 export { GROQ_FALLBACK_MODEL, DEFAULT_JUDGE_MODEL };
+export { extractClaims as __testOnly_extractClaims };

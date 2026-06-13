@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   __testOnly_parseFaithfulness,
+  __testOnly_extractClaims,
   gateFromVerdicts,
   FAITHFULNESS_UNSUPPORTED_TOLERANCE,
 } from './faithfulness-judge';
@@ -85,5 +86,48 @@ describe('judge-sanity (shape contract, no network)', () => {
   it('a judge that flips everything to supported CANNOT hide an empty-verdicts response', () => {
     // Guard: an empty verdict list is treated as FAIL, so a judge returning {} can't pass.
     expect(__testOnly_parseFaithfulness('{}').overall).toBe('FAIL');
+  });
+});
+
+describe('extractClaims (brainstorm — user-visible content only)', () => {
+  // A brainstorm note carries `conclusions`/`next_steps` inherited from
+  // PurposeDrivenNoteSchema, but BrainstormRenderer never renders them — the
+  // user-visible content is idea_clusters + parking_lot. The judge must score
+  // what the user actually sees (mirrors content-fidelity-judge), else a
+  // fabrication in idea_clusters/parking_lot goes unjudged while the judge
+  // wastes a slot on never-rendered conclusions.
+  const brainstormNote = {
+    family: 'brainstorm',
+    title: 'アイデア出し',
+    purpose: '新機能の方向性を発散する',
+    idea_clusters: [
+      { theme: 'オンボーディング', ideas: [{ text: 'チュートリアルを動画化', ts: 12, from: 'transcript' }] },
+    ],
+    parking_lot: [{ text: '価格は後で議論', ts: 40, from: 'transcript' }],
+    // Inherited-but-not-rendered: must NOT leak into the scored claims.
+    conclusions: [{ text: 'これは描画されない結論', from: 'inferred' }],
+    next_steps: [{ text: 'これも描画されない', ts: 50, from: 'inferred' }],
+  };
+
+  it('extracts the rendered fields (idea_clusters + parking_lot)', () => {
+    const out = JSON.parse(__testOnly_extractClaims('brainstorm', brainstormNote));
+    expect(out.idea_clusters).toHaveLength(1);
+    expect(out.idea_clusters[0].theme).toBe('オンボーディング');
+    expect(out.parking_lot).toHaveLength(1);
+    expect(out.parking_lot[0].text).toBe('価格は後で議論');
+  });
+
+  it('does NOT extract conclusions/next_steps (not rendered for brainstorm)', () => {
+    const out = JSON.parse(__testOnly_extractClaims('brainstorm', brainstormNote));
+    expect(out).not.toHaveProperty('conclusions');
+    expect(out).not.toHaveProperty('next_steps');
+  });
+
+  it('tolerates a brainstorm note with no parking_lot (optional field)', () => {
+    const out = JSON.parse(
+      __testOnly_extractClaims('brainstorm', { family: 'brainstorm', idea_clusters: [] }),
+    );
+    expect(out.idea_clusters).toEqual([]);
+    expect(out.parking_lot).toEqual([]);
   });
 });
