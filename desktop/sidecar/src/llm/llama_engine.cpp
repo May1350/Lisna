@@ -188,6 +188,19 @@ bool LlamaEngine::generate(const std::vector<ChatMessage>& messages, const GenOp
                            const std::function<void(const std::string&)>& onToken) {
   if (!impl_->ctx || !impl_->vocab || messages.empty()) return false;
 
+  // Reset the KV cache so each generate() decodes into a FRESH context.
+  // Every call receives the full system+user message set (the caller never
+  // sends an incremental turn; cross-chunk merge is deterministic TS, not
+  // model state) — so cross-call KV continuity is never intended. Without
+  // this clear, llama_batch_get_one + llama_decode auto-continue token
+  // positions from the prior call's head (llama.h: "position tracked
+  // automatically by llama_decode"), so an N-chunk finalize grows the KV
+  // monotonically until it crosses n_ctx (16384) — empirically at the 3rd
+  // ~5.4k-token chunk of an 84-min lecture — and llama_decode then fails on
+  // the first prefill decode, breaking the loop with 0 tokens (silent empty
+  // output → JSON.parse("") → CHUNK_FAILED). See pitfalls.md (llm-overflow).
+  llama_memory_clear(llama_get_memory(impl_->ctx), /*data=*/true);
+
   // Apply chat template (or fallback). Single source of truth for whether the
   // template was actually applied — pre-fix this came from a second
   // `llama_model_chat_template` call that knew tmpl-existence but not
@@ -253,19 +266,40 @@ bool LlamaEngine::generate(const std::vector<ChatMessage>& messages, const GenOp
   llama_token new_token = 0;
   char piece_buf[256];
 
-  while (generated < opts.maxTokens) {
-    if (llama_decode(impl_->ctx, batch) != 0) break;
-    new_token = llama_sampler_sample(smpl, impl_->ctx, -1);
-    if (llama_vocab_is_eog(impl_->vocab, new_token)) break;
+  // Wrap the decode loop so smpl is freed even if onToken throws (e.g. the
+  // Utf8Carry belt-and-braces JSON emit — any gap would re-expose the
+  // type_error.316 hang without this guard).
+  try {
+    while (generated < opts.maxTokens) {
+      if (llama_decode(impl_->ctx, batch) != 0) {
+        // Make n_ctx overflow / backend decode failure LOUD. Historically
+        // this break left an empty stream with a normal `done`, so TS saw a
+        // clean-but-empty result and the cause was misdiagnosed across
+        // multiple sessions (pitfalls.md llm-overflow). With the top-of-call
+        // KV clear above this should not fire for correctly-sized chunks;
+        // if it ever does, the log names it instead of hiding it.
+        lisna::ipc::emit_event(nlohmann::json{
+            {"type", "log"}, {"level", "error"}, {"source", "system"},
+            {"message", "llama_decode failed (likely n_ctx overflow) — generation truncated"},
+            {"generated", generated}
+        }.dump());
+        break;
+      }
+      new_token = llama_sampler_sample(smpl, impl_->ctx, -1);
+      if (llama_vocab_is_eog(impl_->vocab, new_token)) break;
 
-    // special=false: chat-template markers (e.g. `<|eot_id|>`) render as
-    // empty so they don't leak into the streamed token JSON.
-    const int32_t n = llama_token_to_piece(
-        impl_->vocab, new_token, piece_buf, sizeof(piece_buf), 0, false);
-    if (n > 0) onToken(std::string(piece_buf, n));
+      // special=false: chat-template markers (e.g. `<|eot_id|>`) render as
+      // empty so they don't leak into the streamed token JSON.
+      const int32_t n = llama_token_to_piece(
+          impl_->vocab, new_token, piece_buf, sizeof(piece_buf), 0, false);
+      if (n > 0) onToken(std::string(piece_buf, n));
 
-    ++generated;
-    batch = llama_batch_get_one(&new_token, 1);
+      ++generated;
+      batch = llama_batch_get_one(&new_token, 1);
+    }
+  } catch (...) {
+    llama_sampler_free(smpl);
+    throw;
   }
 
   llama_sampler_free(smpl);

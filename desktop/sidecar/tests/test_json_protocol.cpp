@@ -289,3 +289,100 @@ TEST(JsonProtocol, GenerateNonIntegerSeedReturnsInvalidType) {
   EXPECT_EQ(r["type"], "error");
   EXPECT_EQ(r["code"], "invalid_type");
 }
+
+// ─── Utf8Carry — byte-fallback token buffering (matrix diagnosis 2026-06-13) ─
+
+// Helper: build a std::string from raw bytes without C-string null semantics.
+static std::string bytes(std::initializer_list<unsigned char> bs) {
+  return std::string(bs.begin(), bs.end());
+}
+
+// 3-byte JA char (U+3042 HIRAGANA LETTER A: 0xE3 0x81 0x82) split 1+2.
+// First take() carries the lone lead byte; second take() completes it.
+TEST(Utf8Carry, ThreeByteJASplitOneTwo) {
+  lisna::ipc::Utf8Carry c;
+  // First piece: lone lead byte 0xE3 (incomplete — needs 2 continuations).
+  std::string r1 = c.take(bytes({0xE3}));
+  EXPECT_TRUE(r1.empty()) << "incomplete lead should be carried, not emitted";
+  // Second piece: the two continuation bytes.
+  std::string r2 = c.take(bytes({0x81, 0x82}));
+  EXPECT_EQ(r2, bytes({0xE3, 0x81, 0x82})) << "complete 3-byte seq should be emitted";
+  EXPECT_TRUE(c.flush().empty()) << "nothing left in carry after complete seq";
+}
+
+// 4-byte emoji (U+1F600 GRINNING FACE: 0xF0 0x9F 0x98 0x80) split 2+2.
+TEST(Utf8Carry, FourByteEmojiSplitTwoTwo) {
+  lisna::ipc::Utf8Carry c;
+  // First 2 bytes of a 4-byte sequence: 0xF0 (lead, needs 3 cont.) + 0x9F (1st cont).
+  std::string r1 = c.take(bytes({0xF0, 0x9F}));
+  EXPECT_TRUE(r1.empty());
+  // Last 2 continuation bytes.
+  std::string r2 = c.take(bytes({0x98, 0x80}));
+  EXPECT_EQ(r2, bytes({0xF0, 0x9F, 0x98, 0x80}));
+  EXPECT_TRUE(c.flush().empty());
+}
+
+// Mixed: complete ASCII bytes + partial 3-byte JA char tail in one piece.
+// The ASCII part should be emitted; the partial JA tail carried forward.
+TEST(Utf8Carry, MixedCompleteAsciiPartialJATail) {
+  lisna::ipc::Utf8Carry c;
+  // "hi" (2 ASCII) + 0xE3 (JA lead, incomplete).
+  std::string r1 = c.take(bytes({'h', 'i', 0xE3}));
+  EXPECT_EQ(r1, "hi") << "ASCII prefix should emit immediately";
+  // Complete the JA char.
+  std::string r2 = c.take(bytes({0x81, 0x82}));
+  EXPECT_EQ(r2, bytes({0xE3, 0x81, 0x82}));
+}
+
+// Lone continuation byte (0x80) — structurally invalid, must be dropped.
+TEST(Utf8Carry, LoneContinuationByteDropped) {
+  lisna::ipc::Utf8Carry c;
+  std::string r = c.take(bytes({0x80}));
+  EXPECT_TRUE(r.empty()) << "stray continuation should be dropped";
+  std::string f = c.flush();
+  EXPECT_TRUE(f.empty()) << "nothing valid to flush after lone continuation";
+}
+
+// flush() with incomplete pending (lead byte never completed) → empty.
+TEST(Utf8Carry, FlushIncompleteReturnEmpty) {
+  lisna::ipc::Utf8Carry c;
+  c.take(bytes({0xE3})); // incomplete 3-byte lead
+  std::string f = c.flush();
+  EXPECT_TRUE(f.empty()) << "incomplete tail should be dropped on flush";
+}
+
+// flush() after complete sequences emits the remainder.
+TEST(Utf8Carry, FlushAfterCompleteSequences) {
+  lisna::ipc::Utf8Carry c;
+  // Feed a complete 2-byte sequence (U+00E9 é: 0xC3 0xA9) but don't call take
+  // again — verify flush() returns it.
+  std::string r = c.take(bytes({0xC3, 0xA9}));
+  EXPECT_EQ(r, bytes({0xC3, 0xA9})) << "complete seq emitted by take()";
+  EXPECT_TRUE(c.flush().empty()) << "carry is empty after complete take()";
+
+  // Now put a complete seq in via take() and a SECOND complete seq — both
+  // should come out through take() directly (carry has nothing to flush).
+  std::string r2 = c.take(bytes({'A', 0xC3, 0xA9}));
+  EXPECT_EQ(r2, bytes({'A', 0xC3, 0xA9}));
+  EXPECT_TRUE(c.flush().empty());
+}
+
+// Belt-and-braces: dump(-1,' ',false,replace) does NOT throw on a bare invalid
+// byte — documents the fallback that guards against any future Utf8Carry gap.
+TEST(Utf8Carry, NlohmannDumpReplaceHandlerDoesNotThrowOnInvalidByte) {
+  // Verify the baseline: plain .dump() on {"token":"\xe5"} WOULD throw
+  // type_error.316 without the replace handler — we assert the replace form
+  // is safe instead.
+  // Note: ASSERT_NO_THROW cannot accept braced initializer lists directly
+  // (macro comma ambiguity), so we build the JSON object before the assert.
+  nlohmann::json obj;
+  obj["token"] = std::string("\xe5"); // bare invalid UTF-8 lead byte
+  std::string out;
+  ASSERT_NO_THROW(
+      out = obj.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace))
+      << "replace handler must not throw on invalid UTF-8";
+  // The output must still be valid JSON (parse it to confirm).
+  nlohmann::json reparsed;
+  ASSERT_NO_THROW(reparsed = nlohmann::json::parse(out));
+  (void)reparsed;
+}
