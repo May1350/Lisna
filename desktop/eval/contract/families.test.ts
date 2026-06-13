@@ -254,3 +254,22 @@ describe('interview-ground-truth-qa-coverage honours mustAppear', () => {
     expect(res.pass).toBe(false); // 50% < 60% threshold
   });
 });
+
+describe('lecture-ground-truth-keyterm-coverage', () => {
+  const rule = LECTURE_RULES.find(r => r.id === 'lecture-ground-truth-keyterm-coverage')!;
+  const transcript = { bucket_seconds: 10, speakers: [{ id: 0 }], transcripts: [{ ts: 0, text: 'x', speakerId: 0 }] };
+
+  it('passes N/A when no expectedKeyTerms', () => {
+    const res = rule.run({ family: 'lecture', note: { sections: [] }, transcript: transcript as any, groundTruth: { fixtureId: 'x' } });
+    expect(res.pass).toBe(true);
+    expect(res.message).toContain('N/A');
+  });
+
+  it('counts mustAppear key terms found anywhere in the note', () => {
+    const groundTruth = { fixtureId: 'lec', expectedKeyTerms: [{ term: '電位', mustAppear: true }, { term: '静電ポテンシャル', mustAppear: true }] };
+    const note = { sections: [{ heading: '電位', summary: '電位の説明', key_terms: [{ term: '電位' }] }] };
+    const res = rule.run({ family: 'lecture', note, transcript: transcript as any, groundTruth });
+    expect(res.message).toContain('1/2');
+    expect(res.pass).toBe(false); // 50% < 60%
+  });
+});
