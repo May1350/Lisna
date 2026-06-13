@@ -41,3 +41,11 @@ export const BrainstormNoteSchema = PurposeDrivenNoteSchema.extend({
 }).strict();
 
 export type BrainstormNote = z.infer<typeof BrainstormNoteSchema>;
+
+/** Top-level array caps (+ per-cluster ideas cap) for the post-merge cap-fit
+ * pass (consolidate-conversation.ts). Single source = the `.max()` bounds above. */
+export const BRAINSTORM_ARRAY_CAPS = {
+  idea_clusters: MAX_IDEA_CLUSTERS,
+  ideas_per_cluster: MAX_IDEAS_PER_CLUSTER,
+  parking_lot: MAX_PARKING_LOT,
+} as const;

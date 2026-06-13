@@ -27,6 +27,11 @@ import { collapseSpeakerRefsToZero } from '@shared/post-decode/collapse-speaker-
 import { applyGeneratedMeta } from '@shared/note-schema/apply-generated-meta';
 import { deterministicMerge } from '@shared/post-decode/deterministic-merge';
 import { consolidateLectureSections } from '../../shared/post-decode/consolidate-lecture-sections';
+import {
+  consolidateMeetingNote,
+  consolidateInterviewNote,
+  consolidateBrainstormNote,
+} from '../../shared/post-decode/consolidate-conversation';
 import { runMergeLLMCall } from './merge-llm';
 import { callWithGrammar, makeSidecarGenerator, type GrammarAttempt, type GrammarCapableSidecar, type LlmGenerator } from './grammar-call';
 import { degradeToSingleSpeaker } from '@shared/families/meeting/degrade-to-single-speaker';
@@ -843,7 +848,11 @@ export async function finalizeMeeting(
     delete merged.participants;
   }
 
-  const note = fam.schema.parse(merged) as MeetingNote;
+  // Cap-fit unioned arrays to their schema bounds (rung-X) so a long (2h)
+  // recording can't throw `too_big` and lose the finalize — AFTER the merge +
+  // diarization sweeps, BEFORE schema.parse.
+  const { note: consolidated } = consolidateMeetingNote(merged as unknown as MeetingNote);
+  const note = fam.schema.parse(consolidated) as MeetingNote;
   applyGeneratedMeta(note, {
     generatedAt: generationStartedAt,
     model: args.modelProfile.id,
@@ -1039,7 +1048,11 @@ export async function finalizeInterview(
     delete merged.participants;
   }
 
-  const note = fam.schema.parse(merged) as InterviewNote;
+  // Cap-fit unioned arrays to their schema bounds (rung-X) so a long (2h)
+  // recording can't throw `too_big` and lose the finalize — AFTER the merge +
+  // diarization sweeps, BEFORE schema.parse.
+  const { note: consolidated } = consolidateInterviewNote(merged as unknown as InterviewNote);
+  const note = fam.schema.parse(consolidated) as InterviewNote;
   applyGeneratedMeta(note, {
     generatedAt: generationStartedAt,
     model: args.modelProfile.id,
@@ -1229,7 +1242,11 @@ export async function finalizeBrainstorm(
     collapseSpeakerRefsToZero(merged);
   }
 
-  const note = fam.schema.parse(merged) as BrainstormNote;
+  // Cap-fit unioned arrays to their schema bounds (rung-X) so a long (2h)
+  // recording can't throw `too_big` and lose the finalize — AFTER the merge +
+  // diarization sweeps, BEFORE schema.parse.
+  const { note: consolidated } = consolidateBrainstormNote(merged as unknown as BrainstormNote);
+  const note = fam.schema.parse(consolidated) as BrainstormNote;
   applyGeneratedMeta(note, {
     generatedAt: generationStartedAt,
     model: args.modelProfile.id,

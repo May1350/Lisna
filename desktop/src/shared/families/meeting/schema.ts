@@ -96,3 +96,16 @@ export const MeetingNoteSchema = PurposeDrivenNoteSchema.extend({
 }).strict();
 
 export type MeetingNote = z.infer<typeof MeetingNoteSchema>;
+
+/** Top-level array caps for the post-merge cap-fit pass
+ * (consolidate-conversation.ts). Single source = the `.max()` bounds above. */
+export const MEETING_ARRAY_CAPS = {
+  agenda: MAX_AGENDA,
+  participants: MAX_PARTICIPANTS,
+  topic_arc: MAX_TOPIC_ARC,
+  discussions: MAX_DISCUSSIONS,
+  decisions: MAX_DECISIONS,
+  proposals: MAX_PROPOSALS,
+  open_questions: MAX_OPEN_QUESTIONS,
+  risks_or_concerns: MAX_RISKS,
+} as const;
