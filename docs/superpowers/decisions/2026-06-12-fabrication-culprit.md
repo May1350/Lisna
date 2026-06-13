@@ -87,6 +87,7 @@ founder dump. Every config still fabricates English or collapses:
 | B, DRY off | common_sampler lazy | q8_0 | yes | clean **English fabrication** (DRY ruled out) |
 | R4 | common_sampler lazy | **fp16** | yes | empty-slot collapse (all strings `" "`) — KV type ruled out |
 | **R5** | common_sampler | q8_0 | **NO grammar** | **GROUNDED JAPANESE** — `purpose: "会計・ファイナンスの基準"`, qa text `"おはよう、皆さんこんにちは。"` / `"私は日本の会計・ファイナンス業界…"`, all literally in the transcript |
+| P1 | common_sampler | q8_0 | yes + emphatic JA-only-values system rule | empty-slot collapse (all `" "`) — a forced JA instruction under grammar does NOT rescue grounding; it only shifts English→blank. Prompt lever ruled out. |
 
 **Single-variable isolation**: B vs R5 differ ONLY in grammar presence (same
 common_sampler, same q8_0 KV, same prompt, same seed). Grammar on → English
@@ -109,12 +110,18 @@ fabrication (2026-06-13). This 17-min dump is a worst case: finance topic
 (strong EN prior) + sparse/garbled far-field STT + the grammar constraint
 together tip the 3B over. So the failure is input-dependent, not every-run.
 
+**Cheap-isolation phase (founder-approved 2026-06-13) → CONCLUDED, no rescue.**
+Five real-3B experiments converge: every cheap lever (sampler architecture,
+DRY, KV-cache type, system-prompt JA-lock) failed; only grammar-OFF grounds.
+The grammar constraint, not any tunable, is the cause.
+
 **The real fix is OUTSIDE the sampler-alignment plan** — it's a
-grammar/generation-strategy redesign (candidate directions: two-pass = free JA
-text then deterministic/LLM structuring; a lighter grammar that emits less
-English scaffolding; a JA-forcing constraint; a stronger model). That needs a
-new design round-trip, not more sampler permutations. **HALTED pending founder
-direction.** Tasks 1-7 (SamplingParams plumbing, rig `--sampling` sweep +
+grammar/generation-strategy redesign. Lead candidate (R5-backed): **two-pass**
+— generate free JA text (grounds reliably), then structure it into the schema
+deterministically or via a second LLM pass. Alternatives: a lighter grammar
+that emits less English scaffolding; a stronger model. Needs a new
+brainstorming/design round-trip, not more sampler permutations. **HALTED
+pending founder direction on the redesign.** Tasks 1-7 (SamplingParams plumbing, rig `--sampling` sweep +
 `appliedSampling` echo, shared dedup helpers, dump logging) + the UTF-8
 streaming P0 fix (8a) are sound infra that ENABLED this diagnosis and stand on
 their own; Task 8b (the common_sampler swap) is built but UNCOMMITTED and
