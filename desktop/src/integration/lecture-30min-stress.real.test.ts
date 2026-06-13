@@ -7,7 +7,7 @@
  * the 45-min synth transcript at the production 3000-token budget, asserts:
  *   - chunkCount === EXPECTED_CHUNKS_AT_DEFAULT (matches mocked-leg pin)
  *   - schema valid
- *   - sections.length in [chunkCount, MAX_SECTIONS=10]
+ *   - sections.length in [chunkCount, MAX_SECTIONS=24]
  *   - per-chunk wall < 90s typical (catches silent cold-cache 2× regression)
  *   - total wall < 12 min (generous overall ceiling)
  *
@@ -137,8 +137,9 @@ describe.skipIf(!REAL_LLM_GATED)('finalizeLecture 30-min stress (real 3B)', () =
         expect(result.note.sections.length).toBeGreaterThanOrEqual(
           EXPECTED_CHUNKS_AT_DEFAULT,
         );
-        // Lecture schema caps sections at MAX_SECTIONS=10.
-        expect(result.note.sections.length).toBeLessThanOrEqual(10);
+        // Lecture schema hard ceiling is MAX_SECTIONS=24; consolidation targets
+        // a duration-aware soft cap (consolidate-lecture-sections.ts).
+        expect(result.note.sections.length).toBeLessThanOrEqual(24);
 
         // Wall-time bounds. Today's healthy baseline (founder retest
         // 2026-06-09 n=1): ~30s for ~25s of input. 90s/chunk catches a
