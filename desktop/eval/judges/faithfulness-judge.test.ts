@@ -54,3 +54,36 @@ describe('parseFaithfulness', () => {
     expect(gateFromVerdicts(1)).toBe('FAIL');
   });
 });
+
+describe('judge-sanity (shape contract, no network)', () => {
+  // A judge that saw a FAITHFUL JA note returns all-supported.
+  const FAITHFUL_RESPONSE = JSON.stringify({
+    verdicts: [
+      { claim: '売上は前年比で減少した', verdict: 'supported', span: 'qa_pairs[0].answer' },
+      { claim: '原価率の改善を最優先にする', verdict: 'supported', span: 'key_takeaways[0]' },
+    ],
+  });
+  // A judge that saw a FABRICATED English note returns unsupported on the invented claim.
+  const FABRICATED_RESPONSE = JSON.stringify({
+    verdicts: [
+      { claim: 'Revenue grew 30% YoY', verdict: 'unsupported', span: 'themes[0].name' },
+      { claim: 'EBITDA margin reached 22%', verdict: 'unsupported', span: 'themes[1].name' },
+    ],
+  });
+
+  it('faithful judge response → PASS', () => {
+    expect(__testOnly_parseFaithfulness(FAITHFUL_RESPONSE).overall).toBe('PASS');
+  });
+
+  it('fabricated judge response → FAIL with both spans cited', () => {
+    const r = __testOnly_parseFaithfulness(FABRICATED_RESPONSE);
+    expect(r.overall).toBe('FAIL');
+    expect(r.unsupportedCount).toBe(2);
+    expect(r.verdicts.map(v => v.span)).toEqual(['themes[0].name', 'themes[1].name']);
+  });
+
+  it('a judge that flips everything to supported CANNOT hide an empty-verdicts response', () => {
+    // Guard: an empty verdict list is treated as FAIL, so a judge returning {} can't pass.
+    expect(__testOnly_parseFaithfulness('{}').overall).toBe('FAIL');
+  });
+});
