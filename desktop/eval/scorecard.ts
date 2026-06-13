@@ -46,6 +46,24 @@ export function formatScorecard(results: FixtureResult[], diff?: BaselineDiff): 
       const flag = r.contentFidelity.parroting ? ' ⚠ PARROTING' : '';
       lines.push(`    content-fidelity   ${r.contentFidelity.score.toFixed(1)}${flag}`);
     }
+    if (r.faithfulness) {
+      lines.push(`    FAITHFULNESS: ${r.faithfulness.gate}`);
+      const p = r.faithfulness.prepass;
+      if (p.languageFlip) {
+        lines.push(`      pre-pass: language flip (jaRatio ${p.jaRatio.toFixed(2)} < 0.15) — note is not in the expected language`);
+      } else {
+        lines.push(`      pre-pass: jaRatio ${p.jaRatio.toFixed(2)} groundingJa ${p.groundingJa.toFixed(2)}`);
+      }
+      if (r.faithfulness.judge) {
+        const unsupported = r.faithfulness.judge.verdicts.filter(v => v.verdict === 'unsupported');
+        lines.push(`      judge (${r.faithfulness.judge.judgeModelId}): ${r.faithfulness.judge.unsupportedCount} unsupported claim(s)`);
+        for (const v of unsupported) lines.push(`        ✗ ${v.claim}  [${v.span}]`);
+      }
+    }
+    if (r.coverage) {
+      lines.push(`    coverage           ${r.coverage.captured}/${r.coverage.total} (${(r.coverage.ratio * 100).toFixed(0)}%)`);
+      if (r.coverage.missing.length) lines.push(`      missing: ${r.coverage.missing.join('; ')}`);
+    }
     if (r.retryHistogram) {
       const bins = Object.entries(r.retryHistogram.attemptsByBin).map(([k, v]) => `${k}:${v}`).join(' ');
       lines.push(`    retry-histogram    samples=${r.retryHistogram.samples} mean=${r.retryHistogram.attemptsMean} {${bins}}`);
@@ -74,4 +92,11 @@ export function formatScorecard(results: FixtureResult[], diff?: BaselineDiff): 
     lines.push('───────────────────────────────────────────────────────────────────');
   }
   return lines.join('\n');
+}
+
+/** Suite-level faithfulness gate: FAIL if ANY fixture with a faithfulness block
+ *  failed its gate. Fixtures without a faithfulness block (no facts[]) are not
+ *  gated. Used by the CLI to set a non-zero exit code. */
+export function __testOnly_gateVerdict(results: FixtureResult[]): 'PASS' | 'FAIL' {
+  return results.some(r => r.faithfulness?.gate === 'FAIL') ? 'FAIL' : 'PASS';
 }
