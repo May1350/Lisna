@@ -3,7 +3,7 @@ import {
   consolidateLectureSections,
   MAX_FOLD_GAP_SEC,
 } from '../consolidate-lecture-sections';
-import { LectureNoteSchema, type LectureSection, type LectureNote } from '../../families/lecture/schema';
+import { LectureNoteSchema, MAX_SECTIONS, type LectureSection, type LectureNote } from '../../families/lecture/schema';
 
 // ---------------------------------------------------------------------------
 // Minimal builders — inline, no shared helper (1 call site today; plan B note)
@@ -220,6 +220,30 @@ describe('consolidateLectureSections', () => {
     }));
     const note = makeNote(sections);
     const { note: result } = consolidateLectureSections(note, 3);
+    expect(() => LectureNoteSchema.strict().parse(result)).not.toThrow();
+  });
+
+  it('enforces the hard ceiling (MAX_SECTIONS) even when every gap exceeds MAX_FOLD_GAP_SEC', () => {
+    // 30 sections all 600s apart: every gap > MAX_FOLD_GAP_SEC (300s), so the
+    // gap guard ALONE stops folding immediately and leaves 30 > MAX_SECTIONS=24
+    // → LectureNoteSchema.parse throws too_big. This is the ≥80-min lecture
+    // failure mode the hard ceiling targets (expert review 2026-06-13). The
+    // override must keep folding the smallest-gap pair (lossless concat) until
+    // the count is within the schema's hard ceiling.
+    expect(600).toBeGreaterThan(MAX_FOLD_GAP_SEC);
+    expect(30).toBeGreaterThan(MAX_SECTIONS);
+    const sections = Array.from({ length: 30 }, (_, i) => makeSection(i * 600));
+    const note = makeNote(sections);
+    const { note: result, stats } = consolidateLectureSections(note, 15);
+    // Hard ceiling enforced despite all gaps exceeding MAX_FOLD_GAP_SEC.
+    expect(result.sections.length).toBeLessThanOrEqual(MAX_SECTIONS);
+    // Stops AT the ceiling (gap guard resumes once within it), not all the way
+    // down to the smaller soft targetCap — distant topics fused only as far as
+    // the schema bound forces.
+    expect(result.sections.length).toBe(MAX_SECTIONS);
+    // Lossless: every reduction was a fold (concat), never a drop.
+    expect(stats.folded).toBe(30 - MAX_SECTIONS);
+    // The whole point: the consolidated note now satisfies the schema.
     expect(() => LectureNoteSchema.strict().parse(result)).not.toThrow();
   });
 

@@ -8,7 +8,9 @@ import { LectureSlotInstanceSchema } from './slots';
 // Hard ceiling. The duration-aware target (clamp(ceil(min/8),10,24)) is
 // enforced at merge-time consolidation (consolidate-lecture-sections.ts);
 // 24 is the safety bound so a long lecture's merged sections never throw too_big.
-const MAX_SECTIONS = 24;
+// Exported so consolidateLectureSections can enforce the SAME ceiling as a hard
+// fold target (single source of truth — the two must never drift).
+export const MAX_SECTIONS = 24;
 const MAX_KEY_TERMS_PER_SECTION = 12;
 const MAX_EXAMPLES_PER_SECTION = 10;
 const MAX_POINTS_PER_SECTION = 20;

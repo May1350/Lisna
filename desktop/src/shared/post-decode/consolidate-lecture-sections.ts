@@ -11,7 +11,7 @@
  */
 
 import { trigrams, jaccard } from './deterministic-merge';
-import type { LectureNote, LectureSection } from '../families/lecture/schema';
+import { MAX_SECTIONS, type LectureNote, type LectureSection } from '../families/lecture/schema';
 
 /** Adjacent section pairs farther apart than this are never folded together. */
 export const MAX_FOLD_GAP_SEC = 300;
@@ -164,7 +164,10 @@ function dedupFitSection(s: WorkSection, stats: ConsolidationStats): WorkSection
 /**
  * Consolidate lecture sections toward `targetCap` by iteratively folding the
  * adjacent pair with the smallest ts-gap, stopping when the count reaches
- * `targetCap` OR the smallest gap exceeds `MAX_FOLD_GAP_SEC`.
+ * `targetCap` OR (the smallest gap exceeds `MAX_FOLD_GAP_SEC` AND the count is
+ * already within the hard ceiling `MAX_SECTIONS`). The gap guard is a quality
+ * preference; the `MAX_SECTIONS` ceiling is mandatory — folding continues past
+ * the gap guard while count > MAX_SECTIONS, else `schema.parse` throws too_big.
  *
  * After folding, each section's sub-arrays are dedup-fitted to their per-cap.
  *
@@ -199,8 +202,14 @@ export function consolidateLectureSections(
         bestIdx = i;
       }
     }
-    // C2 guard: stop if smallest gap exceeds MAX_FOLD_GAP_SEC.
-    if (bestIdx < 0 || bestGap > MAX_FOLD_GAP_SEC) break;
+    if (bestIdx < 0) break;
+    // C2 guard: don't fuse distant topics — stop once the smallest gap exceeds
+    // MAX_FOLD_GAP_SEC. BUT this is a QUALITY preference, not a hard limit:
+    // while the count still exceeds the schema's hard ceiling (MAX_SECTIONS),
+    // folding is MANDATORY — leaving >MAX_SECTIONS sections throws too_big at
+    // LectureNoteSchema.parse (expert review 2026-06-13). foldTwo concatenates,
+    // so a forced fold never drops content.
+    if (bestGap > MAX_FOLD_GAP_SEC && sections.length <= MAX_SECTIONS) break;
 
     const a = sections[bestIdx];
     const b = sections[bestIdx + 1];
