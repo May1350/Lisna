@@ -2,14 +2,15 @@ import { registerFamilyCore, type FamilyCoreDefinition } from '@shared/families'
 import { LectureNoteSchema, type LectureNote } from './schema';
 import { LECTURE_SLOTS } from './slots';
 import { lecturePromptsV1 } from './prompts/v1';
+import { lecturePromptsV2 } from './prompts/v2';
 import { lectureMergeStrategy } from './merge';
 import { lectureMigrations } from './migrations';
 
 export const LectureFamilyCore: FamilyCoreDefinition<LectureNote> = {
   id: 'lecture',
   schema: LectureNoteSchema,
-  prompts: [lecturePromptsV1],
-  defaultPromptVariant: 'lecture-v1',
+  prompts: [lecturePromptsV1, lecturePromptsV2],
+  defaultPromptVariant: 'lecture-v2',
   picker: {
     labelKey: 'family.lecture.label',
     iconPath: 'icons/lecture.svg',          // resolved by renderer at render time

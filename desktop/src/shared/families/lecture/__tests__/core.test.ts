@@ -25,8 +25,10 @@ describe('Lecture family core registration', () => {
   it('exposes schema + default prompt variant id + placeholder merge', () => {
     const fam = familyCoreRegistry['lecture']!;
     expect(fam.schema).toBeDefined();
-    expect(fam.defaultPromptVariant).toBe('lecture-v1');
+    // v2 is now default (JA-native prompt; EN-flip fix 2026-06-13)
+    expect(fam.defaultPromptVariant).toBe('lecture-v2');
     expect(fam.prompts.find((p) => p.variantId === 'lecture-v1')).toBeDefined();
+    expect(fam.prompts.find((p) => p.variantId === 'lecture-v2')).toBeDefined();
     expect(fam.mergeStrategy.scalarPolicy).toBe('longest');
     expect(fam.mergeStrategy.arrayPolicy).toBe('concat-dedup');
   });
