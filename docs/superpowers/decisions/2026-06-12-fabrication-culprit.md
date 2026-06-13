@@ -72,3 +72,50 @@ llama.cpp `common` into the sidecar, map `GenOpts` →
 param-driven from TS exactly as built in Tasks 1-7; the rig matrix and merge
 gate re-run unchanged on the B binary (R1-B × 3 seeds). If B also fails the
 gate ≥2/3, escalate per spec ("R4 fp16-KV" + founder).
+
+---
+
+## ADDENDUM 2026-06-13 — B FAILED. The grammar is the culprit, not the sampler.
+
+B was implemented (common_sampler, lazy grammar, llama-common linked, 52/52
+ctest green, release bundled) and the matrix + escalations RE-RAN on the same
+founder dump. Every config still fabricates English or collapses:
+
+| Config | sampler | KV | grammar | seed 7000 result |
+|---|---|---|---|---|
+| B | common_sampler lazy | q8_0 | yes (6425-char JSON) | clean **English fabrication** ("Interview with Tadao Maeda" / "Intel financial strategy") |
+| B, DRY off | common_sampler lazy | q8_0 | yes | clean **English fabrication** (DRY ruled out) |
+| R4 | common_sampler lazy | **fp16** | yes | empty-slot collapse (all strings `" "`) — KV type ruled out |
+| **R5** | common_sampler | q8_0 | **NO grammar** | **GROUNDED JAPANESE** — `purpose: "会計・ファイナンスの基準"`, qa text `"おはよう、皆さんこんにちは。"` / `"私は日本の会計・ファイナンス業界…"`, all literally in the transcript |
+
+**Single-variable isolation**: B vs R5 differ ONLY in grammar presence (same
+common_sampler, same q8_0 KV, same prompt, same seed). Grammar on → English
+fabrication; grammar off → grounded JA. **The GBNF JSON-schema constraint is
+what flips the 3B out of Japanese-generation mode.** Mechanism: forced through
+English-looking JSON scaffolding (keys `"question"/"answer"/"purpose"`,
+structural `{`/`"`/`:` tokens) the model's mode collapses to English in the
+string slots too; unconstrained it follows the JA prompt and grounds.
+
+**This invalidates the plan's premise** (and the overnight isolation that
+named the bespoke C++ sampler): the sampler architecture, repeat-penalty,
+DRY, and KV-cache type are ALL downstream of the grammar and none of them is
+the cause. The overnight "common_sampler grounds JA 0.95" was almost certainly
+a NO-GRAMMAR (free-text) CLI run — the differentiator was grammar presence,
+misattributed to the sampler.
+
+**Why this isn't a universal regression**: on the SAME v0.1.9 binary (bespoke
++ q8_0 + grammar) the founder's fresh 2-chunk interview grounded JA with zero
+fabrication (2026-06-13). This 17-min dump is a worst case: finance topic
+(strong EN prior) + sparse/garbled far-field STT + the grammar constraint
+together tip the 3B over. So the failure is input-dependent, not every-run.
+
+**The real fix is OUTSIDE the sampler-alignment plan** — it's a
+grammar/generation-strategy redesign (candidate directions: two-pass = free JA
+text then deterministic/LLM structuring; a lighter grammar that emits less
+English scaffolding; a JA-forcing constraint; a stronger model). That needs a
+new design round-trip, not more sampler permutations. **HALTED pending founder
+direction.** Tasks 1-7 (SamplingParams plumbing, rig `--sampling` sweep +
+`appliedSampling` echo, shared dedup helpers, dump logging) + the UTF-8
+streaming P0 fix (8a) are sound infra that ENABLED this diagnosis and stand on
+their own; Task 8b (the common_sampler swap) is built but UNCOMMITTED and
+delivers no proven user-visible win — its fate is a founder call.
