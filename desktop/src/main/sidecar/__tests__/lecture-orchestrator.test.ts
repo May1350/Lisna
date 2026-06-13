@@ -715,3 +715,73 @@ describe('finalizeLecture — system/user role split', () => {
     expect(call.prompt).toContain('Transcript:');
   });
 });
+
+// ─── consolidateLectureSections wiring (rung-1, Task C) ───────────────────────
+//
+// Verifies that finalizeLecture applies consolidateLectureSections between
+// deterministicMerge and fam.schema.parse, capping sections at targetCap.
+//
+// Strategy: produce 12 chunks via the mock sidecar, each yielding 1 section at
+// a different ts with a small gap (10s apart → all within MAX_FOLD_GAP_SEC=300).
+// The transcript is short (endTs=14s), so targetCap = max(10, ceil(0.23/8)) = 10.
+// deterministicMerge concatenates all 12 sections; consolidation folds down to
+// ≤10. The test asserts the cap WITHOUT specifying the exact count (folding is
+// deterministic but depends on gap selection — just ≤ targetCap).
+describe('finalizeLecture — consolidateLectureSections wiring', () => {
+  it('12 merged sections (>targetCap=10) are folded down to ≤10 by consolidation', async () => {
+    // 12 chunks, each yielding 1 section at a distinct ts (10s apart).
+    // After deterministicMerge the note has 12 sections; consolidation folds
+    // to targetCap=10 (transcript endTs=14s → durationMin≈0.23 → targetCap=10).
+    const SECTION_COUNT = 12;
+    const budget = 5; // forces 1 segment per chunk → 12 chunks from makeTranscript(12)
+    const profile = profileWithChunkBudget(budget);
+    const responses = Array.from({ length: SECTION_COUNT }, (_, i) =>
+      makeLectureNoteJson(`章${i + 1}`, i * 10),
+    );
+    const sidecar = mockSidecar({ responses });
+    const transcript = makeTranscript(SECTION_COUNT);
+
+    const result = await finalizeLecture({
+      sessionId: 'consolidation-cap',
+      transcript,
+      sidecar,
+      modelProfile: profile,
+    });
+
+    // Exactly 12 sidecar calls (12 chunks, no retries).
+    expect(sidecar.calls).toHaveLength(SECTION_COUNT);
+    // Core assertion: consolidation has folded 12 → ≤10.
+    expect(result.note.sections.length).toBeLessThanOrEqual(10);
+    expect(result.note.family).toBe('lecture');
+  });
+
+  it('finalize-done telemetry carries consolidation stats for the lecture family', async () => {
+    const SECTION_COUNT = 12;
+    const budget = 5;
+    const profile = profileWithChunkBudget(budget);
+    const responses = Array.from({ length: SECTION_COUNT }, (_, i) =>
+      makeLectureNoteJson(`章${i + 1}`, i * 10),
+    );
+    const sidecar = mockSidecar({ responses });
+    const transcript = makeTranscript(SECTION_COUNT);
+    const events: FinalizeTelemetryEvent[] = [];
+
+    await finalizeLecture({
+      sessionId: 'consolidation-tel',
+      transcript,
+      sidecar,
+      modelProfile: profile,
+      onTelemetry: (e) => events.push(e),
+    });
+
+    const done = events.find((e) => e.kind === 'finalize-done') as
+      | Extract<FinalizeTelemetryEvent, { kind: 'finalize-done' }>
+      | undefined;
+    expect(done).toBeDefined();
+    // consolidation field must be present and report targetCap=10 (short transcript).
+    expect(done!.consolidation).toBeDefined();
+    expect(done!.consolidation!.targetCap).toBe(10);
+    // folded > 0: 12 sections > 10 → at least 2 folds.
+    expect(done!.consolidation!.folded).toBeGreaterThan(0);
+  });
+});

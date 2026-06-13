@@ -81,13 +81,13 @@ describe('LectureNoteSchema', () => {
     })).toThrow();
   });
 
-  it('enforces .max(10) on sections array (Path G)', () => {
+  it('enforces .max(24) on sections array (hard ceiling, duration-aware target at consolidation)', () => {
     const tooManySections = {
       schemaVersion: 1, family: 'lecture', title: 't',
       generatedAt: '2026-05-27T12:00:00.000Z',
       generatedBy: { model: 'm', promptVersion: 1 },
       language: 'ja', durationSec: 1,
-      sections: Array.from({ length: 11 }, (_, i) => ({
+      sections: Array.from({ length: 25 }, (_, i) => ({
         heading: `s${i}`, ts: i, summary: 's',
         key_terms: [], examples: [], points: [],
       })),

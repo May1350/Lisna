@@ -26,6 +26,7 @@ import { runPostDecodePipeline, dropEmptyUserVisibleItems } from '@shared/post-d
 import { collapseSpeakerRefsToZero } from '@shared/post-decode/collapse-speaker-refs';
 import { applyGeneratedMeta } from '@shared/note-schema/apply-generated-meta';
 import { deterministicMerge } from '@shared/post-decode/deterministic-merge';
+import { consolidateLectureSections } from '../../shared/post-decode/consolidate-lecture-sections';
 import { runMergeLLMCall } from './merge-llm';
 import { callWithGrammar, makeSidecarGenerator, type GrammarAttempt, type GrammarCapableSidecar, type LlmGenerator } from './grammar-call';
 import { degradeToSingleSpeaker } from '@shared/families/meeting/degrade-to-single-speaker';
@@ -99,6 +100,14 @@ export type FinalizeTelemetryEvent =
       chunkCount: number;
       totalAttempts: number;
       sanitizedTotal: number;
+      /** Present for the 'lecture' family only — consolidation stats from
+       *  consolidateLectureSections (rung-1, duration-aware targetCap). */
+      consolidation?: {
+        targetCap: number;
+        folded: number;
+        truncated: number;
+        deduped: number;
+      };
     };
 
 /**
@@ -636,8 +645,19 @@ export async function finalizeLecture(
     fam.mergeStrategy,
   );
 
-  // Re-parse the merged object through the family schema for final validation
-  const note = fam.schema.parse(merged) as LectureNote;
+  // ── Consolidate sections (rung-1: duration-aware soft target) ────────────
+  // Duration-aware targetCap: clamp(ceil(durationMin / 8), 10, 24).
+  // Runs AFTER deterministicMerge and BEFORE schema.parse so the final Zod
+  // validation sees the already-folded + dedup-fitted section list.
+  const durationMin = (args.transcript.transcriptSegments.at(-1)?.endTs ?? 0) / 60;
+  const targetCap = Math.max(10, Math.min(24, Math.ceil(durationMin / 8)));
+  const { note: consolidated, stats: consolidationStats } = consolidateLectureSections(
+    merged as unknown as LectureNote,
+    targetCap,
+  );
+
+  // Re-parse the consolidated object through the family schema for final validation
+  const note = fam.schema.parse(consolidated) as LectureNote;
   // System owns provenance/schema metadata — the grammar exposes these
   // NoteBase fields so the LLM emits them too, but its values are untrustworthy
   // (a 1B model hallucinated an invalid generatedAt → "Invalid Date").
@@ -680,6 +700,7 @@ export async function finalizeLecture(
     chunkCount: chunks.length,
     totalAttempts: totalAttemptsAcrossChunks,
     sanitizedTotal: sanitizedAcrossChunks,
+    consolidation: { targetCap, ...consolidationStats },
   });
   return { note, telemetry };
 }
