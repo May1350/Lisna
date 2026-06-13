@@ -1,0 +1,11 @@
+{
+  "fixtureId": "finance-fabrication-2spk",
+  "family": "interview",
+  "language": "ja",
+  "durationSec": 80,
+  "bucketSeconds": 10,
+  "scenarioTags": ["finance", "2-speaker", "fabrication-stress"],
+  "expectedSlots": [],
+  "sourceUrl": null,
+  "notes": "Reproduces the 2026-06-11 JA finance interview → English-finance fabrication failure. Sparse turns + finance vocabulary trigger the 3B's memorized EN boilerplate prior. Fail-first proof runs on the real 3B in Task 14 (after interview is wired into the offline runner in Task 10)."
+}

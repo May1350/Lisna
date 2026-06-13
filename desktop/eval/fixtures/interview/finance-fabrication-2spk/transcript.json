@@ -1,0 +1,18 @@
+{
+  "sessionId": "finance-fabrication-2spk",
+  "speakers": [
+    { "id": 0, "name": "Interviewer" },
+    { "id": 1, "name": "CFO" }
+  ],
+  "bucket_seconds": 10,
+  "transcripts": [
+    { "ts": 0, "text": "Interviewer: 今期の財務状況を簡単に教えてください。", "speakerId": 0 },
+    { "ts": 10, "text": "CFO: 売上は前年比で少し減りました。原価率の改善が課題です。", "speakerId": 1 },
+    { "ts": 20, "text": "Interviewer: 利益への影響はどうですか。", "speakerId": 0 },
+    { "ts": 30, "text": "CFO: 粗利は横ばいですが、固定費が重く営業利益は薄いです。", "speakerId": 1 },
+    { "ts": 40, "text": "Interviewer: 改善の優先順位は。", "speakerId": 0 },
+    { "ts": 50, "text": "CFO: まず原価率を下げること、次に在庫の回転を上げることです。", "speakerId": 1 },
+    { "ts": 60, "text": "Interviewer: 資金繰りは大丈夫ですか。", "speakerId": 0 },
+    { "ts": 70, "text": "CFO: 当面は問題ありません。来期に向けて運転資金を厚めに持ちます。", "speakerId": 1 }
+  ]
+}

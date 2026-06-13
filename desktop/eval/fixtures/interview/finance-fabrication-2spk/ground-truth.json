@@ -1,0 +1,21 @@
+{
+  "fixtureId": "finance-fabrication-2spk",
+  "facts": [
+    "売上は前年比で少し減少した",
+    "原価率の改善が課題である",
+    "粗利は横ばいである",
+    "固定費が重く営業利益は薄い",
+    "改善の最優先は原価率を下げること",
+    "次の優先は在庫の回転を上げること",
+    "当面の資金繰りは問題ない",
+    "来期に向けて運転資金を厚めに持つ方針"
+  ],
+  "qaPairs": [
+    { "q": "今期の財務状況", "a": "売上は前年比で減少、原価率の改善が課題", "mustAppear": true },
+    { "q": "利益への影響", "a": "粗利は横ばい、固定費が重く営業利益は薄い", "mustAppear": true },
+    { "q": "改善の優先順位", "a": "原価率を下げる、在庫回転を上げる", "mustAppear": true },
+    { "q": "資金繰りの状況", "a": "当面問題なし、運転資金を厚めに", "mustAppear": true }
+  ],
+  "themes": ["revenue-decline", "cost-ratio", "profitability", "cash-flow"],
+  "participantCount": 2
+}
