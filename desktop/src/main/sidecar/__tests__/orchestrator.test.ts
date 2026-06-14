@@ -320,24 +320,31 @@ describe('SessionOrchestrator', () => {
     expect(note.markdown).toBe('note');
   });
 
-  it('fires onAudioChunk with the raw audio buffer before timestamp remap', async () => {
+  it('fires onAudioChunk with the raw audio buffer before STT + timestamp remap', async () => {
     const seen: { len: number; offset: number }[] = [];
+    const order: string[] = [];
     const fakeStt = {
       loadModel: vi.fn(async () => {}),
       unloadModel: vi.fn(async () => {}),
-      transcribe: vi.fn(async () => [
-        { startSec: 0.5, endSec: 3.2, text: 'first' },
-      ]),
+      transcribe: vi.fn(async () => {
+        order.push('transcribe');
+        return [{ startSec: 0.5, endSec: 3.2, text: 'first' }];
+      }),
     };
     const orch = new SessionOrchestrator({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       stt: fakeStt as any, llm: {} as any,
       sttModelPath: '/stt', llmModelPath: '/llm', language: 'ja',
-      onAudioChunk: (audio, offsetSec) => seen.push({ len: audio.length, offset: offsetSec }),
+      onAudioChunk: (audio, offsetSec) => {
+        order.push('audio');
+        seen.push({ len: audio.length, offset: offsetSec });
+      },
     });
     await orch.start();
     await orch.onChunk(new Float32Array(16000), 130);
     expect(seen).toEqual([{ len: 16000, offset: 130 }]);
+    // The hook must observe the RAW buffer before STT/remap → it fires first.
+    expect(order).toEqual(['audio', 'transcribe']);
   });
 
   // M1: empty-transcript guard. If no segments were captured (silence-only

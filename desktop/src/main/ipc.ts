@@ -566,6 +566,7 @@ export function registerIpc(deps: IpcDeps) {
       const code = err instanceof Error ? err.message : String(err);
       sessionLog.error(code);
       log.error('[session] start failed', err);
+      closeAudioWriter();  // start failed after the writer was opened above → close it (no fd leak)
       current = null;
       _llmLoadedForCurrent = null;
       throw err;
