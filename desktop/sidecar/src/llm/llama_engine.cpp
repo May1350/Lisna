@@ -225,24 +225,33 @@ bool LlamaEngine::generate(const std::vector<ChatMessage>& messages, const GenOp
   if (n_prompt < 0) return false;
   tokens.resize(n_prompt);
 
-  // Sampler chain. Order matters: penalties header says "apply top-k or top-p
-  // first" — we keep penalties between top_p and temp so they operate on the
-  // already-filtered candidate set.
-  // - top_k=50 / top_p=0.9: standard chat-tuned defaults
-  // - penalties(64, 1.1, 0, 0): mild repetition penalty over the last 64
-  //   tokens. 1.0 = off, 1.3 = aggressive; 1.1 was chosen to dampen the
-  //   infinite-loop failure mode (2026-05-15 1B catastrophe) without
-  //   distorting natural JA phrasing where short fillers ("はい", "ね")
-  //   recur legitimately. Frequency and presence penalties stay 0 — we
-  //   intentionally tune one knob at a time.
-  // - temp / dist: standard tail of the chain.
+  // Sampler chain — aligned to llama.cpp common defaults (spec
+  // 2026-06-12-v2-track2-sampler-alignment section 4). Order mirrors
+  // upstream common_sampler: penalties → dry → top_k → top_p → min_p →
+  // temp → dist. Values arrive via GenOpts (TS profiles.ts is the single
+  // source of truth; the header defaults are the aligned safety net).
+  //
+  // The old hardcoded chain (top_k 50 → top_p 0.9 → penalties(64, 1.1) →
+  // temp → dist) is GONE: the 1.1 post-truncation repeat penalty is the
+  // prime suspect for the 2026-06-12 JA→English fabrication (it
+  // systematically down-weights recurring JA subword tokens inside
+  // grammar-masked JSON; English alternates win). Penalties stay reachable
+  // via opts.repeatPenalty > 1.0 ONLY so the eval rig can reproduce the
+  // legacy config in the falsification matrix — production sends 1.0.
+  //
+  // DRY (sequence-repetition penalty) replaces it as the anti-loop device:
+  // it penalizes only tokens that EXTEND a repeated sequence (>= allowed
+  // length), so it cannot bias the language of fresh content the way a
+  // token-recurrence penalty can. The `"` sequence breaker resets matching
+  // at JSON string boundaries. Disabled when multiplier == 0 (rig knob).
+  //
+  // Grammar stays FIRST (single-pass hard mask; candidate set cannot
+  // empty). NOTE: the known-good CLI ran grammar_first=false (lazy
+  // rejection-resample) — grammar mode is deliberately NOT changed here;
+  // it is the B-fallback variable (spec section 7).
   llama_sampler_chain_params sparams = llama_sampler_chain_default_params();
   llama_sampler* smpl = llama_sampler_chain_init(sparams);
 
-  // Grammar-first: mask grammar-invalid tokens BEFORE the truncation samplers,
-  // so top_k/top_p/penalties operate only on the grammar-valid set. This is the
-  // safe single-pass form (the candidate set can't be emptied; grammar state
-  // advances via the chain's accept). Empty grammar = plain path (no sampler).
   if (!opts.grammar.empty()) {
     llama_sampler* grmr = llama_sampler_init_grammar(impl_->vocab, opts.grammar.c_str(), "root");
     if (!grmr) {
@@ -255,11 +264,25 @@ bool LlamaEngine::generate(const std::vector<ChatMessage>& messages, const GenOp
     }
     llama_sampler_chain_add(smpl, grmr);
   }
-  llama_sampler_chain_add(smpl, llama_sampler_init_top_k(50));
-  llama_sampler_chain_add(smpl, llama_sampler_init_top_p(0.9f, 1));
-  llama_sampler_chain_add(smpl, llama_sampler_init_penalties(64, 1.1f, 0.0f, 0.0f));
+  if (opts.repeatPenalty > 1.0f) {
+    llama_sampler_chain_add(smpl, llama_sampler_init_penalties(
+        opts.repeatLastN, opts.repeatPenalty, 0.0f, 0.0f));
+  }
+  if (opts.dryMultiplier > 0.0f) {
+    // Upstream default breakers (common.h:243). `"` confines DRY matching
+    // within one JSON string slot; `:`/`\n` break across structural tokens.
+    static const char* kDryBreakers[] = {"\n", ":", "\"", "*"};
+    llama_sampler_chain_add(smpl, llama_sampler_init_dry(
+        impl_->vocab, llama_model_n_ctx_train(impl_->model),
+        opts.dryMultiplier, opts.dryBase,
+        opts.dryAllowedLength, opts.dryPenaltyLastN,
+        kDryBreakers, 4));
+  }
+  llama_sampler_chain_add(smpl, llama_sampler_init_top_k(opts.topK));
+  llama_sampler_chain_add(smpl, llama_sampler_init_top_p(opts.topP, 1));
+  llama_sampler_chain_add(smpl, llama_sampler_init_min_p(opts.minP, 1));
   llama_sampler_chain_add(smpl, llama_sampler_init_temp(opts.temperature));
-  llama_sampler_chain_add(smpl, llama_sampler_init_dist(opts.seed));   // was LLAMA_DEFAULT_SEED
+  llama_sampler_chain_add(smpl, llama_sampler_init_dist(opts.seed));
 
   llama_batch batch = llama_batch_get_one(tokens.data(), static_cast<int32_t>(tokens.size()));
   int generated = 0;

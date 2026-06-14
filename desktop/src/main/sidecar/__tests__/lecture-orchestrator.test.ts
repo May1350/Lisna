@@ -1,12 +1,18 @@
 /**
- * Tests for finalizeLecture (Task 9).
- * Uses an inline mockSidecar — no shared test-helpers module needed.
+ * Tests for finalizeLecture.
  *
- * Four test cases per plan §1212-1257:
- *   1. 1-chunk transcript → 1 grammar call
- *   2. 3-chunk transcript → 3 grammar calls, ZERO merge-LLM calls (deterministic)
- *   3. retry budget: chunk-0 fails once, total grammar calls = chunkCount + 1
- *   4. validation_warnings stays empty (Lecture has no SpeakerRef)
+ * Lecture runs SINGLE-PASS (per-family wiring, 2026-06-14): structure the
+ * transcript DIRECTLY under grammar — the lecture model echoes its own prompt
+ * back as garbage when run 2-pass (real-3B validation). So each chunk drives
+ * exactly ONE generation per inner attempt (no free-prose pass-1), and lecture
+ * pairs this with BESPOKE_SAMPLING (repeatPenalty 1.1, DRY off).
+ *
+ * Retry ladder (restored from commit eebce31): POST_DECODE_OUTER_ATTEMPTS(2)
+ * outer seed blocks × INNER_GRAMMAR_ATTEMPTS(3) inner (+100-stride) retries,
+ * then runPostDecodePipeline. ESCAPE_LITERAL / NOTE_LANGUAGE_MISMATCH ⇒ fresh
+ * outer block; post-decode ZodError ⇒ fresh outer block.
+ *
+ * Uses an inline mockSidecar — no shared test-helpers module needed.
  */
 import { describe, it, expect, beforeAll, vi } from 'vitest';
 import {
@@ -16,29 +22,57 @@ import {
 } from '../orchestrator';
 import type { GrammarCapableSidecar } from '../grammar-call';
 import type { SessionTranscript } from '@shared/note-schema/transcript';
-import { modelProfiles } from '@shared/models/profiles';
+import { modelProfiles, BESPOKE_SAMPLING } from '@shared/models/profiles';
 import type { ModelProfile } from '@shared/models/profiles';
+import type { SamplingParams } from '@shared/ipc-protocol';
 
 // ─── inline mock sidecar ────────────────────────────────────────────────────
 
 type MockOpts = {
-  /** Canned JSON strings, one per successful call. Defaults to valid LectureNote JSON. */
+  /** Canned JSON strings, one per generation call. Defaults to valid LectureNote JSON. */
   responses?: string[];
-  /** call-index → number of failures before that call succeeds */
+  /** call-index → number of failures (rejections) before that call succeeds */
   failuresPerCall?: Record<number, number>;
 };
 
+/**
+ * Single-pass mock (per-family wiring, 2026-06-14). Lecture ALWAYS sends a
+ * grammar (no empty-grammar pass-1 step), so every call is a structuring
+ * generation recorded in `calls` and driven by `responses[]` / `failuresPerCall`
+ * — `calls.length` equals the number of generations (≈ chunk count + retries),
+ * and the seed/JSON/sampling assertions read this single stream.
+ */
 function mockSidecar(
   opts: MockOpts = {},
-): GrammarCapableSidecar & { calls: Array<{ prompt: string; system?: string; grammar: string; seed: number }> } {
+): GrammarCapableSidecar & {
+  calls: Array<{
+    prompt: string;
+    system?: string;
+    grammar: string;
+    seed: number;
+    sampling?: SamplingParams;
+  }>;
+} {
   const responses = opts.responses;
   const failures = opts.failuresPerCall ?? {};
-  const calls: Array<{ prompt: string; system?: string; grammar: string; seed: number }> = [];
+  const calls: Array<{
+    prompt: string;
+    system?: string;
+    grammar: string;
+    seed: number;
+    sampling?: SamplingParams;
+  }> = [];
   let successCallIdx = 0;
   return {
     calls,
     async generateWithGrammar(req) {
-      calls.push({ prompt: req.prompt, system: req.system, grammar: req.grammar, seed: req.seed });
+      calls.push({
+        prompt: req.prompt,
+        system: req.system,
+        grammar: req.grammar,
+        seed: req.seed,
+        sampling: req.sampling,
+      });
       if (failures[successCallIdx] && failures[successCallIdx]! > 0) {
         failures[successCallIdx]!--;
         throw new Error('mock-fail');
@@ -125,7 +159,7 @@ const modelProfile = modelProfiles['llama-3.2-3b-q4-km']!;
 // ─── tests ───────────────────────────────────────────────────────────────────
 
 describe('finalizeLecture', () => {
-  it('1-chunk transcript → exactly 1 grammar call, note has family=lecture', async () => {
+  it('1-chunk transcript → exactly 1 generation, note has family=lecture', async () => {
     const response = makeLectureNoteJson('導入', 0);
     const sidecar = mockSidecar({ responses: [response] });
     // 3 short segments at default budget (3000 tokens) = trivially 1 chunk
@@ -147,23 +181,24 @@ describe('finalizeLecture', () => {
     expect(result.telemetry.modelId).toBe('llama-3.2-3b-q4-km');
   });
 
-  it('3-chunk transcript → exactly 3 grammar calls, ZERO merge-LLM calls', async () => {
-    // Use budget=20 tokens and 9 segments of ~7 tokens each.
-    // 20 tokens budget: 2 segments fit per chunk (2×7=14 ≤ 20, 3×7=21 > 20)
-    // → ceil(9 / 2) ≈ 5 chunks with silence-snap variants, or 9/3 = 3 exact if snap hits.
-    // To guarantee exactly 3 chunks: use budget=50 with 9 ASCII segments.
-    // 50 tokens: 7 segs fit (7×7=49 ≤ 50); 8 would exceed. So 9 segs → 2 chunks (7+2).
-    // Better: use 3 segments with budget=5 so each segment (≈7 tokens) overflows by itself.
-    // Actually with budget=5: segment 0 (7 tok) > 5 → goes into first chunk alone.
-    // Let's use 3 segments with the default budget — that forces 1 chunk.
-    // For exactly 3 chunks, use budget=5 with 3 segments:
-    //   - seg 0: 7 tokens → exceeds 5, but we're AT cursorIdx=0, so it always appends
-    //             (the overflow guard is `if tokens + segTokens > maxTokens AND i > cursorIdx`)
-    //   - seg 0 sits alone (tokens=7, softEndIdx=0), next iter cursor=1
-    //   - seg 1: 7 tokens (same), chunk=[seg1], cursor=2
-    //   - seg 2: last, chunk=[seg2]
-    //   → 3 chunks of 1 segment each ✓
-    const budget = 5; // forces 1 segment per chunk given ~7-token segments
+  it('the generate envelope carries BESPOKE sampling (penalty 1.1, DRY off)', async () => {
+    // Lecture is single-pass + bespoke override; assert the envelope the sidecar
+    // actually receives, not just the profile constant.
+    const sidecar = mockSidecar({ responses: [makeLectureNoteJson('導入', 0)] });
+    await finalizeLecture({
+      sessionId: 'bespoke',
+      transcript: makeTranscript(3),
+      sidecar,
+      modelProfile,
+    });
+    expect(sidecar.calls[0]!.sampling).toEqual(BESPOKE_SAMPLING);
+    expect(sidecar.calls[0]!.sampling!.repeatPenalty).toBe(1.1);
+    expect(sidecar.calls[0]!.sampling!.dryMultiplier).toBe(0);
+  });
+
+  it('3-chunk transcript → exactly 3 generations, ZERO merge-LLM calls', async () => {
+    // budget=5 forces 1 segment per ~7-token chunk → 3 chunks from makeTranscript(3).
+    const budget = 5;
     const profile = profileWithChunkBudget(budget);
     const transcript = makeTranscript(3);
 
@@ -184,7 +219,7 @@ describe('finalizeLecture', () => {
 
     const result = await finalizeLecture(args);
 
-    // Exactly 3 grammar calls (Lecture = no merge-LLM call)
+    // Exactly 3 generations (Lecture = no merge-LLM call)
     expect(sidecar.calls).toHaveLength(3);
     expect(result.telemetry.chunkCount).toBe(3);
     expect(result.note.family).toBe('lecture');
@@ -192,7 +227,7 @@ describe('finalizeLecture', () => {
     expect(result.note.sections.length).toBe(3);
   });
 
-  it('retry budget: chunk-0 fails once → total calls = 4', async () => {
+  it('retry budget: chunk-0 fails once → total generations = 4', async () => {
     // Same 3-chunk setup as above
     const budget = 5;
     const profile = profileWithChunkBudget(budget);
@@ -202,7 +237,7 @@ describe('finalizeLecture', () => {
       makeLectureNoteJson('章 2', 5),
       makeLectureNoteJson('章 3', 10),
     ];
-    // successCallIdx 0 fails once before succeeding
+    // successCallIdx 0 fails once before succeeding (inner +100 retry).
     const sidecar = mockSidecar({ responses, failuresPerCall: { 0: 1 } });
 
     const args: FinalizeLectureArgs = {
@@ -214,17 +249,17 @@ describe('finalizeLecture', () => {
 
     const result = await finalizeLecture(args);
 
-    // 1 failure (chunk-0 attempt 1) + 1 success (chunk-0 attempt 2) +
-    // 1 success (chunk-1) + 1 success (chunk-2) = 4 total calls
+    // 1 failure (chunk-0 inner attempt 1) + 1 success (chunk-0 inner attempt 2) +
+    // 1 success (chunk-1) + 1 success (chunk-2) = 4 total generations
     expect(sidecar.calls).toHaveLength(4);
     expect(result.note.family).toBe('lecture');
     expect(result.note.sections.length).toBe(3);
   });
 
-  it('throws CHUNK_FAILED when a chunk exhausts all 3 retry attempts', async () => {
+  it('throws CHUNK_FAILED when a chunk exhausts all inner retry attempts', async () => {
     const sidecar = mockSidecar({
       responses: [],                       // never consulted — every attempt fails
-      failuresPerCall: { 0: 5 },           // chunk 0 fails > maxAttempts(3)
+      failuresPerCall: { 0: 99 },          // chunk 0 fails every attempt
     });
     await expect(
       finalizeLecture({
@@ -257,16 +292,17 @@ describe('finalizeLecture', () => {
     expect(result.telemetry.postDecodeMutations).toEqual([]);
   });
 
-  // ─── P0b: outer retry on post-decode ZodError ────────────────────────────────
+  // ─── outer retry on post-decode ZodError (single-pass) ───────────────────────
   // callWithGrammar receives `schema: z.unknown()` (pass-through), so its
   // per-attempt retry-on-Zod contract no-ops for the real family shape. The
   // family.schema.parse() runs inside runPostDecodePipeline (Stage 4) AFTER
   // callWithGrammar returns ok=true. Without an outer retry, a single bad
   // emission burns the whole chunk and propagates ZodError out of
-  // finalizeLecture with no recovery. P0b wraps the per-chunk pair in a small
-  // outer retry loop with a disjoint seed-block per attempt.
+  // finalizeLecture with no recovery. The single-pass ladder wraps the
+  // callWithGrammar call in an outer retry loop with a disjoint seed-block
+  // (+10000) per outer attempt.
 
-  it('retries chunk with fresh seed when runPostDecodePipeline throws ZodError (P0b)', async () => {
+  it('retries chunk with fresh seed block when runPostDecodePipeline throws ZodError', async () => {
     // Well-formed JSON missing the required `sections` field — JSON.parse
     // succeeds (callWithGrammar's z.unknown() passes through), but
     // family.schema.parse() inside runPostDecodePipeline Stage 4 throws
@@ -286,13 +322,14 @@ describe('finalizeLecture', () => {
     const sidecar = mockSidecar({ responses: [invalidJson, validJson] });
 
     const result = await finalizeLecture({
-      sessionId: 'p0b-retry',
+      sessionId: 'zod-retry',
       transcript: makeTranscript(3),  // 3 segs at default budget → 1 chunk
       sidecar,
       modelProfile,
     });
 
-    // Two sidecar calls: outer attempt 0 produced invalid JSON, outer attempt 1 valid.
+    // Two sidecar calls: outer attempt 0 produced invalid JSON (1 inner
+    // attempt that ok=true but failed post-decode), outer attempt 1 valid.
     expect(sidecar.calls).toHaveLength(2);
     // The outer retry advances baseSeed by a block strictly larger than
     // callWithGrammar's inner stride (+0/+100/+200), so the second outer
@@ -303,7 +340,13 @@ describe('finalizeLecture', () => {
     expect(result.note.sections.length).toBe(1);
   });
 
-  it('throws CHUNK_FAILED:POST_DECODE_ZOD_EXHAUSTED when post-decode fails on both outer attempts', async () => {
+  it('throws CHUNK_FAILED:POST_DECODE_ZOD when post-decode fails on every outer block', async () => {
+    // Every generation emits JSON missing `sections` → Stage 4 ZodError on
+    // each → fresh outer block, until POST_DECODE_OUTER_ATTEMPTS exhausted.
+    // The mock falls back to '{}' after the two scripted responses, which is
+    // also missing sections → still POST_DECODE_ZOD. Outer-0's first inner
+    // attempt ok=true+ZOD → break to next outer (no inner reseed: the ZodError
+    // is post-callWithGrammar), so 1 generation per outer block × 2 = 2 calls.
     const invalidJson = JSON.stringify({
       schemaVersion: 1,
       family: 'lecture',
@@ -318,13 +361,14 @@ describe('finalizeLecture', () => {
 
     await expect(
       finalizeLecture({
-        sessionId: 'p0b-exhaust',
+        sessionId: 'zod-exhaust',
         transcript: makeTranscript(1),
         sidecar,
         modelProfile,
       }),
-    ).rejects.toThrow(/^CHUNK_FAILED:0:POST_DECODE_ZOD_EXHAUSTED/);
+    ).rejects.toThrow(/^CHUNK_FAILED:0:POST_DECODE_ZOD:/);
 
+    // 2 outer blocks, each ok=true on its first inner attempt then ZOD → 2 calls.
     expect(sidecar.calls).toHaveLength(2);
   });
 
@@ -332,7 +376,11 @@ describe('finalizeLecture', () => {
   // onTelemetry feeds the founder-visible main.log so a finalize wall time can
   // be split into cold-cache / retry / RAM. The IPC route wires it to
   // sessionLog.finalize{Attempt,ChunkDone,Done}; here we assert the event
-  // stream shape with a vi.fn collector.
+  // stream shape with a vi.fn collector. Single-pass (2026-06-14): every
+  // generation is a callWithGrammar inner attempt — it emits BOTH an
+  // attempt-start (no `pass` tag) AND one 'attempt' record. So a happy chunk
+  // has exactly 1 attempt-start + 1 'attempt'. Lecture chunk-0 baseSeed=5000;
+  // the first inner seed is 5000.
 
   describe('onTelemetry callback', () => {
     it('single-chunk happy path emits 1 attempt + 1 chunk-done + 1 finalize-done', async () => {
@@ -347,7 +395,8 @@ describe('finalizeLecture', () => {
         onTelemetry: (e) => events.push(e),
       });
 
-      // attempt event: 1 inner attempt, ok=true, seed matches the lecture base (5000+0+0)
+      // attempt event: ONE inner attempt, ok=true, seed = 5000 (baseSeed).
+      // outerAttempt = single-pass outer-block index (0).
       const attempts = events.filter((e) => e.kind === 'attempt');
       expect(attempts).toHaveLength(1);
       expect(attempts[0]).toMatchObject({
@@ -362,7 +411,7 @@ describe('finalizeLecture', () => {
       });
       expect((attempts[0] as { latencyMs: number }).latencyMs).toBeGreaterThanOrEqual(0);
 
-      // chunk-done: 1 inner attempt total, no retries, no sanitized
+      // chunk-done: 1 outer block, 1 inner attempt, no reseeds.
       const chunkDone = events.filter((e) => e.kind === 'chunk-done');
       expect(chunkDone).toHaveLength(1);
       expect(chunkDone[0]).toMatchObject({
@@ -388,13 +437,22 @@ describe('finalizeLecture', () => {
       });
     });
 
-    it('inner-retry on generator throw produces 2 attempt events for chunk 0 (1 ok=false, 1 ok=true)', async () => {
-      // failuresPerCall {0:1} → first generate call throws → callWithGrammar
-      // catches as a failed inner attempt and retries with seed+100.
-      const sidecar = mockSidecar({
-        responses: [makeLectureNoteJson('Sec', 0)],
-        failuresPerCall: { 0: 1 },
+    it('outer-block retry on post-decode ZodError produces 2 attempt events for chunk 0', async () => {
+      // 1st generation emits JSON missing `sections` → callWithGrammar returns
+      // ok=true (z.unknown passes), runPostDecodePipeline throws ZodError →
+      // fresh outer block (+10000 seed) → 2nd generation valid. Both 'attempt'
+      // records are ok=true (the ZodError is post-callWithGrammar).
+      const invalidJson = JSON.stringify({
+        schemaVersion: 1,
+        family: 'lecture',
+        title: 'タイトル',
+        generatedAt: new Date().toISOString(),
+        generatedBy: { model: 'llama-3.2-3b-q4-km', promptVersion: 1 },
+        language: 'ja',
+        durationSec: 60,
+        // missing: sections — Stage 4 throws ZodError
       });
+      const sidecar = mockSidecar({ responses: [invalidJson, makeLectureNoteJson('Sec', 0)] });
       const events: FinalizeTelemetryEvent[] = [];
 
       await finalizeLecture({
@@ -409,73 +467,31 @@ describe('finalizeLecture', () => {
         Extract<FinalizeTelemetryEvent, { kind: 'attempt' }>
       >;
       expect(attempts).toHaveLength(2);
-      expect(attempts[0]!.ok).toBe(false);
+      // Both inner attempts return ok=true from callWithGrammar; the first is
+      // rejected later by runPostDecodePipeline (POST_DECODE_ZOD).
       expect(attempts[0]!.attempt).toBe(1);
-      expect(attempts[0]!.seed).toBe(5000);
-      expect(attempts[0]!.reason).toBe('mock-fail');
-      expect(attempts[1]!.ok).toBe(true);
-      expect(attempts[1]!.attempt).toBe(2);
-      expect(attempts[1]!.seed).toBe(5100);
-
-      const chunkDone = events.filter((e) => e.kind === 'chunk-done') as Array<
-        Extract<FinalizeTelemetryEvent, { kind: 'chunk-done' }>
-      >;
-      expect(chunkDone[0]!.outerAttempts).toBe(1);
-      expect(chunkDone[0]!.totalAttempts).toBe(2);
-      expect(chunkDone[0]!.freshSeedRetries).toBe(0); // inner retry, not outer
-    });
-
-    it('outer post-decode retry advances outerAttempts and freshSeedRetries', async () => {
-      // Reuses the P0b setup: outer attempt 0 produces JSON missing 'sections'
-      // (post-decode ZodError) → outer attempt 1 with +10000 seed block succeeds.
-      const invalidJson = JSON.stringify({
-        schemaVersion: 1,
-        family: 'lecture',
-        title: 'タイトル',
-        generatedAt: new Date().toISOString(),
-        generatedBy: { model: 'llama-3.2-3b-q4-km', promptVersion: 1 },
-        language: 'ja',
-        durationSec: 60,
-        // missing: sections — Stage 4 throws ZodError
-      });
-      const validJson = makeLectureNoteJson('セクション', 0);
-      const sidecar = mockSidecar({ responses: [invalidJson, validJson] });
-      const events: FinalizeTelemetryEvent[] = [];
-
-      await finalizeLecture({
-        sessionId: 'tel-outer',
-        transcript: makeTranscript(3),
-        sidecar,
-        modelProfile,
-        onTelemetry: (e) => events.push(e),
-      });
-
-      const attempts = events.filter((e) => e.kind === 'attempt') as Array<
-        Extract<FinalizeTelemetryEvent, { kind: 'attempt' }>
-      >;
-      expect(attempts).toHaveLength(2);
-      // outer 0, inner 1: ok=true (JSON parses + sanitize passes — fails LATER in post-decode)
-      expect(attempts[0]!.outerAttempt).toBe(0);
-      expect(attempts[0]!.ok).toBe(true);
-      // outer 1, inner 1: ok=true on the valid JSON
+      expect(attempts[0]!.seed).toBe(5000); // outer 0, inner 1 → baseSeed
+      expect(attempts[1]!.attempt).toBe(1); // outer 1's first inner attempt
       expect(attempts[1]!.outerAttempt).toBe(1);
-      expect(attempts[1]!.ok).toBe(true);
+      expect(attempts[1]!.seed).toBe(15000); // outer 1 → +1*10000
 
       const chunkDone = events.filter((e) => e.kind === 'chunk-done') as Array<
         Extract<FinalizeTelemetryEvent, { kind: 'chunk-done' }>
       >;
+      // 2 outer blocks ran (fresh seed each) → outerAttempts=2, freshSeedRetries=1.
       expect(chunkDone[0]!.outerAttempts).toBe(2);
       expect(chunkDone[0]!.totalAttempts).toBe(2);
       expect(chunkDone[0]!.freshSeedRetries).toBe(1);
     });
 
-    // ─── attempt-start (finalize progress UI, 2026-06-13) ─────────────────────
+    // ─── attempt-start (finalize progress UI, 2026-06-13; single-pass 2026-06-14) ──
     // 'attempt'/'chunk-done' fire only AFTER work completes, so the renderer
-    // can't show "attempt 2 running now" from them. attempt-start fires at the
-    // top of each generation attempt; the overall counter spans outer
-    // fresh-seed blocks (outer × inner-3 + inner attempt) out of maxAttempts 6.
+    // can't show "running now" from them. attempt-start fires at the top of
+    // EVERY generation (via callWithGrammar's onAttemptStart), with NO `pass`
+    // tag for single-pass, counted across outer×inner out of maxAttempts
+    // POST_DECODE_OUTER_ATTEMPTS(2)×INNER_GRAMMAR_ATTEMPTS(3)=6.
 
-    it('emits attempt-start BEFORE the completed attempt event, with chunk context', async () => {
+    it('emits attempt-start (no pass tag) before the completed attempt event', async () => {
       const sidecar = mockSidecar({ responses: [makeLectureNoteJson('Sec', 0)] });
       const events: FinalizeTelemetryEvent[] = [];
 
@@ -487,7 +503,10 @@ describe('finalizeLecture', () => {
         onTelemetry: (e) => events.push(e),
       });
 
-      const starts = events.filter((e) => e.kind === 'attempt-start');
+      const starts = events.filter((e) => e.kind === 'attempt-start') as Array<
+        Extract<FinalizeTelemetryEvent, { kind: 'attempt-start' }>
+      >;
+      // One generation → one attempt-start. Single-pass omits `pass`.
       expect(starts).toHaveLength(1);
       expect(starts[0]).toEqual({
         kind: 'attempt-start',
@@ -498,21 +517,25 @@ describe('finalizeLecture', () => {
         maxAttempts: 6,
         seed: 5000,
       });
+      expect(starts[0]!.pass).toBeUndefined();
       // Ordering: the start precedes the completed 'attempt' record.
       expect(events.findIndex((e) => e.kind === 'attempt-start')).toBeLessThan(
         events.findIndex((e) => e.kind === 'attempt'),
       );
     });
 
-    it('inner retry numbers attempt-start sequentially within the chunk (2 of 6)', async () => {
+    it('inner reseed numbers attempt-start sequentially within an outer block (1,2 of 6)', async () => {
+      // 1st inner attempt is a hard rejection (mock-fail) → callWithGrammar
+      // reseeds +100 → 2nd inner attempt succeeds. The attempt-start overall
+      // counter increments across inner attempts (1,2) within outer block 0.
       const sidecar = mockSidecar({
         responses: [makeLectureNoteJson('Sec', 0)],
-        failuresPerCall: { 0: 1 },
+        failuresPerCall: { 0: 1 }, // first generation rejects, second succeeds
       });
       const events: FinalizeTelemetryEvent[] = [];
 
       await finalizeLecture({
-        sessionId: 'tel-start-retry',
+        sessionId: 'tel-start-inner',
         transcript: makeTranscript(3),
         sidecar,
         modelProfile,
@@ -523,15 +546,18 @@ describe('finalizeLecture', () => {
         Extract<FinalizeTelemetryEvent, { kind: 'attempt-start' }>
       >;
       expect(starts.map((s) => ({ attempt: s.attempt, seed: s.seed }))).toEqual([
-        { attempt: 1, seed: 5000 },
-        { attempt: 2, seed: 5100 },
+        { attempt: 1, seed: 5000 }, // outer 0, inner 1
+        { attempt: 2, seed: 5100 }, // outer 0, inner 2 (+100 reseed)
       ]);
       expect(starts.every((s) => s.maxAttempts === 6)).toBe(true);
+      expect(starts.every((s) => s.pass === undefined)).toBe(true);
     });
 
-    it('outer fresh-seed block continues the overall attempt-start count (4 of 6)', async () => {
-      // Outer attempt 0 fails post-decode (missing sections) → outer attempt 1
-      // succeeds. Overall attempt = outer × 3 + inner = 4 on the second block.
+    it('fresh outer block continues the overall attempt-start count across the +10000 block', async () => {
+      // Outer 0's single inner attempt is ok=true but fails post-decode (missing
+      // sections) → fresh outer block. Outer 1's first inner attempt succeeds.
+      // attempt-start sequence spans both outer blocks: attempt 1 (seed 5000),
+      // attempt 2 (seed 15000).
       const invalidJson = JSON.stringify({
         schemaVersion: 1,
         family: 'lecture',
@@ -540,9 +566,11 @@ describe('finalizeLecture', () => {
         generatedBy: { model: 'llama-3.2-3b-q4-km', promptVersion: 1 },
         language: 'ja',
         durationSec: 60,
-        // missing: sections — Stage 4 throws ZodError
+        // missing: sections
       });
-      const sidecar = mockSidecar({ responses: [invalidJson, makeLectureNoteJson('セクション', 0)] });
+      const sidecar = mockSidecar({
+        responses: [invalidJson, makeLectureNoteJson('セクション', 0)],
+      });
       const events: FinalizeTelemetryEvent[] = [];
 
       await finalizeLecture({
@@ -557,9 +585,10 @@ describe('finalizeLecture', () => {
         Extract<FinalizeTelemetryEvent, { kind: 'attempt-start' }>
       >;
       expect(starts.map((s) => ({ attempt: s.attempt, seed: s.seed }))).toEqual([
-        { attempt: 1, seed: 5000 },
-        { attempt: 4, seed: 15000 },
+        { attempt: 1, seed: 5000 },  // outer block 0, inner 1
+        { attempt: 4, seed: 15000 }, // outer block 1, inner 1 (overall counter = 1*3 + 1)
       ]);
+      expect(starts.every((s) => s.maxAttempts === 6)).toBe(true);
     });
 
     it('omitting onTelemetry is a no-op (no throws, finalize succeeds)', async () => {
@@ -577,11 +606,12 @@ describe('finalizeLecture', () => {
 
     it('onTelemetry receives chunk-done even when the chunk throws CHUNK_FAILED (try/finally invariant)', async () => {
       // Founder-relevant: if a chunk explodes we still want the partial timing
-      // surfaced so the next session can attribute the failure.
-      const sidecar = mockSidecar({
-        responses: [],
-        failuresPerCall: { 0: 5 }, // exhausts inner retries (maxAttempts=3) on first outer
-      });
+      // surfaced so the next session can attribute the failure. Every generation
+      // emits unparseable text → callWithGrammar ok=false (SyntaxError) on all
+      // INNER attempts. A generic (non-ESCAPE/non-LANG) failure does NOT earn a
+      // fresh outer block (eebce31 single-pass semantics), so the chunk fails
+      // after outer block 0's 3 inner attempts → 3 'attempt' records.
+      const sidecar = mockSidecar({ responses: Array(3).fill('not json') });
       const onTelemetry = vi.fn();
       await expect(
         finalizeLecture({
@@ -594,12 +624,15 @@ describe('finalizeLecture', () => {
       ).rejects.toThrow(/^CHUNK_FAILED:0:/);
 
       const calls = onTelemetry.mock.calls.map((c) => c[0] as FinalizeTelemetryEvent);
-      // 3 inner attempts (all ok=false) + 1 chunk-done; NO finalize-done (we threw).
+      // 3 inner attempts (outer block 0 only), all ok=false; 1 chunk-done;
+      // NO finalize-done (we threw).
       const attempts = calls.filter((e) => e.kind === 'attempt');
       expect(attempts).toHaveLength(3);
       expect(attempts.every((e) => (e as { ok: boolean }).ok === false)).toBe(true);
       const chunkDone = calls.filter((e) => e.kind === 'chunk-done');
       expect(chunkDone).toHaveLength(1);
+      // Only outer block 0 ran (generic failure → no fresh outer block).
+      expect((chunkDone[0] as { outerAttempts: number }).outerAttempts).toBe(1);
       expect(calls.filter((e) => e.kind === 'finalize-done')).toHaveLength(0);
     });
   });
@@ -608,10 +641,11 @@ describe('finalizeLecture', () => {
 // ─── Language guard at the finalize level (fabrication circuit-breaker) ───────
 //
 // Production incident 2026-06-11: the 3B emitted memorized ENGLISH boilerplate
-// for a Japanese recording — schema-valid, so it shipped. finalize* threads
-// `expectedLanguage` (args.language, default 'ja') into callWithGrammar, and
-// runChunkWithGrammar's outer-retry treats NOTE_LANGUAGE_MISMATCH like
-// ESCAPE_LITERAL_AT_ (fresh +10000 seed block before failing the chunk).
+// for a Japanese recording — schema-valid, so it shipped. Lecture (single-pass)
+// threads `expectedLanguage` (args.language, default 'ja') into callWithGrammar,
+// which runs findLanguageMismatch on every generation. A NOTE_LANGUAGE_MISMATCH
+// gets a fresh outer seed block; exhausting all outer blocks fails LOUD instead
+// of shipping fiction.
 describe('finalizeLecture — NOTE_LANGUAGE_MISMATCH guard', () => {
   /** Schema-valid lecture note whose content is English fabrication (>100
    *  checked chars) — the ONLY tripwire is the language guard. */
@@ -638,10 +672,11 @@ describe('finalizeLecture — NOTE_LANGUAGE_MISMATCH guard', () => {
     });
   }
 
-  it('fabricated-English chunks burn inner+outer retries, then a JA response succeeds', async () => {
-    // Inner ladder (maxAttempts=3) rejects 3 English attempts on outer 0 →
-    // NOTE_LANGUAGE_MISMATCH finalReason → outer predicate continues → outer 1
-    // serves JA → success.
+  it('fabricated-English generation reseeds (fresh outer block), then a JA response succeeds', async () => {
+    // Outer block 0: all 3 inner attempts emit English → NOTE_LANGUAGE_MISMATCH
+    // each (callWithGrammar inner +100 reseeds) → ok=false → fresh outer block.
+    // Outer block 1's 1st inner attempt serves JA → success. So 4 'attempt'
+    // records (3 mismatch in outer-0 + 1 ok in outer-1), 2 outer blocks.
     const en = makeEnglishLectureNoteJson();
     const sidecar = mockSidecar({
       responses: [en, en, en, makeLectureNoteJson('実際の講義セクション', 0)],
@@ -673,9 +708,9 @@ describe('finalizeLecture — NOTE_LANGUAGE_MISMATCH guard', () => {
   });
 
   it('all-English exhaustion fails LOUD with NOTE_LANGUAGE_MISMATCH in CHUNK_FAILED (never ships fiction)', async () => {
-    // Every attempt (3 inner × POST_DECODE_OUTER_ATTEMPTS=2 outer) must serve
-    // English — the mock falls back to '{}' when responses run out, which
-    // would divert the failure into the POST_DECODE_ZOD path instead.
+    // Every generation serves grammar-valid English → the callWithGrammar
+    // language guard rejects it (NOTE_LANGUAGE_MISMATCH) on all 6 inner attempts
+    // (2 outer × 3 inner). Fill all 6 so the mock never falls back to '{}'.
     const sidecar = mockSidecar({ responses: Array(6).fill(makeEnglishLectureNoteJson()) });
     await expect(
       finalizeLecture({
@@ -688,15 +723,15 @@ describe('finalizeLecture — NOTE_LANGUAGE_MISMATCH guard', () => {
   });
 });
 
-// ─── System/user role split at the finalize level (2026-06-12) ────────────────
+// ─── System/user role split, single-pass (2026-06-14) ─────────────────────────
 //
-// The grammar path previously concatenated system+user into ONE user turn;
-// on the real incident transcript that shape produced English fabrication
-// while a true system turn produced grounded JA (groundingJa 0.95, same v1
-// prompt, llama-completion --jinja -sys). finalize* must pass the rendered
-// system template as `system` and ONLY the chunk user template as `prompt`.
-describe('finalizeLecture — system/user role split', () => {
-  it('sends the system template as a separate system turn, transcript in the user turn', async () => {
+// Lecture is single-pass: it structures the transcript DIRECTLY under grammar.
+// The system turn (the lecture variant's JA-native systemTemplate) MUST be sent
+// as a true `system` role, NOT concatenated into the user turn — the role split
+// is the fix that turned English fabrication into grounded JA on the real
+// incident transcript. The user turn carries the rendered transcript.
+describe('finalizeLecture — system/user role split (single-pass)', () => {
+  it('sends the lecture system separately + the transcript in the user turn (not concatenated)', async () => {
     const sidecar = mockSidecar({ responses: [makeLectureNoteJson('章', 0)] });
     await finalizeLecture({
       sessionId: 'role-split',
@@ -704,15 +739,19 @@ describe('finalizeLecture — system/user role split', () => {
       sidecar,
       modelProfile,
     });
+
     const call = sidecar.calls[0]!;
+    // System turn present + carries the JA-native lecture system (mentions JSON).
     expect(call.system).toBeDefined();
-    // System turn = the lecture system template (identifying marker), and it
-    // must NOT leak into the user prompt anymore.
-    expect(call.system!).toContain('LectureNote');
-    expect(call.prompt).not.toContain(call.system!.slice(0, 40));
-    // User turn = chunk header + rendered transcript.
-    expect(call.prompt).toMatch(/Chunk 1 of 1/);
+    expect(call.system!).toContain('日本語'); // JA-native anchor
+    expect(call.system!).toMatch(/JSON/);     // structuring target named in the system
+    // User turn carries the rendered transcript (single-pass feeds the model the
+    // transcript directly) and is NOT a concatenation of the system text.
+    expect(call.prompt).toContain('Segment 1');
     expect(call.prompt).toContain('Transcript:');
+    expect(call.prompt).not.toContain(call.system!.slice(0, 40));
+    // Grammar IS attached (single-pass always structures under grammar).
+    expect(call.grammar.length).toBeGreaterThan(0);
   });
 });
 

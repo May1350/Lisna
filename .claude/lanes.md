@@ -212,5 +212,8 @@ Format per line — fields separated by `|`:
 .claude/worktrees/sanitizer-latex-fix|desktop/src/main/ desktop/eval/|sanitizer-latex-fix
 .claude/worktrees/history-viewer|desktop/ docs/|history-viewer
 .claude/worktrees/note-quality-eval|desktop/eval/ desktop/scripts/|note-quality-eval
+.claude/worktrees/per-chunk-2pass|desktop/ docs/|per-chunk-2pass
+.claude/worktrees/2pass-sampler|desktop/ docs/|2pass-sampler
+.claude/worktrees/sampler-alignment|desktop/src/shared/ desktop/sidecar/ desktop/__tests__/ desktop/eval/ desktop/scripts/|sampler-alignment
 seams: package.json pnpm-lock.yaml pnpm-workspace.yaml .github/workflows/ CLAUDE.md docs/PRD.md .claude/rules/ .claude/lanes.md .gitignore .gitattributes README.md tsconfig
 <!-- END PARSEABLE -->

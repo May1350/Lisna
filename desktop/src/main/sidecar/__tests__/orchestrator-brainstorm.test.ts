@@ -28,16 +28,34 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f
 
 type MockOpts = { responses?: string[] };
 
+/** Canned PASS-1 free-prose: grounded JA over the 100-char language floor. */
+const PASS1_PROSE = 'このブレインストームの要約です。出たアイデアと背景を順にまとめます。' + 'あ'.repeat(120);
+
+/**
+ * 2-pass aware mock (per-chunk fabrication fix, 2026-06-14). PASS-1 calls
+ * (empty grammar) are served canned JA prose and recorded in `pass1Calls`;
+ * PASS-2 (grammar) calls — including the cross-chunk merge-LLM call — drive
+ * `calls` + `responses[]` exactly as before.
+ */
 function mockSidecar(
   opts: MockOpts = {},
-): GrammarCapableSidecar & { calls: Array<{ prompt: string; grammar: string; seed: number }> } {
+): GrammarCapableSidecar & {
+  calls: Array<{ prompt: string; system?: string; grammar: string; seed: number }>;
+  pass1Calls: Array<{ prompt: string; system?: string; seed: number }>;
+} {
   const responses = opts.responses;
-  const calls: Array<{ prompt: string; grammar: string; seed: number }> = [];
+  const calls: Array<{ prompt: string; system?: string; grammar: string; seed: number }> = [];
+  const pass1Calls: Array<{ prompt: string; system?: string; seed: number }> = [];
   let idx = 0;
   return {
     calls,
+    pass1Calls,
     async generateWithGrammar(req) {
-      calls.push({ prompt: req.prompt, grammar: req.grammar, seed: req.seed });
+      if (req.grammar === '') {
+        pass1Calls.push({ prompt: req.prompt, system: req.system, seed: req.seed });
+        return { text: PASS1_PROSE, seed: req.seed };
+      }
+      calls.push({ prompt: req.prompt, system: req.system, grammar: req.grammar, seed: req.seed });
       const text = responses ? (responses[idx] ?? '{}') : makeBrainstormNoteJson();
       idx++;
       return { text, seed: req.seed };

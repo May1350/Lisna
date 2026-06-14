@@ -89,12 +89,14 @@ export function makeLectureNoteJson(sectionHeading: string, sectionTs: number): 
   });
 }
 
-// ─── Mock sidecar that serves one canned response per call ───────────────────
+// ─── Mock sidecar that serves one canned response per generation ─────────────
 //
-// Records every call so the test can assert chunk-count, seed-per-chunk, and
-// prompt sanity. The mock falls back to the last response on overflow so a
-// `.length` mismatch surfaces as a test assertion failure rather than an
-// undefined-pointer exception.
+// Lecture is SINGLE-PASS (per-family wiring, 2026-06-14): it structures the
+// transcript DIRECTLY under grammar, so every call carries a non-empty grammar
+// and is indexed into `responses[]` and recorded in `calls`. `calls` length
+// equals the number of generations (≈ chunk count, + any retries). The mock
+// falls back to the last response on overflow so a `.length` mismatch surfaces
+// as a test assertion failure rather than an undefined-pointer exception.
 export function mockSidecarPerChunk(responses: string[]): GrammarCapableSidecar & {
   calls: Array<{ prompt: string; seed: number }>;
 } {

@@ -1,4 +1,5 @@
 import type { NoteFamily } from '@shared/note-schema';
+import type { SamplingParams } from '../ipc-protocol';
 
 /** Family-specific runtime tuning. Per spec §2.3 + decision-0.2-path-f.md.
  *
@@ -24,8 +25,58 @@ export interface ModelProfile {
   bosTokenFix?: 'dormant-bos';
   warmupRequired: boolean;
   ramBudgetMB: number;
+  /**
+   * Sampler configuration sent with EVERY generate call (spec
+   * sampler-alignment section 5 — TS is the single source of truth; the C++
+   * defaults are a safety net only). Aligned to llama.cpp common defaults
+   * (common.h:214-243) + DRY enabled — the configuration the known-good
+   * llama-completion runs used, minus their looping (DRY covers that).
+   */
+  sampling: Required<SamplingParams>;
   perFamily: Record<NoteFamily, PerFamilyTuning>;
 }
+
+/**
+ * llama.cpp common-default parity + DRY enabled. WHY these exact values:
+ * the 2026-06-12 fabrication isolation matrix proved the CLI path
+ * (common_sampler, NO sampler flags → these defaults, penalty OFF) produces
+ * grounded JA where the sidecar chain (top_k 50 / top_p 0.9 / penalty 1.1
+ * post-truncation) produces English fabrication. DRY (multiplier 0.8 — the
+ * one deliberate deviation from "disabled" upstream default) targets the
+ * phrase-looping the CLI runs still showed. See spec sections 1+4.
+ */
+export const ALIGNED_SAMPLING: Required<SamplingParams> = {
+  topK: 40,
+  topP: 0.95,
+  minP: 0.05,
+  repeatPenalty: 1.0,
+  repeatLastN: 64,
+  dryMultiplier: 0.8,
+  dryBase: 1.75,
+  dryAllowedLength: 2,
+  dryPenaltyLastN: -1,
+};
+
+/**
+ * Mirrors main's legacy sampler chain — repeat-penalty ON (1.1), DRY OFF.
+ * Used by lecture, which runs SINGLE-PASS: the lecture model needs a grounded
+ * decode (real-3B 2-pass validation showed it echoing its own prompt back as
+ * garbage). The penalty curbs the lecture model's phrase-looping without the
+ * DRY interaction that destabilizes the single-pass structuring decode.
+ * Conversation families keep ALIGNED_SAMPLING (penalty off + DRY) on their
+ * 2-pass path. Same field set as SamplingParams / ALIGNED_SAMPLING.
+ */
+export const BESPOKE_SAMPLING: Required<SamplingParams> = {
+  topK: 50,
+  topP: 0.9,
+  minP: 0.0,
+  repeatPenalty: 1.1,
+  repeatLastN: 64,
+  dryMultiplier: 0.0,
+  dryBase: 1.75,
+  dryAllowedLength: 2,
+  dryPenaltyLastN: -1,
+};
 
 /**
  * Runtime profile registry. Two entries alpha-ships with:
@@ -61,6 +112,7 @@ export const modelProfiles: Record<string, ModelProfile> = {
     bosTokenFix: 'dormant-bos',
     warmupRequired: true,
     ramBudgetMB: 3072,
+    sampling: ALIGNED_SAMPLING,
     perFamily: {
       lecture:    { recommendedChunkTokens: 3000, maxGenTokens: 3000, temperature: 0.4, tier: 'default'  },
       meeting:    { recommendedChunkTokens: 3000, maxGenTokens: 3000, temperature: 0.4, tier: 'default'  },
@@ -78,6 +130,7 @@ export const modelProfiles: Record<string, ModelProfile> = {
     bosTokenFix: 'dormant-bos',
     warmupRequired: true,
     ramBudgetMB: 1024,
+    sampling: ALIGNED_SAMPLING,
     // Chunk budgets here are still the pre-2026-06-11 values — the 1B profile is
     // dev-only (no models.json multi-path / RAM detection yet), so they're inert
     // in production. The adaptive-infra design phase sets the 1B chunk size.

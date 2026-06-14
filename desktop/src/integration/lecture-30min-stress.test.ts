@@ -95,9 +95,11 @@ describe('finalizeLecture 30-min stress (mocked)', () => {
     // Schema parse passes — the canned shape is faithful.
     expect(() => LectureNoteSchema.parse(result.note)).not.toThrow();
 
-    // Per-chunk seed assertion: outer-retry must NOT fire on healthy
-    // responses. Each chunk's first inner attempt is baseSeed + i =
-    // 5000 + i (lecture family base; mirror orchestrator.ts).
+    // Per-chunk seed assertion (single-pass, 2026-06-14): no outer reseed must
+    // fire on healthy responses — each chunk's first (and only) generation uses
+    // the lecture family base seed 5000 + i (mirror orchestrator.ts). Exactly
+    // one generation per chunk (no ESCAPE / language-mismatch / post-decode reseed).
+    expect(sidecar.calls.length).toBe(EXPECTED_CHUNKS_AT_DEFAULT);
     sidecar.calls.forEach((call, i) => {
       expect(call.seed).toBe(5000 + i);
     });

@@ -35,6 +35,9 @@ interface SendOptions {
 export interface GenerateStats {
   tokensOut: number;
   genMs: number;
+  /** Echo of the sampler values the C++ chain actually used (delivery
+   *  proof — spec sampler-alignment section 5). Absent on older binaries. */
+  appliedSampling?: Record<string, number>;
 }
 
 /**

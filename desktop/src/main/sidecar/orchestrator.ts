@@ -1,6 +1,6 @@
 import type { STTEngine, LLMEngine, Language, TranscriptSegment, ChatMessage } from '@shared/engine-interfaces';
 import type { Note } from '@shared/types';
-import type { SessionPhase } from '@shared/ipc-protocol';
+import type { SessionPhase, SamplingParams } from '@shared/ipc-protocol';
 import { withTimeout } from '@shared/with-timeout';
 import { buildJaNoteV1Prompt } from './prompts/ja-note-v1';
 import { TIMEOUTS, TIMEOUT_CODES } from './timeouts';
@@ -10,7 +10,7 @@ import { generateChunkedNote } from './chunked-note';
 import type { SessionTranscript } from '@shared/note-schema/transcript';
 import type { NoteLanguage } from '@shared/note-schema';
 import type { ModelProfile } from '@shared/models/profiles';
-import { renderSystemTemplate } from '@shared/families/util/prompts';
+import { BESPOKE_SAMPLING } from '@shared/models/profiles';
 import type { GenerationTelemetry } from '@shared/note-schema/telemetry';
 import type { LectureNote } from '@shared/families/lecture/schema';
 import type { MeetingNote } from '@shared/families/meeting/schema';
@@ -18,6 +18,7 @@ import type { InterviewNote } from '@shared/families/interview/schema';
 import type { BrainstormNote } from '@shared/families/brainstorm/schema';
 import { z } from 'zod';
 import { familyCoreRegistry, selectPromptVariant, type FamilyCoreDefinition } from '@shared/families';
+import { renderSystemTemplate } from '@shared/families/util/prompts';
 import type { NoteBase } from '@shared/note-schema';
 import { zodToGbnf } from '@shared/note-schema/zod-to-gbnf';
 import { chunkTranscript } from '@shared/note-schema/chunking';
@@ -33,7 +34,8 @@ import {
   consolidateBrainstormNote,
 } from '../../shared/post-decode/consolidate-conversation';
 import { runMergeLLMCall } from './merge-llm';
-import { callWithGrammar, makeSidecarGenerator, type GrammarAttempt, type GrammarCapableSidecar, type LlmGenerator } from './grammar-call';
+import { callWithGrammar, findLanguageMismatch, makeSidecarGenerator, type GrammarAttempt, type GrammarCapableSidecar, type LlmGenerator } from './grammar-call';
+import { buildPass1Prompts, buildPass2Prompts } from '@shared/families/util/two-pass-prompts';
 import { degradeToSingleSpeaker } from '@shared/families/meeting/degrade-to-single-speaker';
 import type { FinalizeFamily } from '../log';
 
@@ -63,13 +65,17 @@ export type FinalizeTelemetryEvent =
       family: FinalizeFamily;
       chunkIndex: number;
       totalChunks: number;
-      /** 1-indexed attempt about to run, counted ACROSS outer fresh-seed
-       * blocks: outerAttempt × INNER_GRAMMAR_ATTEMPTS + inner attempt.
-       * ≥2 means the previous attempt failed (UI shows 再試行 N/M). */
+      /** 1-indexed generation about to run, counted ACROSS both passes and
+       * all reseeds (genUsed + 1). ≥2 means a prior generation failed
+       * (UI shows 再試行 N/M). */
       attempt: number;
-      /** Worst-case attempts for this chunk (outer × inner). */
+      /** Worst-case generations for this chunk (MAX_GEN_PER_CHUNK). */
       maxAttempts: number;
       seed: number;
+      /** Which 2-pass step this generation belongs to (per-chunk 2-pass,
+       * 2026-06-14). 1 = free-prose grounding, 2 = structure-under-grammar.
+       * Optional + additive — existing consumers (ipc.ts progress) ignore it. */
+      pass?: 1 | 2;
     }
   | {
       kind: 'attempt';
@@ -157,10 +163,28 @@ interface RunChunkOpts {
   fam: FamilyCoreDefinition<NoteBase>;
   chunkIndex: number;
   totalChunks: number;
-  /** System turn — sent as a true `system` role message (role split, 2026-06-12). */
-  systemPrompt: string;
-  /** User turn — chunk header + rendered transcript + instruction tail. */
-  userPrompt: string;
+  /**
+   * Generation mode (per-family wiring, 2026-06-14). `true` = the 2-pass
+   * pipeline (grounded free-prose pass → structuring pass under grammar); the
+   * conversation families (meeting/interview/brainstorm) need this — under
+   * grammar the 3B flips to memorized English on hard conversation inputs.
+   * `false` = single-pass (structure the transcript directly under grammar);
+   * lecture stays single-pass because the lecture model echoes its own prompt
+   * back as garbage when run 2-pass (real-3B validation, 2026-06-14).
+   *
+   * twoPass=true REQUIRES pass1System/pass1User/pass2System/pass2UserPrefix.
+   * twoPass=false REQUIRES singlePassSystem/singlePassUser.
+   */
+  twoPass: boolean;
+  /** Pass-1 (free-gen) prompts — from buildPass1Prompts. twoPass=true only. */
+  pass1System?: string;
+  pass1User?: string;
+  /** Pass-2 (structure) prompts — from buildPass2Prompts. pass2User = `${pass2UserPrefix}\n\n${prose}`. twoPass=true only. */
+  pass2System?: string;
+  pass2UserPrefix?: string;
+  /** Single-pass system + user (transcript-bearing). twoPass=false only. */
+  singlePassSystem?: string;
+  singlePassUser?: string;
   grammar: string;
   /**
    * Family-specific base seed (lecture 5000+i, meeting 6000+i, interview
@@ -168,7 +192,7 @@ interface RunChunkOpts {
    * offset (POST_DECODE_SEED_OFFSET) on top.
    */
   baseSeed: number;
-  tuning: { temperature: number; maxGenTokens: number };
+  tuning: { temperature: number; maxGenTokens: number; sampling: Required<SamplingParams> };
   generator: LlmGenerator;
   /**
    * SessionTranscript fed into runPostDecodePipeline for `from`-provenance
@@ -195,127 +219,285 @@ interface RunChunkResult {
 }
 
 /**
- * Per-chunk outer-retry + post-decode + telemetry, extracted from the four
- * finalize* functions where this exact loop body was duplicated 4×. The
- * shape preserves the prior semantics exactly:
+ * Per-chunk generation + bounded retry ladder + post-decode + telemetry, in
+ * TWO modes selected by `opts.twoPass` (per-family wiring, 2026-06-14).
  *
- *   - up to POST_DECODE_OUTER_ATTEMPTS outer cycles, each with its own seed
- *     block (`baseSeed + outer*POST_DECODE_SEED_OFFSET`);
- *   - inside each outer cycle: callWithGrammar (maxAttempts=3 inner) →
- *     post-decode pipeline; ESCAPE_LITERAL_AT_<path> continues to the next
- *     outer seed block (per memory v2_track2_escape_literal_phase1); Zod
- *     errors from runPostDecodePipeline continue (P0b);
- *   - non-Zod, non-ESCAPE_LITERAL throws (ForwardIncompatNoteError,
- *     SyntaxError, etc.) propagate immediately — not retriable.
- *   - on exhaust: throws `CHUNK_FAILED:<i>:<reason>` or
- *     `CHUNK_FAILED:<i>:POST_DECODE_ZOD_EXHAUSTED:<zod message>`.
+ * ── twoPass=true — CONVERSATION families (meeting/interview/brainstorm) ──
+ * On hard conversation inputs the 3B flips to memorized English under grammar
+ * (NOTE_LANGUAGE_MISMATCH, 2026-06-12). Splitting generation into a grounded
+ * free-prose pass and a structuring pass fixes the root cause:
  *
- * Telemetry semantics also preserved:
+ *   - PASS 1 — free JA prose, EMPTY grammar (sidecar plain free-gen path),
+ *     PASS1_MAX_TOKENS budget. Guarded by its OWN ran-to-cap detector
+ *     (tokensOut >= max-ε ⇒ truncated ⇒ never fed forward) and its OWN
+ *     `findLanguageMismatch(prose, expectedLanguage)` (a string leaf — the
+ *     100-char floor makes short prose inert). Either guard ⇒ reseed pass-1.
+ *   - PASS 2 — structure the GOOD prose under the FULL grammar via
+ *     `callWithGrammar(schema: z.unknown())` (the grammar omits postDecodeOnly
+ *     fields like `from`, so the real `fam.schema.parse` MUST stay deferred to
+ *     runPostDecodePipeline — never parse fam.schema on raw grammar output).
+ *     callWithGrammar carries the existing sanitize + escape-literal +
+ *     language defenses. !ok ⇒ reseed pass-2 against the SAME prose
+ *     (cheaper than re-grounding); ZodError from post-decode ⇒ reseed pass-2.
  *
- *   - emits one `attempt-start` event at the TOP of every inner attempt (via
- *     callWithGrammar's onAttemptStart), with the chunk-spanning overall
- *     counter — the renderer's live progress feed;
- *   - emits one `attempt` event per inner attempt via emitGrammarAttempts;
- *   - emits exactly one `chunk-done` event in a try/finally so a throw still
- *     surfaces the partial timing (founder log attribution invariant).
+ * Bounded ladder (spec §5): ≤PASS1_MAX_ATTEMPTS pass-1 × ≤PASS2_MAX_ATTEMPTS_PER_PROSE
+ * pass-2, hard-capped at MAX_GEN_PER_CHUNK generations so 2h worst-case latency
+ * stays predictable. Pass-2 reseeds are favored over pass-1 re-gen.
  *
- * The caller still emits `finalize-done` AFTER iterating all chunks — that
- * stays at the call site because it needs cross-chunk totals (and is only
- * fired on the success path; a throw escapes the function before that emit).
+ * ── twoPass=false — LECTURE ──
+ * The lecture model echoes its own prompt back as garbage when run 2-pass
+ * (real-3B validation, 2026-06-14), so lecture structures the transcript
+ * DIRECTLY under grammar (the pre-2-pass shape, commit eebce31):
+ * POST_DECODE_OUTER_ATTEMPTS outer seed blocks × INNER_GRAMMAR_ATTEMPTS inner
+ * (+100-stride) retries via callWithGrammar(schema: z.unknown()), then
+ * runPostDecodePipeline. ESCAPE_LITERAL / NOTE_LANGUAGE_MISMATCH ⇒ fresh outer
+ * seed block; post-decode ZodError ⇒ fresh outer seed block. Lecture pairs this
+ * with BESPOKE_SAMPLING (penalty 1.1, DRY off) supplied via opts.tuning.sampling.
+ *
+ * Failure: throws `CHUNK_FAILED:<i>:<lastReason>` — semantics preserved (the
+ * reason carries PASS1_RAN_TO_CAP / PASS1_LANGUAGE_MISMATCH / the
+ * callWithGrammar finalReason / POST_DECODE_ZOD:<msg>). Non-Zod, non-grammar
+ * throws (ForwardIncompatNoteError, SyntaxError) propagate immediately.
+ *
+ * Telemetry: emits one `attempt-start` at the top of every generation (2-pass:
+ * pass-1 directly + pass-2 via callWithGrammar's onAttemptStart, tagged with the
+ * pass number; single-pass: one per inner attempt via callWithGrammar, no `pass`
+ * tag); one `attempt` per callWithGrammar inner attempt via emitGrammarAttempts;
+ * exactly one `chunk-done` in a try/finally so a throw still surfaces partial
+ * timing (founder log attribution invariant). The caller emits `finalize-done`
+ * AFTER iterating all chunks (needs cross-chunk totals; success path only).
  */
-async function runChunkWithGrammar(opts: RunChunkOpts): Promise<RunChunkResult> {
+export async function runChunkWithGrammar(opts: RunChunkOpts): Promise<RunChunkResult> {
   const chunkT0 = Date.now();
-  let outerAttemptsUsed = 0;
+  let genUsed = 0;
   let innerAttemptsThisChunk = 0;
   let sanitizedThisChunk = 0;
+  let pass1AttemptsUsed = 0;
+  let lastReason = 'no attempts run';
 
   try {
-    let validated: unknown;
-    let lastZodError: z.ZodError | undefined;
-    for (let outerAttempt = 0; outerAttempt < POST_DECODE_OUTER_ATTEMPTS; outerAttempt++) {
-      outerAttemptsUsed = outerAttempt + 1;
-      const result = await callWithGrammar<unknown>({
-        prompt: opts.userPrompt,
-        system: opts.systemPrompt,
-        schema: z.unknown(),
-        grammar: opts.grammar,
-        baseSeed: opts.baseSeed + outerAttempt * POST_DECODE_SEED_OFFSET,
-        temperature: opts.tuning.temperature,
-        maxAttempts: INNER_GRAMMAR_ATTEMPTS,
-        maxTokens: opts.tuning.maxGenTokens,
-        generator: opts.generator,
-        expectedLanguage: opts.expectedLanguage,
-        onAttemptStart: (attempt, seed) => {
-          opts.onTelemetry?.({
-            kind: 'attempt-start',
-            family: opts.family,
-            chunkIndex: opts.chunkIndex,
-            totalChunks: opts.totalChunks,
-            attempt: outerAttempt * INNER_GRAMMAR_ATTEMPTS + attempt,
-            maxAttempts: POST_DECODE_OUTER_ATTEMPTS * INNER_GRAMMAR_ATTEMPTS,
-            seed,
-          });
-        },
-      });
+    if (opts.twoPass) {
+      // ════ 2-PASS (conversation families) ════════════════════════════════════
+      for (let p1 = 0; p1 < PASS1_MAX_ATTEMPTS && genUsed < MAX_GEN_PER_CHUNK; p1++) {
+        pass1AttemptsUsed = p1 + 1;
+        const pass1Seed = opts.baseSeed + p1 * PASS1_SEED_OFFSET;
 
-      const stats = emitGrammarAttempts(
-        opts.onTelemetry,
-        {
+        // ── PASS 1 — free JA prose (no grammar) ───────────────────────────────
+        opts.onTelemetry?.({
+          kind: 'attempt-start',
           family: opts.family,
           chunkIndex: opts.chunkIndex,
           totalChunks: opts.totalChunks,
-          outerAttempt,
-        },
-        result.attempts,
-      );
-      innerAttemptsThisChunk += stats.innerAttempts;
-      sanitizedThisChunk += stats.sanitizedCount;
+          attempt: genUsed + 1,
+          maxAttempts: MAX_GEN_PER_CHUNK,
+          seed: pass1Seed,
+          pass: 1,
+        });
+        const p1res = await opts.generator({
+          prompt: opts.pass1User!,
+          system: opts.pass1System!,
+          grammar: '',
+          seed: pass1Seed,
+          temperature: opts.tuning.temperature,
+          maxTokens: PASS1_MAX_TOKENS,
+          sampling: opts.tuning.sampling,
+        });
+        genUsed++;
+        const prose = p1res.text;
 
-      if (!result.ok) {
-        // ESCAPE_LITERAL_AT_ (added 2026-06-09): inner +100-stride seeds often
-        // can't escape the mode-collapse basin on short string slots. Give it
-        // a fresh outer seed block (+10000) before failing the chunk. See
-        // findEscapeLiteralInStrings + memory
-        // v2_track2_escape_literal_phase1_2026-06-09.
-        // NOTE_LANGUAGE_MISMATCH (2026-06-12) gets the same treatment —
-        // template-fabrication is a mode-collapse cousin, and a fresh seed
-        // block is its only recovery short of a prompt/model change.
-        if (
-          (result.finalReason.startsWith('ESCAPE_LITERAL_AT_') ||
-            result.finalReason.startsWith('NOTE_LANGUAGE_MISMATCH')) &&
-          outerAttempt < POST_DECODE_OUTER_ATTEMPTS - 1
-        ) {
+        // ran-to-cap ⇒ truncated prose; never feed a half-summary into pass-2.
+        const tokensOut = p1res.stats?.tokensOut ?? 0;
+        if (tokensOut >= PASS1_MAX_TOKENS - PASS1_CAP_EPSILON) {
+          lastReason = `PASS1_RAN_TO_CAP:${tokensOut}`;
           continue;
         }
-        throw new Error(`CHUNK_FAILED:${opts.chunkIndex}:${result.finalReason}`);
-      }
-
-      // callWithGrammar parses JSON internally (with z.unknown() it passes
-      // through). runPostDecodePipeline expects raw JSON — the double round-
-      // trip is acceptable for chunk-sized JSON and keeps the pipeline
-      // contract unchanged.
-      const rawJson = JSON.stringify(result.value);
-      try {
-        validated = runPostDecodePipeline(rawJson, opts.fam, opts.transcriptForPostDecode);
-        break;
-      } catch (e) {
-        if (e instanceof z.ZodError) {
-          lastZodError = e;
+        // pass-1 owns its OWN language guard (the grounding step is where
+        // English fabrication first appears). findLanguageMismatch takes a raw
+        // string (collectCheckedText pushes a string leaf); <100 chars → null.
+        const mismatch = findLanguageMismatch(prose, opts.expectedLanguage);
+        if (mismatch) {
+          lastReason = `PASS1_LANGUAGE_MISMATCH:ratio=${mismatch.ratio.toFixed(3)}`;
           continue;
         }
-        throw e;  // ForwardIncompatNoteError / SyntaxError / etc. — not retriable
+
+        // ── PASS 2 — structure the prose under grammar (z.unknown + post-decode) ──
+        const pass2User = `${opts.pass2UserPrefix!}\n\n${prose}`;
+        for (let p2 = 0; p2 < PASS2_MAX_ATTEMPTS_PER_PROSE && genUsed < MAX_GEN_PER_CHUNK; p2++) {
+          const pass2Seed = opts.baseSeed + p1 * PASS1_SEED_OFFSET + (p2 + 1) * POST_DECODE_SEED_OFFSET;
+          const result = await callWithGrammar<unknown>({
+            prompt: pass2User,
+            system: opts.pass2System!,
+            schema: z.unknown(),
+            grammar: opts.grammar,
+            baseSeed: pass2Seed,
+            temperature: opts.tuning.temperature,
+            maxAttempts: 1,
+            maxTokens: opts.tuning.maxGenTokens,
+            generator: opts.generator,
+            sampling: opts.tuning.sampling,
+            expectedLanguage: opts.expectedLanguage,
+            onAttemptStart: (_attempt, seed) => {
+              opts.onTelemetry?.({
+                kind: 'attempt-start',
+                family: opts.family,
+                chunkIndex: opts.chunkIndex,
+                totalChunks: opts.totalChunks,
+                attempt: genUsed + 1,
+                maxAttempts: MAX_GEN_PER_CHUNK,
+                seed,
+                pass: 2,
+              });
+            },
+          });
+          genUsed++;
+
+          const stats = emitGrammarAttempts(
+            opts.onTelemetry,
+            {
+              family: opts.family,
+              chunkIndex: opts.chunkIndex,
+              totalChunks: opts.totalChunks,
+              outerAttempt: p1,
+            },
+            result.attempts,
+          );
+          innerAttemptsThisChunk += stats.innerAttempts;
+          sanitizedThisChunk += stats.sanitizedCount;
+
+          if (!result.ok) {
+            // Grammar/parse/language failure structuring this prose — reseed
+            // pass-2 against the SAME (already-grounded) prose before paying for
+            // a fresh pass-1.
+            lastReason = result.finalReason;
+            continue;
+          }
+
+          // callWithGrammar parses JSON internally (z.unknown() passes through).
+          // runPostDecodePipeline expects raw JSON — the double round-trip is
+          // acceptable for chunk-sized JSON and keeps the pipeline contract
+          // unchanged (it fills postDecodeOnly fields THEN runs fam.schema.parse).
+          try {
+            const validated = runPostDecodePipeline(
+              JSON.stringify(result.value),
+              opts.fam,
+              opts.transcriptForPostDecode,
+            );
+            return {
+              validated,
+              innerAttemptsTotal: innerAttemptsThisChunk,
+              sanitizedTotal: sanitizedThisChunk,
+            };
+          } catch (e) {
+            if (e instanceof z.ZodError) {
+              lastReason = `POST_DECODE_ZOD:${e.issues[0]?.message ?? 'unknown'}`;
+              continue; // reseed pass-2 vs the SAME prose
+            }
+            throw e; // ForwardIncompatNoteError / SyntaxError — not retriable
+          }
+        }
+        // pass-2 exhausted on this prose → fresh pass-1 (next p1).
       }
+      throw new Error(`CHUNK_FAILED:${opts.chunkIndex}:${lastReason}`);
+    } else {
+      // ════ SINGLE-PASS (lecture) ═════════════════════════════════════════════
+      // Structure the transcript DIRECTLY under grammar (no free-prose pass —
+      // the lecture model echoes its own prompt back as garbage when run
+      // 2-pass, real-3B validation 2026-06-14). Restored from commit eebce31:
+      // POST_DECODE_OUTER_ATTEMPTS outer seed blocks × INNER_GRAMMAR_ATTEMPTS
+      // inner (+100-stride) retries, then runPostDecodePipeline. ESCAPE_LITERAL /
+      // NOTE_LANGUAGE_MISMATCH get a fresh outer seed block; post-decode
+      // ZodError continues to the next outer block. `pass1AttemptsUsed` doubles
+      // as the outer-cycle counter for the shared chunk-done telemetry.
+      let validated: unknown;
+      let lastZodError: z.ZodError | undefined;
+      for (let outerAttempt = 0; outerAttempt < POST_DECODE_OUTER_ATTEMPTS; outerAttempt++) {
+        pass1AttemptsUsed = outerAttempt + 1;
+        const result = await callWithGrammar<unknown>({
+          prompt: opts.singlePassUser!,
+          system: opts.singlePassSystem!,
+          schema: z.unknown(),
+          grammar: opts.grammar,
+          baseSeed: opts.baseSeed + outerAttempt * POST_DECODE_SEED_OFFSET,
+          temperature: opts.tuning.temperature,
+          maxAttempts: INNER_GRAMMAR_ATTEMPTS,
+          maxTokens: opts.tuning.maxGenTokens,
+          generator: opts.generator,
+          sampling: opts.tuning.sampling,
+          expectedLanguage: opts.expectedLanguage,
+          onAttemptStart: (attempt, seed) => {
+            opts.onTelemetry?.({
+              kind: 'attempt-start',
+              family: opts.family,
+              chunkIndex: opts.chunkIndex,
+              totalChunks: opts.totalChunks,
+              attempt: outerAttempt * INNER_GRAMMAR_ATTEMPTS + attempt,
+              maxAttempts: POST_DECODE_OUTER_ATTEMPTS * INNER_GRAMMAR_ATTEMPTS,
+              seed,
+              // single-pass has no pass-1/2 distinction → omit `pass`.
+            });
+          },
+        });
+        genUsed += result.attempts.length;
+
+        const stats = emitGrammarAttempts(
+          opts.onTelemetry,
+          {
+            family: opts.family,
+            chunkIndex: opts.chunkIndex,
+            totalChunks: opts.totalChunks,
+            outerAttempt,
+          },
+          result.attempts,
+        );
+        innerAttemptsThisChunk += stats.innerAttempts;
+        sanitizedThisChunk += stats.sanitizedCount;
+
+        if (!result.ok) {
+          // ESCAPE_LITERAL_AT_ / NOTE_LANGUAGE_MISMATCH (mode-collapse cousins):
+          // a fresh outer seed block (+POST_DECODE_SEED_OFFSET) is the only
+          // recovery short of a prompt/model change. See findEscapeLiteralInStrings
+          // + memory v2_track2_escape_literal_phase1_2026-06-09.
+          if (
+            (result.finalReason.startsWith('ESCAPE_LITERAL_AT_') ||
+              result.finalReason.startsWith('NOTE_LANGUAGE_MISMATCH')) &&
+            outerAttempt < POST_DECODE_OUTER_ATTEMPTS - 1
+          ) {
+            lastReason = result.finalReason;
+            continue;
+          }
+          throw new Error(`CHUNK_FAILED:${opts.chunkIndex}:${result.finalReason}`);
+        }
+
+        // callWithGrammar parses JSON internally (z.unknown() passes through).
+        // runPostDecodePipeline expects raw JSON — the double round-trip is
+        // acceptable for chunk-sized JSON and keeps the pipeline contract
+        // unchanged (it fills postDecodeOnly fields THEN runs fam.schema.parse).
+        try {
+          validated = runPostDecodePipeline(
+            JSON.stringify(result.value),
+            opts.fam,
+            opts.transcriptForPostDecode,
+          );
+          break;
+        } catch (e) {
+          if (e instanceof z.ZodError) {
+            lastZodError = e;
+            continue; // fresh outer seed block
+          }
+          throw e; // ForwardIncompatNoteError / SyntaxError — not retriable
+        }
+      }
+      if (validated === undefined) {
+        throw new Error(
+          `CHUNK_FAILED:${opts.chunkIndex}:POST_DECODE_ZOD:${lastZodError?.issues[0]?.message ?? lastReason}`,
+        );
+      }
+      return {
+        validated,
+        innerAttemptsTotal: innerAttemptsThisChunk,
+        sanitizedTotal: sanitizedThisChunk,
+      };
     }
-    if (validated === undefined) {
-      throw new Error(
-        `CHUNK_FAILED:${opts.chunkIndex}:POST_DECODE_ZOD_EXHAUSTED:${lastZodError?.issues[0]?.message ?? 'unknown'}`,
-      );
-    }
-    return {
-      validated,
-      innerAttemptsTotal: innerAttemptsThisChunk,
-      sanitizedTotal: sanitizedThisChunk,
-    };
   } finally {
     opts.onTelemetry?.({
       kind: 'chunk-done',
@@ -323,34 +505,50 @@ async function runChunkWithGrammar(opts: RunChunkOpts): Promise<RunChunkResult> 
       chunkIndex: opts.chunkIndex,
       totalChunks: opts.totalChunks,
       totalLatencyMs: Date.now() - chunkT0,
-      outerAttempts: outerAttemptsUsed,
+      outerAttempts: pass1AttemptsUsed,
       totalAttempts: innerAttemptsThisChunk,
-      freshSeedRetries: Math.max(0, outerAttemptsUsed - 1),
+      freshSeedRetries: Math.max(0, pass1AttemptsUsed - 1),
       sanitizedTotal: sanitizedThisChunk,
     });
   }
 }
 
-// ─── P0b: per-chunk outer retry around callWithGrammar + post-decode ─────────
+// ─── Per-chunk 2-pass retry/seed constants ───────────────────────────────────
 // `callWithGrammar` receives `schema: z.unknown()` so its per-attempt
-// retry-on-Zod contract no-ops for the real family shape. The real
-// `family.schema.parse()` runs inside `runPostDecodePipeline` Stage 4, AFTER
-// `callWithGrammar` returned ok=true. Without an outer wrap, a single bad
-// emission burns the whole chunk and propagates `ZodError` out of
-// `finalize*` with no recovery. The constants below bound a small outer
-// retry loop in both `finalizeLecture` and `finalizeMeeting`.
+// retry-on-Zod contract no-ops for the real family shape — the real
+// `family.schema.parse()` runs inside `runPostDecodePipeline` Stage 4 AFTER
+// callWithGrammar returns ok=true. The 2-pass ladder (runChunkWithGrammar)
+// reseeds pass-2 against the SAME prose on a post-decode ZodError, then a fresh
+// pass-1, bounded by the budgets below.
 
-/** Inner retry budget per callWithGrammar invocation (+100-stride seed per
- *  attempt). Shared between the call itself and the attempt-start overall
- *  counter so the UI's "再試行 N/M" math cannot drift from the real budget. */
-const INNER_GRAMMAR_ATTEMPTS = 3;
-/** Max outer attempts (inclusive of the first try). With INNER_GRAMMAR_ATTEMPTS
- *  inner, worst-case 2×3=6 generations per chunk (~2 min on the 8GB box). */
-const POST_DECODE_OUTER_ATTEMPTS = 2;
-/** Seed-block size per outer attempt. Strictly larger than `callWithGrammar`'s
- *  inner retry stride (`baseSeed + 0/+100/+200`), so outer attempts cannot
- *  collide with each other's inner retries — independent random pulls. */
+/** Seed-block size per pass-2 reseed. The pass-2 seed is
+ *  `baseSeed + p1*PASS1_SEED_OFFSET + (p2+1)*POST_DECODE_SEED_OFFSET`, so each
+ *  pass-2 reseed lands in a distinct +10000 block (independent random pulls). */
 const POST_DECODE_SEED_OFFSET = 10000;
+
+// ── 2-pass (per-chunk fabrication fix, 2026-06-14) ───────────────────────────
+// pass-1 = free JA prose (grounds), pass-2 = structure under grammar. Bounded so
+// 2h worst-case latency is predictable (spec §5): ≤2 pass-1 × ≤3 pass-2 = ≤8 gen/chunk.
+const PASS1_MAX_ATTEMPTS = 2;          // fresh-seed pass-1 reseeds (ran-to-cap / lang-mismatch)
+const PASS2_MAX_ATTEMPTS_PER_PROSE = 3; // pass-2 fresh-seed reseeds against one good prose
+const MAX_GEN_PER_CHUNK = 8;            // hard ceiling across both passes
+const PASS1_MAX_TOKENS = 1600;          // dense-chunk JA summary headroom (spec §3; spike sparse=376)
+const PASS1_CAP_EPSILON = 16;           // tokensOut >= max-ε ⇒ ran-to-cap ⇒ retriable, never fed forward
+const PASS1_SEED_OFFSET = 40000;        // > PASS2_MAX_ATTEMPTS_PER_PROSE×POST_DECODE_SEED_OFFSET so pass-1 cycle blocks stay disjoint from every pass-2 reseed seed
+
+// ── single-pass (lecture, 2026-06-14) ────────────────────────────────────────
+// Lecture runs SINGLE-PASS (structure the transcript directly under grammar).
+// These bound the single-pass outer/inner retry ladder, restored from the
+// pre-2-pass shape (commit eebce31): up to POST_DECODE_OUTER_ATTEMPTS outer
+// seed blocks, each calling callWithGrammar with INNER_GRAMMAR_ATTEMPTS inner
+// (+100-stride) retries, then runPostDecodePipeline.
+/** Inner retry budget per single-pass callWithGrammar invocation (+100-stride
+ *  seed per attempt). Shared with the attempt-start overall counter so the
+ *  UI's "再試行 N/M" math cannot drift from the real budget. */
+const INNER_GRAMMAR_ATTEMPTS = 3;
+/** Max single-pass outer attempts (inclusive of the first try). Each outer
+ *  cycle gets a fresh +POST_DECODE_SEED_OFFSET seed block. */
+const POST_DECODE_OUTER_ATTEMPTS = 2;
 
 interface Opts {
   stt: STTEngine;
@@ -540,9 +738,9 @@ export interface FinalizeLectureArgs {
   modelProfile: ModelProfile;
   promptVariantId?: string;
   /**
-   * Session language (minimal EN support, 2026-06-10). Drives the system-
-   * template output-language rule (renderSystemTemplate) and the Note meta.
-   * Defaults to 'ja' — the eval'd v2.0 baseline.
+   * Session language (minimal EN support, 2026-06-10). Drives the 2-pass
+   * prompt language word (buildPass1Prompts/buildPass2Prompts) and the Note
+   * meta. Defaults to 'ja' — the eval'd v2.0 baseline.
    */
   language?: NoteLanguage;
   onProgress?: (e:
@@ -595,12 +793,21 @@ export async function finalizeLecture(
   );
 
   // ── Correction J: chunk the transcript ────────────────────────────────────
-  const tuning = args.modelProfile.perFamily['lecture'];
+  // Lecture runs SINGLE-PASS with BESPOKE_SAMPLING (penalty 1.1, DRY off) — the
+  // lecture model needs a grounded decode and echoes its own prompt back as
+  // garbage under the 2-pass path (real-3B validation, 2026-06-14).
+  const tuning = { ...args.modelProfile.perFamily['lecture'], sampling: BESPOKE_SAMPLING };
   const chunks = chunkTranscript(args.transcript, tuning.recommendedChunkTokens);
 
   if (chunks.length === 0) {
     throw new Error('EMPTY_TRANSCRIPT');
   }
+
+  // Single-pass prompts come from the lecture default variant (NOT the 2-pass
+  // builders). `prompt` above (selectPromptVariant) drives telemetry/meta and
+  // honors userPreference/env; the rendered single-pass prompts must match the
+  // SAME variant the model actually runs, so resolve the default variant here.
+  const lectureVariant = fam.prompts.find((p) => p.variantId === fam.defaultPromptVariant)!;
 
   const generator = makeSidecarGenerator(args.sidecar);
   const partials: Array<Partial<LectureNote>> = [];
@@ -611,31 +818,33 @@ export async function finalizeLecture(
   let totalAttemptsAcrossChunks = 0;
   let sanitizedAcrossChunks = 0;
 
-  // ── Per-chunk: call LLM + post-decode pipeline ────────────────────────────
+  // ── Per-chunk: call LLM + post-decode pipeline (SINGLE-PASS) ──────────────
   for (let i = 0; i < chunks.length; i++) {
     args.onProgress?.({ phase: 'chunk', chunkIndex: i, totalChunks: chunks.length });
 
-    // ── Correction F: systemTemplate (not system) ──────────────────────────
-    const userPrompt = prompt.chunkUserTemplate({
+    // ── single-pass prompts (lecture, 2026-06-14) ──────────────────────────
+    const lang = args.language ?? 'ja';
+    const singlePassSystem = renderSystemTemplate(lectureVariant.systemTemplate, lang);
+    const singlePassUser = lectureVariant.chunkUserTemplate({
       chunkIndex: i,
       totalChunks: chunks.length,
       transcript: renderTranscriptChunk(chunks[i]!),
     });
-    const systemPrompt = renderSystemTemplate(prompt.systemTemplate, args.language ?? 'ja');
 
     const chunkResult = await runChunkWithGrammar({
       family: 'lecture',
       fam,
       chunkIndex: i,
       totalChunks: chunks.length,
-      systemPrompt,
-      userPrompt,
+      twoPass: false,
+      singlePassSystem,
+      singlePassUser,
       grammar,
       baseSeed: 5000 + i,
       tuning,
       generator,
       transcriptForPostDecode: args.transcript,
-      expectedLanguage: args.language ?? 'ja',
+      expectedLanguage: lang,
       onTelemetry: args.onTelemetry,
     });
     partials.push(chunkResult.validated as Partial<LectureNote>);
@@ -719,9 +928,9 @@ export interface FinalizeMeetingArgs {
   modelProfile: ModelProfile;
   promptVariantId?: string;
   /**
-   * Session language (minimal EN support, 2026-06-10). Drives the system-
-   * template output-language rule (renderSystemTemplate) and the Note meta.
-   * Defaults to 'ja' — the eval'd v2.0 baseline.
+   * Session language (minimal EN support, 2026-06-10). Drives the 2-pass
+   * prompt language word (buildPass1Prompts/buildPass2Prompts) and the Note
+   * meta. Defaults to 'ja' — the eval'd v2.0 baseline.
    */
   language?: NoteLanguage;
   /** 'ok' = transcript already carries real diarized speakerIds; 'fallback'/'disabled' = collapse to single speaker + warn. */
@@ -780,7 +989,7 @@ export async function finalizeMeeting(
     validationWarnings.push(degraded.warning);
   }
 
-  const tuning = args.modelProfile.perFamily['meeting'];
+  const tuning = { ...args.modelProfile.perFamily['meeting'], sampling: args.modelProfile.sampling };
   const chunks = chunkTranscript(activeTranscript, tuning.recommendedChunkTokens);
 
   if (chunks.length === 0) {
@@ -796,29 +1005,38 @@ export async function finalizeMeeting(
   for (let i = 0; i < chunks.length; i++) {
     args.onProgress?.({ phase: 'chunk', chunkIndex: i, totalChunks: chunks.length });
 
-    const userPrompt = prompt.chunkUserTemplate({
-      chunkIndex: i,
-      totalChunks: chunks.length,
-      transcript: renderTranscriptWithSpeakers(chunks[i]!, activeTranscript.speakers),
-    });
-    const systemPrompt = renderSystemTemplate(prompt.systemTemplate, args.language ?? 'ja');
+    // ── 2-pass prompts (per-chunk fabrication fix, 2026-06-14) ──────────────
+    const lang = args.language ?? 'ja';
+    const p1 = buildPass1Prompts(
+      'meeting',
+      {
+        chunkIndex: i,
+        totalChunks: chunks.length,
+        transcript: renderTranscriptWithSpeakers(chunks[i]!, activeTranscript.speakers),
+      },
+      lang,
+    );
+    const p2 = buildPass2Prompts(lang);
 
     // baseSeed 6000 (lecture 5000) keeps seeds distinct across families; with
-    // POST_DECODE_SEED_OFFSET=10000, lecture outer 1 (15000+i) and meeting
-    // outer 1 (16000+i) stay disjoint for any plausible chunk count.
+    // PASS1_SEED_OFFSET=40000 / POST_DECODE_SEED_OFFSET=10000, lecture and
+    // meeting seed blocks stay disjoint for any plausible chunk count.
     const chunkResult = await runChunkWithGrammar({
       family: 'meeting',
       fam,
       chunkIndex: i,
       totalChunks: chunks.length,
-      systemPrompt,
-      userPrompt,
+      twoPass: true,
+      pass1System: p1.system,
+      pass1User: p1.user,
+      pass2System: p2.system,
+      pass2UserPrefix: p2.userPrefix,
       grammar,
       baseSeed: 6000 + i,
       tuning,
       generator,
       transcriptForPostDecode: activeTranscript,
-      expectedLanguage: args.language ?? 'ja',
+      expectedLanguage: lang,
       onTelemetry: args.onTelemetry,
     });
     partials.push(chunkResult.validated as Partial<MeetingNote>);
@@ -900,9 +1118,9 @@ export interface FinalizeInterviewArgs {
   modelProfile: ModelProfile;
   promptVariantId?: string;
   /**
-   * Session language (minimal EN support, 2026-06-10). Drives the system-
-   * template output-language rule (renderSystemTemplate) and the Note meta.
-   * Defaults to 'ja' — the eval'd v2.0 baseline.
+   * Session language (minimal EN support, 2026-06-10). Drives the 2-pass
+   * prompt language word (buildPass1Prompts/buildPass2Prompts) and the Note
+   * meta. Defaults to 'ja' — the eval'd v2.0 baseline.
    */
   language?: NoteLanguage;
   /** 'ok' = transcript already carries real diarized speakerIds; 'fallback'/'disabled' = collapse to single speaker + warn. */
@@ -958,7 +1176,7 @@ export async function finalizeInterview(
     validationWarnings.push(degraded.warning);
   }
 
-  const tuning = args.modelProfile.perFamily['interview'];
+  const tuning = { ...args.modelProfile.perFamily['interview'], sampling: args.modelProfile.sampling };
   const chunks = chunkTranscript(activeTranscript, tuning.recommendedChunkTokens);
 
   if (chunks.length === 0) {
@@ -974,12 +1192,18 @@ export async function finalizeInterview(
   for (let i = 0; i < chunks.length; i++) {
     args.onProgress?.({ phase: 'chunk', chunkIndex: i, totalChunks: chunks.length });
 
-    const userPrompt = prompt.chunkUserTemplate({
-      chunkIndex: i,
-      totalChunks: chunks.length,
-      transcript: renderTranscriptWithSpeakers(chunks[i]!, activeTranscript.speakers),
-    });
-    const systemPrompt = renderSystemTemplate(prompt.systemTemplate, args.language ?? 'ja');
+    // ── 2-pass prompts (per-chunk fabrication fix, 2026-06-14) ──────────────
+    const lang = args.language ?? 'ja';
+    const p1 = buildPass1Prompts(
+      'interview',
+      {
+        chunkIndex: i,
+        totalChunks: chunks.length,
+        transcript: renderTranscriptWithSpeakers(chunks[i]!, activeTranscript.speakers),
+      },
+      lang,
+    );
+    const p2 = buildPass2Prompts(lang);
 
     // baseSeed 7000 (lecture 5000, meeting 6000) keeps seeds distinct across families.
     const chunkResult = await runChunkWithGrammar({
@@ -987,14 +1211,17 @@ export async function finalizeInterview(
       fam,
       chunkIndex: i,
       totalChunks: chunks.length,
-      systemPrompt,
-      userPrompt,
+      twoPass: true,
+      pass1System: p1.system,
+      pass1User: p1.user,
+      pass2System: p2.system,
+      pass2UserPrefix: p2.userPrefix,
       grammar,
       baseSeed: 7000 + i,
       tuning,
       generator,
       transcriptForPostDecode: activeTranscript,
-      expectedLanguage: args.language ?? 'ja',
+      expectedLanguage: lang,
       onTelemetry: args.onTelemetry,
     });
     partials.push(chunkResult.validated as Record<string, unknown>);
@@ -1018,6 +1245,7 @@ export async function finalizeInterview(
       transcript: activeTranscript,
       baseSeed: 7500,
       generator,
+      sampling: args.modelProfile.sampling,
     });
     if (r.ok) {
       merged = r.merged as unknown as Record<string, unknown>;
@@ -1100,9 +1328,9 @@ export interface FinalizeBrainstormArgs {
   modelProfile: ModelProfile;
   promptVariantId?: string;
   /**
-   * Session language (minimal EN support, 2026-06-10). Drives the system-
-   * template output-language rule (renderSystemTemplate) and the Note meta.
-   * Defaults to 'ja' — the eval'd v2.0 baseline.
+   * Session language (minimal EN support, 2026-06-10). Drives the 2-pass
+   * prompt language word (buildPass1Prompts/buildPass2Prompts) and the Note
+   * meta. Defaults to 'ja' — the eval'd v2.0 baseline.
    */
   language?: NoteLanguage;
   /**
@@ -1156,7 +1384,7 @@ export async function finalizeBrainstorm(
     args.promptVariantId ? { userPreference: args.promptVariantId } : undefined,
   );
 
-  const tuning = args.modelProfile.perFamily['brainstorm'];
+  const tuning = { ...args.modelProfile.perFamily['brainstorm'], sampling: args.modelProfile.sampling };
   const chunks = chunkTranscript(args.transcript, tuning.recommendedChunkTokens);
 
   if (chunks.length === 0) {
@@ -1172,12 +1400,18 @@ export async function finalizeBrainstorm(
   for (let i = 0; i < chunks.length; i++) {
     args.onProgress?.({ phase: 'chunk', chunkIndex: i, totalChunks: chunks.length });
 
-    const userPrompt = prompt.chunkUserTemplate({
-      chunkIndex: i,
-      totalChunks: chunks.length,
-      transcript: renderTranscriptWithSpeakers(chunks[i]!, args.transcript.speakers),
-    });
-    const systemPrompt = renderSystemTemplate(prompt.systemTemplate, args.language ?? 'ja');
+    // ── 2-pass prompts (per-chunk fabrication fix, 2026-06-14) ──────────────
+    const lang = args.language ?? 'ja';
+    const p1 = buildPass1Prompts(
+      'brainstorm',
+      {
+        chunkIndex: i,
+        totalChunks: chunks.length,
+        transcript: renderTranscriptWithSpeakers(chunks[i]!, args.transcript.speakers),
+      },
+      lang,
+    );
+    const p2 = buildPass2Prompts(lang);
 
     // baseSeed 8000 (lecture 5000, meeting 6000, interview 7000) keeps seeds distinct.
     const chunkResult = await runChunkWithGrammar({
@@ -1185,14 +1419,17 @@ export async function finalizeBrainstorm(
       fam,
       chunkIndex: i,
       totalChunks: chunks.length,
-      systemPrompt,
-      userPrompt,
+      twoPass: true,
+      pass1System: p1.system,
+      pass1User: p1.user,
+      pass2System: p2.system,
+      pass2UserPrefix: p2.userPrefix,
       grammar,
       baseSeed: 8000 + i,
       tuning,
       generator,
       transcriptForPostDecode: args.transcript,
-      expectedLanguage: args.language ?? 'ja',
+      expectedLanguage: lang,
       onTelemetry: args.onTelemetry,
     });
     partials.push(chunkResult.validated as Record<string, unknown>);
@@ -1213,6 +1450,7 @@ export async function finalizeBrainstorm(
       transcript: args.transcript,
       baseSeed: 8500,
       generator,
+      sampling: args.modelProfile.sampling,
     });
     if (r.ok) {
       merged = r.merged as unknown as Record<string, unknown>;

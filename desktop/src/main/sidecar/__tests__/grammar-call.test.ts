@@ -550,6 +550,7 @@ describe('makeGrammarSidecar.generateWithGrammar (against /bin/cat)', () => {
       });
       const out = await sidecar.generateWithGrammar({
         prompt: 'P', grammar: 'root ::= "{"', seed: 4242, temperature: 0.4, maxTokens: 256,
+        sampling: { topK: 40 },
       });
       expect(out).toEqual({ text: '{"a":1}', seed: 4242 });
       expect(sent).not.toBeNull();
@@ -557,6 +558,7 @@ describe('makeGrammarSidecar.generateWithGrammar (against /bin/cat)', () => {
       expect(sent!.grammar).toBe('root ::= "{"');
       expect(sent!.seed).toBe(4242);
       expect(sent!.maxTokens).toBe(256);
+      expect(sent!.sampling).toEqual({ topK: 40 });
     } finally {
       proc.kill('SIGKILL');
     }
@@ -808,5 +810,24 @@ describe('callWithGrammar — onAttemptStart hook (finalize progress UI)', () =>
     expect(out.ok).toBe(true);
     // Each start precedes its generator call; the retry start carries the +100 seed.
     expect(order).toEqual(['start:1:3000', 'gen:3000', 'start:2:3100', 'gen:3100']);
+  });
+});
+
+describe('callWithGrammar — sampling threading', () => {
+  it('threads sampling through to the generator verbatim', async () => {
+    const sampling = {
+      topK: 40, topP: 0.95, minP: 0.05, repeatPenalty: 1.0,
+      repeatLastN: 64, dryMultiplier: 0.8, dryBase: 1.75, dryAllowedLength: 2,
+      dryPenaltyLastN: -1,
+    };
+    const generator: LlmGenerator = vi.fn(async ({ seed }) => ({
+      text: JSON.stringify({ name: 'ok', n: 1 }), seed,
+    }));
+    await callWithGrammar({
+      prompt: 'p', schema: SimpleSchema, grammar: 'root ::= "x"',
+      baseSeed: 1, temperature: 0.4, maxAttempts: 1, maxTokens: 100,
+      generator, sampling,
+    });
+    expect(generator).toHaveBeenCalledWith(expect.objectContaining({ sampling }));
   });
 });
