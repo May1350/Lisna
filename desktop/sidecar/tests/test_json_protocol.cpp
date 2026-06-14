@@ -385,6 +385,8 @@ TEST(Utf8Carry, NlohmannDumpReplaceHandlerDoesNotThrowOnInvalidByte) {
   nlohmann::json reparsed;
   ASSERT_NO_THROW(reparsed = nlohmann::json::parse(out));
   (void)reparsed;
+}
+
 // ─── gen_opts_from: sampling parsing (spec sampler-alignment section 5) ─────
 
 TEST(GenOptsFrom, DefaultsAreAlignedWhenSamplingOmitted) {
