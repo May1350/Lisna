@@ -562,6 +562,14 @@ interface Opts {
    * a fixed array so they don't need to parse the prompt content.
    */
   buildPrompt?(language: Language, segments: TranscriptSegment[]): ChatMessage[];
+  /**
+   * Optional side-channel fired once per recording chunk with the RAW audio
+   * buffer (16kHz mono Float32) and its session offset, BEFORE STT and before
+   * the segment-timestamp remap. Wired by the session/* IPC handlers to the
+   * WAV writer when LISNA_SAVE_AUDIO=1. Must not throw (fire-and-forget); the
+   * caller guarantees non-throwing behavior. No-op when unset.
+   */
+  onAudioChunk?(audio: Float32Array, sessionOffsetSec: number): void;
 }
 
 /**
@@ -637,6 +645,7 @@ export class SessionOrchestrator {
    * 12s ladder). Callers pass ChunkPayload.startMs / 1000.
    */
   async onChunk(audio: Float32Array, sessionOffsetSec = 0): Promise<TranscriptSegment[]> {
+    this.opts.onAudioChunk?.(audio, sessionOffsetSec);   // raw buffer, pre-remap
     const raw = await this.opts.stt.transcribe(audio);
     const segs = sessionOffsetSec === 0 ? raw : raw.map((s) => ({
       ...s,
