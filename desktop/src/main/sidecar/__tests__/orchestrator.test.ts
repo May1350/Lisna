@@ -320,6 +320,26 @@ describe('SessionOrchestrator', () => {
     expect(note.markdown).toBe('note');
   });
 
+  it('fires onAudioChunk with the raw audio buffer before timestamp remap', async () => {
+    const seen: { len: number; offset: number }[] = [];
+    const fakeStt = {
+      loadModel: vi.fn(async () => {}),
+      unloadModel: vi.fn(async () => {}),
+      transcribe: vi.fn(async () => [
+        { startSec: 0.5, endSec: 3.2, text: 'first' },
+      ]),
+    };
+    const orch = new SessionOrchestrator({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      stt: fakeStt as any, llm: {} as any,
+      sttModelPath: '/stt', llmModelPath: '/llm', language: 'ja',
+      onAudioChunk: (audio, offsetSec) => seen.push({ len: audio.length, offset: offsetSec }),
+    });
+    await orch.start();
+    await orch.onChunk(new Float32Array(16000), 130);
+    expect(seen).toEqual([{ len: 16000, offset: 130 }]);
+  });
+
   // M1: empty-transcript guard. If no segments were captured (silence-only
   // recording, or user clicked Start/Stop without speaking), stop() unloads STT
   // but throws EMPTY_TRANSCRIPT before loading the LLM. Renderer maps this
