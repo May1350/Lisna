@@ -1,0 +1,4 @@
+sherpa-onnx
+pyannote.metrics
+soundfile
+numpy

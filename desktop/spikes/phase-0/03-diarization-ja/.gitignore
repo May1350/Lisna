@@ -1,0 +1,6 @@
+.venv/
+models/
+fixtures/
+*.wav
+*.tar.bz2
+__pycache__/
