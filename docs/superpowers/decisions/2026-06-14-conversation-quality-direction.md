@@ -53,4 +53,22 @@ The expert signed off on building it for real (with a few engineering guardrails
 Still next after this: **diarization** (your Q1 = multi-speaker room) — required for real "who-asked-what" attribution; 2-pass fixes grounding + structure but not speaker attribution.
 
 ---
-*Small unrelated follow-up: the brainstorm faithfulness-judge has a dead `conclusions` field (`faithfulness-judge.ts:97-100`) — I'll fold that fix into whichever quality track touches the eval.*
+
+## 2026-06-14 UPDATE 2 — the multi-chunk real test changed that "optional" call into a REQUIRED one
+
+I built the 2-pass code (done, independently reviewed, all 1025 tests green) and then ran the **real multi-chunk end-to-end test** — 3 of your actual recordings stitched into one ~45-min, 4-chunk Japanese conversation. That test caught something the single-chunk spike couldn't:
+
+- **On the current engine:** chunk 2 (a heavily garbled far-field stretch) made the model's first pass **get stuck repeating one phrase ~21 times** until it hit its length limit. The safety guard correctly refused that garbage — but with no clean summary to work from, **that chunk failed, which would fail the entire 2-hour note.** So 2-pass on the current engine is *not* reliable on real, noisy recordings.
+- **On the faster engine** (the one I'd shelved — it has an anti-repetition setting the current one lacks): **no looping. All 4 chunks passed.** The merged note: **98% Japanese, 63% traceable to the transcript, properly structured, parses cleanly.** Title: "会計とファイナンスの関係について話し合う".
+
+**So the faster engine is no longer just a speed bonus — it's required for 2-pass to work on real recordings.** And it's the best outcome: it fixes the looping, it's ~2× faster, and 2-pass already fixes the fabrication that made me shelve it in the first place. Everything points the same way.
+
+**→ Your call (this is why I've HELD the code — not merged):**
+- **(A, recommended)** Adopt the faster engine and ship 2-pass on it. This is a deeper change (the engine is a compiled component you'd previously parked), which is why I'm asking rather than just doing it. Evidence is strong: the 4-chunk real test passes on it.
+- **(B)** Stay on the current engine and I add a "graceful degrade" — when a chunk's first pass loops, use the partial/messy summary instead of failing. The 2h note survives but that chunk's section is lower quality. A floor, not the best result.
+- **(C)** Something else / discuss.
+
+The 2-pass code itself is the same either way — this only decides which engine it runs on. I'll proceed as soon as you pick.
+
+---
+*Done: the brainstorm faithfulness-judge `conclusions` fix landed in this branch (now scores purpose / idea_clusters / parking_lot).*
