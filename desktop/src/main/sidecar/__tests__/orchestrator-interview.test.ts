@@ -28,16 +28,34 @@ import type { InterviewNote } from '@shared/families/interview/schema';
 
 type MockOpts = { responses?: string[] };
 
+/** Canned PASS-1 free-prose: grounded JA over the 100-char language floor. */
+const PASS1_PROSE = 'このインタビューの要約です。質問と回答の流れを順にまとめます。' + 'あ'.repeat(120);
+
+/**
+ * 2-pass aware mock (per-chunk fabrication fix, 2026-06-14). PASS-1 calls
+ * (empty grammar) are served canned JA prose and recorded in `pass1Calls`;
+ * PASS-2 (grammar) calls — including the cross-chunk merge-LLM call, which is
+ * also grammar-constrained — drive `calls` + `responses[]` exactly as before.
+ */
 function mockSidecar(
   opts: MockOpts = {},
-): GrammarCapableSidecar & { calls: Array<{ prompt: string; grammar: string; seed: number }> } {
+): GrammarCapableSidecar & {
+  calls: Array<{ prompt: string; system?: string; grammar: string; seed: number }>;
+  pass1Calls: Array<{ prompt: string; system?: string; seed: number }>;
+} {
   const responses = opts.responses;
-  const calls: Array<{ prompt: string; grammar: string; seed: number }> = [];
+  const calls: Array<{ prompt: string; system?: string; grammar: string; seed: number }> = [];
+  const pass1Calls: Array<{ prompt: string; system?: string; seed: number }> = [];
   let idx = 0;
   return {
     calls,
+    pass1Calls,
     async generateWithGrammar(req) {
-      calls.push({ prompt: req.prompt, grammar: req.grammar, seed: req.seed });
+      if (req.grammar === '') {
+        pass1Calls.push({ prompt: req.prompt, system: req.system, seed: req.seed });
+        return { text: PASS1_PROSE, seed: req.seed };
+      }
+      calls.push({ prompt: req.prompt, system: req.system, grammar: req.grammar, seed: req.seed });
       const text = responses ? (responses[idx] ?? '{}') : makeInterviewNoteJson();
       idx++;
       return { text, seed: req.seed };
@@ -207,10 +225,11 @@ describe('finalizeInterview', () => {
 
     expect(result.note.validation_warnings).toContain(SINGLE_SPEAKER_WARNING);
     expect(result.telemetry.validationWarnings).toContain(SINGLE_SPEAKER_WARNING);
-    // degraded transcript shows a single collapsed speaker
-    const transcriptSection = sidecar.calls[0]!.prompt.split('Transcript:\n')[1] ?? '';
-    expect(transcriptSection).toContain('Speaker 0 = 話者');
-    expect(transcriptSection).not.toMatch(/Speaker 1 =/);
+    // degraded transcript shows a single collapsed speaker — it reaches the LLM
+    // in PASS-1 (the grounding step) now.
+    const prompt = sidecar.pass1Calls[0]!.prompt;
+    expect(prompt).toContain('Speaker 0 = 話者');
+    expect(prompt).not.toMatch(/Speaker 1 =/);
   });
 
   it('diarization disabled → hallucinated speaker refs collapse to 0, participants dropped', async () => {

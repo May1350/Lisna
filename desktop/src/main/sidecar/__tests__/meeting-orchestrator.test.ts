@@ -19,21 +19,41 @@ import { SINGLE_SPEAKER_WARNING } from '@shared/families/meeting/degrade-to-sing
 // ─── inline mock sidecar ────────────────────────────────────────────────────
 
 type MockOpts = {
+  /** Canned JSON, one per PASS-2 (grammar) call. */
   responses?: string[];
+  /** PASS-2 call-index → failures before that call succeeds. */
   failuresPerCall?: Record<number, number>;
 };
 
+/** Canned PASS-1 free-prose: grounded JA over the 100-char language floor. */
+const PASS1_PROSE = 'この会議の要約です。誰が何を述べ、どんな決定や宿題が出たかをまとめます。' + 'あ'.repeat(120);
+
+/**
+ * 2-pass aware mock (per-chunk fabrication fix, 2026-06-14). PASS-1 calls
+ * (empty grammar) are served canned JA prose and recorded in `pass1Calls`;
+ * PASS-2 calls (grammar-constrained structuring) drive `calls` + `responses[]`
+ * + `failuresPerCall` exactly as the single-pass mock did.
+ */
 function mockSidecar(
   opts: MockOpts = {},
-): GrammarCapableSidecar & { calls: Array<{ prompt: string; grammar: string; seed: number }> } {
+): GrammarCapableSidecar & {
+  calls: Array<{ prompt: string; system?: string; grammar: string; seed: number }>;
+  pass1Calls: Array<{ prompt: string; system?: string; seed: number }>;
+} {
   const responses = opts.responses;
   const failures = opts.failuresPerCall ?? {};
-  const calls: Array<{ prompt: string; grammar: string; seed: number }> = [];
+  const calls: Array<{ prompt: string; system?: string; grammar: string; seed: number }> = [];
+  const pass1Calls: Array<{ prompt: string; system?: string; seed: number }> = [];
   let successCallIdx = 0;
   return {
     calls,
+    pass1Calls,
     async generateWithGrammar(req) {
-      calls.push({ prompt: req.prompt, grammar: req.grammar, seed: req.seed });
+      if (req.grammar === '') {
+        pass1Calls.push({ prompt: req.prompt, system: req.system, seed: req.seed });
+        return { text: PASS1_PROSE, seed: req.seed };
+      }
+      calls.push({ prompt: req.prompt, system: req.system, grammar: req.grammar, seed: req.seed });
       if (failures[successCallIdx] && failures[successCallIdx]! > 0) {
         failures[successCallIdx]!--;
         throw new Error('mock-fail');
@@ -218,16 +238,14 @@ describe('finalizeMeeting', () => {
     expect(result.note.validation_warnings).toContain(SINGLE_SPEAKER_WARNING);
     expect(result.telemetry.validationWarnings).toContain(SINGLE_SPEAKER_WARNING);
 
-    // The transcript passed to the sidecar must show a single speaker
-    expect(sidecar.calls).toHaveLength(1);
-    const prompt = sidecar.calls[0]!.prompt;
-    // After degradation, the transcript section shows only speaker 0
+    // The transcript reaches the LLM in PASS-1 (the grounding step). After
+    // degradation it shows only speaker 0.
+    expect(sidecar.calls).toHaveLength(1); // 1 pass-2 (structuring) call
+    expect(sidecar.pass1Calls).toHaveLength(1);
+    const prompt = sidecar.pass1Calls[0]!.prompt;
     expect(prompt).toContain('Speaker map:');
-    // The transcript block should show a single collapsed speaker (話者)
-    // — find the line after 'Speaker map:' and confirm it only has Speaker 0
-    const transcriptSection = prompt.split('Transcript:\n')[1] ?? '';
-    expect(transcriptSection).toContain('Speaker 0 = 話者');
-    expect(transcriptSection).not.toMatch(/Speaker 1 =/);
+    expect(prompt).toContain('Speaker 0 = 話者');
+    expect(prompt).not.toMatch(/Speaker 1 =/);
   });
 
   it('diarization disabled → hallucinated speaker refs collapse to 0, participants dropped', async () => {
@@ -296,24 +314,19 @@ describe('finalizeMeeting', () => {
       diarizationStatus: 'ok',
     });
 
-    const prompt = sidecar.calls[0]!.prompt;
-
-    // Isolate the rendered transcript block: the meeting SYSTEM prompt itself
-    // contains an example "Speaker 0 = 佐藤, Speaker 1 = 山田", so asserting on the
-    // full combined prompt would false-pass even if renderTranscriptWithSpeakers
-    // produced an empty map. Split on the chunkUserTemplate's 'Transcript:\n'
-    // marker and assert only within the transcript section.
-    const transcriptSection = prompt.split('Transcript:\n')[1] ?? '';
-    expect(transcriptSection).not.toBe('');
+    // The speaker map + transcript reach the LLM in PASS-1 (the grounding
+    // step). The pass-1 system (buildPass1Prompts) carries no speaker-map
+    // example, so the pass-1 user turn alone bears the rendered map/transcript.
+    const prompt = sidecar.pass1Calls[0]!.prompt;
 
     // Speaker map header rendered by renderTranscriptWithSpeakers
-    expect(transcriptSection).toContain('Speaker map:');
-    expect(transcriptSection).toContain('Speaker 0 = 佐藤');
-    expect(transcriptSection).toContain('Speaker 1 = 山田');
+    expect(prompt).toContain('Speaker map:');
+    expect(prompt).toContain('Speaker 0 = 佐藤');
+    expect(prompt).toContain('Speaker 1 = 山田');
 
     // Per-line speaker name prefix (renderTranscriptWithSpeakers format)
-    expect(transcriptSection).toContain('[佐藤]');
-    expect(transcriptSection).toContain('[山田]');
+    expect(prompt).toContain('[佐藤]');
+    expect(prompt).toContain('[山田]');
   });
 
   it('empty transcript → throws EMPTY_TRANSCRIPT', async () => {
@@ -370,12 +383,11 @@ describe('finalizeMeeting', () => {
     expect(result.note.family).toBe('meeting');
   });
 
-  it('throws CHUNK_FAILED:POST_DECODE_ZOD_EXHAUSTED when post-decode fails on both outer attempts', async () => {
-    // Parity with the lecture-orchestrator exhaustion test — same code path
-    // in the meeting branch of finalizeMeeting. The lecture test already
-    // RED-before-GREEN verified the exhaustion path; this case is added for
-    // explicit coverage on the meeting wrap (per the round-2 reviewer's
-    // non-blocking observation about asymmetric exhaustion coverage).
+  it('throws CHUNK_FAILED:POST_DECODE_ZOD when pass-2 post-decode fails on every reseed', async () => {
+    // Parity with the lecture-orchestrator exhaustion test — same 2-pass ladder
+    // in the meeting branch of finalizeMeeting. Every pass-2 emits JSON missing
+    // required meeting fields → Stage 4 ZodError → reseed pass-2, then fresh
+    // pass-1, until MAX_GEN_PER_CHUNK (2 pass-1 × 3 pass-2 = 6 pass-2 calls).
     const invalidJson = JSON.stringify({
       schemaVersion: 1,
       family: 'meeting',
@@ -397,8 +409,9 @@ describe('finalizeMeeting', () => {
         modelProfile,
         diarizationStatus: 'ok',
       }),
-    ).rejects.toThrow(/^CHUNK_FAILED:0:POST_DECODE_ZOD_EXHAUSTED/);
+    ).rejects.toThrow(/^CHUNK_FAILED:0:POST_DECODE_ZOD:/);
 
-    expect(sidecar.calls).toHaveLength(2);
+    expect(sidecar.calls).toHaveLength(6);
+    expect(sidecar.pass1Calls).toHaveLength(2);
   });
 });
