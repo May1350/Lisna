@@ -61,6 +61,10 @@ function baseOpts() {
     fam: fam as never,
     chunkIndex: 0,
     totalChunks: 1,
+    // This file exercises the 2-pass ladder MECHANICS (pass-1 reseed vs pass-2
+    // reseed counts); 'lecture' is just a label. Production lecture is
+    // single-pass — see lecture-orchestrator.test.ts. Force the 2-pass branch.
+    twoPass: true,
     pass1System: 'sys1',
     pass1User: 'u1',
     pass2System: 'sys2',

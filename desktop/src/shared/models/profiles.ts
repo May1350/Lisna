@@ -58,6 +58,27 @@ export const ALIGNED_SAMPLING: Required<SamplingParams> = {
 };
 
 /**
+ * Mirrors main's legacy sampler chain — repeat-penalty ON (1.1), DRY OFF.
+ * Used by lecture, which runs SINGLE-PASS: the lecture model needs a grounded
+ * decode (real-3B 2-pass validation showed it echoing its own prompt back as
+ * garbage). The penalty curbs the lecture model's phrase-looping without the
+ * DRY interaction that destabilizes the single-pass structuring decode.
+ * Conversation families keep ALIGNED_SAMPLING (penalty off + DRY) on their
+ * 2-pass path. Same field set as SamplingParams / ALIGNED_SAMPLING.
+ */
+export const BESPOKE_SAMPLING: Required<SamplingParams> = {
+  topK: 50,
+  topP: 0.9,
+  minP: 0.0,
+  repeatPenalty: 1.1,
+  repeatLastN: 64,
+  dryMultiplier: 0.0,
+  dryBase: 1.75,
+  dryAllowedLength: 2,
+  dryPenaltyLastN: -1,
+};
+
+/**
  * Runtime profile registry. Two entries alpha-ships with:
  *
  * - `llama-3.2-3b-q4-km` — default for Lecture (Path F: 1B quality FAIL on Lecture).

@@ -89,34 +89,22 @@ export function makeLectureNoteJson(sectionHeading: string, sectionTs: number): 
   });
 }
 
-/** Canned PASS-1 free-prose: grounded JA over the 100-char language floor so
- *  pass-1 always advances to pass-2 (per-chunk 2-pass, 2026-06-14). */
-const PASS1_PROSE = 'この講義チャンクの要約です。重要な概念と具体例を順に説明しています。' + 'あ'.repeat(120);
-
-// ─── Mock sidecar that serves one canned response per PASS-2 call ────────────
+// ─── Mock sidecar that serves one canned response per generation ─────────────
 //
-// 2-pass aware (per-chunk fabrication fix, 2026-06-14): PASS-1 calls (empty
-// grammar) get canned JA prose recorded in `pass1Calls`; PASS-2 (grammar)
-// calls are indexed into `responses[]` and recorded in `calls`. So `calls`
-// length still equals the number of structuring calls (≈ chunk count) and the
-// `responses[]` per-chunk indexing is preserved exactly. The mock falls back
-// to the last response on overflow so a `.length` mismatch surfaces as a test
-// assertion failure rather than an undefined-pointer exception.
+// Lecture is SINGLE-PASS (per-family wiring, 2026-06-14): it structures the
+// transcript DIRECTLY under grammar, so every call carries a non-empty grammar
+// and is indexed into `responses[]` and recorded in `calls`. `calls` length
+// equals the number of generations (≈ chunk count, + any retries). The mock
+// falls back to the last response on overflow so a `.length` mismatch surfaces
+// as a test assertion failure rather than an undefined-pointer exception.
 export function mockSidecarPerChunk(responses: string[]): GrammarCapableSidecar & {
   calls: Array<{ prompt: string; seed: number }>;
-  pass1Calls: Array<{ prompt: string; seed: number }>;
 } {
   const calls: Array<{ prompt: string; seed: number }> = [];
-  const pass1Calls: Array<{ prompt: string; seed: number }> = [];
   let idx = 0;
   return {
     calls,
-    pass1Calls,
     async generateWithGrammar(req) {
-      if (req.grammar === '') {
-        pass1Calls.push({ prompt: req.prompt, seed: req.seed });
-        return { text: PASS1_PROSE, seed: req.seed };
-      }
       calls.push({ prompt: req.prompt, seed: req.seed });
       const text = responses[idx] ?? responses[responses.length - 1]!;
       idx++;
