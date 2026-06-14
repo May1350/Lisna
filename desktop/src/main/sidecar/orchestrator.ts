@@ -400,7 +400,7 @@ const PASS2_MAX_ATTEMPTS_PER_PROSE = 3; // pass-2 fresh-seed reseeds against one
 const MAX_GEN_PER_CHUNK = 8;            // hard ceiling across both passes
 const PASS1_MAX_TOKENS = 1600;          // dense-chunk JA summary headroom (spec §3; spike sparse=376)
 const PASS1_CAP_EPSILON = 16;           // tokensOut >= max-ε ⇒ ran-to-cap ⇒ retriable, never fed forward
-const PASS1_SEED_OFFSET = 20000;        // pass-1 cycle seed block (distinct base per pass-1 reseed)
+const PASS1_SEED_OFFSET = 40000;        // > PASS2_MAX_ATTEMPTS_PER_PROSE×POST_DECODE_SEED_OFFSET so pass-1 cycle blocks stay disjoint from every pass-2 reseed seed
 
 interface Opts {
   stt: STTEngine;
@@ -863,7 +863,7 @@ export async function finalizeMeeting(
     const p2 = buildPass2Prompts(lang);
 
     // baseSeed 6000 (lecture 5000) keeps seeds distinct across families; with
-    // PASS1_SEED_OFFSET=20000 / POST_DECODE_SEED_OFFSET=10000, lecture and
+    // PASS1_SEED_OFFSET=40000 / POST_DECODE_SEED_OFFSET=10000, lecture and
     // meeting seed blocks stay disjoint for any plausible chunk count.
     const chunkResult = await runChunkWithGrammar({
       family: 'meeting',
