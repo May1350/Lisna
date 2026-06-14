@@ -13,11 +13,21 @@
 // the same value to every test in the file.)
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
+import * as matchers from '@testing-library/jest-dom/matchers'
 
 describe('LoginScreen pickerAvailable gate', () => {
   beforeEach(() => {
     vi.resetModules()
     vi.clearAllMocks()
+    // vi.resetModules() can intermittently drop the jest-dom matcher
+    // registration that tests/setup.ts installs; the dynamic import() in each
+    // test re-registers it asynchronously, racing this test's *synchronous*
+    // toBeInTheDocument assertion. On slow/contended CI runners that race is
+    // lost → flaky "Invalid Chai property: toBeInTheDocument" (vitest#9182
+    // class; only this file resets modules, so only it flaked). Re-extend
+    // synchronously AFTER the reset so the matcher is guaranteed registered
+    // before the test body runs.
+    expect.extend(matchers)
   })
 
   it('hides the picker button when WEB_OAUTH_CLIENT_ID is empty (dev/test default)', async () => {
