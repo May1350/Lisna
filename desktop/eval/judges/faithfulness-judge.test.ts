@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   __testOnly_parseFaithfulness,
+  __testOnly_extractClaims,
   gateFromVerdicts,
   FAITHFULNESS_UNSUPPORTED_TOLERANCE,
 } from './faithfulness-judge';
@@ -85,5 +86,26 @@ describe('judge-sanity (shape contract, no network)', () => {
   it('a judge that flips everything to supported CANNOT hide an empty-verdicts response', () => {
     // Guard: an empty verdict list is treated as FAIL, so a judge returning {} can't pass.
     expect(__testOnly_parseFaithfulness('{}').overall).toBe('FAIL');
+  });
+});
+
+describe('extractClaims brainstorm', () => {
+  it('extracts purpose + idea_clusters + parking_lot, NOT conclusions', () => {
+    const note = {
+      purpose: '新機能のアイデア出し',
+      idea_clusters: [{ theme: 'UX', ideas: [{ text: 'ダークモード' }] }],
+      parking_lot: [{ text: '後で検討する案' }],
+      conclusions: [{ text: 'これは結論' }], // present but must NOT be scored for brainstorm
+    };
+    const out = JSON.parse(__testOnly_extractClaims('brainstorm', note));
+    expect(out.purpose).toBe('新機能のアイデア出し');
+    expect(out.idea_clusters).toHaveLength(1);
+    expect(out.parking_lot).toHaveLength(1);
+    expect(out.parking_lot[0].text).toBe('後で検討する案');
+    expect(out).not.toHaveProperty('conclusions');
+  });
+  it('parking_lot absent → empty array (not undefined crash)', () => {
+    const out = JSON.parse(__testOnly_extractClaims('brainstorm', { purpose: 'x', idea_clusters: [] }));
+    expect(out.parking_lot).toEqual([]);
   });
 });

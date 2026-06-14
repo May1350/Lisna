@@ -95,11 +95,14 @@ function extractClaims(family: NoteFamily, note: any): string {
     out.key_takeaways = note.key_takeaways ?? [];
     out.quotable_lines = note.quotable_lines ?? [];
   } else if (family === 'brainstorm') {
+    out.purpose = note.purpose;
     out.idea_clusters = note.idea_clusters ?? [];
-    out.conclusions = note.conclusions ?? [];
+    out.parking_lot = note.parking_lot ?? [];
   }
   return JSON.stringify(out, null, 2);
 }
+
+export const __testOnly_extractClaims = extractClaims;
 
 export interface FaithfulnessJudgeInput {
   family: NoteFamily;
