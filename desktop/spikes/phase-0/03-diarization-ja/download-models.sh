@@ -25,10 +25,14 @@ for name in sherpa-onnx-pyannote-segmentation-3-0 sherpa-onnx-reverb-diarization
   fi
 done
 
-# Embedding: 3D-Speaker eres2net (default) + campplus (fallback-ladder swap).
+# Embedding ladder: 3D-Speaker eres2net (zh default) + campplus (zh) + two
+# English candidates — TitaNet-large and wespeaker-ResNet34-LM (the exact family
+# pyannote 3.1's 22.7% AMI-SDM uses). All four measured in the Stage-1 calibration.
 for emb in \
   3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx \
   3dspeaker_speech_campplus_sv_zh-cn_16k-common.onnx \
+  nemo_en_titanet_large.onnx \
+  wespeaker_en_voxceleb_resnet34_LM.onnx \
 ; do
   if [ ! -f "$emb" ]; then
     echo "→ embedding: $emb"

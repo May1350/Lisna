@@ -16,9 +16,13 @@ On public far-field benchmark audio (AMI **SDM** = single distant mic), our
 sherpa-onnx stack lands **deep in PARK** (the spec's >25% "hold acoustic
 diarization" band) on **both** meetings measured:
 
-- **Oracle speaker count (best case, you tell it K): DER ~31–36%.**
+- **Oracle speaker count (best case, you tell it K): DER ~26–36%** across THREE
+  embeddings (zh eres2net/campplus, en TitaNet-large, en wespeaker-ResNet34).
+  The best embedding *per meeting* still lands at the PARK edge or worse —
+  IS1009a 25.7% (TitaNet), ES2004a 36.2% (eres2net). No embedding wins both.
 - **Auto speaker count (the realistic product path): DER ~77–83%** — it
-  over-detects **~90 speakers** where there are 4.
+  over-detects **~83–95 speakers** where there are 4, **with every embedding
+  tried** (the count blow-up is not an embedding problem).
 
 And AMI SDM is a *dedicated array microphone in a controlled meeting room*. The
 founder's case is a **laptop built-in mic** (worse) in a small room, and a **5+
@@ -62,7 +66,8 @@ Scripts: `desktop/spikes/phase-0/03-diarization-ja/{run-diarization,score-der,rt
 - **Auto is destroyed by speaker-count blow-up.** Both meetings detect ~90
   clusters for 4 real speakers → confusion alone is 60–72%. This is the spec's
   R9 failure mode, at full force on far-field.
-- **Even oracle (perfect K) is ~31–36%** — a hard confusion+miss floor (~20%
+- **Even oracle (perfect K) is ~31–36%** on the default embedding (26–36% across
+  embeddings — see Embedding axis below) — a hard confusion+miss floor (~20%
   confusion even when forced to exactly 4 clusters). Already > PARK threshold.
 
 ## Auto threshold sweep (ES2004a, first 5 min, truth=3 spk)
@@ -74,10 +79,15 @@ Scripts: `desktop/spikes/phase-0/03-diarization-ja/{run-diarization,score-der,rt
 | 0.8 | 9 | 0.396 |
 | 0.9 | 9 | 0.396 (plateau) |
 
-Higher threshold merges more, but **plateaus at 9 speakers (truth 3)** — auto
-count cannot be tuned to the right answer; the far-field embeddings aren't
-separable enough. Best-tuned auto (~0.40) is still worse than oracle and far
-above GO/PARTIAL. **Auto-clustering is not rescuable by threshold here.**
+Higher threshold (cosine distance, range ~0–2; larger = fewer clusters) merges
+more, but **plateaus at 9 speakers (truth 3)** by 0.8. The sweep covers the
+maintainer's documented operating range (sherpa-onnx's own CLI example uses
+0.90); >0.9 is left untested but is **moot for the verdict**: oracle (perfect K)
+is the ceiling auto can never beat, and oracle is already PARK-edge-or-worse, so
+no auto threshold can reach GO/PARTIAL even if it nailed the count. Best-tuned
+auto in-range (~0.40) is already worse than oracle. **Auto-clustering is not
+rescuable by threshold within the documented range, and tuning past it cannot
+beat the oracle ceiling.**
 
 ## Model-swap matrix (ES2004a, first 5 min, oracle K=3)
 
@@ -93,6 +103,36 @@ above GO/PARTIAL. **Auto-clustering is not rescuable by threshold here.**
   rooms; it destroys precision instead. Negative result — do not ship it without
   separate VAD/threshold work.
 - **campplus ≈ eres2net** (marginally better confusion). No material lever.
+
+## Embedding axis — full file (added after independent review flagged it)
+
+The reviewer correctly noted the matrix above varies the embedding only within the
+zh-cn 3D-Speaker family, so a "31–36% floor" was an over-claim. Tested two English
+embeddings sherpa-onnx ships, including **the exact family pyannote 3.1's 22.7%
+uses** (wespeaker-voxceleb-resnet34-LM):
+
+| Embedding | ES2004a oracle K=4 | IS1009a oracle K=4 | IS1009a auto (thr 0.5) |
+|---|---|---|---|
+| eres2net (zh, default) | **0.362** | 0.312 | 0.834 / 89 spk |
+| campplus (zh) | ~0.30 (trim) | — | — |
+| **TitaNet-large (en)** | 0.458 | **0.257** | **0.797 / 83 spk** |
+| **wespeaker-ResNet34-LM (en)** | — | 0.557 | — |
+
+Three conclusions, all of which **harden** the PARK lean:
+1. **No embedding wins both rooms.** TitaNet pulls IS1009a to the PARK edge
+   (25.7%) but is *worse* than eres2net on ES2004a (45.8% vs 36.2%). The
+   oracle floor is embedding- AND meeting-dependent; best-per-meeting is still
+   **26–36%** = PARK-edge-or-worse.
+2. **The auto count blow-up is NOT an embedding problem.** TitaNet (the best
+   oracle embedding) auto-detects **83 speakers** for 4 → DER 0.797, basically
+   unchanged from eres2net's 89/0.834. Better separation does not fix
+   FastClustering's far-field over-counting. Since auto ≤ oracle in quality and
+   oracle is already PARK-edge, the realistic auto path is firmly PARK.
+3. **pyannote's exact embedding is WORSE here** (wespeaker-R34-LM 0.557 vs
+   eres2net 0.312). So pyannote 3.1's 22.7% is a **whole-pipeline** result
+   (their clustering + tuning), not a property of the embedding you can borrow
+   by dropping it into sherpa's FastClustering. This caps how much our stack can
+   ever approach 22.7% without re-implementing their pipeline.
 
 ## Resource + cross-check
 
@@ -111,16 +151,28 @@ above GO/PARTIAL. **Auto-clustering is not rescuable by threshold here.**
 | Pipeline | AMI SDM DER (auto) |
 |---|---|
 | pyannote 3.1 full pipeline (tuned, published) | ~22.7% |
-| **our stack — oracle K (ceiling)** | **31–36%** |
+| **our stack — oracle K (ceiling)** | **26–36%** (best embedding per room) |
 | **our stack — auto (realistic)** | **77–83%** |
 
-Our **penalty**: even the oracle ceiling is +9–13pp worse than pyannote 3.1's
-*auto* number (small ONNX seg/emb + untuned FastClustering vs a tuned pipeline);
-our *auto* is +55–60pp worse because FastClustering speaker-counting collapses on
-far-field. This is the expected "small-stack + auto-count" gap the spec wanted to
-quantify. It means a real GO would need both a much better mic AND speaker-count
-help (e.g. asking the user "how many speakers?", spec R9), and even then ~oracle
-30%+ is the floor on this segmentation/embedding pair.
+Our **penalty**: even the best oracle ceiling (26–36%, embedding-dependent) is
++4–13pp worse than pyannote 3.1's *auto* number, and our *auto* is +55–60pp worse
+because FastClustering speaker-counting collapses on far-field. Critically, the
+22.7% is **not borrowable**: dropping pyannote's exact embedding
+(wespeaker-ResNet34-LM) into our FastClustering made it *worse* (0.557) — their
+number is a whole-pipeline result. A real GO on this stack would need a much
+better mic AND speaker-count help (e.g. asking the user "how many speakers?",
+spec R9) AND a re-implemented clustering pipeline — and even pyannote's *tuned*
+22.7% is below our GO=15% gate. The comparison is apples-to-apples: AMI **SDM**
+is itself single-distant-mic (one Array1-01 channel, no beamforming), the same
+single-mic condition as the founder's laptop.
+
+**Independent review (reviewer ≠ author, opus agent `a669cb931057e037a`, 2026-06-15):
+SURVIVES-WITH-CAVEATS.** Audited alignment (clean — confirmed RTTM ↔ WAV share one
+clock, no offset), threshold semantics, the embedding ceiling (the caveat that
+prompted the embedding-axis section above), reverb-seg ("unusable as-is" judged
+fair), and metric choice. No artifact flips the PARK lean; the one over-claim it
+caught ("31–36% is the floor" → really "floor on the embeddings tried") is now
+fixed above.
 
 ---
 
