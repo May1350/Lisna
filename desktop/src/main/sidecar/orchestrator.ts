@@ -379,6 +379,71 @@ export async function runChunkWithGrammar(opts: RunChunkOpts): Promise<RunChunkR
   }
 }
 
+/**
+ * Per-chunk call-site wrapper (call-site DRY, 2026-06-14): the four finalize*
+ * loops build identical 2-pass prompts and invoke runChunkWithGrammar with the
+ * same options — only the family, the chunk render fn, the family base seed, and
+ * the post-decode transcript differ. This collapses that shared shape so each
+ * finalize* loop is a single call. Pure pass-through: no behavior beyond what the
+ * four call sites already did.
+ */
+interface RunChunkPassOpts {
+  family: FinalizeFamily;
+  fam: FamilyCoreDefinition<NoteBase>;
+  /** Index of the chunk being processed; also the per-chunk seed offset. */
+  chunkIndex: number;
+  /** The full chunk list — the helper reads `chunks[chunkIndex]` + `chunks.length`. */
+  chunks: SessionTranscript[];
+  grammar: string;
+  /**
+   * Family base seed WITHOUT the per-chunk offset (lecture 5000, meeting 6000,
+   * interview 7000, brainstorm 8000); the helper adds `chunkIndex`. See
+   * RunChunkOpts.baseSeed for the seed-block scheme that keeps families disjoint.
+   */
+  baseSeed: number;
+  /**
+   * Renders the chunk into the pass-1 transcript string: lecture passes
+   * `renderTranscriptChunk` (plain), the conversation families pass a closure
+   * over `renderTranscriptWithSpeakers` (speaker-tagged).
+   */
+  render: (chunk: SessionTranscript) => string;
+  transcriptForPostDecode: SessionTranscript;
+  tuning: { temperature: number; maxGenTokens: number };
+  generator: LlmGenerator;
+  lang: NoteLanguage;
+  onTelemetry?: (e: FinalizeTelemetryEvent) => void;
+}
+
+function runChunkPass(opts: RunChunkPassOpts): Promise<RunChunkResult> {
+  const p1 = buildPass1Prompts(
+    opts.family,
+    {
+      chunkIndex: opts.chunkIndex,
+      totalChunks: opts.chunks.length,
+      transcript: opts.render(opts.chunks[opts.chunkIndex]!),
+    },
+    opts.lang,
+  );
+  const p2 = buildPass2Prompts(opts.lang);
+  return runChunkWithGrammar({
+    family: opts.family,
+    fam: opts.fam,
+    chunkIndex: opts.chunkIndex,
+    totalChunks: opts.chunks.length,
+    pass1System: p1.system,
+    pass1User: p1.user,
+    pass2System: p2.system,
+    pass2UserPrefix: p2.userPrefix,
+    grammar: opts.grammar,
+    baseSeed: opts.baseSeed + opts.chunkIndex,
+    tuning: opts.tuning,
+    generator: opts.generator,
+    transcriptForPostDecode: opts.transcriptForPostDecode,
+    expectedLanguage: opts.lang,
+    onTelemetry: opts.onTelemetry,
+  });
+}
+
 // ─── Per-chunk 2-pass retry/seed constants ───────────────────────────────────
 // `callWithGrammar` receives `schema: z.unknown()` so its per-attempt
 // retry-on-Zod contract no-ops for the real family shape — the real
@@ -661,34 +726,23 @@ export async function finalizeLecture(
   let totalAttemptsAcrossChunks = 0;
   let sanitizedAcrossChunks = 0;
 
-  // ── Per-chunk: call LLM + post-decode pipeline ────────────────────────────
+  // ── Per-chunk: 2-pass generation + post-decode pipeline ───────────────────
+  const lang = args.language ?? 'ja';
   for (let i = 0; i < chunks.length; i++) {
     args.onProgress?.({ phase: 'chunk', chunkIndex: i, totalChunks: chunks.length });
 
-    // ── 2-pass prompts (per-chunk fabrication fix, 2026-06-14) ──────────────
-    const lang = args.language ?? 'ja';
-    const p1 = buildPass1Prompts(
-      'lecture',
-      { chunkIndex: i, totalChunks: chunks.length, transcript: renderTranscriptChunk(chunks[i]!) },
-      lang,
-    );
-    const p2 = buildPass2Prompts(lang);
-
-    const chunkResult = await runChunkWithGrammar({
+    const chunkResult = await runChunkPass({
       family: 'lecture',
       fam,
       chunkIndex: i,
-      totalChunks: chunks.length,
-      pass1System: p1.system,
-      pass1User: p1.user,
-      pass2System: p2.system,
-      pass2UserPrefix: p2.userPrefix,
+      chunks,
       grammar,
-      baseSeed: 5000 + i,
+      baseSeed: 5000,
+      render: renderTranscriptChunk,
+      transcriptForPostDecode: args.transcript,
       tuning,
       generator,
-      transcriptForPostDecode: args.transcript,
-      expectedLanguage: lang,
+      lang,
       onTelemetry: args.onTelemetry,
     });
     partials.push(chunkResult.validated as Partial<LectureNote>);
@@ -846,40 +900,22 @@ export async function finalizeMeeting(
   let totalAttemptsAcrossChunks = 0;
   let sanitizedAcrossChunks = 0;
 
+  const lang = args.language ?? 'ja';
   for (let i = 0; i < chunks.length; i++) {
     args.onProgress?.({ phase: 'chunk', chunkIndex: i, totalChunks: chunks.length });
 
-    // ── 2-pass prompts (per-chunk fabrication fix, 2026-06-14) ──────────────
-    const lang = args.language ?? 'ja';
-    const p1 = buildPass1Prompts(
-      'meeting',
-      {
-        chunkIndex: i,
-        totalChunks: chunks.length,
-        transcript: renderTranscriptWithSpeakers(chunks[i]!, activeTranscript.speakers),
-      },
-      lang,
-    );
-    const p2 = buildPass2Prompts(lang);
-
-    // baseSeed 6000 (lecture 5000) keeps seeds distinct across families; with
-    // PASS1_SEED_OFFSET=40000 / POST_DECODE_SEED_OFFSET=10000, lecture and
-    // meeting seed blocks stay disjoint for any plausible chunk count.
-    const chunkResult = await runChunkWithGrammar({
+    const chunkResult = await runChunkPass({
       family: 'meeting',
       fam,
       chunkIndex: i,
-      totalChunks: chunks.length,
-      pass1System: p1.system,
-      pass1User: p1.user,
-      pass2System: p2.system,
-      pass2UserPrefix: p2.userPrefix,
+      chunks,
       grammar,
-      baseSeed: 6000 + i,
+      baseSeed: 6000,
+      render: (chunk) => renderTranscriptWithSpeakers(chunk, activeTranscript.speakers),
+      transcriptForPostDecode: activeTranscript,
       tuning,
       generator,
-      transcriptForPostDecode: activeTranscript,
-      expectedLanguage: lang,
+      lang,
       onTelemetry: args.onTelemetry,
     });
     partials.push(chunkResult.validated as Partial<MeetingNote>);
@@ -1032,38 +1068,22 @@ export async function finalizeInterview(
   let totalAttemptsAcrossChunks = 0;
   let sanitizedAcrossChunks = 0;
 
+  const lang = args.language ?? 'ja';
   for (let i = 0; i < chunks.length; i++) {
     args.onProgress?.({ phase: 'chunk', chunkIndex: i, totalChunks: chunks.length });
 
-    // ── 2-pass prompts (per-chunk fabrication fix, 2026-06-14) ──────────────
-    const lang = args.language ?? 'ja';
-    const p1 = buildPass1Prompts(
-      'interview',
-      {
-        chunkIndex: i,
-        totalChunks: chunks.length,
-        transcript: renderTranscriptWithSpeakers(chunks[i]!, activeTranscript.speakers),
-      },
-      lang,
-    );
-    const p2 = buildPass2Prompts(lang);
-
-    // baseSeed 7000 (lecture 5000, meeting 6000) keeps seeds distinct across families.
-    const chunkResult = await runChunkWithGrammar({
+    const chunkResult = await runChunkPass({
       family: 'interview',
       fam,
       chunkIndex: i,
-      totalChunks: chunks.length,
-      pass1System: p1.system,
-      pass1User: p1.user,
-      pass2System: p2.system,
-      pass2UserPrefix: p2.userPrefix,
+      chunks,
       grammar,
-      baseSeed: 7000 + i,
+      baseSeed: 7000,
+      render: (chunk) => renderTranscriptWithSpeakers(chunk, activeTranscript.speakers),
+      transcriptForPostDecode: activeTranscript,
       tuning,
       generator,
-      transcriptForPostDecode: activeTranscript,
-      expectedLanguage: lang,
+      lang,
       onTelemetry: args.onTelemetry,
     });
     partials.push(chunkResult.validated as Record<string, unknown>);
@@ -1238,38 +1258,22 @@ export async function finalizeBrainstorm(
   let totalAttemptsAcrossChunks = 0;
   let sanitizedAcrossChunks = 0;
 
+  const lang = args.language ?? 'ja';
   for (let i = 0; i < chunks.length; i++) {
     args.onProgress?.({ phase: 'chunk', chunkIndex: i, totalChunks: chunks.length });
 
-    // ── 2-pass prompts (per-chunk fabrication fix, 2026-06-14) ──────────────
-    const lang = args.language ?? 'ja';
-    const p1 = buildPass1Prompts(
-      'brainstorm',
-      {
-        chunkIndex: i,
-        totalChunks: chunks.length,
-        transcript: renderTranscriptWithSpeakers(chunks[i]!, args.transcript.speakers),
-      },
-      lang,
-    );
-    const p2 = buildPass2Prompts(lang);
-
-    // baseSeed 8000 (lecture 5000, meeting 6000, interview 7000) keeps seeds distinct.
-    const chunkResult = await runChunkWithGrammar({
+    const chunkResult = await runChunkPass({
       family: 'brainstorm',
       fam,
       chunkIndex: i,
-      totalChunks: chunks.length,
-      pass1System: p1.system,
-      pass1User: p1.user,
-      pass2System: p2.system,
-      pass2UserPrefix: p2.userPrefix,
+      chunks,
       grammar,
-      baseSeed: 8000 + i,
+      baseSeed: 8000,
+      render: (chunk) => renderTranscriptWithSpeakers(chunk, args.transcript.speakers),
+      transcriptForPostDecode: args.transcript,
       tuning,
       generator,
-      transcriptForPostDecode: args.transcript,
-      expectedLanguage: lang,
+      lang,
       onTelemetry: args.onTelemetry,
     });
     partials.push(chunkResult.validated as Record<string, unknown>);
