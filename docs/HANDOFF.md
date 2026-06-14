@@ -50,6 +50,32 @@ segments). Curator: OpenAI gpt-4o-mini. Auth: JWT issued from Google OAuth.
 
 ## 2. Critical state (read this before anything else)
 
+### Testing workflow — use the LOCAL INSTALLED app (codified 2026-06-15)
+
+Founder test recordings (STT eval, diarization gate, 2-pass hands-on, any
+real-mic capture) run on the **local installed `/Applications/Lisna.app`,
+rebuilt to the latest working code** — NOT `pnpm dev`, NOT QuickTime. The
+installed app is the real test surface (Dock launch, real TCC mic perms, real
+packaging). Keep it current by rebuilding as code changes; a stale install
+silently drops branch-only features (2026-06-15: founder recorded a 10-min
+interview on a v0.1.10 install that predated #130 AND lacked the diarization
+audio-save hook → English-fabrication note failure + no WAV saved).
+
+- **Rebuild:** `pnpm --filter @lisna/desktop package` (full, recompiles sidecar)
+  OR — when the sidecar is unchanged — stage a proven `resources/sidecar` +
+  `resources/dylibs/` then `pnpm --filter @lisna/desktop build && CSC_IDENTITY_AUTO_DISCOVERY=false pnpm --filter @lisna/desktop exec electron-builder --mac --dir --publish never` → `desktop/dist/mac-arm64/Lisna.app`.
+- **Install:** quit the running app, then replace `/Applications/Lisna.app` with
+  the built one. Don't overwrite a running app. Unsigned local build → first
+  launch may need right-click → Open.
+- **Audio capture (PII, OFF by default):** gated by `LISNA_SAVE_AUDIO=1` (env)
+  OR a `save-audio.on` marker file in userData (Dock launches can't inherit the
+  env var). Toggle: `touch`/`rm "~/Library/Application Support/@lisna/desktop/save-audio.on"`.
+- **Artifacts** (dev+prod share userData `~/Library/Application Support/@lisna/desktop/`):
+  WAV → `audio-captures/<ts>.wav`; finalize dumps → `sessions/<ts>/`.
+- Durable follow-up: merge the Stage-0 audio hook + marker gate to `main` so
+  "local app = latest main" is clean (today they live only on the diarization
+  spike branch). Full detail: memory `feedback-recording-via-desktop-app`.
+
 ### v2 current state (2026-06-10 dawn) — READ FIRST
 
 The active track is the **v2 on-device desktop app** (`desktop/`), not the
