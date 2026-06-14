@@ -533,7 +533,14 @@ export function registerIpc(deps: IpcDeps) {
     // Raw-audio capture gate (diarization spike). Off by default — raw meeting
     // audio is PII; only enable for local spike runs with explicit intent.
     _audioWriter = null;
-    if (process.env.LISNA_SAVE_AUDIO === '1') {
+    // Enable via env var (dev/terminal launch) OR a `save-audio.on` marker file
+    // in userData — the marker lets the Dock-launched LOCAL test build capture
+    // audio without an env var it can't inherit from Finder. Default OFF: raw
+    // meeting audio is PII. Toggle: `touch`/`rm <userData>/save-audio.on`.
+    const saveAudioOn =
+      process.env.LISNA_SAVE_AUDIO === '1' ||
+      fs.existsSync(path.join(app.getPath('userData'), 'save-audio.on'));
+    if (saveAudioOn) {
       try {
         const dir = path.join(app.getPath('userData'), 'audio-captures');
         fs.mkdirSync(dir, { recursive: true });
