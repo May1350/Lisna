@@ -602,7 +602,7 @@ describe('finalizeLecture', () => {
     it('fresh pass-1 cycle continues the overall attempt-start count', async () => {
       // 3 invalid pass-2 on prose-1 → fresh pass-1 (p1=1) → its 1st pass-2 ok.
       // attempt-start sequence: pass-1, pass-2×3, pass-1, pass-2. Pass-1 of the
-      // 2nd cycle uses seed 5000 + PASS1_SEED_OFFSET(20000) = 25000.
+      // 2nd cycle uses seed 5000 + PASS1_SEED_OFFSET(40000) = 45000.
       const invalidJson = JSON.stringify({
         schemaVersion: 1,
         family: 'lecture',
@@ -639,7 +639,7 @@ describe('finalizeLecture', () => {
       ]);
       // The fresh pass-1 cycle uses the PASS1_SEED_OFFSET block.
       const pass1Starts = starts.filter((s) => s.pass === 1);
-      expect(pass1Starts.map((s) => s.seed)).toEqual([5000, 25000]);
+      expect(pass1Starts.map((s) => s.seed)).toEqual([5000, 45000]);
     });
 
     it('omitting onTelemetry is a no-op (no throws, finalize succeeds)', async () => {
