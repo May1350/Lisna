@@ -8,7 +8,7 @@
  * Set LISNA_TEST_STT_MODEL to an absolute path to run this suite.
  * Phase 4 will introduce the full model registry; for now the path is caller-supplied.
  */
-import { describe, it, expect, afterAll } from 'vitest';
+import { describe, it, expect, afterAll, vi } from 'vitest';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
@@ -115,4 +115,31 @@ describeIf('WhisperCppSTT (real model)', () => {
     },
     { timeout: 120_000 },
   );
+});
+
+// Unit coverage (no model, mocked sidecar) for the STT Phase 1 initialPrompt
+// wiring — always runs, including in CI where LISNA_TEST_STT_MODEL is unset.
+describe('WhisperCppSTT.transcribe — initialPrompt wiring (unit)', () => {
+  function fakeClient() {
+    return { send: vi.fn().mockResolvedValue({ type: 'segments', segments: [] }) };
+  }
+
+  it('includes initialPrompt in the transcribe request when provided', async () => {
+    const client = fakeClient();
+    const stt = new WhisperCppSTT(client as unknown as SidecarClient);
+    await stt.transcribe(new Float32Array(8), { initialPrompt: '明治ホールディングス' });
+    expect(client.send.mock.calls[0]![0]).toMatchObject({
+      type: 'transcribe',
+      initialPrompt: '明治ホールディングス',
+    });
+  });
+
+  it('omits initialPrompt when absent or whitespace-only', async () => {
+    const client = fakeClient();
+    const stt = new WhisperCppSTT(client as unknown as SidecarClient);
+    await stt.transcribe(new Float32Array(8));
+    expect(client.send.mock.calls[0]![0]).not.toHaveProperty('initialPrompt');
+    await stt.transcribe(new Float32Array(8), { initialPrompt: '   ' });
+    expect(client.send.mock.calls[1]![0]).not.toHaveProperty('initialPrompt');
+  });
 });

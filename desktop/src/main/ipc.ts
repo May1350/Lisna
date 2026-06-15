@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { app, ipcMain, shell, type BrowserWindow } from 'electron';
 import { WavWriter } from './audio-wav-writer';
+import { buildInitialPrompt, parseGlossary } from '@shared/stt/glossary';
 import type {
   AuthState,
   Capabilities,
@@ -217,6 +218,22 @@ type SidecarClientLike = NonNullable<ReturnType<SidecarSupervisor['getClient']>>
 /** Where finalize reads + the viewer lists dumps. Single source for the path. */
 function sessionsBaseDir(): string {
   return path.join(app.getPath('userData'), 'sessions');
+}
+
+/**
+ * STT Phase 1 proper-noun bias. Reads an optional `<userData>/glossary.json`
+ * (a JSON array of term strings) and builds a Whisper initial_prompt from it.
+ * Absent / unreadable / malformed → '' (no bias). Founder-editable without a
+ * rebuild; holds only domain terms (no PII).
+ */
+function loadGlossaryInitialPrompt(): string {
+  try {
+    const file = path.join(app.getPath('userData'), 'glossary.json');
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as unknown;
+    return buildInitialPrompt(parseGlossary(raw));
+  } catch {
+    return '';  // ENOENT (the common case) or malformed JSON — no bias.
+  }
 }
 
 /**
@@ -530,6 +547,10 @@ export function registerIpc(deps: IpcDeps) {
       llmModelPath: paths.llmPath,
       language,
     };
+    // STT Phase 1 — Whisper proper-noun bias from the optional userData
+    // glossary. Empty (default) → omitted → identical to the pre-Phase-1 path.
+    const initialPrompt = loadGlossaryInitialPrompt();
+    if (initialPrompt) opts.sttInitialPrompt = initialPrompt;
     // Raw-audio capture gate (diarization spike). Off by default — raw meeting
     // audio is PII; only enable for local spike runs with explicit intent.
     _audioWriter = null;

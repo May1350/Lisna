@@ -25,6 +25,15 @@ describe('eval-stt parseArgs', () => {
     const o = __testOnly_parseArgs(['node', 'eval-stt.ts', '--snr-db', '-3']);
     expect(o.snrDb).toBe(-3);
   });
+
+  it('parses --initial-prompt (STT Phase 1 proper-noun bias)', () => {
+    const o = __testOnly_parseArgs(['node', 'eval-stt.ts', '--initial-prompt', '明治ホールディングス、管理会計']);
+    expect(o.initialPrompt).toBe('明治ホールディングス、管理会計');
+  });
+
+  it('initialPrompt is undefined by default', () => {
+    expect(__testOnly_parseArgs(['node', 'eval-stt.ts']).initialPrompt).toBeUndefined();
+  });
 });
 
 describe('readWavAsFloat32', () => {

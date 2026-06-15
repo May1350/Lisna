@@ -11,6 +11,9 @@ interface CliArgs {
   saveAs?: string;
   snrDb: number;
   modelId: string;
+  /** STT Phase 1 — Whisper proper-noun bias applied to BOTH conditions, so an
+   *  A/B is just two runs with/without this flag on the same fixture. */
+  initialPrompt?: string;
 }
 
 export function __testOnly_parseArgs(argv: string[]): CliArgs {
@@ -20,6 +23,7 @@ export function __testOnly_parseArgs(argv: string[]): CliArgs {
     if (a === '--baseline') out.saveAs = argv[++i];
     else if (a === '--snr-db') out.snrDb = parseFloat(argv[++i] ?? '5');
     else if (a === '--model-id') out.modelId = argv[++i] ?? out.modelId;
+    else if (a === '--initial-prompt') out.initialPrompt = argv[++i];
   }
   return out;
 }
@@ -74,9 +78,10 @@ async function main(): Promise<void> {
         noise: noise.pcm,
         snrDb: opts.snrDb,
         conditions: ['clean', 'far-field-synth'] as SttCondition[],
-        stt: makeRealSttFn(stt),
+        stt: makeRealSttFn(stt, opts.initialPrompt ? { initialPrompt: opts.initialPrompt } : undefined),
         modelId: opts.modelId,
       });
+      if (opts.initialPrompt) console.log(`initialPrompt      ${JSON.stringify(opts.initialPrompt)}`);
       console.log(formatSttScorecard(card));
       console.log(`runMs              ${Date.now() - t0}`);
       if (opts.saveAs) {

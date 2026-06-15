@@ -36,9 +36,12 @@ async function main(): Promise<void> {
     const stt = new WhisperCppSTT(client);
     await stt.loadModel(modelPath, 'ja');
     try {
-      const segs = await stt.transcribe(pcm);
+      // STT Phase 1 A/B: set LISNA_STT_INITIAL_PROMPT to a proper-noun glossary
+      // to bias this run; unset = no bias. Same WAV × with/without = the A/B.
+      const initialPrompt = process.env.LISNA_STT_INITIAL_PROMPT?.trim() || undefined;
+      const segs = await stt.transcribe(pcm, { initialPrompt });
       const text = segs.map((s) => s.text).join('');
-      console.error(`DIAG segs=${segs.length} wall_ms=${Date.now() - t0} model=${modelPath.split('/').pop()}`);
+      console.error(`DIAG segs=${segs.length} wall_ms=${Date.now() - t0} model=${modelPath.split('/').pop()} prompt=${initialPrompt ? JSON.stringify(initialPrompt) : '(none)'}`);
       process.stdout.write(text + '\n');
     } finally {
       await stt.unloadModel().catch(() => {});

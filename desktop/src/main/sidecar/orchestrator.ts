@@ -570,6 +570,12 @@ interface Opts {
    * caller guarantees non-throwing behavior. No-op when unset.
    */
   onAudioChunk?(audio: Float32Array, sessionOffsetSec: number): void;
+  /**
+   * Optional Whisper proper-noun bias (STT Phase 1), applied to every chunk's
+   * transcribe call. Built from a glossary at session start (see
+   * `shared/stt/glossary.ts`); undefined/'' = no bias.
+   */
+  sttInitialPrompt?: string;
 }
 
 /**
@@ -646,7 +652,7 @@ export class SessionOrchestrator {
    */
   async onChunk(audio: Float32Array, sessionOffsetSec = 0): Promise<TranscriptSegment[]> {
     this.opts.onAudioChunk?.(audio, sessionOffsetSec);   // raw buffer, pre-remap
-    const raw = await this.opts.stt.transcribe(audio);
+    const raw = await this.opts.stt.transcribe(audio, { initialPrompt: this.opts.sttInitialPrompt });
     const segs = sessionOffsetSec === 0 ? raw : raw.map((s) => ({
       ...s,
       startSec: s.startSec + sessionOffsetSec,

@@ -40,7 +40,8 @@ void WhisperEngine::unload() {
   lisna::memory::advise_release_and_wait(nullptr, 0, target, 2000);
 }
 
-std::vector<Segment> WhisperEngine::transcribe(const float* samples, size_t n, int sampleRate) {
+std::vector<Segment> WhisperEngine::transcribe(const float* samples, size_t n, int sampleRate,
+                                               const std::string& initialPrompt) {
   std::vector<Segment> out;
   (void)sampleRate; // caller guarantees 16kHz Float32 (Task 2.6 adapter will validate)
   if (!impl_->ctx) return out;
@@ -51,6 +52,12 @@ std::vector<Segment> WhisperEngine::transcribe(const float* samples, size_t n, i
   p.translate = false;
   p.print_realtime = false;
   p.print_progress = false;
+  // STT Phase 1 — proper-noun bias. whisper.cpp tokenizes initial_prompt into
+  // the decoder's prompt context for THIS call (a lexical nudge, bounded by the
+  // acoustics — it cannot invent words). The default is nullptr; only set it
+  // when non-empty. `initialPrompt` (a const ref to the caller's string) must
+  // stay alive through whisper_full — it does.
+  if (!initialPrompt.empty()) p.initial_prompt = initialPrompt.c_str();
   if (whisper_full(impl_->ctx, p, samples, static_cast<int>(n)) != 0) return out;
   const int nSeg = whisper_full_n_segments(impl_->ctx);
   for (int i = 0; i < nSeg; ++i) {

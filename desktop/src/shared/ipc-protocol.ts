@@ -90,7 +90,15 @@ export type SidecarRequest =
   | { id: string; type: 'load'; kind: 'stt'; path: string; language: Language }
   | { id: string; type: 'load'; kind: 'llm'; path: string }
   | { id: string; type: 'unload'; kind: 'stt' | 'llm' }
-  | { id: string; type: 'transcribe'; audioBase64: string; sampleRate: number }
+  | {
+      id: string;
+      type: 'transcribe';
+      audioBase64: string;
+      sampleRate: number;
+      /** Whisper proper-noun bias (STT Phase 1). Omitted when empty — the
+       *  sidecar treats absent/'' as "no initial_prompt". */
+      initialPrompt?: string;
+    }
   | {
       id: string;
       type: 'generate';
