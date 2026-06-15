@@ -1,6 +1,9 @@
 import os from 'node:os';
+import fs from 'node:fs';
 import path from 'node:path';
 import { app, ipcMain, shell, type BrowserWindow } from 'electron';
+import { WavWriter } from './audio-wav-writer';
+import { buildInitialPrompt, parseGlossary } from '@shared/stt/glossary';
 import type {
   AuthState,
   Capabilities,
@@ -142,6 +145,11 @@ let _sessionHandlerInFlight = false;
 // retries included), finalized + cleared in onSessionSettled. Null when the
 // dump is disabled (LISNA_DISABLE_SESSION_DUMP=1) or unavailable.
 let _activeDump: SessionDump | null = null;
+// Raw-audio capture for diarization spike (gate: LISNA_SAVE_AUDIO=1, default off).
+// Opened at session/start, closed at every session-end path (stop, discard,
+// crash, give-up). PII note: raw meeting audio — never enable in production
+// without explicit user consent. Null when gate is off or writer failed to open.
+let _audioWriter: WavWriter | null = null;
 
 // ── Session-scoped sidecar lifecycle (2026-06-10, founder reboot incident) ──
 // "Runs only when in use": the sidecar previously lived for the app's whole
@@ -170,6 +178,14 @@ function armIdleStop(): void {
  *  session is actually using it. Exported for index.ts wiring. */
 export function isSessionInFlight(): boolean {
   return current !== null || recording;
+}
+
+/** Close and null the audio writer, best-effort. Called at every session-end
+ *  path (stop, discard, crash, give-up). Idempotent — WavWriter.close() is a
+ *  no-op after the first call, and the null-guard here means extra calls cost
+ *  nothing. */
+function closeAudioWriter(): void {
+  try { _audioWriter?.close(); } catch { /* best-effort */ } finally { _audioWriter = null; }
 }
 
 function cancelIdleStop(): void {
@@ -202,6 +218,22 @@ type SidecarClientLike = NonNullable<ReturnType<SidecarSupervisor['getClient']>>
 /** Where finalize reads + the viewer lists dumps. Single source for the path. */
 function sessionsBaseDir(): string {
   return path.join(app.getPath('userData'), 'sessions');
+}
+
+/**
+ * STT Phase 1 proper-noun bias. Reads an optional `<userData>/glossary.json`
+ * (a JSON array of term strings) and builds a Whisper initial_prompt from it.
+ * Absent / unreadable / malformed → '' (no bias). Founder-editable without a
+ * rebuild; holds only domain terms (no PII).
+ */
+function loadGlossaryInitialPrompt(): string {
+  try {
+    const file = path.join(app.getPath('userData'), 'glossary.json');
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as unknown;
+    return buildInitialPrompt(parseGlossary(raw));
+  } catch {
+    return '';  // ENOENT (the common case) or malformed JSON — no bias.
+  }
 }
 
 /**
@@ -411,6 +443,11 @@ export function registerIpc(deps: IpcDeps) {
       // reason, then drop the handle — the next finalize creates a fresh dir.
       _activeDump?.writeResult(result);
       _activeDump = null;
+      // Audio writer: close on BOTH success and failure. Audio capture
+      // already stopped before finalize (Stop → FamilyPicker flow), so no
+      // more samples arrive regardless of outcome. Close here rather than
+      // at session/stop because the v2 flow never hits session/stop.
+      closeAudioWriter();
       // Session-scoped lifecycle: the LLM's 3 GB leaves RAM the moment a
       // finalize settles — success or failure. P0-3 still preserves the
       // TRANSCRIPT (current) on failure for retry; the retry re-runs the
@@ -467,6 +504,7 @@ export function registerIpc(deps: IpcDeps) {
   // Idempotent; safe to call from any renderer state.
   ipcMain.handle(CHANNELS.sessionDiscard, async () => {
     sessionLog.discard(current !== null);
+    closeAudioWriter();
     current = null;
     _llmLoadedForCurrent = null;
     recording = false;
@@ -503,12 +541,42 @@ export function registerIpc(deps: IpcDeps) {
     // (just stash this.client), so per-session construction is cheap.
     const stt = new WhisperCppSTT(client);
     const llm = new LlamaCppLLM(client);
-    const orch = new SessionOrchestrator({
+    const opts: ConstructorParameters<typeof SessionOrchestrator>[0] = {
       stt, llm,
       sttModelPath: paths.sttPath,
       llmModelPath: paths.llmPath,
       language,
-    });
+    };
+    // STT Phase 1 — Whisper proper-noun bias from the optional userData
+    // glossary. Empty (default) → omitted → identical to the pre-Phase-1 path.
+    const initialPrompt = loadGlossaryInitialPrompt();
+    if (initialPrompt) opts.sttInitialPrompt = initialPrompt;
+    // Raw-audio capture gate (diarization spike). Off by default — raw meeting
+    // audio is PII; only enable for local spike runs with explicit intent.
+    _audioWriter = null;
+    // Enable via env var (dev/terminal launch) OR a `save-audio.on` marker file
+    // in userData — the marker lets the Dock-launched LOCAL test build capture
+    // audio without an env var it can't inherit from Finder. Default OFF: raw
+    // meeting audio is PII. Toggle: `touch`/`rm <userData>/save-audio.on`.
+    const saveAudioOn =
+      process.env.LISNA_SAVE_AUDIO === '1' ||
+      fs.existsSync(path.join(app.getPath('userData'), 'save-audio.on'));
+    if (saveAudioOn) {
+      try {
+        const dir = path.join(app.getPath('userData'), 'audio-captures');
+        fs.mkdirSync(dir, { recursive: true });
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const wavPath = path.join(dir, `${stamp}.wav`);
+        const w = new WavWriter(wavPath);
+        _audioWriter = w;
+        opts.onAudioChunk = (audio) => { try { w.append(audio); } catch { /* best-effort */ } };
+        log.info('[audio-capture] saving session audio to', wavPath);
+      } catch (err) {
+        log.warn('[audio-capture] disabled — could not open writer', err);
+        _audioWriter = null;
+      }
+    }
+    const orch = new SessionOrchestrator(opts);
     current = orch;  // claim BEFORE await — concurrent start re-entry blocked synchronously
     _sessionHandlerInFlight = true;
     // Step 5 §4.2 — session-boundary breadcrumb. Emit at the FIRST committed
@@ -526,6 +594,7 @@ export function registerIpc(deps: IpcDeps) {
       const code = err instanceof Error ? err.message : String(err);
       sessionLog.error(code);
       log.error('[session] start failed', err);
+      closeAudioWriter();  // start failed after the writer was opened above → close it (no fd leak)
       current = null;
       _llmLoadedForCurrent = null;
       throw err;
@@ -628,6 +697,7 @@ export function registerIpc(deps: IpcDeps) {
       sessionLog.error(code);
       throw err;
     } finally {
+      closeAudioWriter();
       current = null;
       _llmLoadedForCurrent = null;
       _sessionHandlerInFlight = false;
@@ -683,6 +753,7 @@ export function handleSidecarExit() {
   _llmLoadedForCurrent = null;
   if (!current && !recording) return;
   const wasHandlerInFlight = _sessionHandlerInFlight;
+  closeAudioWriter();   // sidecar gone — no more audio samples will arrive
   current = null;
   recording = false;
   if (wasHandlerInFlight) return;  // IPC rejection handles renderer transition
@@ -717,6 +788,7 @@ export function handleSidecarExit() {
  */
 export function handleSidecarGiveUp() {
   _sidecarGaveUp = true;
+  closeAudioWriter();   // sidecar gave up — no more audio samples will arrive
   current = null;
   _llmLoadedForCurrent = null;
   recording = false;

@@ -81,9 +81,17 @@ function makeFakeWindow() {
 // beforeEach so each test gets a fresh module state (current=null, recording=false).
 let ipc: typeof import('../ipc');
 
+// session/start reads userData unconditionally now — the audio-save marker-gate
+// (`<userData>/save-audio.on`) and the optional proper-noun glossary
+// (`<userData>/glossary.json`). Electron's app.getPath('userData') is always a
+// real path in production, so the FSM mock must supply one; otherwise
+// path.join(undefined, …) throws "path argument must be of type string".
+const fsmUserDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-ipc-fsm-'));
+
 describe('main/ipc FSM', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
+    appGetPath.mockReturnValue(fsmUserDataDir);
     fakeSttInstances.length = 0;
     fakeLlmInstances.length = 0;
     appRelaunch.mockClear();

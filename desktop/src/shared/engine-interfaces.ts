@@ -3,6 +3,15 @@ import type { ChatMessage } from './ipc-protocol';
 
 export type { Language, TranscriptSegment, ChatMessage };
 
+/**
+ * Per-call STT tuning. `initialPrompt` is a Whisper proper-noun bias string
+ * (built from a glossary — see `shared/stt/glossary.ts`). Empty/undefined =
+ * no bias (identical to the pre-Phase-1 path).
+ */
+export interface TranscribeOpts {
+  initialPrompt?: string;
+}
+
 export interface STTEngine {
   /** GGUF 모델 파일 로드. 호출 후 transcribe 가능 상태로 만든다. */
   loadModel(path: string, language: Language): Promise<void>;
@@ -12,7 +21,7 @@ export interface STTEngine {
    * 한 번 호출 = 약 10초 청크 1개 (마지막 부분 청크는 더 짧을 수 있음).
    * 청킹은 호출자(오디오 캡쳐 파이프라인) 책임. 엔진은 내부 스트리밍/클록 보유 안 함.
    */
-  transcribe(audio: Float32Array): Promise<TranscriptSegment[]>;
+  transcribe(audio: Float32Array, opts?: TranscribeOpts): Promise<TranscriptSegment[]>;
 }
 
 export interface GenOpts {

@@ -1,4 +1,4 @@
-import type { STTEngine, Language, TranscriptSegment } from '@shared/engine-interfaces';
+import type { STTEngine, Language, TranscriptSegment, TranscribeOpts } from '@shared/engine-interfaces';
 import type { SidecarClient } from '../sidecar/client';
 import { filterSegments } from './segment-filters';
 
@@ -27,11 +27,16 @@ export class WhisperCppSTT implements STTEngine {
     this.language = null;
   }
 
-  async transcribe(audio: Float32Array): Promise<TranscriptSegment[]> {
+  async transcribe(audio: Float32Array, opts?: TranscribeOpts): Promise<TranscriptSegment[]> {
     const bytes = new Uint8Array(audio.buffer, audio.byteOffset, audio.byteLength);
     const audioBase64 = Buffer.from(bytes).toString('base64');
+    // Omit `initialPrompt` when empty/whitespace so the wire stays minimal and
+    // old sidecar binaries (which ignore the field) behave identically.
+    const initialPrompt = opts?.initialPrompt?.trim();
     const r = await this.client.send(
-      { type: 'transcribe', audioBase64, sampleRate: 16000 },
+      initialPrompt
+        ? { type: 'transcribe', audioBase64, sampleRate: 16000, initialPrompt }
+        : { type: 'transcribe', audioBase64, sampleRate: 16000 },
       { timeoutMs: 120_000 },
     );
     if (r.type === 'error') throw new Error(`STT transcribe failed [${r.code}]: ${r.message}`);

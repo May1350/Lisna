@@ -219,6 +219,29 @@ TEST_F(JsonProtocolDispatchSTT, TranscribeWrongTypeAudioBase64ReturnsInvalidType
   EXPECT_EQ(r["code"], "invalid_type");
 }
 
+// ---- initialPrompt (STT Phase 1, optional field) ----
+
+TEST_F(JsonProtocolDispatchSTT, TranscribeWrongTypeInitialPromptReturnsInvalidType) {
+  // initialPrompt, when present, must be a string. Validated before the
+  // engine-state check (shape-before-state), so it fires with no model loaded.
+  auto r = json::parse(lisna::ipc::dispatch(
+      R"({"id":"t5","type":"transcribe","audioBase64":"AAAA","sampleRate":16000,"initialPrompt":123})"));
+  EXPECT_EQ(r["id"], "t5");
+  EXPECT_EQ(r["type"], "error");
+  EXPECT_EQ(r["code"], "invalid_type");
+}
+
+TEST_F(JsonProtocolDispatchSTT, TranscribeValidInitialPromptStillReachesNotLoaded) {
+  // A well-formed string initialPrompt passes the shape gate; with no model
+  // loaded the request still bails at not_loaded — pins that the optional
+  // field parses cleanly (doesn't bounce out as code:parse).
+  auto r = json::parse(lisna::ipc::dispatch(
+      R"({"id":"t6","type":"transcribe","audioBase64":"AAAA","sampleRate":16000,"initialPrompt":"明治"})"));
+  EXPECT_EQ(r["id"], "t6");
+  EXPECT_EQ(r["type"], "error");
+  EXPECT_EQ(r["code"], "not_loaded");
+}
+
 // ---- LLM dispatch (generate without load) ----
 
 TEST(JsonProtocol, GenerateWithoutLoadReturnsNotLoaded) {

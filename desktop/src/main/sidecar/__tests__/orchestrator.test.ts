@@ -320,6 +320,72 @@ describe('SessionOrchestrator', () => {
     expect(note.markdown).toBe('note');
   });
 
+  it('fires onAudioChunk with the raw audio buffer before STT + timestamp remap', async () => {
+    const seen: { len: number; offset: number }[] = [];
+    const order: string[] = [];
+    const fakeStt = {
+      loadModel: vi.fn(async () => {}),
+      unloadModel: vi.fn(async () => {}),
+      transcribe: vi.fn(async () => {
+        order.push('transcribe');
+        return [{ startSec: 0.5, endSec: 3.2, text: 'first' }];
+      }),
+    };
+    const orch = new SessionOrchestrator({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      stt: fakeStt as any, llm: {} as any,
+      sttModelPath: '/stt', llmModelPath: '/llm', language: 'ja',
+      onAudioChunk: (audio, offsetSec) => {
+        order.push('audio');
+        seen.push({ len: audio.length, offset: offsetSec });
+      },
+    });
+    await orch.start();
+    await orch.onChunk(new Float32Array(16000), 130);
+    expect(seen).toEqual([{ len: 16000, offset: 130 }]);
+    // The hook must observe the RAW buffer before STT/remap → it fires first.
+    expect(order).toEqual(['audio', 'transcribe']);
+  });
+
+  // STT Phase 1: the session-level proper-noun glossary is forwarded to every
+  // chunk's transcribe call as initialPrompt. Default (unset) → undefined.
+  it('threads sttInitialPrompt to stt.transcribe (and undefined when unset)', async () => {
+    const fakeStt = {
+      loadModel: vi.fn(async () => {}),
+      unloadModel: vi.fn(async () => {}),
+      transcribe: vi.fn(async () => [{ startSec: 0, endSec: 1, text: 'x' }]),
+    };
+    const orch = new SessionOrchestrator({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      stt: fakeStt as any, llm: {} as any,
+      sttModelPath: '/stt', llmModelPath: '/llm', language: 'ja',
+      sttInitialPrompt: '明治ホールディングス',
+    });
+    await orch.start();
+    await orch.onChunk(new Float32Array(16000));
+    expect(fakeStt.transcribe).toHaveBeenCalledWith(
+      expect.any(Float32Array),
+      { initialPrompt: '明治ホールディングス' },
+    );
+
+    const fakeStt2 = {
+      loadModel: vi.fn(async () => {}),
+      unloadModel: vi.fn(async () => {}),
+      transcribe: vi.fn(async () => [{ startSec: 0, endSec: 1, text: 'x' }]),
+    };
+    const orch2 = new SessionOrchestrator({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      stt: fakeStt2 as any, llm: {} as any,
+      sttModelPath: '/stt', llmModelPath: '/llm', language: 'ja',
+    });
+    await orch2.start();
+    await orch2.onChunk(new Float32Array(16000));
+    expect(fakeStt2.transcribe).toHaveBeenCalledWith(
+      expect.any(Float32Array),
+      { initialPrompt: undefined },
+    );
+  });
+
   // M1: empty-transcript guard. If no segments were captured (silence-only
   // recording, or user clicked Start/Stop without speaking), stop() unloads STT
   // but throws EMPTY_TRANSCRIPT before loading the LLM. Renderer maps this

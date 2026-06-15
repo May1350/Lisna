@@ -199,6 +199,11 @@ std::string dispatch(const std::string& jsonLine) {
     if (!req["sampleRate"].is_number_integer()) {
       return err("invalid_type", "sampleRate must be integer");
     }
+    // initialPrompt is optional (STT Phase 1 proper-noun bias). Validate the
+    // type only when present — symmetric with the shape-before-state pattern.
+    if (req.contains("initialPrompt") && !req["initialPrompt"].is_string()) {
+      return err("invalid_type", "initialPrompt must be string");
+    }
     if (!g_stt || !g_stt->loaded()) {
       return err("not_loaded", "stt model not loaded");
     }
@@ -213,9 +218,13 @@ std::string dispatch(const std::string& jsonLine) {
     // defined behavior.
     std::vector<float> samples_aligned(raw.size() / sizeof(float));
     std::memcpy(samples_aligned.data(), raw.data(), raw.size());
+    // Lives until after transcribe() returns → whisper_full's const char* into
+    // it stays valid (see WhisperEngine::transcribe).
+    const std::string initialPrompt = req.value("initialPrompt", std::string{});
     auto segs = g_stt->transcribe(samples_aligned.data(),
                                   samples_aligned.size(),
-                                  req["sampleRate"].get<int>());
+                                  req["sampleRate"].get<int>(),
+                                  initialPrompt);
     auto arr = nlohmann::json::array();
     for (const auto& s : segs) {
       arr.push_back({{"startSec", s.startSec},

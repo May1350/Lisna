@@ -30,7 +30,7 @@ Per ADR §1, the alpha .dmg does **not** bundle model files. First-run setup pic
 
 Discord に投稿された 2 つのモデルファイルをダウンロードしてください / download these 2 model files from Discord:
 
-1. **STT (音声→文字起こし)**: `ggml-kotoba-whisper-v2.0-q5_0.bin` (約 538 MB)
+1. **STT (音声→文字起こし)**: `ggml-large-v3-turbo-q5_0.bin` (約 574 MB)
 2. **LLM (文字起こし→ノート)**: `Llama-3.2-3B-Instruct-Q4_K_M.gguf` (約 2.0 GB)
 
 Lisna を起動 → "First-run setup" 画面でそれぞれのファイルを選択 / launch Lisna → on the "First-run setup" screen pick each file.

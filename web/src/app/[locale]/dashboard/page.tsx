@@ -45,7 +45,7 @@ export default async function DashboardPage({ params }: { params: Promise<{ loca
             <p className="text-meta uppercase text-ink-700/60">Files</p>
             <ul className="mt-2 space-y-1 text-body-sm text-ink-700">
               <li>· <a href="/dl/dmg/latest" className="underline">Lisna-0.1.1.dmg</a></li>
-              <li>· <a href="https://github.com/May1350/Lisna/releases" className="underline" target="_blank" rel="noreferrer">ggml-large-v3-q5_0.bin (Whisper)</a></li>
+              <li>· <a href="https://github.com/May1350/Lisna/releases" className="underline" target="_blank" rel="noreferrer">ggml-large-v3-turbo-q5_0.bin (Whisper)</a></li>
               <li>· <a href="https://github.com/May1350/Lisna/releases" className="underline" target="_blank" rel="noreferrer">Llama-3.2-3B-Instruct-Q4_K_M.gguf</a></li>
             </ul>
           </div>

@@ -1,4 +1,4 @@
-import type { STTEngine } from '@shared/engine-interfaces';
+import type { STTEngine, TranscribeOpts } from '@shared/engine-interfaces';
 import type { SttFn } from './run-stt-eval';
 
 /**
@@ -13,9 +13,9 @@ import type { SttFn } from './run-stt-eval';
  * passes per condition; the engine just transcribes whatever bytes it
  * receives).
  */
-export function makeRealSttFn(engine: STTEngine): SttFn {
+export function makeRealSttFn(engine: STTEngine, opts?: TranscribeOpts): SttFn {
   return async (audio) => {
-    const segments = await engine.transcribe(audio);
+    const segments = await engine.transcribe(audio, opts);
     return segments.map((s) => s.text).join('');
   };
 }

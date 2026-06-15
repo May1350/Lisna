@@ -22,7 +22,11 @@ public:
 
   bool load(const std::string& ggufPath, const std::string& languageCode);
   void unload();
-  std::vector<Segment> transcribe(const float* samples, size_t n, int sampleRate);
+  // `initialPrompt` (STT Phase 1) seeds whisper's decoder context with
+  // proper-noun spellings for THIS call; empty = no bias. Must outlive the
+  // call (whisper.cpp keeps a const char* into it through whisper_full).
+  std::vector<Segment> transcribe(const float* samples, size_t n, int sampleRate,
+                                  const std::string& initialPrompt = "");
   bool loaded() const;
 
 private:
