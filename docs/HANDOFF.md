@@ -1,6 +1,6 @@
 # Lisna — Session Handoff
 
-**Last updated**: 2026-06-12 (design session done → **PR #120 MERGED**: sampler-alignment spec (A안 = align C++ chain to llama.cpp common defaults — top_k 40/top_p 0.95/min_p 0.05/**no penalties**/DRY 0.8, params promoted to GenOpts+IPC `sampling` object with TS `profiles.ts` as single source, `appliedSampling` echo as delivery proof, R1/R2/R3 falsification matrix, pre-approved auto-fallback to B = adopt common_sampler if rig gate fails ≥2/3) + history-viewer spec (F2 — reuse #113 dump tree, `listDumps/loadDump/finalizeFromDump`, regen writes NO dump, shared finalize helpers, origin-aware retry) + 2 plans. Session findings: repetition-penalty 1.1 is ONE knob with fabrication↔looping at its two ends (CLI penalty-off = grounded JA but loops; sidecar 1.1 = English fabrication); grammar mode (bespoke grammar-first vs common lazy) was an uncontrolled variable — B fallback answers it; F2 verified UNIMPLEMENTED (no code, decision-only). Overnight context: #115+#117+#114+#118+#119 merged → v0.1.8; fabrication isolated to the C++ bespoke sampler (grounded JA 0.95 via common_sampler vs English template via sidecar, 3/3 each, even raw prompt); interview fails LOUD → F1 → lecture. **Now executing: SDD on the viewer plan FIRST (founder order — unblocks the repeat-test loop; sampler fix then verifiable in-app against the failed 17-min transcript) → branch `feat/v2-history-viewer` (0.1.9), then sampler plan (0.1.10). Specs/plans: `docs/superpowers/{specs,plans}/2026-06-12-*`.**)
+**Last updated**: 2026-06-15 (SAFE cleanup session). **Active track pivoted diarization → STT accuracy** — founder reported live STT quality as the user-visible gate, and it's upstream of note / diarization / role-inference. STT win found: kotoba-whisper-v2.0 → **large-v3-turbo** (far-field CER 17.8%→4.4%), applied LOCAL-only via `models.json`; landing it as the proper default is the next STT task. **Founder decision: v1 cloud `backend/` = ARCHIVE (dead)** — no live extension users; the deployed CDK stacks (RDS `db.t3.micro` + NAT ≈ $65/mo, acct 277304862504 / ap-northeast-1) are to be torn down in a deliberate follow-up (NOT done yet — drops RDS, irreversible). Diarization PARKED. Authoritative memory: `v2_next_steps_stt_and_cleanup_2026-06-15.md` (READ FIRST) + `v2_diarization_der_spike_2026-06-14.md`. Full current state in the §2 'v2 current state (2026-06-15)' block below.
 **Purpose**: Bring a new session up to speed in <5 min. Read top → bottom in order.
 **Reader**: future-self (or another Claude). Skip what you already know.
 
@@ -50,7 +50,56 @@ segments). Curator: OpenAI gpt-4o-mini. Auth: JWT issued from Google OAuth.
 
 ## 2. Critical state (read this before anything else)
 
-### v2 current state (2026-06-10 dawn) — READ FIRST
+### v2 current state (2026-06-15) — READ FIRST
+
+**Active track = STT accuracy.** The all-families on-device note pipeline
+(Lecture / Meeting / Interview / Brainstorm: Stop → finalize → on-device
+STT → grammar-constrained LLM → structured note → NoteView) is on `main`
+and works end-to-end. Quality is now gated by **transcript accuracy**, not
+note structure — founder reported live STT as poor, and STT sits upstream
+of note, diarization, and role-inference. The authoritative READ-FIRST
+pointer is memory `v2_next_steps_stt_and_cleanup_2026-06-15.md`.
+
+- **STT win (local only, not yet the code default):** kotoba-whisper-v2.0
+  → **large-v3-turbo**. Far-field CER **17.8% → 4.4%** (`desktop/eval/eval-stt.ts`)
+  + a real 3-min A/B (turbo coherent vs kotoba repetition-loop). Applied via
+  local `~/Library/Application Support/@lisna/desktop/models.json` only.
+  **Next STT task = land turbo as the proper default** (model-download
+  config + resolver), then Phase 1 `initial_prompt` proper-noun biasing
+  (CER-gated). Defer LLM 2nd-pass correction (fabrication risk).
+- **Instruments:** `eval-stt.ts` (synthetic CER / controlled A/B) +
+  `desktop/scripts/transcribe-wav.ts` (any WAV × any model — currently on
+  the `worktree-diarization-der-spike` branch; migrate to the STT branch).
+- **Diarization = PARKED** (far-field DER too high: oracle 26-36% / auto
+  77-83% on AMI-SDM). Harness + converters + verdict scaffold built;
+  resume anytime. Memory `v2_diarization_der_spike_2026-06-14.md`.
+- **Test/record surface = the LOCAL INSTALLED app** (`/Applications/Lisna.app`,
+  kept rebuilt to latest), NOT `pnpm dev`. Memory
+  `feedback_recording_via_desktop_app.md`. A feature only testable in-app
+  must be packaged into the local app first.
+
+**v1 cloud backend = ARCHIVE (founder decision 2026-06-15).** No live
+extension users. `backend/` is still fully deployed in `ap-northeast-1`
+(acct 277304862504): all 6 `StudyHelper*` CFN stacks + RDS Postgres
+`db.t3.micro` + 1 NAT gateway ≈ **$65/mo** for a dead service. **Teardown
+is a deliberate, founder-gated follow-up — NOT done in the cleanup session**
+(it drops the RDS DB = irreversible). Order when greenlit: final DB
+snapshot → `cdk destroy` Api/Ws/Migrate → Data stack LAST → drop `backend/`
+from CI + dependabot + `pnpm-workspace.yaml` in a PR. `extension/` stays
+frozen; `web/` (lisna.jp) stays. Full brief in the next-steps memory.
+
+**Repo hygiene (2026-06-15 cleanup):** pruned 5 merged/stale worktrees
+(kept `main` + `diarization-der-spike`); deleted 18 merged branches; closed
+obsolete PR #92 (path-g, superseded by STT pivot). 4 unpushed-work branches
+kept: `feat/v2-track2-sampler-alignment` (15), `refactor/v2-extract-runchunkpass`
+(9), `feat/v2-track2-task9-realmic` (1), `fix/v2-errorview-refinalize-route`
+(1 WIP — likely superseded by #117, verify before deleting). **18 Dependabot
+alerts deferred** to a focused pass (all dev/build tooling in root lockfile
++ `desktop/`; none in backend; low user-facing risk; includes vitest 2→3).
+
+---
+
+### v2 state snapshot (2026-06-10) — superseded by the 2026-06-15 block above; kept for history
 
 The active track is the **v2 on-device desktop app** (`desktop/`), not the
 v1 cloud extension. The v1 sections further down (§2 "What's working
