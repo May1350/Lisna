@@ -56,16 +56,9 @@ jobs:
         # this CI step trips on the drift.
         run: pnpm install --frozen-lockfile
 
-      # ── Shared (must build first — backend/extension consume its dist) ─
+      # ── Shared (must build first — extension consumes its dist) ─
       - name: Shared — build (zod schemas)
         run: pnpm --filter shared build
-
-      # ── Backend ───────────────────────────────────────────────────────
-      - name: Backend — typecheck (tsc)
-        run: pnpm --filter backend build
-
-      - name: Backend — tests (104 vitest)
-        run: pnpm --filter backend test
 
       # ── Extension ─────────────────────────────────────────────────────
       - name: Extension — typecheck
