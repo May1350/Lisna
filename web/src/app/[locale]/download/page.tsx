@@ -58,7 +58,7 @@ export default async function DownloadPage({ params }: { params: Promise<{ local
             {t('modelsBody')}
           </p>
           <ul className="mt-4 space-y-3 text-body-sm text-ink-700 font-mono bg-cream-50 p-6 rounded-md border border-ink-900/10">
-            <li>· {t('modelsWhisperLabel')}: <strong>ggml-large-v3-q5_0.bin</strong> (1.5 GB) → <code>~/Library/Application Support/@lisna/desktop/models/whisper.bin</code></li>
+            <li>· {t('modelsWhisperLabel')}: <strong>ggml-large-v3-turbo-q5_0.bin</strong> (~574 MB) → <code>~/Library/Application Support/@lisna/desktop/models/whisper.bin</code></li>
             <li>· {t('modelsLlamaLabel')}: <strong>Llama-3.2-3B-Instruct-Q4_K_M.gguf</strong> (2.0 GB) → <code>~/Library/Application Support/@lisna/desktop/models/llm.gguf</code></li>
           </ul>
           <p className="mt-4 text-body-sm text-ink-700/70">

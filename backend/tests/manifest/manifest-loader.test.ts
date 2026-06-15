@@ -35,9 +35,9 @@ describe('manifest-loader', () => {
     const signer = vi.fn().mockResolvedValue('https://signed');
     const out = await loadAndSignManifest({ r2, urlTtlSec: 3600, signer });
     const stt = out.models.find(m => m.slot === 'stt');
-    expect(stt?.id).toBe('kotoba-whisper-v2.0-q5_0');
-    expect(stt?.lang).toBe('ja');
-    expect(stt?.license_id).toBe('kotoba-whisper-tin');
+    expect(stt?.id).toBe('large-v3-turbo-q5_0');
+    expect(stt?.lang).toBe('multi');
+    expect(stt?.license_id).toBe('mit');
     expect(stt?.tier).toBe('default');
   });
 });
