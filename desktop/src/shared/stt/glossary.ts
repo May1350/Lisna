@@ -10,8 +10,8 @@
  *
  * These functions are PURE (no fs) so they live in `shared/` and are usable
  * from main, the eval scripts, and tests alike. The userData glossary file is
- * read in `main/` (see `loadGlossaryTerms` in ipc.ts) and passed through
- * `parseGlossary` → `buildInitialPrompt`.
+ * read in `main/` (see `loadGlossaryInitialPrompt` in ipc.ts) and passed
+ * through `parseGlossary` → `buildInitialPrompt`.
  *
  * Default is EMPTY: with no terms the prompt is '' and the transcribe path is
  * byte-identical to before this feature (no behavioral change until a founder
