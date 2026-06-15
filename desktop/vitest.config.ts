@@ -16,7 +16,17 @@ export default defineConfig({
     alias: { '@shared': resolve(__dirname, 'src/shared') },
   },
   test: {
-    exclude: ['**/node_modules/**', '**/dist/**', '**/out/**', 'sidecar/deps/**'],
+    // `spikes/**` is EXCLUDED from the default suite (`pnpm test` / `verify`).
+    // Spike tests under spikes/phase-0/ include hardware-gated real-LLM round
+    // trips (e.g. 01-zod-to-gbnf/round-trip.test.ts) that fork `llama-completion`
+    // for multi-minute real inference. Their only gate is "model + spike binary
+    // exist" (PREREQS_PRESENT) — both DO exist on a dev machine, so an unfiltered
+    // `vitest run` forks Llama-3.2-3B and pegs RAM (8GB M1 → swap thrash →
+    // kernel-panic risk). The 4-layer zombie defense only reaps orphans on EXIT,
+    // not a test that is legitimately mid-inference. Run spikes explicitly by
+    // path when you mean to. Founder incident 2026-06-15: a backgrounded
+    // `pnpm verify` forked a runaway llama-completion. pitfalls.md (vitest-scope).
+    exclude: ['**/node_modules/**', '**/dist/**', '**/out/**', 'sidecar/deps/**', 'spikes/**'],
     // L2 zombie defense — pkill llama-completion before AND after the
     // test run. See vitest.global-setup.ts for the 4-layer strategy.
     // Founder incident 2026-06-09: 2.31 GB orphan in Activity Monitor
