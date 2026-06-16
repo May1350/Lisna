@@ -172,8 +172,7 @@ export function Recording({ onStop, onError, onOpenHistory }: Props) {
       if (orch) await orch.stop();
       await window.lisna.stopRecording();
     } catch (err) {
-      const message = String((err as Error)?.message ?? err);
-      if (!message.includes('APP_QUIT')) onError(message);
+      onError(String((err as Error)?.message ?? err));
       return;
     } finally {
       setRunning(false);

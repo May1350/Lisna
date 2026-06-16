@@ -388,7 +388,7 @@ export function applyFinalizeProgress(
  *
  * On success: transition to `{ kind: 'note', note }` — NoteView dispatches
  * to the registered family renderer via familyRendererRegistry.
- * On error: transition to `{ kind: 'error', ... }`. APP_QUIT suppressed.
+ * On error: transition to `{ kind: 'error', ... }`.
  */
 async function runFinalize(
   family: NoteFamily,
@@ -399,7 +399,6 @@ async function runFinalize(
     setView({ kind: 'note', note: result.note });
   } catch (err) {
     const message = String((err as Error)?.message ?? err);
-    if (message.includes('APP_QUIT')) return;
     setView((prev) => {
       if (prev.kind === 'error') return prev;
       const permanent = message.includes('SIDECAR_GAVE_UP') || undefined;
@@ -423,7 +422,6 @@ async function runFinalizeFromDump(
     setView({ kind: 'note', note: result.note });
   } catch (err) {
     const message = String((err as Error)?.message ?? err);
-    if (message.includes('APP_QUIT')) return;
     setView((prev) => {
       if (prev.kind === 'error') return prev;
       return {

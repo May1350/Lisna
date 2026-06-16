@@ -27,7 +27,6 @@ export const ALL_ERROR_CODES = [
   'NO_ACTIVE_SESSION',
   'SESSION_NOT_READY',
   'SESSION_ACTIVE',
-  'APP_QUIT',
   'UNSUPPORTED_LANGUAGE',
   'EMPTY_TRANSCRIPT',
   // Fabrication guard (2026-06-12) — note content not in the session language
@@ -77,8 +76,6 @@ export const ERROR_MESSAGE_MAP_JA: Record<ErrorCode, string> = {
     '録音エンジンを準備中です。少しお待ちください。',
   SESSION_ACTIVE:
     'すでに録音セッションが進行中です。完了してからもう一度お試しください。',
-  APP_QUIT:
-    'アプリを終了しています。',
   UNSUPPORTED_LANGUAGE:
     'この言語はまだサポートされていません。',
   EMPTY_TRANSCRIPT:
