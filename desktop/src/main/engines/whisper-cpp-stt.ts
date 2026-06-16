@@ -44,4 +44,21 @@ export class WhisperCppSTT implements STTEngine {
     if (this.language === null) return r.segments;
     return filterSegments(r.segments, { language: this.language });
   }
+
+  async transcribeFile(path: string, opts?: TranscribeOpts): Promise<TranscriptSegment[]> {
+    const initialPrompt = opts?.initialPrompt?.trim();
+    const r = await this.client.send(
+      initialPrompt
+        ? { type: 'transcribeFile', path, sampleRate: 16000, initialPrompt }
+        : { type: 'transcribeFile', path, sampleRate: 16000 },
+      // Infinite timeout — the whole-file pass is bounded by a main-side stall
+      // watchdog added in a later task; a wall-clock cap here would abort long
+      // recordings prematurely (e.g. an 84-min lecture).
+      { timeoutMs: Infinity },
+    );
+    if (r.type === 'error') throw new Error(`STT transcribeFile failed [${r.code}]: ${r.message}`);
+    if (r.type !== 'segments') throw new Error(`STT transcribeFile: unexpected response ${JSON.stringify(r)}`);
+    if (this.language === null) return r.segments;
+    return filterSegments(r.segments, { language: this.language });
+  }
 }

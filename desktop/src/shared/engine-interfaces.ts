@@ -22,6 +22,8 @@ export interface STTEngine {
    * 청킹은 호출자(오디오 캡쳐 파이프라인) 책임. 엔진은 내부 스트리밍/클록 보유 안 함.
    */
   transcribe(audio: Float32Array, opts?: TranscribeOpts): Promise<TranscriptSegment[]>;
+  /** Whole-file transcription of a saved WAV at finalize; `path` is an absolute 16k mono PCM16 WAV. */
+  transcribeFile(path: string, opts?: TranscribeOpts): Promise<TranscriptSegment[]>;
 }
 
 export interface GenOpts {
