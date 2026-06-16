@@ -38,6 +38,12 @@ export class WavWriter {
     fs.writeSync(this.fd, buf, 0, buf.length, this.pos);
     this.pos += buf.length;
     this.dataBytes += buf.length;
+    // Crash-safety: the WAV is now the SOLE transcript source, so it must be a
+    // valid, decodable file at all times — not only after close(). Rewrite the
+    // 44-byte header in place (pwrite at offset 0 does not move `this.pos`),
+    // then fdatasync so a hard power-loss leaves a recoverable file.
+    fs.writeSync(this.fd, this.header(this.dataBytes), 0, 44, 0);
+    try { fs.fdatasyncSync(this.fd); } catch { /* fdatasync unsupported on some FS — header rewrite still helps */ }
   }
 
   close(): void {
