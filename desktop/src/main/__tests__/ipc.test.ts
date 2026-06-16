@@ -242,6 +242,8 @@ describe('main/ipc FSM', () => {
   it('session/finalize writes a debug dump: transcript + llm calls + note + result', async () => {
     const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-ipc-userdata-'));
     appGetPath.mockReturnValue(userDataDir);
+    // Hoisted so the finally can restore it even if the try throws early.
+    let ctorSpy: ReturnType<typeof vi.spyOn> | undefined;
     try {
       const { win } = makeFakeWindow();
       const noteJson = JSON.stringify({
@@ -275,16 +277,39 @@ describe('main/ipc FSM', () => {
         ),
       };
       const supervisor = makeFakeSupervisor(client);
+
+      // STT Phase 2: live STT was removed — recording only captures the WAV and
+      // the transcript is supplied at finalize via setFinalizeSegments (Task
+      // C3 wires the WAV → transcribeFile → setFinalizeSegments path). Capture
+      // the live orchestrator instance so we can seed it the same way C3 will.
+      const orchModule = await import('../sidecar/orchestrator');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const orchInstances: any[] = [];
+      const RealOrch = orchModule.SessionOrchestrator;
+      ctorSpy = vi
+        .spyOn(orchModule, 'SessionOrchestrator')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .mockImplementation((opts: any) => {
+          const inst = new RealOrch(opts);
+          orchInstances.push(inst);
+          return inst;
+        }) as unknown as ReturnType<typeof vi.spyOn>;
+
       ipc.registerIpc({
         getMainWindow: () => win,
         supervisor,
         getModelPaths: () => ({ sttPath: '/s', llmPath: '/models/Llama-3.2-3B-Instruct-Q4_K_M.gguf' }),
       });
       await ipcHandlers['session/start']!({}, { language: 'ja' });
+      // The chunk side-channels audio to the WAV writer (no live STT now).
       const payload: ChunkPayload = {
         index: 0, source: 'mic', startMs: 0, endMs: 2000, samples: new Float32Array(32000),
       };
       await ipcHandlers['recording/chunk']!({ sender: { send: vi.fn() } }, payload);
+
+      // Seed the finalize transcript (stand-in for the C3 WAV re-transcription).
+      expect(orchInstances).toHaveLength(1);
+      orchInstances[0].setFinalizeSegments([{ startSec: 0, endSec: 1, text: 'こんにちは' }]);
 
       const result = await ipcHandlers['session/finalize']!({}, { family: 'lecture' });
       expect(result.note).toMatchObject({ family: 'lecture' });
@@ -312,6 +337,7 @@ describe('main/ipc FSM', () => {
       const note = JSON.parse(fs.readFileSync(path.join(dir, 'note.json'), 'utf8'));
       expect(note).toMatchObject({ family: 'lecture', title: 'テスト講義' });
     } finally {
+      ctorSpy?.mockRestore();
       appGetPath.mockReset();
       fs.rmSync(userDataDir, { recursive: true, force: true });
     }
@@ -370,74 +396,12 @@ describe('main/ipc FSM', () => {
     expect(firstSend).toEqual(['session/phase', { phase: 'stt-loading' }]);
   });
 
-  it('session/stop with current === null → NO_ACTIVE_SESSION', async () => {
-    const { win } = makeFakeWindow();
-    const supervisor = makeFakeSupervisor({});
-    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
-    await expect(ipcHandlers['session/stop']!({}, undefined)).rejects.toThrow('NO_ACTIVE_SESSION');
-  });
-
-  it('session/stop while recording === false (start in flight) → SESSION_NOT_READY', async () => {
-    // Slow STT loadModel — never resolves during this test — so session/start
-    // remains awaiting (current=orch, recording=false).
-    let resolveStartAwait: (() => void) | undefined;
-    const slowLoad = new Promise<void>((r) => { resolveStartAwait = r; });
-    const sttModule = await import('../engines/whisper-cpp-stt');
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (sttModule.WhisperCppSTT as any).mockImplementationOnce(function (this: any) {
-      this.loadModel = vi.fn(() => slowLoad);
-      this.unloadModel = vi.fn(async () => {});
-      this.transcribe = vi.fn();
-    });
-
-    const { win } = makeFakeWindow();
-    const supervisor = makeFakeSupervisor({});
-    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
-    // Fire session/start but don't await — it's hanging on slowLoad.
-    const startPromise = ipcHandlers['session/start']!({}, { language: 'ja' });
-    // At this point: current=orch (set sync before await), recording=false (await orch.start not yet resolved).
-    await expect(ipcHandlers['session/stop']!({}, undefined)).rejects.toThrow('SESSION_NOT_READY');
-    // Cleanup: resolve the hanging load so startPromise can complete.
-    resolveStartAwait!();
-    await startPromise;
-  });
-
-  // R3 polish: end-to-end EMPTY_TRANSCRIPT through the ipc.ts handler boundary.
-  // The orchestrator unit test (sidecar/__tests__/orchestrator.test.ts) covers
-  // the throw mechanic; this one covers the integration:
-  //   - session/start succeeds, then
-  //   - session/stop fires WITHOUT any chunks having been fed, →
-  //   - the handler propagates EMPTY_TRANSCRIPT through the IPC contract, AND
-  //   - module state is cleared so the next session/start can claim it.
-  it('session/stop with no chunks fed → EMPTY_TRANSCRIPT bubbles through handler + state reset', async () => {
-    const { win } = makeFakeWindow();
-    const supervisor = makeFakeSupervisor({});
-    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
-    await ipcHandlers['session/start']!({}, { language: 'ja' });
-    // No `recording/chunk` calls → segments is empty when stop fires.
-    await expect(ipcHandlers['session/stop']!({}, undefined)).rejects.toThrow('EMPTY_TRANSCRIPT');
-    // Post-rejection: state must be cleared (finally block runs even on
-    // EMPTY_TRANSCRIPT throw). A second session/start succeeding proves it.
-    await expect(ipcHandlers['session/start']!({}, { language: 'ja' })).resolves.toBeUndefined();
-  });
-
-  it('session/stop emits stt-unloading, llm-loading, generating phases in order', async () => {
-    const { win, send } = makeFakeWindow();
-    const supervisor = makeFakeSupervisor({});
-    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
-    await ipcHandlers['session/start']!({}, { language: 'ja' });
-    // Feed one chunk so segments isn't empty (M1 EMPTY_TRANSCRIPT guard would
-    // otherwise throw before reaching the llm-loading / generating phases).
-    await ipcHandlers['recording/chunk']!(
-      { sender: { send: vi.fn() } },
-      { index: 0, source: 'mic', startMs: 0, endMs: 2000, samples: new Float32Array(32000) },
-    );
-    await ipcHandlers['session/stop']!({}, undefined);
-    const phases = send.mock.calls
-      .filter((c) => c[0] === 'session/phase')
-      .map((c) => c[1].phase);
-    expect(phases).toEqual(['stt-loading', 'stt-unloading', 'llm-loading', 'generating']);
-  });
+  // NOTE: the legacy `session/stop` handler was removed in STT Phase 2 (Task
+  // C1) — the v2 flow finalizes via `session/finalize`, never `session/stop`.
+  // Its NO_ACTIVE_SESSION / SESSION_NOT_READY / EMPTY_TRANSCRIPT / phase-order /
+  // sidecar-crash-mid-stop tests are gone with it. The empty-transcript +
+  // phase mechanics now live on the finalize path; "state cleared" probes below
+  // use `session/finalize` (rejects NO_ACTIVE_SESSION when `current` is null).
 
   it('handleSidecarExit clears flags + pushes session/error when session active (no handler in-flight)', async () => {
     const { win, send } = makeFakeWindow();
@@ -449,8 +413,9 @@ describe('main/ipc FSM', () => {
     // Sidecar crash here = "user has been recording, now sidecar died." Push expected.
     ipc.handleSidecarExit();
     expect(send).toHaveBeenCalledWith('session/error', expect.objectContaining({ message: expect.any(String) }));
-    // Subsequent session/stop should reject (state cleared by handleSidecarExit)
-    await expect(ipcHandlers['session/stop']!({}, undefined)).rejects.toThrow('NO_ACTIVE_SESSION');
+    // Subsequent finalize should reject (state cleared by handleSidecarExit).
+    // session/finalize with a known family throws NO_ACTIVE_SESSION when current is null.
+    await expect(ipcHandlers['session/finalize']!({}, { family: 'lecture' })).rejects.toThrow('NO_ACTIVE_SESSION');
   });
 
   it('handleSidecarExit when idle → no session/error push', async () => {
@@ -461,74 +426,48 @@ describe('main/ipc FSM', () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  // C2 regression: sidecar crash mid-session/stop. Two error paths converge:
-  // (a) supervisor.onExit → handleSidecarExit (synchronous), and (b) the
-  // in-flight orch.stop rejects → session/stop IPC promise rejects (microtask).
-  // Without the _sessionHandlerInFlight guard in handleSidecarExit, BOTH would
-  // surface to the renderer → two transitions to ErrorView (and the second
-  // could clobber preserved transcript segments). With the guard:
-  // handleSidecarExit observes _sessionHandlerInFlight=true and skips the push,
-  // letting the IPC rejection alone surface the error.
-  it('sidecar crash mid-session/stop → only handler rejects, no duplicate session/error push', async () => {
-    const llmModule = await import('../engines/llama-cpp-llm');
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (llmModule.LlamaCppLLM as any).mockImplementationOnce(function (this: any) {
-      this.loadModel = vi.fn(async () => {});
-      this.unloadModel = vi.fn(async () => {});
-      // eslint-disable-next-line require-yield -- intentional: simulate immediate throw before any token
-      this.generate = vi.fn(async function* () {
-        throw new Error('sidecar process exited');
-      });
-    });
-
-    const { win, send } = makeFakeWindow();
-    const supervisor = makeFakeSupervisor({});
-    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
-    await ipcHandlers['session/start']!({}, { language: 'ja' });
-    // Feed one chunk so segments isn't empty (avoids M1 EMPTY_TRANSCRIPT guard).
-    await ipcHandlers['recording/chunk']!(
-      { sender: { send: vi.fn() } },
-      { index: 0, source: 'mic', startMs: 0, endMs: 2000, samples: new Float32Array(32000) },
-    );
-    send.mockClear();
-    // Simulate: session/stop in flight, supervisor.onExit fires while orch.stop is awaiting.
-    const stopPromise = ipcHandlers['session/stop']!({}, undefined);
-    ipc.handleSidecarExit();
-    await expect(stopPromise).rejects.toThrow('sidecar process exited');
-    const errorPushes = send.mock.calls.filter((c) => c[0] === 'session/error');
-    expect(errorPushes).toEqual([]);  // handler rejection was the only error surface
-  });
-
-  // Same C2 invariant on the start side: sidecar crash mid-session/start.
+  // C2 invariant on the start side: sidecar crash WHILE the session/start
+  // handler is awaiting (its `_sessionHandlerInFlight` guard must make
+  // handleSidecarExit skip its own session/error push, letting the handler's
+  // own rejection be the SOLE error surface — no duplicate ErrorView jump).
+  //
+  // STT Phase 2: `orch.start()` no longer loads STT, so we anchor the await on
+  // `orch.start()` itself (still the awaited call in the handler) via a
+  // constructor spy whose start() hangs then rejects — the mid-stop counterpart
+  // was removed with the legacy stop handler.
   it('sidecar crash mid-session/start → only handler rejects, no duplicate session/error push', async () => {
     let resolveStartAwait: (() => void) | undefined;
     let rejectStartAwait: ((err: Error) => void) | undefined;
-    const hangingLoad = new Promise<void>((res, rej) => {
+    const hangingStart = new Promise<void>((res, rej) => {
       resolveStartAwait = res;
       rejectStartAwait = rej;
     });
-    const sttModule = await import('../engines/whisper-cpp-stt');
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (sttModule.WhisperCppSTT as any).mockImplementationOnce(function (this: any) {
-      this.loadModel = vi.fn(() => hangingLoad);
-      this.unloadModel = vi.fn(async () => {});
-      this.transcribe = vi.fn();
-    });
+    const orchModule = await import('../sidecar/orchestrator');
+    const RealOrch = orchModule.SessionOrchestrator;
+    const ctorSpy = vi
+      .spyOn(orchModule, 'SessionOrchestrator')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .mockImplementation((opts: any) => {
+        const inst = new RealOrch(opts);
+        inst.start = vi.fn(() => hangingStart);
+        return inst;
+      });
 
     const { win, send } = makeFakeWindow();
     const supervisor = makeFakeSupervisor({});
     ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
     const startPromise = ipcHandlers['session/start']!({}, { language: 'ja' });
     send.mockClear();
-    // Supervisor.onExit fires while orch.start is awaiting stt.loadModel.
+    // Supervisor.onExit fires while orch.start is awaiting.
     ipc.handleSidecarExit();
-    // Now make the loadModel reject (simulating client.rejectAllPending).
+    // Now make orch.start reject (simulating client.rejectAllPending).
     rejectStartAwait!(new Error('sidecar process exited'));
     await expect(startPromise).rejects.toThrow('sidecar process exited');
     const errorPushes = send.mock.calls.filter((c) => c[0] === 'session/error');
     expect(errorPushes).toEqual([]);
     // Cleanup: resolve in case the test framework reuses.
     resolveStartAwait!();
+    ctorSpy.mockRestore();
   });
 
   // --- Step 5 §3.6 permanent give-up recovery ---
@@ -544,8 +483,9 @@ describe('main/ipc FSM', () => {
       'session/error',
       expect.objectContaining({ permanent: true, message: expect.any(String) }),
     );
-    // State must be cleared so any in-flight state is consistent.
-    await expect(ipcHandlers['session/stop']!({}, undefined)).rejects.toThrow('NO_ACTIVE_SESSION');
+    // State must be cleared so any in-flight state is consistent. Probe via
+    // session/finalize (the v2 path): known family + null current → NO_ACTIVE_SESSION.
+    await expect(ipcHandlers['session/finalize']!({}, { family: 'lecture' })).rejects.toThrow('NO_ACTIVE_SESSION');
   });
 
   it('session/start after handleSidecarGiveUp rejects with SIDECAR_GAVE_UP (not SIDECAR_DOWN)', async () => {
@@ -698,13 +638,10 @@ describe('main/ipc FSM', () => {
       shutdown: vi.fn(),
     };
     ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
-    // First session — feed a chunk to avoid M1 EMPTY_TRANSCRIPT guard.
+    // First session — end it via discard (the v2 flow has no session/stop; discard
+    // clears `current` so the second start isn't rejected with SESSION_ACTIVE).
     await ipcHandlers['session/start']!({}, { language: 'ja' });
-    await ipcHandlers['recording/chunk']!(
-      { sender: { send: vi.fn() } },
-      { index: 0, source: 'mic', startMs: 0, endMs: 2000, samples: new Float32Array(32000) },
-    );
-    await ipcHandlers['session/stop']!({}, undefined);
+    await ipcHandlers['session/discard']!({}, undefined);
     // Second session — supervisor.getClient now returns clientB (simulating respawn)
     await ipcHandlers['session/start']!({}, { language: 'ja' });
     expect(fakeSttInstances).toHaveLength(2);

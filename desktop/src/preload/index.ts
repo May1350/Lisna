@@ -16,7 +16,6 @@ import type {
   DumpSummary,
   DumpTranscript,
 } from '@shared/ipc-protocol';
-import type { Note } from '@shared/types';
 import type {
   SessionFinalizeArgs,
   SessionFinalizeResult,
@@ -45,15 +44,13 @@ contextBridge.exposeInMainWorld('lisna', {
   startSession: ({ language }: SessionStartPayload): Promise<void> =>
     ipcRenderer.invoke(CHANNELS.sessionStart, { language }),
 
-  stopSession: (): Promise<Note> =>
-    ipcRenderer.invoke(CHANNELS.sessionStop),
-
   /** Drop the stopped session without generating a note (discard route). */
   discardSession: (): Promise<void> => ipcRenderer.invoke(CHANNELS.sessionDiscard),
 
   /**
-   * V2 family-routed note generation. Replaces the legacy `stopSession`
-   * markdown path for structured notes. Per Plan 3 Task 10 + spec §9.
+   * V2 family-routed note generation — the sole finalize path for structured
+   * notes (the legacy `session/stop` markdown path was removed in STT Phase 2).
+   * Per Plan 3 Task 10 + spec §9.
    *
    * The main process loads the LLM lazily inside `getCurrentSession`
    * (first call may take ~30 s on cold cache; subsequent calls within
@@ -177,7 +174,6 @@ declare global {
       capabilities(): Promise<Capabilities>;
       onChunk(cb: (msg: ChunkResultPayload) => void): () => void;
       startSession(payload: SessionStartPayload): Promise<void>;
-      stopSession(): Promise<Note>;
       /** Drop the stopped session without generating a note (discard route). */
       discardSession(): Promise<void>;
       finalize(args: SessionFinalizeArgs): Promise<SessionFinalizeResult>;

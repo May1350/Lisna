@@ -10,9 +10,7 @@ import type {
   ChunkPayload,
   ChunkResultPayload,
   SessionStartPayload,
-  SessionPhase,
 } from '@shared/ipc-protocol';
-import type { Note } from '@shared/types';
 import type { NoteLanguage } from '@shared/note-schema';
 import type { SidecarSupervisor } from './sidecar/supervisor';
 import { SessionOrchestrator } from './sidecar/orchestrator';
@@ -41,8 +39,6 @@ export const CHANNELS = {
   capabilities: 'platform/capabilities',
   /** renderer → main: create SessionOrchestrator + load STT */
   sessionStart: 'session/start',
-  /** renderer → main: orch.stop() returning Note */
-  sessionStop: 'session/stop',
   /** renderer → main: drop the stopped session WITHOUT generating a note.
    *  Clears the orchestrator + LLM-loaded cache so the next session/start
    *  isn't rejected with SESSION_ACTIVE. No-op when nothing is active. */
@@ -122,7 +118,6 @@ export interface IpcDeps {
 //   which short-circuits future session/start calls until lifecycle/restart fires.
 let current: SessionOrchestrator | null = null;
 let recording = false;
-let _appQuitting = false;
 // Tracks the orchestrator instance whose LLM has been loaded for the v2
 // session/finalize path. Spec §9 — IPC finalize needs an explicit unload-STT
 // + load-LLM prep step (unlike orchestrator.stop(), which loads inline).
@@ -671,61 +666,6 @@ export function registerIpc(deps: IpcDeps) {
   ipcMain.handle(CHANNELS.authGetState, async (): Promise<AuthState> => ({
     signedIn: (await loadToken()) !== null,
   }));
-
-  ipcMain.handle(CHANNELS.sessionStop, async (): Promise<Note> => {
-    if (current === null) throw new Error('NO_ACTIVE_SESSION');
-    if (!recording) throw new Error('SESSION_NOT_READY');  // start in flight
-    const orch = current;
-    recording = false;  // sync: post-stop chunks immediately no-op
-    _sessionHandlerInFlight = true;
-    // Step 5 §4.2 — phase timings. The orchestrator fires onPhase synchronously
-    // BEFORE each of its three internal awaits (stt-unloading → llm-loading →
-    // generating). We wrap that callback to (1) forward the safeSend (unchanged
-    // renderer behavior) and (2) record the elapsed ms since the previous
-    // phase entry, emitting a breadcrumb when the next one starts.
-    let lastPhaseAt = Date.now();
-    let lastPhase: SessionPhase | null = null;
-    const onPhase = (phase: SessionPhase): void => {
-      const now = Date.now();
-      if (lastPhase !== null) sessionLog.phase(lastPhase, now - lastPhaseAt);
-      lastPhase = phase;
-      lastPhaseAt = now;
-      safeSend(CHANNELS.sessionPhase, { phase });
-    };
-    try {
-      const note = await orch.stop(onPhase);
-      // Emit the timing for the final phase (`generating`) — orch.stop's
-      // finally-block llm.unloadModel() doesn't get its own breadcrumb (the
-      // 'stt-unloading' / 'llm-loading' / 'generating' set covers all observed
-      // phases per Step 5 spec).
-      if (lastPhase !== null) sessionLog.phase(lastPhase, Date.now() - lastPhaseAt);
-      sessionLog.stop({ noteChars: note.markdown.length, segments: note.transcriptSegments.length });
-      return note;
-    } catch (err) {
-      if (lastPhase !== null) sessionLog.phase(lastPhase, Date.now() - lastPhaseAt);
-      if (_appQuitting) {
-        sessionLog.error('APP_QUIT');
-        throw new Error('APP_QUIT');
-      }
-      const code = err instanceof Error ? err.message : String(err);
-      sessionLog.error(code);
-      throw err;
-    } finally {
-      closeAudioWriter();
-      current = null;
-      _llmLoadedForCurrent = null;
-      _sessionHandlerInFlight = false;
-    }
-  });
-}
-
-/**
- * Called by main/index.ts before-quit hook BEFORE supervisor.shutdown() SIGTERMs
- * the sidecar. session/stop's catch reads this to remap "sidecar process exited"
- * rejections to APP_QUIT, which the renderer suppresses (window is dying).
- */
-export function setAppQuitting() {
-  _appQuitting = true;
 }
 
 /**
