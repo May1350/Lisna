@@ -5,7 +5,6 @@ import type {
   Capabilities,
   ChunkPayload,
   SessionStartPayload,
-  SessionPhasePayload,
   SessionErrorPayload,
   FinalizeProgressPayload,
   ModelStatus,
@@ -70,16 +69,6 @@ contextBridge.exposeInMainWorld('lisna', {
     ipcRenderer.invoke(CHANNELS.sessionFinalizeFromDump, args),
 
   /**
-   * Subscribe to phase indicator events during session/start and session/stop.
-   * Returns an unsubscribe function.
-   */
-  onPhase: (cb: (msg: SessionPhasePayload) => void): (() => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, msg: SessionPhasePayload) => cb(msg);
-    ipcRenderer.on(CHANNELS.sessionPhase, listener);
-    return () => ipcRenderer.removeListener(CHANNELS.sessionPhase, listener);
-  },
-
-  /**
    * Subscribe to async session errors (sidecar crash mid-session). Returns an
    * unsubscribe function. NOTE: synchronous IPC rejections from session/start
    * or session/stop come via the invoke promise's catch — this channel covers
@@ -94,7 +83,7 @@ contextBridge.exposeInMainWorld('lisna', {
   /**
    * Subscribe to real finalize progress (chunk N/M, attempt, phase) pushed
    * while `finalize` / `finalizeFromDump` runs. Returns an unsubscribe
-   * function — same useEffect-cleanup contract as onPhase / onSessionError.
+   * function — same useEffect-cleanup contract as onSessionError.
    */
   onFinalizeProgress: (cb: (msg: FinalizeProgressPayload) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, msg: FinalizeProgressPayload) => cb(msg);
@@ -144,7 +133,7 @@ contextBridge.exposeInMainWorld('lisna', {
    * Subscribe to the post-redeem `auth/signed-in` broadcast. Returns an
    * unsubscribe function — the auth gate's useEffect MUST call it on cleanup
    * to avoid duplicate listeners across Strict Mode double-mounts. Matches
-   * the onPhase / onSessionError unsubscriber convention.
+   * the onSessionError unsubscriber convention.
    */
   onSignedIn: (cb: () => void): (() => void) => {
     const listener = () => cb();
@@ -167,7 +156,6 @@ declare global {
       listDumps(): Promise<DumpSummary[]>;
       loadDump(id: string): Promise<DumpTranscript>;
       finalizeFromDump(args: SessionFinalizeFromDumpArgs): Promise<SessionFinalizeResult>;
-      onPhase(cb: (msg: SessionPhasePayload) => void): () => void;
       onSessionError(cb: (msg: SessionErrorPayload) => void): () => void;
       onFinalizeProgress(cb: (msg: FinalizeProgressPayload) => void): () => void;
       restartApp(): Promise<void>;

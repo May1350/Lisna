@@ -41,8 +41,6 @@ export const CHANNELS = {
    *  Clears the orchestrator + LLM-loaded cache so the next session/start
    *  isn't rejected with SESSION_ACTIVE. No-op when nothing is active. */
   sessionDiscard: 'session/discard',
-  /** main → renderer: phase indicator during long awaits */
-  sessionPhase: 'session/phase',
   /** main → renderer: sidecar crashed mid-session */
   sessionError: 'session/error',
   /** renderer → main: app.relaunch() + app.quit() for §3.6 give-up recovery */

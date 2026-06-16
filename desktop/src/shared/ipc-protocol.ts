@@ -150,14 +150,8 @@ export type SidecarEvent =
 
 // --- Session-level IPC (Step 4: UI integration of SessionOrchestrator) ---
 
-export type SessionPhase = 'stt-loading' | 'stt-unloading' | 'llm-loading' | 'generating';
-
 export interface SessionStartPayload {
   language: Language;
-}
-
-export interface SessionPhasePayload {
-  phase: SessionPhase;
 }
 
 export interface SessionErrorPayload {
