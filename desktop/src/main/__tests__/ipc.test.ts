@@ -574,6 +574,89 @@ describe('main/ipc FSM', () => {
     );
   });
 
+  // ── A3: always-on audio capture + wavPath + surfaced write errors ─────────
+
+  it('session/start always opens a WAV writer + sets orchestrator.wavPath regardless of env', async () => {
+    // The LISNA_DISABLE_AUDIO_SAVE kill-switch must NOT be set for this test.
+    // Spy on the (real, un-mocked) SessionOrchestrator constructor to capture
+    // the instance so we can assert its wavPath getter — the exact value Task
+    // C1 reads at finalize. Guards against a regression where opts.wavPath
+    // stops being set even though the WAV file is still created.
+    delete process.env['LISNA_DISABLE_AUDIO_SAVE'];
+    const orchModule = await import('../sidecar/orchestrator');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const orchInstances: any[] = [];
+    const Real = orchModule.SessionOrchestrator;
+    const ctorSpy = vi
+      .spyOn(orchModule, 'SessionOrchestrator')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .mockImplementation((opts: any) => {
+        const inst = new Real(opts);
+        orchInstances.push(inst);
+        return inst;
+      });
+
+    const { win } = makeFakeWindow();
+    const supervisor = makeFakeSupervisor({});
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+
+    await ipcHandlers['session/start']!({}, { language: 'ja' });
+
+    // A .wav file lands in audio-captures/.
+    const capturesDir = path.join(fsmUserDataDir, 'audio-captures');
+    const files = fs.existsSync(capturesDir) ? fs.readdirSync(capturesDir).filter((f) => f.endsWith('.wav')) : [];
+    expect(files.length).toBeGreaterThan(0);
+
+    // The orchestrator's wavPath getter points at the opened file (the plumbing
+    // Task C1 relies on). Non-null + lives under audio-captures/ + exists on disk.
+    expect(orchInstances).toHaveLength(1);
+    const wavPath: string | null = orchInstances[0].wavPath;
+    expect(wavPath).not.toBeNull();
+    expect(path.dirname(wavPath!)).toBe(capturesDir);
+    expect(wavPath!.endsWith('.wav')).toBe(true);
+    expect(fs.existsSync(wavPath!)).toBe(true);
+
+    // Cleanup: discard so the writer is closed and the FSM is reset.
+    await ipcHandlers['session/discard']!({}, undefined);
+    ctorSpy.mockRestore();
+  });
+
+  it('WAV append failure surfaces session/error AUDIO_WRITE_FAILED and clears session', async () => {
+    // Spy on WavWriter.prototype.append to throw on the first call —
+    // simulates an ENOSPC (disk-full) mid-recording.
+    // The module was freshly loaded in beforeEach via vi.resetModules() +
+    // dynamic import; import it here to get the live class and spy on its prototype.
+    const wavModule = await import('../audio-wav-writer');
+    const appendSpy = vi.spyOn(wavModule.WavWriter.prototype, 'append').mockImplementation(() => {
+      throw new Error('ENOSPC: no space left on device');
+    });
+
+    delete process.env['LISNA_DISABLE_AUDIO_SAVE'];
+    const { win, send } = makeFakeWindow();
+    const supervisor = makeFakeSupervisor({});
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+
+    await ipcHandlers['session/start']!({}, { language: 'ja' });
+    send.mockClear();
+
+    // Sending a chunk triggers onAudioChunk → w.append(audio) → throws.
+    await ipcHandlers['recording/chunk']!(
+      { sender: { send: vi.fn() } },
+      { index: 0, source: 'mic', startMs: 0, endMs: 2000, samples: new Float32Array(32000) },
+    );
+
+    // session/error must have been pushed with AUDIO_WRITE_FAILED.
+    expect(send).toHaveBeenCalledWith(
+      'session/error',
+      expect.objectContaining({ message: 'AUDIO_WRITE_FAILED' }),
+    );
+
+    // Session must be cleared: next session/start should succeed, not SESSION_ACTIVE.
+    await expect(ipcHandlers['session/start']!({}, { language: 'ja' })).resolves.toBeUndefined();
+
+    appendSpy.mockRestore();
+  });
+
   it('lifecycle/restart IPC handler calls app.relaunch then app.quit', async () => {
     const { win } = makeFakeWindow();
     const supervisor = makeFakeSupervisor({});

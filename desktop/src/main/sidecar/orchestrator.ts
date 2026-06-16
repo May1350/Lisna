@@ -566,8 +566,8 @@ interface Opts {
    * Optional side-channel fired once per recording chunk with the RAW audio
    * buffer (16kHz mono Float32) and its session offset, BEFORE STT and before
    * the segment-timestamp remap. Wired by the session/* IPC handlers to the
-   * WAV writer when LISNA_SAVE_AUDIO=1. Must not throw (fire-and-forget); the
-   * caller guarantees non-throwing behavior. No-op when unset.
+   * WAV writer (always-on, STT Phase 2). Must not throw (fire-and-forget); the
+   * caller guarantees non-throwing behavior by catching internally. No-op when unset.
    */
   onAudioChunk?(audio: Float32Array, sessionOffsetSec: number): void;
   /**
@@ -576,6 +576,14 @@ interface Opts {
    * `shared/stt/glossary.ts`); undefined/'' = no bias.
    */
   sttInitialPrompt?: string;
+  /**
+   * Absolute path to the WAV file opened for this session (STT Phase 2 — the
+   * WAV is the SOLE transcript source for whole-file re-transcription at
+   * finalize). Set when the audio writer is successfully opened; null when
+   * LISNA_DISABLE_AUDIO_SAVE=1 (test kill-switch only) or writer failed to
+   * open. Read by the finalize IPC route (Task C1) to locate the file.
+   */
+  wavPath?: string;
 }
 
 /**
@@ -625,6 +633,13 @@ export class SessionOrchestrator {
   get exposedSegments(): readonly TranscriptSegment[] { return this.segments; }
   /** Session language as passed at start — read by the finalize IPC route. */
   get language(): Language { return this.opts.language; }
+  /**
+   * Absolute path to the WAV file opened for this session, or null when the
+   * writer was not opened (LISNA_DISABLE_AUDIO_SAVE=1 or open failure).
+   * Read by the finalize route (Task C1) to locate the whole-session audio
+   * for re-transcription. Null until ipc.ts wires opts.wavPath at session/start.
+   */
+  get wavPath(): string | null { return this.opts.wavPath ?? null; }
 
   async start(): Promise<void> {
     this.segments = [];

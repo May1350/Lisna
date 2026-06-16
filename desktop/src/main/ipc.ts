@@ -145,10 +145,12 @@ let _sessionHandlerInFlight = false;
 // retries included), finalized + cleared in onSessionSettled. Null when the
 // dump is disabled (LISNA_DISABLE_SESSION_DUMP=1) or unavailable.
 let _activeDump: SessionDump | null = null;
-// Raw-audio capture for diarization spike (gate: LISNA_SAVE_AUDIO=1, default off).
+// Always-on raw-audio capture (STT Phase 2 — WAV is the SOLE transcript
+// source for whole-file re-transcription at finalize). Audio is on-device
+// only, retained in userData/audio-captures/, and user-deletable (spec §13).
 // Opened at session/start, closed at every session-end path (stop, discard,
-// crash, give-up). PII note: raw meeting audio — never enable in production
-// without explicit user consent. Null when gate is off or writer failed to open.
+// crash, give-up, write-failure). Null when LISNA_DISABLE_AUDIO_SAVE=1
+// (test kill-switch only) or when the writer failed to open.
 let _audioWriter: WavWriter | null = null;
 
 // ── Session-scoped sidecar lifecycle (2026-06-10, founder reboot incident) ──
@@ -551,17 +553,13 @@ export function registerIpc(deps: IpcDeps) {
     // glossary. Empty (default) → omitted → identical to the pre-Phase-1 path.
     const initialPrompt = loadGlossaryInitialPrompt();
     if (initialPrompt) opts.sttInitialPrompt = initialPrompt;
-    // Raw-audio capture gate (diarization spike). Off by default — raw meeting
-    // audio is PII; only enable for local spike runs with explicit intent.
+    // Always-on audio capture (STT Phase 2 — the WAV is the SOLE transcript
+    // source for whole-file re-transcription at finalize; spec §13).
+    // LISNA_DISABLE_AUDIO_SAVE=1 is a test-only kill-switch (default = capture ON).
+    // On write failure the session is terminated: a silent disk-full would lose
+    // the entire recording with no recovery path.
     _audioWriter = null;
-    // Enable via env var (dev/terminal launch) OR a `save-audio.on` marker file
-    // in userData — the marker lets the Dock-launched LOCAL test build capture
-    // audio without an env var it can't inherit from Finder. Default OFF: raw
-    // meeting audio is PII. Toggle: `touch`/`rm <userData>/save-audio.on`.
-    const saveAudioOn =
-      process.env.LISNA_SAVE_AUDIO === '1' ||
-      fs.existsSync(path.join(app.getPath('userData'), 'save-audio.on'));
-    if (saveAudioOn) {
+    if (process.env['LISNA_DISABLE_AUDIO_SAVE'] !== '1') {
       try {
         const dir = path.join(app.getPath('userData'), 'audio-captures');
         fs.mkdirSync(dir, { recursive: true });
@@ -569,7 +567,23 @@ export function registerIpc(deps: IpcDeps) {
         const wavPath = path.join(dir, `${stamp}.wav`);
         const w = new WavWriter(wavPath);
         _audioWriter = w;
-        opts.onAudioChunk = (audio) => { try { w.append(audio); } catch { /* best-effort */ } };
+        opts.wavPath = wavPath;
+        opts.onAudioChunk = (audio) => {
+          try {
+            w.append(audio);
+          } catch (err) {
+            // Disk-full / write error — WAV is the SOLE transcript source;
+            // swallowing this would lose the entire recording silently.
+            closeAudioWriter();
+            recording = false;
+            current = null;
+            _llmLoadedForCurrent = null;
+            // _activeDump is always null here (created at finalize in
+            // getCurrentSession, never at record time) — nothing to clear.
+            safeSend(CHANNELS.sessionError, { message: 'AUDIO_WRITE_FAILED' });
+            log.error('[audio-capture] write failed — session terminated', err);
+          }
+        };
         log.info('[audio-capture] saving session audio to', wavPath);
       } catch (err) {
         log.warn('[audio-capture] disabled — could not open writer', err);
