@@ -101,6 +101,16 @@ export type SidecarRequest =
     }
   | {
       id: string;
+      type: 'transcribeFile';
+      /** Absolute path to a 16 kHz mono PCM16 WAV on disk (what WavWriter emits). */
+      path: string;
+      sampleRate: number;
+      /** Whisper proper-noun bias (STT Phase 1). Omitted when empty — the
+       *  sidecar treats absent/'' as "no initial_prompt". Mirrors `transcribe`. */
+      initialPrompt?: string;
+    }
+  | {
+      id: string;
       type: 'generate';
       /**
        * Preferred shape: structured chat messages. The sidecar applies the
@@ -141,7 +151,13 @@ export type SidecarEvent =
       source: 'whisper' | 'ggml' | 'system';
       message: string;
     }
-  | { type: 'memory'; rssBytes: number; phase: 'idle' | 'stt' | 'llm' | 'transition' };
+  | { type: 'memory'; rssBytes: number; phase: 'idle' | 'stt' | 'llm' | 'transition' }
+  /**
+   * Progress during a `transcribeFile` call. 0..100, monotonic per call.
+   * Id-less is safe because finalize is single-concurrency (only one
+   * transcribeFile in flight at a time).
+   */
+  | { type: 'sttProgress'; pct: number };
 
 // --- Session-level IPC (Step 4: UI integration of SessionOrchestrator) ---
 
@@ -181,6 +197,10 @@ export interface SessionErrorPayload {
  * which the shape-only PII contract keeps out of this channel.
  */
 export type FinalizeProgressPayload =
+  // Whole-file STT phase that now precedes note generation (STT Phase 2a).
+  | { kind: 'transcribe-start' }
+  | { kind: 'transcribe-progress'; pct: number }
+  | { kind: 'transcribe-done' }
   | {
       kind: 'attempt-start';
       /** 0-based. */

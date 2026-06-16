@@ -367,6 +367,14 @@ export function applyFinalizeProgress(
 ): ProgressState | null {
   const startedAt = prev?.startedAt;
   switch (msg.kind) {
+    // STT Phase 2a: whole-file transcription precedes note generation.
+    case 'transcribe-start':
+    case 'transcribe-progress':
+      // Keep existing ProgressState (or null) unchanged; the UI will add a
+      // transcription phase view in a follow-up task.
+      return prev ?? null;
+    case 'transcribe-done':
+      return prev ?? null;
     case 'attempt-start':
       return {
         phase: 'chunk',
