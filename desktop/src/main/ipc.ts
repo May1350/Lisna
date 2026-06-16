@@ -12,6 +12,7 @@ import type {
   SessionStartPayload,
 } from '@shared/ipc-protocol';
 import type { NoteLanguage } from '@shared/note-schema';
+import type { TranscriptSegment } from '@shared/engine-interfaces';
 import type { SidecarSupervisor } from './sidecar/supervisor';
 import { SessionOrchestrator } from './sidecar/orchestrator';
 import { makeGrammarSidecar } from './sidecar/grammar-call';
@@ -234,6 +235,34 @@ function loadGlossaryInitialPrompt(): string {
 }
 
 /**
+ * STT Phase 2 (Task C3) — whole-WAV transcription at finalize. Loads STT WITH
+ * the session language (load-time param drives `filterSegments`; `transcribeFile`
+ * itself is language-agnostic), runs the whole-file pass, then ALWAYS unloads
+ * STT before returning. The unload is in `finally` so the 8 GB memory floor
+ * holds even when transcribeFile throws — STT must leave RAM before the caller
+ * loads the 3 GB LLM. Returns the (hallucination-filtered) segments; the caller
+ * stores them on the orchestrator instance so a note-gen retry reuses them.
+ */
+async function transcribeWavForFinalize(
+  client: SidecarClientLike,
+  sttPath: string,
+  language: NoteLanguage,
+  wavPath: string,
+): Promise<TranscriptSegment[]> {
+  const stt = new WhisperCppSTT(client);
+  await stt.loadModel(sttPath, language);
+  try {
+    const ip = loadGlossaryInitialPrompt();
+    return await stt.transcribeFile(wavPath, ip ? { initialPrompt: ip } : undefined);
+  } finally {
+    await stt.unloadModel().catch(() => {
+      // Best-effort: a failed unload (sidecar gone / model not loaded) still
+      // leaves STT out of resident memory. Proceeding to the LLM load is safe.
+    });
+  }
+}
+
+/**
  * Spec §9 finalize prep, shared by the live path (getCurrentSession) and the
  * from-dump path: unload STT (idempotent) → load LLM, with the phase
  * breadcrumbs the founder-visible main.log timing decomposition relies on.
@@ -333,13 +362,14 @@ export function registerIpc(deps: IpcDeps) {
       const paths = deps.getModelPaths();
       const client = deps.supervisor.getClient();
       if (!paths || !client) return null;
+      const orch = current;  // stable ref held across the awaits below
 
-      // Debug dump (2026-06-11): one dir per finalize invocation under
-      // <userData>/sessions/. Created BEFORE the LLM-load step so even a
-      // load failure leaves the transcript on disk — the 13-min coverage-
-      // collapse incident was undiagnosable because neither the transcript
-      // nor the prompts/raw output ever persisted. app.getPath is guarded:
-      // a harness without it just runs the finalize undumped.
+      // (A) Debug dump (2026-06-11): one dir per finalize invocation under
+      // <userData>/sessions/. Created FIRST so even a transcription / LLM-load
+      // failure leaves a result.json on disk — onSessionSettled(ok:false)
+      // writes the error to this same handle. The 13-min coverage-collapse
+      // incident was undiagnosable because nothing ever persisted. app.getPath
+      // is guarded: a harness without it just runs the finalize undumped.
       try {
         _activeDump = createSessionDump({
           baseDir: sessionsBaseDir(),
@@ -347,34 +377,62 @@ export function registerIpc(deps: IpcDeps) {
       } catch {
         _activeDump = null;
       }
+      if (_activeDump) log.info('[finalize:dump]', redactPath(_activeDump.dir));
+
+      // (B) STT Phase 2 (Task C3) — transcribe the whole captured WAV. Cached
+      // on the ORCHESTRATOR INSTANCE (via exposedSegments / setFinalizeSegments)
+      // so a note-gen retry — which nulls _llmLoadedForCurrent and idle-unloads
+      // the LLM (P0-3 + onSessionSettled) — does NOT re-run the expensive
+      // whole-file pass on a long recording. Runs only while no transcript is
+      // held. This cache is INDEPENDENT of the LLM cache in (E): a retry skips
+      // (B) but re-runs (E). Do NOT collapse them into one gate.
+      if (orch.exposedSegments.length === 0) {
+        const wavPath = orch.wavPath;
+        if (!wavPath || !fs.existsSync(wavPath)) throw new Error('WAV_MISSING');
+        const t0 = Date.now();
+        const segs = await transcribeWavForFinalize(
+          client,
+          paths.sttPath,
+          orch.language as NoteLanguage,
+          wavPath,
+        );
+        orch.setFinalizeSegments(segs);
+        sessionLog.phase('stt-transcribe-finalize', Date.now() - t0);
+      }
+
+      // (C) Empty guard — a silent / empty recording yields no usable
+      // transcript. Throw before loading the LLM (the 3 GB load is wasted on a
+      // no-op generate). The throw rides the same error machinery as (B).
+      if (orch.exposedSegments.length === 0) throw new Error('EMPTY_RECORDING');
+
+      // (D) Write the dump transcript NOW — AFTER transcription, with the real
+      // segments (not the empty pre-transcribe view the old code wrote).
       if (_activeDump) {
-        log.info('[finalize:dump]', redactPath(_activeDump.dir));
         _activeDump.writeTranscript({
           sessionId: 'live',
-          language: current.language,
+          language: orch.language,
           llmModel: path.basename(paths.llmPath),
-          segments: current.exposedSegments,
+          segments: orch.exposedSegments,
         });
       }
 
-      // Spec §9 — the v2 finalize path needs the LLM loaded before
-      // generateWithGrammar can succeed (else `not_loaded`). Mirror the
-      // 8GB-safe sequence orchestrator.stop() uses internally:
-      // unload STT → load LLM. STT unload is idempotent (catch+ignore)
-      // so a session that never recorded chunks isn't penalized. Cached
-      // per-orchestrator via _llmLoadedForCurrent.
+      // (E) Spec §9 — the v2 finalize path needs the LLM loaded before
+      // generateWithGrammar can succeed (else `not_loaded`). loadLlmForFinalize
+      // unloads STT (idempotent) → loads LLM, SHARED with the from-dump path.
+      // Cached per-orchestrator via _llmLoadedForCurrent; reloads after a failed
+      // finalize's idle-unload (onSessionSettled nulls the cache).
       //
       // Telemetry: each phase emits its own `sessionLog.phase(...)`
       // breadcrumb so the founder-visible main.log can attribute a long
       // Stop → Note interval to cold-cache (llm-load-finalize huge) vs
       // generation (visible later via [finalize:*] attempts). Without these,
       // a ~4-min run with a 25 s LLM load looks identical to a 25 s retry.
-      if (_llmLoadedForCurrent !== current) {
+      if (_llmLoadedForCurrent !== orch) {
         await loadLlmForFinalize(client, paths.llmPath);
-        _llmLoadedForCurrent = current;
+        _llmLoadedForCurrent = orch;
       }
 
-      // Wedged-retry fix (2026-06-10): resolve the client LAZILY per
+      // (F) Wedged-retry fix (2026-06-10): resolve the client LAZILY per
       // generate call and restart + LLM-reload on a no-progress stall, so
       // callWithGrammar's fresh-seed retries hit a live process instead of
       // queueing behind a doomed generation in the single-threaded C++
@@ -383,10 +441,10 @@ export function registerIpc(deps: IpcDeps) {
 
       return {
         sessionId: 'live',   // placeholder — real session-ID assignment lands in Task 13
-        segments: current.exposedSegments,
+        segments: orch.exposedSegments,
         llmModelPath: paths.llmPath,
         // Gate above admits only ja/en, both valid NoteLanguage values.
-        language: current.language as NoteLanguage,
+        language: orch.language as NoteLanguage,
         // Dump wrap sits OUTSIDE the recovery wrapper so the recorded calls
         // are exactly what callWithGrammar issued (prompt, seed, raw output
         // per attempt) — including attempts that stall and recover.

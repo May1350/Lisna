@@ -36,13 +36,26 @@ vi.mock('electron', () => ({
 const fakeSttInstances: any[] = [];
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const fakeLlmInstances: any[] = [];
+// Shared cross-engine call log so finalize-ordering tests (C3) can assert the
+// 8 GB-floor sequence: STT load → transcribeFile → STT unload → LLM load. Each
+// mocked method appends one tagged entry. Reset per test in beforeEach.
+type EngineCall = { engine: 'stt' | 'llm'; method: string };
+const engineCallLog: EngineCall[] = [];
+// C3: getCurrentSession now drives the WAV → transcribeFile path. Tests can
+// override this per case (e.g. resolve [] to exercise EMPTY_RECORDING).
+let transcribeFileResult: () => Promise<{ startSec: number; endSec: number; text: string }[]> =
+  async () => [{ startSec: 0, endSec: 1, text: 'こんにちは' }];
 vi.mock('../engines/whisper-cpp-stt', () => ({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   WhisperCppSTT: vi.fn().mockImplementation(function (this: any, client: any) {
     this.client = client;
-    this.loadModel = vi.fn(async () => {});
-    this.unloadModel = vi.fn(async () => {});
+    this.loadModel = vi.fn(async () => { engineCallLog.push({ engine: 'stt', method: 'load' }); });
+    this.unloadModel = vi.fn(async () => { engineCallLog.push({ engine: 'stt', method: 'unload' }); });
     this.transcribe = vi.fn(async () => [{ startSec: 0, endSec: 1, text: 'こんにちは' }]);
+    this.transcribeFile = vi.fn(async () => {
+      engineCallLog.push({ engine: 'stt', method: 'transcribeFile' });
+      return transcribeFileResult();
+    });
     fakeSttInstances.push(this);
   }),
 }));
@@ -50,8 +63,8 @@ vi.mock('../engines/llama-cpp-llm', () => ({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   LlamaCppLLM: vi.fn().mockImplementation(function (this: any, client: any) {
     this.client = client;
-    this.loadModel = vi.fn(async () => {});
-    this.unloadModel = vi.fn(async () => {});
+    this.loadModel = vi.fn(async () => { engineCallLog.push({ engine: 'llm', method: 'load' }); });
+    this.unloadModel = vi.fn(async () => { engineCallLog.push({ engine: 'llm', method: 'unload' }); });
     this.generate = vi.fn(async function* () { yield 'Note '; yield 'body'; });
     fakeLlmInstances.push(this);
   }),
@@ -99,6 +112,8 @@ describe('main/ipc FSM', () => {
     appGetPath.mockReturnValue(fsmUserDataDir);
     fakeSttInstances.length = 0;
     fakeLlmInstances.length = 0;
+    engineCallLog.length = 0;
+    transcribeFileResult = async () => [{ startSec: 0, endSec: 1, text: 'こんにちは' }];
     appRelaunch.mockClear();
     appQuit.mockClear();
     Object.keys(ipcHandlers).forEach((k) => delete ipcHandlers[k]);
@@ -343,6 +358,242 @@ describe('main/ipc FSM', () => {
       expect(note).toMatchObject({ family: 'lecture', title: 'テスト講義' });
     } finally {
       ctorSpy?.mockRestore();
+      appGetPath.mockReset();
+      fs.rmSync(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  // ── C3: getCurrentSession transcribes the WAV at finalize ─────────────────
+  //
+  // STT Phase 2 (record-then-transcribe): live STT is gone — recording only
+  // captures a WAV, and getCurrentSession transcribes the whole file at
+  // finalize via transcribeFile, BEFORE the unload-STT → load-LLM prep. These
+  // tests drive that path end-to-end (real orchestrator + streaming sidecar)
+  // and assert the 8 GB memory floor (STT unload precedes LLM load), the two
+  // independent caches (transcript vs LLM), and the EMPTY/WAV_MISSING guards.
+
+  // A note JSON the streaming sidecar yields so routeFamily('lecture') parses
+  // into a valid Note (shared by the full-finalize C3 cases below).
+  const c3NoteJson = JSON.stringify({
+    schemaVersion: 1,
+    family: 'lecture',
+    title: 'C3講義',
+    generatedAt: new Date().toISOString(),
+    generatedBy: { model: 'llama-3.2-3b-q4-km', promptVersion: 1 },
+    language: 'ja',
+    durationSec: 60,
+    sections: [
+      {
+        heading: 'セクション',
+        ts: 0,
+        summary: 'テストの要約です。',
+        key_terms: [],
+        examples: [],
+        points: [{ text: '重要な点', ts: 0, important: true }],
+      },
+    ],
+  });
+
+  // Fake sidecar client: `sendStream` yields the whole note JSON as one token
+  // (real makeGrammarSidecar streams from this); `send` is unused because the
+  // STT/LLM engines are constructor-mocked, but present so any stray call is safe.
+  function makeC3StreamClient() {
+    return {
+      send: vi.fn(async () => ({})),
+      sendStream: vi.fn(
+        (_req: unknown, opts: { onDone?: (s: { tokensOut: number; genMs: number }) => void }) => {
+          opts.onDone?.({ tokensOut: 5, genMs: 10 });
+          return (async function* () { yield c3NoteJson; })();
+        },
+      ),
+    };
+  }
+
+  // Register IPC with a real-orchestrator ctor spy so wavPath / exposedSegments /
+  // setFinalizeSegments behave like production. Returns the captured instances +
+  // a restore fn. Caller supplies a per-test userData dir (dump + WAV land there).
+  async function setupC3(userDataDir: string) {
+    appGetPath.mockReturnValue(userDataDir);
+    const { win, send } = makeFakeWindow();
+    const client = makeC3StreamClient();
+    const supervisor = makeFakeSupervisor(client);
+    const orchModule = await import('../sidecar/orchestrator');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const orchInstances: any[] = [];
+    const RealOrch = orchModule.SessionOrchestrator;
+    const ctorSpy = vi
+      .spyOn(orchModule, 'SessionOrchestrator')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .mockImplementation((opts: any) => {
+        const inst = new RealOrch(opts);
+        orchInstances.push(inst);
+        return inst;
+      });
+    ipc.registerIpc({
+      getMainWindow: () => win,
+      supervisor,
+      getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/models/Llama-3.2-3B-Instruct-Q4_K_M.gguf' }),
+    });
+    return { win, send, client, orchInstances, ctorSpy };
+  }
+
+  it('C3: first finalize transcribes the WAV in order load→transcribeFile→unload(STT)→load(LLM)', async () => {
+    delete process.env['LISNA_DISABLE_AUDIO_SAVE'];
+    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-c3-order-'));
+    let restore: (() => void) | undefined;
+    try {
+      const { ctorSpy } = await setupC3(userDataDir);
+      restore = () => ctorSpy.mockRestore();
+      await ipcHandlers['session/start']!({}, { language: 'ja' });
+      const result = await ipcHandlers['session/finalize']!({}, { family: 'lecture' });
+      expect(result.note).toMatchObject({ family: 'lecture' });
+
+      // The 8 GB floor: STT load → transcribeFile → STT unload all precede the
+      // LLM load. loadLlmForFinalize also does its own idempotent STT unload, so
+      // we assert RELATIVE ordering of the key events rather than exact equality.
+      const seq = engineCallLog.map((c) => `${c.engine}:${c.method}`);
+      const sttLoad = seq.indexOf('stt:load');
+      const transcribe = seq.indexOf('stt:transcribeFile');
+      const sttUnload = seq.indexOf('stt:unload');
+      const llmLoad = seq.indexOf('llm:load');
+      expect(sttLoad).toBeGreaterThanOrEqual(0);
+      expect(transcribe).toBeGreaterThan(sttLoad);
+      expect(sttUnload).toBeGreaterThan(transcribe);
+      expect(llmLoad).toBeGreaterThan(sttUnload); // STT out of RAM before LLM in
+    } finally {
+      restore?.();
+      appGetPath.mockReset();
+      fs.rmSync(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  it('C3: the transcribeFile result is stored on the orchestrator + returned in the context', async () => {
+    delete process.env['LISNA_DISABLE_AUDIO_SAVE'];
+    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-c3-store-'));
+    let restore: (() => void) | undefined;
+    try {
+      const segs = [
+        { startSec: 0, endSec: 2, text: '第一の発言' },
+        { startSec: 2, endSec: 4, text: '第二の発言' },
+      ];
+      transcribeFileResult = async () => segs;
+      const { orchInstances, ctorSpy } = await setupC3(userDataDir);
+      restore = () => ctorSpy.mockRestore();
+
+      await ipcHandlers['session/start']!({}, { language: 'ja' });
+      await ipcHandlers['session/finalize']!({}, { family: 'lecture' });
+
+      expect(orchInstances).toHaveLength(1);
+      // The transcript got stored on the orchestrator instance…
+      expect(orchInstances[0].exposedSegments).toEqual(segs);
+      // …and the dump recorded the TRANSCRIBED segments (not empty).
+      const sessionsDir = path.join(userDataDir, 'sessions');
+      const dumps = fs.readdirSync(sessionsDir);
+      expect(dumps).toHaveLength(1);
+      const transcript = JSON.parse(
+        fs.readFileSync(path.join(sessionsDir, dumps[0]!, 'transcript.json'), 'utf8'),
+      );
+      expect(transcript.segmentCount).toBe(2);
+      expect(transcript.segments).toEqual(segs);
+    } finally {
+      restore?.();
+      appGetPath.mockReset();
+      fs.rmSync(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  it('C3: EMPTY_RECORDING when transcribeFile yields [] — no LLM load happens', async () => {
+    delete process.env['LISNA_DISABLE_AUDIO_SAVE'];
+    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-c3-empty-'));
+    let restore: (() => void) | undefined;
+    try {
+      transcribeFileResult = async () => [];
+      const { ctorSpy } = await setupC3(userDataDir);
+      restore = () => ctorSpy.mockRestore();
+      await ipcHandlers['session/start']!({}, { language: 'ja' });
+      await expect(ipcHandlers['session/finalize']!({}, { family: 'lecture' }))
+        .rejects.toThrow('EMPTY_RECORDING');
+      // transcribeFile ran, STT was unloaded, but the LLM was NEVER loaded —
+      // the empty guard short-circuits before (E).
+      const seq = engineCallLog.map((c) => `${c.engine}:${c.method}`);
+      expect(seq).toContain('stt:transcribeFile');
+      expect(seq).not.toContain('llm:load');
+    } finally {
+      restore?.();
+      appGetPath.mockReset();
+      fs.rmSync(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  it('C3: WAV_MISSING when the orchestrator wavPath does not exist — before any model load', async () => {
+    // Kill-switch ON → no WAV writer opened → orch.wavPath is null → WAV_MISSING.
+    process.env['LISNA_DISABLE_AUDIO_SAVE'] = '1';
+    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-c3-nowav-'));
+    let restore: (() => void) | undefined;
+    try {
+      const { ctorSpy, orchInstances } = await setupC3(userDataDir);
+      restore = () => { ctorSpy.mockRestore(); delete process.env['LISNA_DISABLE_AUDIO_SAVE']; };
+      await ipcHandlers['session/start']!({}, { language: 'ja' });
+      expect(orchInstances[0].wavPath).toBeNull(); // confirms the precondition
+      await expect(ipcHandlers['session/finalize']!({}, { family: 'lecture' }))
+        .rejects.toThrow('WAV_MISSING');
+      // The WAV guard precedes every model load: neither STT nor the LLM was
+      // loaded (and transcribeFile never ran). The only entry that may appear
+      // is the settle-time idle LLM unload (onSessionSettled fires even on a
+      // failed finalize) — assert the absence of LOADS, not strict emptiness.
+      const seq = engineCallLog.map((c) => `${c.engine}:${c.method}`);
+      expect(seq).not.toContain('stt:load');
+      expect(seq).not.toContain('stt:transcribeFile');
+      expect(seq).not.toContain('llm:load');
+    } finally {
+      restore?.();
+      appGetPath.mockReset();
+      fs.rmSync(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  it('C3: a retry (LLM cache reset) reuses the held transcript — transcribeFile runs ONCE, LLM reloads', async () => {
+    delete process.env['LISNA_DISABLE_AUDIO_SAVE'];
+    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-c3-retry-'));
+    let restore: (() => void) | undefined;
+    try {
+      // First finalize FAILS at note generation (NOT at family routing — an
+      // unknown family is rejected BEFORE getCurrentSession, so it would never
+      // transcribe). Make EVERY generate attempt throw a plain error (not a
+      // "no progress" stall, so the recovering wrapper just rethrows and the
+      // lecture pipeline exhausts its fresh-seed retries → CHUNK_FAILED). The
+      // failing finalize still runs getCurrentSession fully (transcribe + LLM
+      // load), then onSessionSettled(ok:false) nulls _llmLoadedForCurrent +
+      // idle-unloads the LLM, PRESERVING current + its transcript (P0-3). The
+      // retry must NOT re-transcribe but MUST reload the LLM.
+      const { ctorSpy, client } = await setupC3(userDataDir);
+      restore = () => ctorSpy.mockRestore();
+      await ipcHandlers['session/start']!({}, { language: 'ja' });
+
+      // Pass 1: every generate attempt throws → finalize rejects, but
+      // transcribe + LLM-load both ran inside getCurrentSession first.
+      const workingStream = client.sendStream.getMockImplementation()!;
+      client.sendStream.mockImplementation(() => { throw new Error('GENERATE_BOOM'); });
+      await expect(ipcHandlers['session/finalize']!({}, { family: 'lecture' }))
+        .rejects.toThrow();
+      // Restore the working stream for the retry below.
+      client.sendStream.mockImplementation(workingStream);
+
+      const afterFirst = engineCallLog.map((c) => `${c.engine}:${c.method}`);
+      expect(afterFirst.filter((s) => s === 'stt:transcribeFile')).toHaveLength(1);
+      expect(afterFirst.filter((s) => s === 'llm:load')).toHaveLength(1);
+
+      // Pass 2 (retry): same orchestrator, but _llmLoadedForCurrent was nulled by
+      // onSessionSettled(ok:false). transcribeFile must NOT run again (transcript
+      // reused); the LLM must reload (it was idle-unloaded).
+      const result = await ipcHandlers['session/finalize']!({}, { family: 'lecture' });
+      expect(result.note).toMatchObject({ family: 'lecture' });
+
+      const afterRetry = engineCallLog.map((c) => `${c.engine}:${c.method}`);
+      expect(afterRetry.filter((s) => s === 'stt:transcribeFile')).toHaveLength(1); // still once
+      expect(afterRetry.filter((s) => s === 'llm:load').length).toBeGreaterThanOrEqual(2); // reloaded
+    } finally {
+      restore?.();
       appGetPath.mockReset();
       fs.rmSync(userDataDir, { recursive: true, force: true });
     }
