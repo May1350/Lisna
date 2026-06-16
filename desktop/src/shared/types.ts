@@ -12,14 +12,14 @@ export interface ModelDescriptor {
 }
 
 /**
- * Legacy (alpha) transcript segment shape — drives the alpha single-shot
- * `ja-note-v1.ts` path. v2 structured-note pipeline uses
+ * Legacy (alpha) transcript segment shape — what STT emits. The v2
+ * structured-note pipeline uses
  * `desktop/src/shared/note-schema/transcript.ts::TranscriptSegment`
- * (`{ ts, endTs, text, speakerId, meta? }`).
+ * (`{ ts, endTs, text, speakerId, meta? }`) instead.
  *
- * Both shapes coexist during alpha→v2 transition (spec §10.1).
- * Adapter direction: STT emits legacy → orchestrator converts to v2 after
- * diarization assigns `speakerId`. See
+ * Both shapes coexist (spec section 10.1).
+ * Adapter direction: STT emits legacy → `adaptToV2Transcript` converts to v2
+ * (speakerId = 0 pre-diarization). See
  * `desktop/src/shared/note-schema/NAMING.md` for the locked convention.
  */
 export interface TranscriptSegment {

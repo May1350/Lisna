@@ -6,8 +6,9 @@ import type { SessionTranscript, TranscriptSegment as V2Segment } from './transc
  * SessionTranscript. The live alpha path is pre-diarization → single speaker
  * (speakerId = 0).
  *
- * Lifted from session-finalize.ts. 3rd call site (routeLecture, routeMeeting,
- * chunked-note.ts) → architecture.md DRY extraction threshold met.
+ * Lifted from session-finalize.ts when the DRY extraction threshold was met
+ * (architecture.md). The V2 finalize path (session-finalize.ts →
+ * finalizeLecture/finalizeMeeting) is now the consumer.
  */
 export function adaptToV2Transcript(
   legacySegs: readonly LegacySegment[],
