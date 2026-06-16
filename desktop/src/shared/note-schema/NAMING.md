@@ -12,8 +12,10 @@
 
 ## Why two desktop shapes?
 
-The alpha path (`ja-note-v1.ts` single-shot) was built around the legacy
-shape and is in production. v2 introduces `speakerId` (diarization) and
+The alpha path (`ja-note-v1.ts` single-shot, removed in STT Phase 2) was
+built around the legacy shape; that shape persists as the `TranscriptSegment`
+that STT emits, adapted into the v2 shape via `adaptToV2Transcript`. v2
+introduces `speakerId` (diarization) and
 `meta` (P1 extensibility) and follows the spec §3.1 pseudo-code naming.
 Both shapes co-exist during the alpha→v2 transition per spec §10.1.
 
