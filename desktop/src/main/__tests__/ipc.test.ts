@@ -87,6 +87,11 @@ let ipc: typeof import('../ipc');
 // real path in production, so the FSM mock must supply one; otherwise
 // path.join(undefined, …) throws "path argument must be of type string".
 const fsmUserDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-ipc-fsm-'));
+// C2: session/start now checks fs.existsSync(paths.sttPath) before doing any work
+// (fail-fast model-presence precheck). Tests that only need the happy path use
+// fsmFakeSttPath — a real file on disk so the check passes without any mocking.
+const fsmFakeSttPath = path.join(fsmUserDataDir, 'fake-stt.bin');
+fs.writeFileSync(fsmFakeSttPath, ''); // empty placeholder — only its existence matters
 
 describe('main/ipc FSM', () => {
   beforeEach(async () => {
@@ -104,7 +109,7 @@ describe('main/ipc FSM', () => {
   it('double session/start → second rejects SESSION_ACTIVE', async () => {
     const { win } = makeFakeWindow();
     const supervisor = makeFakeSupervisor({});
-    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/l' }) });
     await ipcHandlers['session/start']!({}, { language: 'ja' });
     await expect(ipcHandlers['session/start']!({}, { language: 'ja' })).rejects.toThrow('SESSION_ACTIVE');
   });
@@ -116,7 +121,7 @@ describe('main/ipc FSM', () => {
   it('session/discard clears the session → next session/start succeeds', async () => {
     const { win } = makeFakeWindow();
     const supervisor = makeFakeSupervisor({});
-    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/l' }) });
     await ipcHandlers['session/start']!({}, { language: 'ja' });
     await ipcHandlers['session/discard']!({}, undefined);
     await expect(ipcHandlers['session/start']!({}, { language: 'ja' })).resolves.toBeUndefined();
@@ -129,7 +134,7 @@ describe('main/ipc FSM', () => {
     const freshClient = { send: vi.fn(async () => ({})), waitForReady: vi.fn(async () => ({})) };
     const supervisor = makeFakeSupervisor(null);          // idle-stopped: no client
     supervisor.start = vi.fn(() => freshClient);          // lazy spawn returns fresh
-    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/l' }) });
     await ipcHandlers['session/start']!({}, { language: 'ja' });
     expect(supervisor.start).toHaveBeenCalledTimes(1);
     expect(freshClient.waitForReady).toHaveBeenCalled();
@@ -140,7 +145,7 @@ describe('main/ipc FSM', () => {
     const deadClient = { send: vi.fn(async () => ({})), waitForReady: vi.fn(async () => { throw new Error('timeout'); }) };
     const supervisor = makeFakeSupervisor(null);
     supervisor.start = vi.fn(() => deadClient);
-    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/l' }) });
     await expect(ipcHandlers['session/start']!({}, { language: 'ja' })).rejects.toThrow('SIDECAR_DOWN');
   });
 
@@ -151,7 +156,7 @@ describe('main/ipc FSM', () => {
       const client = { send: vi.fn(async () => ({})) };
       const supervisor = makeFakeSupervisor(client);
       supervisor.stop = vi.fn(async () => {});
-      ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+      ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/l' }) });
       await ipcHandlers['session/discard']!({}, undefined);
       await vi.advanceTimersByTimeAsync(5 * 60_000);
       expect(supervisor.stop).toHaveBeenCalledTimes(1);
@@ -167,7 +172,7 @@ describe('main/ipc FSM', () => {
       const client = { send: vi.fn(async () => ({})) };
       const supervisor = makeFakeSupervisor(client);
       supervisor.stop = vi.fn(async () => {});
-      ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+      ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/l' }) });
       await ipcHandlers['session/discard']!({}, undefined);  // arms idle
       await vi.advanceTimersByTimeAsync(60_000);
       await ipcHandlers['session/start']!({}, { language: 'ja' }); // cancels
@@ -181,7 +186,7 @@ describe('main/ipc FSM', () => {
   it('isSessionInFlight reflects the FSM (the supervisor respawn gate)', async () => {
     const { win } = makeFakeWindow();
     const supervisor = makeFakeSupervisor({ send: vi.fn(async () => ({})) });
-    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/l' }) });
     expect(ipc.isSessionInFlight()).toBe(false);
     await ipcHandlers['session/start']!({}, { language: 'ja' });
     expect(ipc.isSessionInFlight()).toBe(true);
@@ -192,7 +197,7 @@ describe('main/ipc FSM', () => {
   it('session/discard is a safe no-op with no active session', async () => {
     const { win } = makeFakeWindow();
     const supervisor = makeFakeSupervisor({});
-    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/l' }) });
     await expect(ipcHandlers['session/discard']!({}, undefined)).resolves.toBeUndefined();
   });
 
@@ -209,7 +214,7 @@ describe('main/ipc FSM', () => {
   it('session/finalize FAILURE preserves current (P0-3) → next session/start rejects SESSION_ACTIVE', async () => {
     const { win } = makeFakeWindow();
     const supervisor = makeFakeSupervisor({});
-    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/l' }) });
     await ipcHandlers['session/start']!({}, { language: 'ja' });
     await expect(ipcHandlers['session/finalize']!({}, { family: 'garbage' }))
       .rejects.toThrow(/UNKNOWN_FAMILY/);
@@ -225,7 +230,7 @@ describe('main/ipc FSM', () => {
   it('handleSidecarExit clears current → next session/start succeeds (escape hatch)', async () => {
     const { win } = makeFakeWindow();
     const supervisor = makeFakeSupervisor({});
-    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/l' }) });
     await ipcHandlers['session/start']!({}, { language: 'ja' });
     await expect(ipcHandlers['session/finalize']!({}, { family: 'garbage' }))
       .rejects.toThrow(/UNKNOWN_FAMILY/);
@@ -298,7 +303,7 @@ describe('main/ipc FSM', () => {
       ipc.registerIpc({
         getMainWindow: () => win,
         supervisor,
-        getModelPaths: () => ({ sttPath: '/s', llmPath: '/models/Llama-3.2-3B-Instruct-Q4_K_M.gguf' }),
+        getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/models/Llama-3.2-3B-Instruct-Q4_K_M.gguf' }),
       });
       await ipcHandlers['session/start']!({}, { language: 'ja' });
       // The chunk side-channels audio to the WAV writer (no live STT now).
@@ -346,7 +351,7 @@ describe('main/ipc FSM', () => {
   it('recording/chunk before session/start → silent no-op', async () => {
     const { win } = makeFakeWindow();
     const supervisor = makeFakeSupervisor({});
-    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/l' }) });
     const payload: ChunkPayload = {
       index: 0, source: 'mic', startMs: 0, endMs: 2000, samples: new Float32Array(32000),
     };
@@ -366,7 +371,7 @@ describe('main/ipc FSM', () => {
   it('session/start rejects un-eval\'d languages (ko/zh) → UNSUPPORTED_LANGUAGE', async () => {
     const { win } = makeFakeWindow();
     const supervisor = makeFakeSupervisor({});
-    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/l' }) });
     await expect(ipcHandlers['session/start']!({}, { language: 'ko' })).rejects.toThrow('UNSUPPORTED_LANGUAGE');
     await expect(ipcHandlers['session/start']!({}, { language: 'zh' })).rejects.toThrow('UNSUPPORTED_LANGUAGE');
   });
@@ -374,7 +379,7 @@ describe('main/ipc FSM', () => {
   it('session/start accepts en (minimal EN support, 2026-06-10)', async () => {
     const { win } = makeFakeWindow();
     const supervisor = makeFakeSupervisor({});
-    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/l' }) });
     // Resolves (no UNSUPPORTED_LANGUAGE) — full start-path behavior is
     // covered by the ja FSM tests; language only changes the gate + STT load.
     await expect(ipcHandlers['session/start']!({}, { language: 'en' })).resolves.toBeUndefined();
@@ -383,17 +388,39 @@ describe('main/ipc FSM', () => {
   it('session/start when supervisor.getClient() returns null → SIDECAR_DOWN', async () => {
     const { win } = makeFakeWindow();
     const supervisor = makeFakeSupervisor(null);
-    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/l' }) });
     await expect(ipcHandlers['session/start']!({}, { language: 'ja' })).rejects.toThrow('SIDECAR_DOWN');
   });
 
-  it('session/start pushes stt-loading phase BEFORE orch.start awaits', async () => {
+  // C2: stt-loading phase is REMOVED — session/start no longer emits it.
+  // Recording only captures audio; the WAV is transcribed whole at finalize
+  // (STT Phase 2 re-transcribe design). The renderer transitions to "recording"
+  // on the resolved promise, not on a phase event.
+  it('session/start (C2) does NOT emit stt-loading phase', async () => {
     const { win, send } = makeFakeWindow();
     const supervisor = makeFakeSupervisor({});
-    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/l' }) });
     await ipcHandlers['session/start']!({}, { language: 'ja' });
-    const firstSend = send.mock.calls[0];
-    expect(firstSend).toEqual(['session/phase', { phase: 'stt-loading' }]);
+    const sttLoadingCalls = send.mock.calls.filter(
+      (c) => c[0] === 'session/phase' && c[1]?.phase === 'stt-loading',
+    );
+    expect(sttLoadingCalls).toHaveLength(0);
+  });
+
+  // C2 fail-fast: if the STT model file has been moved/deleted since
+  // getModelPaths() last validated it, session/start rejects BEFORE any side
+  // effect (no WAV writer opened, no sidecar load, current stays null).
+  it('session/start rejects STT_MODEL_MISSING when sttPath does not exist on disk', async () => {
+    // Use a path that genuinely does not exist on disk — no mocking needed.
+    const missingSttPath = path.join(fsmUserDataDir, 'no-such-model.bin');
+    const { win } = makeFakeWindow();
+    const supervisor = makeFakeSupervisor({});
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: missingSttPath, llmPath: '/l' }) });
+    await expect(ipcHandlers['session/start']!({}, { language: 'ja' })).rejects.toThrow('STT_MODEL_MISSING');
+    // No side effects: current is null, so subsequent start succeeds (not SESSION_ACTIVE).
+    // Point the second call at a path that DOES exist so the precheck passes.
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/l' }) });
+    await expect(ipcHandlers['session/start']!({}, { language: 'ja' })).resolves.toBeUndefined();
   });
 
   // NOTE: the legacy `session/stop` handler was removed in STT Phase 2 (Task
@@ -406,7 +433,7 @@ describe('main/ipc FSM', () => {
   it('handleSidecarExit clears flags + pushes session/error when session active (no handler in-flight)', async () => {
     const { win, send } = makeFakeWindow();
     const supervisor = makeFakeSupervisor({});
-    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/l' }) });
     await ipcHandlers['session/start']!({}, { language: 'ja' });
     send.mockClear();
     // session/start has resolved, so _sessionHandlerInFlight is false.
@@ -421,7 +448,7 @@ describe('main/ipc FSM', () => {
   it('handleSidecarExit when idle → no session/error push', async () => {
     const { win, send } = makeFakeWindow();
     const supervisor = makeFakeSupervisor({});
-    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/l' }) });
     ipc.handleSidecarExit();
     expect(send).not.toHaveBeenCalled();
   });
@@ -455,7 +482,7 @@ describe('main/ipc FSM', () => {
 
     const { win, send } = makeFakeWindow();
     const supervisor = makeFakeSupervisor({});
-    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/l' }) });
     const startPromise = ipcHandlers['session/start']!({}, { language: 'ja' });
     send.mockClear();
     // Supervisor.onExit fires while orch.start is awaiting.
@@ -475,7 +502,7 @@ describe('main/ipc FSM', () => {
   it('handleSidecarGiveUp pushes session/error with permanent=true and clears state', async () => {
     const { win, send } = makeFakeWindow();
     const supervisor = makeFakeSupervisor({});
-    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/l' }) });
     await ipcHandlers['session/start']!({}, { language: 'ja' });
     send.mockClear();
     ipc.handleSidecarGiveUp();
@@ -491,7 +518,7 @@ describe('main/ipc FSM', () => {
   it('session/start after handleSidecarGiveUp rejects with SIDECAR_GAVE_UP (not SIDECAR_DOWN)', async () => {
     const { win } = makeFakeWindow();
     const supervisor = makeFakeSupervisor({});
-    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/l' }) });
     ipc.handleSidecarGiveUp();
     // Even though supervisor.getClient() returns truthy here (the mock), the
     // give-up flag must short-circuit BEFORE the SIDECAR_DOWN check so the
@@ -506,7 +533,7 @@ describe('main/ipc FSM', () => {
     // context. Tells them to restart up-front.
     const { win, send } = makeFakeWindow();
     const supervisor = makeFakeSupervisor({});
-    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/l' }) });
     ipc.handleSidecarGiveUp();
     expect(send).toHaveBeenCalledWith(
       'session/error',
@@ -538,7 +565,7 @@ describe('main/ipc FSM', () => {
 
     const { win } = makeFakeWindow();
     const supervisor = makeFakeSupervisor({});
-    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/l' }) });
 
     await ipcHandlers['session/start']!({}, { language: 'ja' });
 
@@ -574,7 +601,7 @@ describe('main/ipc FSM', () => {
     delete process.env['LISNA_DISABLE_AUDIO_SAVE'];
     const { win, send } = makeFakeWindow();
     const supervisor = makeFakeSupervisor({});
-    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/l' }) });
 
     await ipcHandlers['session/start']!({}, { language: 'ja' });
     send.mockClear();
@@ -600,7 +627,7 @@ describe('main/ipc FSM', () => {
   it('lifecycle/restart IPC handler calls app.relaunch then app.quit', async () => {
     const { win } = makeFakeWindow();
     const supervisor = makeFakeSupervisor({});
-    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/l' }) });
     expect(ipcHandlers['lifecycle/restart']).toBeDefined();
     await ipcHandlers['lifecycle/restart']!({}, undefined);
     expect(appRelaunch).toHaveBeenCalledTimes(1);
@@ -618,7 +645,7 @@ describe('main/ipc FSM', () => {
     // mis-render the restart button. Only handleSidecarGiveUp tags it.
     const { win, send } = makeFakeWindow();
     const supervisor = makeFakeSupervisor({});
-    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/l' }) });
     await ipcHandlers['session/start']!({}, { language: 'ja' });
     send.mockClear();
     ipc.handleSidecarExit();
@@ -637,7 +664,7 @@ describe('main/ipc FSM', () => {
       start: vi.fn(),
       shutdown: vi.fn(),
     };
-    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: '/s', llmPath: '/l' }) });
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/l' }) });
     // First session — end it via discard (the v2 flow has no session/stop; discard
     // clears `current` so the second start isn't rejected with SESSION_ACTIVE).
     await ipcHandlers['session/start']!({}, { language: 'ja' });

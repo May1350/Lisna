@@ -520,6 +520,11 @@ export function registerIpc(deps: IpcDeps) {
     if (language !== 'ja' && language !== 'en') throw new Error('UNSUPPORTED_LANGUAGE');
     const paths = deps.getModelPaths();
     if (!paths) throw new Error('MODELS_NOT_CONFIGURED');
+    // Record-only start (STT Phase 2): the WAV becomes the SOLE transcript
+    // source, transcribed whole at finalize. getModelPaths() returns cached
+    // paths validated at resolve time — the STT file could have been moved/
+    // deleted since. Fail fast so we never record audio we cannot transcribe.
+    if (!fs.existsSync(paths.sttPath)) throw new Error('STT_MODEL_MISSING');
     cancelIdleStop();
     // Lazy respawn: the idle-stop policy (or a user kill while idle) leaves
     // no live sidecar — that is the EXPECTED state now, not an error. Spawn
@@ -593,11 +598,10 @@ export function registerIpc(deps: IpcDeps) {
     // start↔stop pairs cleanly without spurious "start lang=ja" entries from
     // rejected attempts.
     sessionLog.start(language);
-    const sttLoadStartMs = Date.now();
     try {
-      safeSend(CHANNELS.sessionPhase, { phase: 'stt-loading' });
+      // orch.start() is now a state-reset no-op (STT Phase 2: no live STT load
+      // happens at record time; the WAV is transcribed whole at finalize).
       await orch.start();
-      sessionLog.phase('stt-load', Date.now() - sttLoadStartMs);
       recording = true;
     } catch (err) {
       const code = err instanceof Error ? err.message : String(err);
