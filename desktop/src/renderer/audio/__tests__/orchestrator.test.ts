@@ -4,11 +4,11 @@ import { RecordingOrchestrator, type ChunkPayload, type Capturer } from '../orch
 const SR = 16000;
 
 /**
- * Make a non-silent Float32Array of the given length (filled with 0.5 so RMS
- * is well above the -50 dBFS silence gate threshold). Tests that care about
- * chunking / timestamps / indices should use this, not all-zero arrays —
- * all-zero arrays are now gated as silent by isSilent() and silently dropped
- * before reaching IPC.
+ * Make a non-silent Float32Array of the given length (filled with 0.5). Most
+ * chunking / timestamp / index tests use this for a realistic audible signal.
+ * Since STT Phase 2 removed the isSilent gate, all-zero arrays are also sent to
+ * IPC now (gap-faithful WAV), so either works for those — see the dedicated
+ * 'emits silent chunks too' case below.
  */
 function loudChunk(length: number): Float32Array {
   const a = new Float32Array(length);
@@ -132,5 +132,28 @@ describe('RecordingOrchestrator', () => {
     await orch.start('mic');
     await orch.start('mic'); // second call must early-return
     expect(startSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('emits silent chunks too (WAV must be gap-faithful)', async () => {
+    // STT Phase 2: live per-chunk STT is gone; the whole-file WAV is
+    // transcribed at finalize. Silent gaps must be preserved so absolute
+    // timestamps + duration are correct. The old isSilent gate must not drop
+    // any chunks.
+    const fake = makeFakeCapturer();
+    const sent: number[] = [];
+    const orch = new RecordingOrchestrator({
+      sender: (c) => sent.push(c.samples.length),
+      capturerFactory: () => fake as unknown as Capturer,
+      firstChunkSec: 1, // 1s first chunk for test speed
+      chunkSec: 1,
+    });
+
+    await orch.start('mic');
+    // Push exactly 1s of all-zero samples → fills the first chunk boundary.
+    // Previously, isSilent() would drop this, leaving sent empty.
+    fake.onSamples!(new Float32Array(SR)); // all-zero = silent
+    await orch.stop();
+
+    expect(sent).toEqual([SR]);
   });
 });

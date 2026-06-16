@@ -1,5 +1,4 @@
 import { ChunkAccumulator, SAMPLE_RATE } from './chunker';
-import { isSilent } from './silence-gate';
 import type { ChunkPayload, RecordingSource } from '@shared/ipc-protocol';
 
 export type { ChunkPayload, RecordingSource };
@@ -91,14 +90,8 @@ export class RecordingOrchestrator {
     const source = this.source;
     if (!source) return;
 
-    if (isSilent(chunk)) {
-      // Silent chunk: skip IPC, but advance the wall-clock counter so the next
-      // real chunk's startMs reflects the silence duration. DO NOT advance
-      // chunkIndex — main's payload.index sequence must stay contiguous.
-      this.samplesEmitted += chunk.length;
-      return;
-    }
-
+    // Live STT removed (STT Phase 2): no per-chunk STT to skip, and the WAV
+    // must preserve silence for absolute timestamps + duration.
     const startSamples = this.samplesEmitted;
     this.samplesEmitted += chunk.length;
     const startMs = Math.round((startSamples / SAMPLE_RATE) * 1000);
