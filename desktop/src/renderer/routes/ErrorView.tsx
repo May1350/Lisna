@@ -1,4 +1,3 @@
-import type { TranscriptSegment } from '@shared/types';
 import {
   toFriendlyJa,
   ERROR_MESSAGE_MAP_JA,
@@ -6,7 +5,6 @@ import {
 
 interface Props {
   message: string;
-  segments: TranscriptSegment[];
   /**
    * Re-generate the note from the PRESERVED transcript. Routes to the family
    * picker (App.tsx) so the user can pick a DIFFERENT family on retry — the
@@ -34,6 +32,11 @@ interface Props {
  * unload fail, empty transcript) OR when main pushes session/error (sidecar
  * crash mid-session).
  *
+ * The transcript is preserved server-side (the orchestrator caches it at
+ * finalize), so this view no longer renders the transcript inline — retry
+ * re-finalizes against that server-side transcript. The reassurance line
+ * still holds for transient errors.
+ *
  * Friendly copy is JA-only per ADR §3 (`docs/superpowers/decisions/2026-05-15-
  * step-5-section-9-decisions.md`). Resolution lives in `i18n/error-message-map.ts`:
  * exact code → substring code → fallback. The permanent prop forces the
@@ -43,7 +46,7 @@ interface Props {
  * also JA. If a future v2.1 introduces a settings UI for locale, add a
  * second map (`ERROR_MESSAGE_MAP_EN` etc.) and dispatch at toFriendly* level.
  */
-export function ErrorView({ message, segments, onRetry, onDiscard, permanent }: Props) {
+export function ErrorView({ message, onRetry, onDiscard, permanent }: Props) {
   // Resolve copy. The permanent flag forces the SIDECAR_GAVE_UP message even
   // if `message` came in as a transient "engine restarted" string from an
   // earlier handleSidecarExit push that arrived before the give-up upgrade.
@@ -54,16 +57,6 @@ export function ErrorView({ message, segments, onRetry, onDiscard, permanent }: 
     <section>
       <h2>エラーが発生しました</h2>
       <p style={{ color: 'crimson' }}>{friendly}</p>
-      {segments.length > 0 && (
-        <details open>
-          <summary>これまでの文字起こし ({segments.length} 個のセグメント)</summary>
-          <ul style={{ listStyle: 'none', padding: 0, fontFamily: 'monospace' }}>
-            {segments.map((seg, i) => (
-              <li key={i}>[{seg.startSec.toFixed(1)}] {seg.text}</li>
-            ))}
-          </ul>
-        </details>
-      )}
       {permanent ? (
         <button data-testid="error-restart" onClick={() => void window.lisna.restartApp()}>
           Lisna を再起動
@@ -78,9 +71,7 @@ export function ErrorView({ message, segments, onRetry, onDiscard, permanent }: 
           <button data-testid="error-new-recording" onClick={onDiscard}>
             新しい録音
           </button>
-          {segments.length > 0 && (
-            <small style={{ color: '#666' }}>文字起こしは保持されています</small>
-          )}
+          <small style={{ color: '#666' }}>文字起こしは保持されています</small>
         </div>
       )}
     </section>

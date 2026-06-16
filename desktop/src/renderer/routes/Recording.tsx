@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { DumpSummary, RecordingSource } from '@shared/ipc-protocol';
-import type { Language, TranscriptSegment } from '@shared/types';
+import type { Language } from '@shared/types';
 import { RecordingOrchestrator } from '../audio/orchestrator';
 import { createCapturer } from '../audio/worklet-capturer';
 import { HistoryList } from '../components/HistoryList';
@@ -16,14 +16,15 @@ import { Spinner } from '../components/Spinner';
 const SLOW_LOAD_HINT_MS = 8_000;
 
 interface Props {
-  segments: TranscriptSegment[];
   /**
    * Fired after the audio orchestrator + main-side recording have torn
-   * down cleanly, before any structured-note pipeline runs. The parent
-   * decides what comes next (today: show FamilyPicker → finalize per
-   * Plan 3 Task 12). Errors during teardown surface via onError.
+   * down cleanly, before any structured-note pipeline runs. Passes the
+   * recording's elapsed seconds so the parent can drop a too-short tap
+   * (no live segments exist any more — empty detection is by time). The
+   * parent decides what comes next (today: show FamilyPicker → finalize
+   * per Plan 3 Task 12). Errors during teardown surface via onError.
    */
-  onStop: () => void;
+  onStop: (elapsedSec: number) => void;
   onError: (message: string) => void;
   /**
    * F2 — parent owns the FSM; Recording signals the user's intent to open a
@@ -32,7 +33,7 @@ interface Props {
   onOpenHistory: (id: string) => void;
 }
 
-export function Recording({ segments, onStop, onError, onOpenHistory }: Props) {
+export function Recording({ onStop, onError, onOpenHistory }: Props) {
   const [running, setRunning] = useState(false);
   const [starting, setStarting] = useState(false);
   // Flips true SLOW_LOAD_HINT_MS into the `starting=true` window so we can
@@ -180,7 +181,7 @@ export function Recording({ segments, onStop, onError, onOpenHistory }: Props) {
     // Hand off to parent. Parent shows FamilyPicker → finalize → NoteView
     // per Plan 3 Task 12; finalize happens in App.tsx where the FSM lives,
     // so Recording.tsx no longer awaits the structured-note pipeline.
-    onStop();
+    onStop(elapsedSec);
   }
 
   return (
@@ -244,25 +245,12 @@ export function Recording({ segments, onStop, onError, onOpenHistory }: Props) {
       {running && (
         <span style={{ marginLeft: '0.75em', fontFamily: 'monospace', fontVariantNumeric: 'tabular-nums' }}>
           ● {Math.floor(elapsedSec / 60)}:{String(elapsedSec % 60).padStart(2, '0')}
-          <span style={{ color: '#888' }}> · {segments.length} segments</span>
         </span>
       )}
       {starting && slowLoad && (
         <p style={{ color: '#888', fontSize: '0.9em', marginTop: '0.25em' }}>
           (taking longer than usual…)
         </p>
-      )}
-      {segments.length > 0 && (
-        <div>
-          <h3>Live captions</h3>
-          <ul style={{ listStyle: 'none', padding: 0 }}>
-            {segments.map((seg, i) => (
-              <li key={i} style={{ fontFamily: 'monospace', marginBottom: '0.25em' }}>
-                [{seg.startSec.toFixed(1)}] {seg.text}
-              </li>
-            ))}
-          </ul>
-        </div>
       )}
       {!running && !starting && <HistoryList dumps={dumps} onOpen={onOpenHistory} />}
     </section>

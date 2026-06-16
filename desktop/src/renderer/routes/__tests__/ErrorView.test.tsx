@@ -10,21 +10,21 @@
  * `current` on finalize failure per ipc.ts:354) and "新しい録音" (discard +
  * re-record). The old single "もう一度試す" button wiped the transcript by routing
  * back to an empty recording — the exact "字幕が全部消える" pain.
+ *
+ * STT Phase 2a (Group D): the transcript is preserved SERVER-SIDE (the
+ * orchestrator caches it at finalize), so ErrorView no longer renders it
+ * inline and no longer takes a `segments` prop — retry re-finalizes against
+ * the server-side transcript. The reassurance line is unconditional on the
+ * transient branch.
  */
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { ErrorView } from '../ErrorView';
-import type { TranscriptSegment } from '@shared/types';
-
-const SEGMENTS: TranscriptSegment[] = [
-  { startSec: 0, endSec: 2, text: 'これはテストの文字起こしです', noSpeechProb: 0.01 } as TranscriptSegment,
-  { startSec: 2, endSec: 5, text: '二つ目のセグメント', noSpeechProb: 0.01 } as TranscriptSegment,
-];
 
 describe('ErrorView', () => {
   it('transient error: offers BOTH re-generate and new-recording actions', () => {
     const html = renderToStaticMarkup(
-      <ErrorView message="CHUNK_FAILED:0" segments={SEGMENTS} onRetry={() => {}} onDiscard={() => {}} />,
+      <ErrorView message="CHUNK_FAILED:0" onRetry={() => {}} onDiscard={() => {}} />,
     );
     expect(html).toContain('data-testid="error-retry-note"');
     expect(html).toContain('ノートを作り直す');
@@ -34,24 +34,22 @@ describe('ErrorView', () => {
 
   it('transient error: does NOT show the restart button', () => {
     const html = renderToStaticMarkup(
-      <ErrorView message="GENERATE_TIMEOUT" segments={SEGMENTS} onRetry={() => {}} onDiscard={() => {}} />,
+      <ErrorView message="GENERATE_TIMEOUT" onRetry={() => {}} onDiscard={() => {}} />,
     );
     expect(html).not.toContain('data-testid="error-restart"');
   });
 
-  it('still displays the preserved transcript so the user sees it is not lost', () => {
+  it('transient error: shows the transcript-preserved reassurance', () => {
     const html = renderToStaticMarkup(
-      <ErrorView message="CHUNK_FAILED:0" segments={SEGMENTS} onRetry={() => {}} onDiscard={() => {}} />,
+      <ErrorView message="CHUNK_FAILED:0" onRetry={() => {}} onDiscard={() => {}} />,
     );
-    expect(html).toContain('これはテストの文字起こしです');
-    expect(html).toContain('2 個のセグメント');
+    expect(html).toContain('文字起こしは保持されています');
   });
 
   it('permanent error: shows ONLY the restart button (sidecar dead → re-finalize impossible)', () => {
     const html = renderToStaticMarkup(
       <ErrorView
         message="SIDECAR_GAVE_UP"
-        segments={SEGMENTS}
         onRetry={() => {}}
         onDiscard={() => {}}
         permanent
@@ -61,5 +59,6 @@ describe('ErrorView', () => {
     expect(html).toContain('再起動');
     expect(html).not.toContain('data-testid="error-retry-note"');
     expect(html).not.toContain('data-testid="error-new-recording"');
+    expect(html).not.toContain('文字起こしは保持されています');
   });
 });

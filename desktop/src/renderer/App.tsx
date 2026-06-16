@@ -7,21 +7,27 @@ import { SetupView } from './routes/SetupView';
 import { SignInView } from './routes/SignInView';
 import { FamilyPickerStep } from './components/FamilyPickerStep';
 import { NoteRenderProgress, type ProgressState } from './components/NoteRenderProgress';
-import type { Note, TranscriptSegment } from '@shared/types';
+import type { Note } from '@shared/types';
 import type { FinalizeProgressPayload } from '@shared/ipc-protocol';
 import type { NoteBase, NoteFamily } from '@shared/note-schema';
+
+// Record-then-transcribe: empty/too-short detection is by elapsed time (no live segments). The real empty/silent case is caught server-side by EMPTY_RECORDING.
+export const MIN_RECORDING_SEC = 1;
+export function isEmptyRecording(elapsedSec: number): boolean {
+  return elapsedSec < MIN_RECORDING_SEC;
+}
 
 export type ErrorOrigin = { kind: 'live' } | { kind: 'dump'; id: string };
 
 type View =
   | { kind: 'booting' }
   | { kind: 'setup'; initialStep: 'stt' | 'llm'; initialError?: string }
-  | { kind: 'recording'; segments: TranscriptSegment[] }
+  | { kind: 'recording' }
   | { kind: 'history'; id: string }
-  | { kind: 'familyPicking'; segments: TranscriptSegment[] }
-  | { kind: 'curatingV2'; segments: TranscriptSegment[]; progress: ProgressState | null }
+  | { kind: 'familyPicking' }
+  | { kind: 'curatingV2'; progress: ProgressState | null }
   | { kind: 'note'; note: Note | NoteBase }
-  | { kind: 'error'; message: string; segments: TranscriptSegment[]; permanent?: boolean; origin?: ErrorOrigin };
+  | { kind: 'error'; message: string; permanent?: boolean; origin?: ErrorOrigin };
 
 /**
  * Phase M Task 70 — top-level auth gate.
@@ -83,8 +89,8 @@ export function App() {
 
 /**
  * Post-auth shell — owns the v2 session FSM (`booting | setup | recording |
- * familyPicking | curatingV2 | note | error`) and the onChunk +
- * onSessionError subscriptions. The v2 finalize flow runs at the App level:
+ * familyPicking | curatingV2 | note | error`) and the
+ * onSessionError subscription. The v2 finalize flow runs at the App level:
  * Stop → familyPicking → curatingV2 (window.lisna.finalize) → note (NoteView
  * dispatches via familyRendererRegistry).
  *
@@ -97,27 +103,6 @@ export function App() {
  */
 function AuthenticatedApp() {
   const [view, setView] = useState<View>({ kind: 'booting' });
-
-  // Chunk-result: accept in any in-flight session view. RecordingOrchestrator.
-  // stop()'s synchronous acc.flush() ships the final partial chunk after the
-  // user clicks Stop; its transcribe completes on main side ~50-500ms later.
-  // By then App may already be in 'familyPicking' or 'curatingV2'. Accepting
-  // chunk-results across that whole window keeps the last spoken sentence in
-  // the transcript that feeds finalize.
-  useEffect(() => {
-    return window.lisna.onChunk((msg) => {
-      setView((prev) => {
-        if (
-          prev.kind === 'recording' ||
-          prev.kind === 'familyPicking' ||
-          prev.kind === 'curatingV2'
-        ) {
-          return { ...prev, segments: [...prev.segments, ...msg.segments] };
-        }
-        return prev;
-      });
-    });
-  }, []);
 
   // Session error (sidecar crash). Idempotent merge:
   //   - First push: transition to 'error' view, preserving transcript segments.
@@ -132,11 +117,10 @@ function AuthenticatedApp() {
     return window.lisna.onSessionError(({ message, permanent }) => {
       setView((prev) => {
         if (prev.kind === 'error') {
-          // Already in error — only upgrade flag, don't overwrite message/segments.
+          // Already in error — only upgrade flag, don't overwrite message.
           return permanent && !prev.permanent ? { ...prev, permanent: true } : prev;
         }
-        const segments = inFlightSegments(prev);
-        return { kind: 'error', message, segments, permanent };
+        return { kind: 'error', message, permanent };
       });
     });
   }, []);
@@ -168,7 +152,7 @@ function AuthenticatedApp() {
       .getModelStatus()
       .then((status) => {
         if (status.kind === 'ready') {
-          setView({ kind: 'recording', segments: [] });
+          setView({ kind: 'recording' });
           return;
         }
         // status.missing is sorted: 'stt' before 'llm'. First missing slot
@@ -181,7 +165,7 @@ function AuthenticatedApp() {
           // handler bug surfaces in CloudWatch / DevTools instead of
           // silently manifesting as a Recording-side failure.
           console.error('[App] needs-setup with missing.length=0 — model-resolver bug?');
-          setView({ kind: 'recording', segments: [] });
+          setView({ kind: 'recording' });
           return;
         }
         const initialError =
@@ -201,7 +185,6 @@ function AuthenticatedApp() {
         setView({
           kind: 'error',
           message: 'MODELS_NOT_CONFIGURED',
-          segments: [],
           permanent: true,
         });
       });
@@ -224,36 +207,34 @@ function renderView(view: View, setView: (next: View | ((p: View) => View)) => v
         <SetupView
           initialStep={view.initialStep}
           initialError={view.initialError}
-          onReady={() => setView({ kind: 'recording', segments: [] })}
+          onReady={() => setView({ kind: 'recording' })}
         />
       );
     case 'recording':
       return (
         <Recording
-          segments={view.segments}
-          onStop={() =>
+          onStop={(elapsedSec) =>
             setView((prev) => {
               if (prev.kind !== 'recording') return prev;
-              // Empty recording (e.g. silent system-audio capture): nothing to
-              // make a note FROM — skip the picker, drop main-side session
-              // state, stay on Recording for an immediate retry.
-              if (prev.segments.length === 0) {
+              // Too-short/empty tap: drop main-side session, stay on Recording for an
+              // immediate retry. Real empty/silent audio is caught server-side
+              // (EMPTY_RECORDING) once the WAV is transcribed at finalize.
+              if (isEmptyRecording(elapsedSec)) {
                 void window.lisna.discardSession();
-                return { kind: 'recording', segments: [] };
+                return { kind: 'recording' };
               }
-              return { kind: 'familyPicking', segments: prev.segments };
+              return { kind: 'familyPicking' };
             })
           }
           onError={(message) =>
             setView((prev) => {
               if (prev.kind === 'error') return prev;
-              const segments = inFlightSegments(prev);
               // Synchronous SIDECAR_GAVE_UP rejection (e.g. user clicked Start
               // after give-up, before any onSessionError push reached the
               // renderer): infer permanent here so the restart UX kicks in
               // without waiting for the IPC channel.
               const permanent = message.includes('SIDECAR_GAVE_UP') || undefined;
-              return { kind: 'error', message, segments, permanent };
+              return { kind: 'error', message, permanent };
             })
           }
           onOpenHistory={(id) => setView({ kind: 'history', id })}
@@ -263,13 +244,12 @@ function renderView(view: View, setView: (next: View | ((p: View) => View)) => v
       return (
         <History
           id={view.id}
-          onBack={() => setView({ kind: 'recording', segments: [] })}
-          onRegenerate={(family, segments) => {
+          onBack={() => setView({ kind: 'recording' })}
+          onRegenerate={(family) => {
             // Mirror the live picker flow: mount progress synchronously,
             // then run the from-dump finalize.
             setView({
               kind: 'curatingV2',
-              segments: [...segments],
               progress: { phase: 'loading', startedAt: Date.now() },
             });
             void runFinalizeFromDump(view.id, family, setView);
@@ -284,7 +264,7 @@ function renderView(view: View, setView: (next: View | ((p: View) => View)) => v
             // Recording. Fire-and-forget: the handler is idempotent and the
             // UI transition must not block on IPC latency.
             void window.lisna.discardSession();
-            setView({ kind: 'recording', segments: [] });
+            setView({ kind: 'recording' });
           }}
           onPick={(family) => {
             // Transition to curating BEFORE await so progress UI mounts
@@ -294,7 +274,6 @@ function renderView(view: View, setView: (next: View | ((p: View) => View)) => v
               prev.kind === 'familyPicking'
                 ? {
                     kind: 'curatingV2',
-                    segments: prev.segments,
                     progress: { phase: 'loading', startedAt: Date.now() },
                   }
                 : prev,
@@ -309,14 +288,13 @@ function renderView(view: View, setView: (next: View | ((p: View) => View)) => v
       return (
         <NoteView
           note={view.note}
-          onNewSession={() => setView({ kind: 'recording', segments: [] })}
+          onNewSession={() => setView({ kind: 'recording' })}
         />
       );
     case 'error':
       return (
         <ErrorView
           message={view.message}
-          segments={view.segments}
           permanent={view.permanent}
           // Re-make the note from the PRESERVED transcript: route to the family
           // picker so the user can switch family on retry (e.g. interview →
@@ -329,7 +307,7 @@ function renderView(view: View, setView: (next: View | ((p: View) => View)) => v
           // Abandon this recording: drop main-side session, start fresh.
           onDiscard={() => {
             void window.lisna.discardSession();
-            setView({ kind: 'recording', segments: [] });
+            setView({ kind: 'recording' });
           }}
         />
       );
@@ -344,13 +322,10 @@ function renderView(view: View, setView: (next: View | ((p: View) => View)) => v
  * detail where the family is re-pickable and regenerate re-dispatches
  * finalizeFromDump.
  */
-export function retryViewFor(error: {
-  origin?: ErrorOrigin;
-  segments: TranscriptSegment[];
-}): View {
+export function retryViewFor(error: { origin?: ErrorOrigin }): View {
   return error.origin?.kind === 'dump'
     ? { kind: 'history', id: error.origin.id }
-    : { kind: 'familyPicking', segments: error.segments };
+    : { kind: 'familyPicking' };
 }
 
 /**
@@ -409,22 +384,6 @@ export function applyFinalizeProgress(
 }
 
 /**
- * Return any transcript segments captured during the current in-flight
- * session phase. Used to preserve captions when transitioning into the
- * error view. Returns [] for non-in-flight states.
- */
-function inFlightSegments(view: View): TranscriptSegment[] {
-  switch (view.kind) {
-    case 'recording':
-    case 'familyPicking':
-    case 'curatingV2':
-      return view.segments;
-    default:
-      return [];
-  }
-}
-
-/**
  * Runs the v2 finalize IPC and dispatches the FSM accordingly. Lives at
  * module scope so renderView can call it without re-creating per render.
  *
@@ -444,9 +403,8 @@ async function runFinalize(
     if (message.includes('APP_QUIT')) return;
     setView((prev) => {
       if (prev.kind === 'error') return prev;
-      const segments = inFlightSegments(prev);
       const permanent = message.includes('SIDECAR_GAVE_UP') || undefined;
-      return { kind: 'error', message, segments, permanent };
+      return { kind: 'error', message, permanent };
     });
   }
 }
@@ -472,7 +430,6 @@ async function runFinalizeFromDump(
       return {
         kind: 'error',
         message,
-        segments: inFlightSegments(prev),
         origin: { kind: 'dump', id },
       };
     });
