@@ -95,7 +95,7 @@ export function App() {
  * dispatches via familyRendererRegistry).
  *
  * Why a function component instead of inlining into the gate: keeps the
- * boot sequence (model status, chunk, session error) gated behind
+ * boot sequence (model status, session error, finalize progress) gated behind
  * successful auth — the listeners and getModelStatus call have no reason to
  * fire on the SignInView and would be wasted work / log noise pre-sign-in.
  * The function-component split also means React unmounts AuthenticatedApp
@@ -105,10 +105,10 @@ function AuthenticatedApp() {
   const [view, setView] = useState<View>({ kind: 'booting' });
 
   // Session error (sidecar crash). Idempotent merge:
-  //   - First push: transition to 'error' view, preserving transcript segments.
+  //   - First push: transition to 'error' view.
   //   - Second push with permanent=true (give-up upgrade arriving after the
-  //     transient handleSidecarExit push): keep the existing message/segments
-  //     but flip the permanent flag so ErrorView swaps to the Restart button.
+  //     transient handleSidecarExit push): keep the existing message but flip
+  //     the permanent flag so ErrorView swaps to the Restart button.
   //   - Repeat transient pushes: ignored (keep first message).
   // This handles the supervisor's onExit-then-onCrash sequence: ipc.ts pushes
   // the transient message first, then handleSidecarGiveUp pushes the
@@ -144,9 +144,8 @@ function AuthenticatedApp() {
   // §5.1 — on mount, query main for the boot-resolved ModelStatus.
   // Safe to call here without race: main/index.ts registers models/status
   // BEFORE createWindow (Task 7), so the handler is always present by the
-  // time this mounts. While in 'booting', the existing onChunk /
-  // onSessionError listeners are naturally inert (their prev.kind guards
-  // no-op).
+  // time this mounts. While in 'booting', the existing onSessionError
+  // listener is naturally inert (its prev.kind guard no-ops).
   useEffect(() => {
     window.lisna
       .getModelStatus()

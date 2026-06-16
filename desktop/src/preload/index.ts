@@ -4,7 +4,6 @@ import type {
   AuthState,
   Capabilities,
   ChunkPayload,
-  ChunkResultPayload,
   SessionStartPayload,
   SessionPhasePayload,
   SessionErrorPayload,
@@ -27,17 +26,6 @@ contextBridge.exposeInMainWorld('lisna', {
   stopRecording: () => ipcRenderer.invoke(CHANNELS.stopRecording),
   sendChunk: (chunk: ChunkPayload) => ipcRenderer.invoke(CHANNELS.chunk, chunk),
   capabilities: () => ipcRenderer.invoke(CHANNELS.capabilities),
-
-  /**
-   * Subscribe to STT segment results pushed from the main process after each
-   * chunk. Returns an unsubscribe function — call it in `useEffect` cleanup to
-   * avoid duplicate listeners across Strict Mode double-mounts.
-   */
-  onChunk: (cb: (msg: ChunkResultPayload) => void): (() => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, msg: ChunkResultPayload) => cb(msg);
-    ipcRenderer.on(CHANNELS.onChunk, listener);
-    return () => ipcRenderer.removeListener(CHANNELS.onChunk, listener);
-  },
 
   // --- Step 4 additions ---
 
@@ -106,7 +94,7 @@ contextBridge.exposeInMainWorld('lisna', {
   /**
    * Subscribe to real finalize progress (chunk N/M, attempt, phase) pushed
    * while `finalize` / `finalizeFromDump` runs. Returns an unsubscribe
-   * function — same useEffect-cleanup contract as onChunk / onPhase.
+   * function — same useEffect-cleanup contract as onPhase / onSessionError.
    */
   onFinalizeProgress: (cb: (msg: FinalizeProgressPayload) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, msg: FinalizeProgressPayload) => cb(msg);
@@ -156,7 +144,7 @@ contextBridge.exposeInMainWorld('lisna', {
    * Subscribe to the post-redeem `auth/signed-in` broadcast. Returns an
    * unsubscribe function — the auth gate's useEffect MUST call it on cleanup
    * to avoid duplicate listeners across Strict Mode double-mounts. Matches
-   * the onChunk / onPhase / onSessionError unsubscriber convention.
+   * the onPhase / onSessionError unsubscriber convention.
    */
   onSignedIn: (cb: () => void): (() => void) => {
     const listener = () => cb();
@@ -172,7 +160,6 @@ declare global {
       stopRecording(): Promise<{ ok: boolean }>;
       sendChunk(chunk: ChunkPayload): Promise<{ ok: boolean }>;
       capabilities(): Promise<Capabilities>;
-      onChunk(cb: (msg: ChunkResultPayload) => void): () => void;
       startSession(payload: SessionStartPayload): Promise<void>;
       /** Drop the stopped session without generating a note (discard route). */
       discardSession(): Promise<void>;

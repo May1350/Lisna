@@ -8,7 +8,6 @@ import type {
   AuthState,
   Capabilities,
   ChunkPayload,
-  ChunkResultPayload,
   SessionStartPayload,
 } from '@shared/ipc-protocol';
 import type { NoteLanguage } from '@shared/note-schema';
@@ -34,8 +33,6 @@ export const CHANNELS = {
   stopRecording: 'recording/stop',
   /** renderer → main: a finalized PCM chunk for downstream STT */
   chunk: 'recording/chunk',
-  /** main → renderer: STT result segments pushed back after each chunk */
-  onChunk: 'recording/chunk-result',
   /** renderer → main: query platform capabilities on mount (sync, cheap) */
   capabilities: 'platform/capabilities',
   /** renderer → main: create SessionOrchestrator + load STT */
@@ -317,31 +314,24 @@ function makeRecoveringSidecarFor(llmPath: string): GrammarCapableSidecar {
 /**
  * Exported for unit testing — the chunk handler exposed as a pure function. The
  * production code uses the inline IPC handler registered in registerIpc; tests
- * can also drive this directly with a fake IpcMainInvokeEvent.
+ * can also drive this directly. Per-chunk it only drives the orchestrator's WAV
+ * side-channel (onAudioChunk); no STT results are sent back to the renderer
+ * (whole-file STT happens at finalize — STT Phase 2).
  *
  * (Step 4 note: the old handleChunk-with-deps signature is gone; the FSM in
  * module-level state replaces dependency injection at the per-chunk level.)
  */
-export async function handleChunk(
-  event: { sender: { send: (channel: string, payload: ChunkResultPayload) => void } },
-  payload: ChunkPayload,
-): Promise<{ ok: boolean }> {
+export async function handleChunk(payload: ChunkPayload): Promise<{ ok: boolean }> {
   if (!recording || !current) return { ok: true };  // silent no-op
   const orch = current;
   try {
-    // startMs → seconds: re-anchor Whisper's chunk-relative segment ts to
-    // session time (see SessionOrchestrator.onChunk JSDoc).
-    const segs = await orch.onChunk(payload.samples, payload.startMs / 1000);
-    event.sender.send(CHANNELS.onChunk, {
-      index: payload.index,
-      segments: segs,
-      startMs: payload.startMs,
-    });
+    // Whole-file STT happens at finalize (STT Phase 2). Per-chunk we only
+    // drive the orchestrator's WAV side-channel (onAudioChunk) — no live
+    // captions are pushed to the renderer anymore.
+    await orch.onChunk(payload.samples, payload.startMs / 1000);
   } catch (err) {
     // One failed chunk must not break the session — log, allow next chunk.
-    // Index is shape-safe (a small integer); error message may include
-    // sidecar diagnostic text but not user transcript content.
-    log.error('[stt] chunk transcribe error', payload.index, err);
+    log.error('[stt] chunk handler error', payload.index, err);
   }
   return { ok: true };
 }
@@ -679,7 +669,7 @@ export function registerIpc(deps: IpcDeps) {
     return { ok: true, source: opts.source };
   });
   ipcMain.handle(CHANNELS.stopRecording, async () => ({ ok: true }));
-  ipcMain.handle(CHANNELS.chunk, (e, payload: ChunkPayload) => handleChunk(e, payload));
+  ipcMain.handle(CHANNELS.chunk, (_e, payload: ChunkPayload) => handleChunk(payload));
   ipcMain.handle(CHANNELS.capabilities, (): Capabilities => ({
     systemAudio: isMacAudioLoopbackSupported(),
     platform: process.platform,
