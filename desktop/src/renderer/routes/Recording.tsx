@@ -4,6 +4,7 @@ import type { Language } from '@shared/types';
 import { RecordingOrchestrator } from '../audio/orchestrator';
 import { createCapturer } from '../audio/worklet-capturer';
 import { HistoryList } from '../components/HistoryList';
+import { LevelMeter } from '../components/LevelMeter';
 import { SystemAudioUnavailableNotice } from '../components/SystemAudioUnavailableNotice';
 import { Spinner } from '../components/Spinner';
 
@@ -49,6 +50,10 @@ export function Recording({ onStop, onError, onOpenHistory }: Props) {
   );
   // Elapsed-seconds indicator. Counts while `running`; resets on each start.
   const [elapsedSec, setElapsedSec] = useState(0);
+  // Live RMS dBFS audio level for the recording-screen meter, fed from the
+  // orchestrator's onLevel. Floor (-60) at rest / between recordings so a
+  // stale bar doesn't linger.
+  const [level, setLevel] = useState(-60);
   // Pessimistic default: assume system audio is unavailable until the
   // capabilities round-trip confirms it. A slow IPC response should NOT
   // let the user click the system radio and then fail downstream.
@@ -102,7 +107,12 @@ export function Recording({ onStop, onError, onOpenHistory }: Props) {
   // Recording-elapsed ticker. Interval lives only while running; the start
   // timestamp is captured at flip-true so a re-render can't skew the base.
   useEffect(() => {
-    if (!running) return;
+    if (!running) {
+      // Reset the level meter to the floor so a stale bar doesn't linger
+      // between recordings (runs on mount and whenever running flips false).
+      setLevel(-60);
+      return;
+    }
     setElapsedSec(0);
     const t0 = Date.now();
     const t = setInterval(() => setElapsedSec(Math.floor((Date.now() - t0) / 1000)), 1000);
@@ -145,6 +155,7 @@ export function Recording({ onStop, onError, onOpenHistory }: Props) {
         sender: (chunk) => {
           void window.lisna.sendChunk(chunk);
         },
+        onLevel: (db) => setLevel(db),
       });
       orchRef.current = orch;
       await orch.start(source);
@@ -242,9 +253,12 @@ export function Recording({ onStop, onError, onOpenHistory }: Props) {
         ) : 'Start'}
       </button>
       {running && (
-        <span style={{ marginLeft: '0.75em', fontFamily: 'monospace', fontVariantNumeric: 'tabular-nums' }}>
-          ● {Math.floor(elapsedSec / 60)}:{String(elapsedSec % 60).padStart(2, '0')}
-        </span>
+        <div style={{ marginTop: '0.5em' }}>
+          <span style={{ fontFamily: 'monospace', fontVariantNumeric: 'tabular-nums' }}>
+            ● {Math.floor(elapsedSec / 60)}:{String(elapsedSec % 60).padStart(2, '0')}
+          </span>
+          <LevelMeter dbfs={level} deviceName={source === 'mic' ? 'Microphone' : 'System audio'} />
+        </div>
       )}
       {starting && slowLoad && (
         <p style={{ color: '#888', fontSize: '0.9em', marginTop: '0.25em' }}>

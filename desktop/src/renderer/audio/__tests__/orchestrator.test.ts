@@ -134,6 +134,66 @@ describe('RecordingOrchestrator', () => {
     expect(startSpy).toHaveBeenCalledTimes(1);
   });
 
+  describe('level metering', () => {
+    // STT Phase 2 E: the orchestrator emits an RMS dBFS level from the UNGATED
+    // capture stream (onSamples) for the recording-screen level meter. This is
+    // independent of the chunk/silence logic — it fires per onSamples push,
+    // before any chunk accumulates or emits.
+    it('emits a level near 0 dBFS for a full-scale block', async () => {
+      const fake = makeFakeCapturer();
+      const levels: number[] = [];
+      const orch = new RecordingOrchestrator({
+        sender: vi.fn(),
+        capturerFactory: () => fake as unknown as Capturer,
+        onLevel: (db) => levels.push(db),
+      });
+
+      await orch.start('mic');
+      fake.onSamples!(new Float32Array(1600).fill(1)); // full scale → ~0 dBFS
+      await orch.stop();
+
+      expect(levels.length).toBeGreaterThan(0);
+      expect(levels[levels.length - 1]!).toBeGreaterThanOrEqual(-1);
+    });
+
+    it('emits the floor (-60 dBFS) for a silent block', async () => {
+      const fake = makeFakeCapturer();
+      const levels: number[] = [];
+      const orch = new RecordingOrchestrator({
+        sender: vi.fn(),
+        capturerFactory: () => fake as unknown as Capturer,
+        onLevel: (db) => levels.push(db),
+      });
+
+      await orch.start('mic');
+      fake.onSamples!(new Float32Array(1600)); // all zero → clamps to -60
+      await orch.stop();
+
+      expect(levels.length).toBeGreaterThan(0);
+      expect(levels[levels.length - 1]).toBe(-60);
+    });
+
+    it('emits level per onSamples push, independent of chunk emission', async () => {
+      // 3 pushes of 1600 samples (4800 total) is below the 2s (32000) first-chunk
+      // boundary, so NO chunk emits — yet a level fires for each push.
+      const fake = makeFakeCapturer();
+      const sender = vi.fn();
+      const levels: number[] = [];
+      const orch = new RecordingOrchestrator({
+        sender,
+        capturerFactory: () => fake as unknown as Capturer,
+        onLevel: (db) => levels.push(db),
+      });
+
+      await orch.start('mic');
+      for (let i = 0; i < 3; i++) fake.onSamples!(new Float32Array(1600).fill(0.5));
+      // No stop() flush yet → no chunk should have emitted.
+      expect(sender).not.toHaveBeenCalled();
+      expect(levels.length).toBe(3);
+      await orch.stop();
+    });
+  });
+
   it('emits silent chunks too (WAV must be gap-faithful)', async () => {
     // STT Phase 2: live per-chunk STT is gone; the whole-file WAV is
     // transcribed at finalize. Silent gaps must be preserved so absolute

@@ -18,6 +18,8 @@ export interface OrchestratorOptions {
   capturerFactory: (source: RecordingSource) => Capturer;
   firstChunkSec?: number;
   chunkSec?: number;
+  /** Audio level callback: RMS dBFS in [-60, 0] from the ungated stream, for the recording-screen level meter. Optional — omit in tests that don't care. */
+  onLevel?: (dbfs: number) => void;
 }
 
 /**
@@ -42,6 +44,7 @@ export class RecordingOrchestrator {
   private readonly capturerFactory: (source: RecordingSource) => Capturer;
   private readonly firstChunkSec: number;
   private readonly chunkSec: number;
+  private readonly onLevel?: (dbfs: number) => void;
 
   private capturer: Capturer | null = null;
   private acc: ChunkAccumulator | null = null;
@@ -54,6 +57,7 @@ export class RecordingOrchestrator {
     this.capturerFactory = opts.capturerFactory;
     this.firstChunkSec = opts.firstChunkSec ?? 2;
     this.chunkSec = opts.chunkSec ?? 10;
+    this.onLevel = opts.onLevel;
   }
 
   async start(source: RecordingSource): Promise<void> {
@@ -83,6 +87,15 @@ export class RecordingOrchestrator {
 
   private onSamples(s: Float32Array): void {
     if (!this.acc) return;
+    // Level meter (STT Phase 2 E): RMS → dBFS from the UNGATED stream, independent
+    // of chunk/silence logic. Clamp to [-60, 0] (−60 = floor/silence, 0 = full scale).
+    if (this.onLevel && s.length > 0) {
+      let sum = 0;
+      for (const v of s) sum += v * v;
+      const rms = Math.sqrt(sum / s.length);
+      const dbfs = 20 * Math.log10(Math.max(rms, 1e-7));
+      this.onLevel(Math.max(-60, Math.min(0, dbfs)));
+    }
     this.acc.push(s);
   }
 
