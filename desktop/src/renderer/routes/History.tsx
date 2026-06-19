@@ -35,7 +35,13 @@ export function HistoryDetail({ id, transcript, onBack, onRegenerate }: DetailPr
         ))}
       </ul>
       <FamilyPickerStep
-        onPick={(family) => onRegenerate(family)}
+        // Regenerate-from-dump only produces NOTES. The raw transcript is
+        // already shown above, so the 文字起こし choice is hidden here; the
+        // narrowing guard stays as a defensive no-op.
+        showTranscript={false}
+        onPick={(choice) => {
+          if (choice !== 'transcript') onRegenerate(choice);
+        }}
         onDiscard={onBack}
       />
     </section>

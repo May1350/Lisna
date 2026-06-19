@@ -6,8 +6,10 @@ import { ErrorView } from './routes/ErrorView';
 import { SetupView } from './routes/SetupView';
 import { SignInView } from './routes/SignInView';
 import { FamilyPickerStep } from './components/FamilyPickerStep';
+import { TranscriptView } from './routes/TranscriptView';
 import { NoteRenderProgress, type ProgressState } from './components/NoteRenderProgress';
-import type { Note } from '@shared/types';
+import { Spinner } from './components/Spinner';
+import type { Note, TranscriptSegment } from '@shared/types';
 import type { FinalizeProgressPayload } from '@shared/ipc-protocol';
 import type { NoteBase, NoteFamily } from '@shared/note-schema';
 
@@ -26,6 +28,8 @@ type View =
   | { kind: 'history'; id: string }
   | { kind: 'familyPicking' }
   | { kind: 'curatingV2'; progress: ProgressState | null }
+  | { kind: 'transcribing' }
+  | { kind: 'transcript'; segments: TranscriptSegment[]; language: string; durationSec?: number }
   | { kind: 'note'; note: Note | NoteBase }
   | { kind: 'error'; message: string; permanent?: boolean; origin?: ErrorOrigin };
 
@@ -265,7 +269,14 @@ function renderView(view: View, setView: (next: View | ((p: View) => View)) => v
             void window.lisna.discardSession();
             setView({ kind: 'recording' });
           }}
-          onPick={(family) => {
+          onPick={(choice) => {
+            // STT Phase 2 raw-transcript output: LLM-free, no family. Mount the
+            // transcribing spinner synchronously, then run the whole-WAV STT.
+            if (choice === 'transcript') {
+              setView({ kind: 'transcribing' });
+              void runTranscribe(setView);
+              return;
+            }
             // Transition to curating BEFORE await so progress UI mounts
             // synchronously while finalize runs (≈30 s LLM load + per-chunk
             // generate loop).
@@ -277,12 +288,27 @@ function renderView(view: View, setView: (next: View | ((p: View) => View)) => v
                   }
                 : prev,
             );
-            void runFinalize(family, setView);
+            void runFinalize(choice, setView);
           }}
         />
       );
     case 'curatingV2':
       return <NoteRenderProgress progress={view.progress} />;
+    case 'transcribing':
+      return (
+        <section style={{ padding: 24 }}>
+          <Spinner /> <span style={{ marginLeft: 8 }}>文字起こし中…</span>
+        </section>
+      );
+    case 'transcript':
+      return (
+        <TranscriptView
+          segments={view.segments}
+          language={view.language}
+          durationSec={view.durationSec}
+          onNewSession={() => setView({ kind: 'recording' })}
+        />
+      );
     case 'note':
       return (
         <NoteView
@@ -404,6 +430,24 @@ async function runFinalize(
       const permanent = message.includes('SIDECAR_GAVE_UP') || undefined;
       return { kind: 'error', message, permanent };
     });
+  }
+}
+
+/**
+ * Transcript-only path (STT Phase 2 — "文字起こし" picker choice). No LLM:
+ * transcribes the whole captured WAV and routes to TranscriptView. On error,
+ * the existing live-origin error edge applies (retry → familyPicking, where
+ * the same preserved transcript/WAV is re-pickable).
+ */
+async function runTranscribe(
+  setView: (next: View | ((p: View) => View)) => void,
+): Promise<void> {
+  try {
+    const r = await window.lisna.transcribeOnly();
+    setView({ kind: 'transcript', segments: r.segments, language: r.language, durationSec: r.durationSec });
+  } catch (err) {
+    const message = String((err as Error)?.message ?? err);
+    setView((prev) => (prev.kind === 'error' ? prev : { kind: 'error', message }));
   }
 }
 
