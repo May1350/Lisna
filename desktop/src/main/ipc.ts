@@ -263,6 +263,38 @@ async function transcribeWavForFinalize(
 }
 
 /**
+ * Wrap a whole-WAV transcribe with finalize-progress events (F1): emit
+ * `transcribe-start`, forward each sidecar `sttProgress` as `transcribe-progress`,
+ * emit `transcribe-done`. Used by BOTH the note path (getCurrentSession step B)
+ * and the transcript path (getTranscript). The sidecar emits `sttProgress`
+ * id-less during transcribeFile (Group B); we subscribe ONLY for the duration
+ * of this one pass — the `finally` unsubscribes so a later transcribe (or a
+ * stray late event) cannot leak onto the channel. `transcribe-done` fires even
+ * when the transcribe throws, so the renderer's progress UI never wedges on a
+ * failed pass. _safeSend is null only before registerIpc (never in production
+ * at this call site); the optional-chain matches every other emit here.
+ */
+async function transcribeWithProgress(
+  client: SidecarClientLike,
+  sttPath: string,
+  language: NoteLanguage,
+  wavPath: string,
+): Promise<TranscriptSegment[]> {
+  _safeSend?.(CHANNELS.sessionFinalizeProgress, { kind: 'transcribe-start' });
+  const unsub = client.onEvent((e) => {
+    if (e.type === 'sttProgress') {
+      _safeSend?.(CHANNELS.sessionFinalizeProgress, { kind: 'transcribe-progress', pct: e.pct });
+    }
+  });
+  try {
+    return await transcribeWavForFinalize(client, sttPath, language, wavPath);
+  } finally {
+    unsub();
+    _safeSend?.(CHANNELS.sessionFinalizeProgress, { kind: 'transcribe-done' });
+  }
+}
+
+/**
  * Spec §9 finalize prep, shared by the live path (getCurrentSession) and the
  * from-dump path: unload STT (idempotent) → load LLM, with the phase
  * breadcrumbs the founder-visible main.log timing decomposition relies on.
@@ -383,7 +415,7 @@ export function registerIpc(deps: IpcDeps) {
         const wavPath = orch.wavPath;
         if (!wavPath || !fs.existsSync(wavPath)) throw new Error('WAV_MISSING');
         const t0 = Date.now();
-        const segs = await transcribeWavForFinalize(
+        const segs = await transcribeWithProgress(
           client,
           paths.sttPath,
           orch.language as NoteLanguage,
@@ -496,7 +528,7 @@ export function registerIpc(deps: IpcDeps) {
         const wavPath = orch.wavPath;
         if (!wavPath || !fs.existsSync(wavPath)) throw new Error('WAV_MISSING');
         const t0 = Date.now();
-        const segs = await transcribeWavForFinalize(
+        const segs = await transcribeWithProgress(
           client,
           paths.sttPath,
           orch.language as NoteLanguage,

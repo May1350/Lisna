@@ -45,6 +45,13 @@ const engineCallLog: EngineCall[] = [];
 // override this per case (e.g. resolve [] to exercise EMPTY_RECORDING).
 let transcribeFileResult: () => Promise<{ startSec: number; endSec: number; text: string }[]> =
   async () => [{ startSec: 0, endSec: 1, text: 'こんにちは' }];
+// F1 progress forwarding: a per-test hook fired by the mocked transcribeFile
+// WHILE the transcribe is "in flight" (after engineCallLog is stamped, before
+// the result resolves). It receives the STT engine's captured client so the
+// test can drive `client.emitEvent({ type: 'sttProgress', pct })` exactly as
+// the real sidecar would emit mid-transcribeFile. Reset to a no-op per test.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let onTranscribeFileCall: (client: any) => void = () => {};
 vi.mock('../engines/whisper-cpp-stt', () => ({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   WhisperCppSTT: vi.fn().mockImplementation(function (this: any, client: any) {
@@ -54,6 +61,9 @@ vi.mock('../engines/whisper-cpp-stt', () => ({
     this.transcribe = vi.fn(async () => [{ startSec: 0, endSec: 1, text: 'こんにちは' }]);
     this.transcribeFile = vi.fn(async () => {
       engineCallLog.push({ engine: 'stt', method: 'transcribeFile' });
+      // Mid-transcribe: let the test emit sidecar events to the client's
+      // onEvent subscribers (the subscription transcribeWithProgress installs).
+      onTranscribeFileCall(this.client);
       return transcribeFileResult();
     });
     fakeSttInstances.push(this);
@@ -114,6 +124,7 @@ describe('main/ipc FSM', () => {
     fakeLlmInstances.length = 0;
     engineCallLog.length = 0;
     transcribeFileResult = async () => [{ startSec: 0, endSec: 1, text: 'こんにちは' }];
+    onTranscribeFileCall = () => {};
     appRelaunch.mockClear();
     appQuit.mockClear();
     Object.keys(ipcHandlers).forEach((k) => delete ipcHandlers[k]);
@@ -397,7 +408,16 @@ describe('main/ipc FSM', () => {
   // Fake sidecar client: `sendStream` yields the whole note JSON as one token
   // (real makeGrammarSidecar streams from this); `send` is unused because the
   // STT/LLM engines are constructor-mocked, but present so any stray call is safe.
+  //
+  // F1: a minimal event bus mirrors SidecarClient.onEvent — transcribeWithProgress
+  // subscribes for the duration of the transcribe, and the test fires
+  // `emitEvent({ type: 'sttProgress', pct })` (via onTranscribeFileCall) to
+  // simulate the sidecar's mid-transcribeFile progress lines. emitEvent only
+  // reaches CURRENT subscribers, so an event fired outside the transcribe window
+  // (after unsub) is correctly dropped — matching production's scoped lifetime.
   function makeC3StreamClient() {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let listeners: ((e: any) => void)[] = [];
     return {
       send: vi.fn(async () => ({})),
       sendStream: vi.fn(
@@ -406,6 +426,13 @@ describe('main/ipc FSM', () => {
           return (async function* () { yield c3NoteJson; })();
         },
       ),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      onEvent: vi.fn((cb: (e: any) => void) => {
+        listeners.push(cb);
+        return () => { listeners = listeners.filter((x) => x !== cb); };
+      }),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      emitEvent: (e: any) => { for (const cb of listeners) cb(e); },
     };
   }
 
@@ -796,6 +823,120 @@ describe('main/ipc FSM', () => {
       ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/l' }) });
       await expect(ipcHandlers['session/transcribe']!({}, undefined))
         .rejects.toThrow('NO_ACTIVE_SESSION');
+    });
+  });
+
+  // ── F1: whole-WAV transcribe forwards sttProgress → finalize-progress ──────
+  //
+  // During the finalize/transcribe whole-WAV pass the sidecar emits id-less
+  // `{ type: 'sttProgress', pct }` events (Group B). transcribeWithProgress
+  // subscribes for that one pass only and forwards: a `transcribe-start` before
+  // the transcribe, each sttProgress as `transcribe-progress`, a `transcribe-done`
+  // after. Both the NOTE path (session/finalize) and the TRANSCRIPT path
+  // (session/transcribe) wire it. The fake STT's transcribeFile fires
+  // onTranscribeFileCall(client) mid-call so the test emits the sidecar event
+  // exactly while the subscription is live.
+  describe('transcribe progress forwarding (F1)', () => {
+    // Pull just the finalize-progress payloads (in order) out of the window send log.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    function progressPayloads(send: { mock: { calls: any[][] } }) {
+      return send.mock.calls
+        .filter((c) => c[0] === 'session/finalize-progress')
+        .map((c) => c[1]);
+    }
+
+    it('NOTE path: emits transcribe-start, forwards sttProgress {pct:42}, then transcribe-done', async () => {
+      delete process.env['LISNA_DISABLE_AUDIO_SAVE'];
+      const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-f1-note-'));
+      let restore: (() => void) | undefined;
+      try {
+        // Emit a single sttProgress mid-transcribe, on the SAME client the STT
+        // engine captured (the one transcribeWithProgress subscribed to).
+        onTranscribeFileCall = (client) => {
+          client.emitEvent({ type: 'sttProgress', pct: 42 });
+        };
+        const { send, ctorSpy } = await setupC3(userDataDir);
+        restore = () => ctorSpy.mockRestore();
+        await ipcHandlers['session/start']!({}, { language: 'ja' });
+        const result = await ipcHandlers['session/finalize']!({}, { family: 'lecture' });
+        expect(result.note).toMatchObject({ family: 'lecture' });
+
+        const progress = progressPayloads(send);
+        // The transcribe phase contributes start → progress(42) → done, in order
+        // and before any note-generation (attempt-start/chunk-done) events.
+        const startIdx = progress.findIndex((p) => p.kind === 'transcribe-start');
+        const progIdx = progress.findIndex(
+          (p) => p.kind === 'transcribe-progress' && p.pct === 42,
+        );
+        const doneIdx = progress.findIndex((p) => p.kind === 'transcribe-done');
+        expect(startIdx).toBeGreaterThanOrEqual(0);
+        expect(progIdx).toBeGreaterThan(startIdx);
+        expect(doneIdx).toBeGreaterThan(progIdx);
+      } finally {
+        restore?.();
+        appGetPath.mockReset();
+        fs.rmSync(userDataDir, { recursive: true, force: true });
+      }
+    });
+
+    it('TRANSCRIPT path: emits transcribe-start, forwards sttProgress {pct:42}, then transcribe-done', async () => {
+      delete process.env['LISNA_DISABLE_AUDIO_SAVE'];
+      const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-f1-tx-'));
+      let restore: (() => void) | undefined;
+      try {
+        onTranscribeFileCall = (client) => {
+          client.emitEvent({ type: 'sttProgress', pct: 42 });
+        };
+        const { send, ctorSpy } = await setupC3(userDataDir);
+        restore = () => ctorSpy.mockRestore();
+        await ipcHandlers['session/start']!({}, { language: 'ja' });
+        await ipcHandlers['session/transcribe']!({}, undefined);
+
+        const progress = progressPayloads(send);
+        const startIdx = progress.findIndex((p) => p.kind === 'transcribe-start');
+        const progIdx = progress.findIndex(
+          (p) => p.kind === 'transcribe-progress' && p.pct === 42,
+        );
+        const doneIdx = progress.findIndex((p) => p.kind === 'transcribe-done');
+        expect(startIdx).toBeGreaterThanOrEqual(0);
+        expect(progIdx).toBeGreaterThan(startIdx);
+        expect(doneIdx).toBeGreaterThan(progIdx);
+        // No LLM/note path on the transcript route: there must be no note-gen
+        // progress events, only the transcribe trio.
+        expect(progress.every((p) => p.kind.startsWith('transcribe-'))).toBe(true);
+      } finally {
+        restore?.();
+        appGetPath.mockReset();
+        fs.rmSync(userDataDir, { recursive: true, force: true });
+      }
+    });
+
+    it('transcribe-done still fires when transcribeFile throws (subscription cleaned up)', async () => {
+      delete process.env['LISNA_DISABLE_AUDIO_SAVE'];
+      const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-f1-throw-'));
+      let restore: (() => void) | undefined;
+      try {
+        // Emit progress, then make the transcribe itself reject — transcribe-done
+        // must still be sent (the forwarding wrapper's finally), and the unsub
+        // must run so no later event leaks.
+        onTranscribeFileCall = (client) => {
+          client.emitEvent({ type: 'sttProgress', pct: 17 });
+        };
+        transcribeFileResult = async () => { throw new Error('STT_BOOM'); };
+        const { send, ctorSpy } = await setupC3(userDataDir);
+        restore = () => ctorSpy.mockRestore();
+        await ipcHandlers['session/start']!({}, { language: 'ja' });
+        await expect(ipcHandlers['session/transcribe']!({}, undefined)).rejects.toThrow();
+
+        const progress = progressPayloads(send);
+        expect(progress.some((p) => p.kind === 'transcribe-start')).toBe(true);
+        expect(progress.some((p) => p.kind === 'transcribe-progress' && p.pct === 17)).toBe(true);
+        expect(progress.some((p) => p.kind === 'transcribe-done')).toBe(true);
+      } finally {
+        restore?.();
+        appGetPath.mockReset();
+        fs.rmSync(userDataDir, { recursive: true, force: true });
+      }
     });
   });
 
