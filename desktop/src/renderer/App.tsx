@@ -8,7 +8,6 @@ import { SignInView } from './routes/SignInView';
 import { FamilyPickerStep } from './components/FamilyPickerStep';
 import { TranscriptView } from './routes/TranscriptView';
 import { NoteRenderProgress, type ProgressState } from './components/NoteRenderProgress';
-import { Spinner } from './components/Spinner';
 import type { Note, TranscriptSegment } from '@shared/types';
 import type { FinalizeProgressPayload } from '@shared/ipc-protocol';
 import type { NoteBase, NoteFamily } from '@shared/note-schema';
@@ -28,7 +27,7 @@ type View =
   | { kind: 'history'; id: string }
   | { kind: 'familyPicking' }
   | { kind: 'curatingV2'; progress: ProgressState | null }
-  | { kind: 'transcribing' }
+  | { kind: 'transcribing'; pct?: number; startedAt?: number }
   | { kind: 'transcript'; segments: TranscriptSegment[]; language: string; durationSec?: number }
   | { kind: 'note'; note: Note | NoteBase }
   | { kind: 'error'; message: string; permanent?: boolean; origin?: ErrorOrigin };
@@ -137,11 +136,15 @@ function AuthenticatedApp() {
   // chunk-done from the failed finalize).
   useEffect(() => {
     return window.lisna.onFinalizeProgress((msg) => {
-      setView((prev) =>
-        prev.kind === 'curatingV2'
-          ? { ...prev, progress: applyFinalizeProgress(prev.progress, msg) }
-          : prev,
-      );
+      setView((prev) => {
+        if (prev.kind === 'curatingV2')
+          return { ...prev, progress: applyFinalizeProgress(prev.progress, msg) };
+        // Transcript-only path: same sttProgress feed drives the transcribing
+        // view's pct bar (transcribe-start/done bracket it; only pct updates here).
+        if (prev.kind === 'transcribing' && msg.kind === 'transcribe-progress')
+          return { ...prev, pct: msg.pct };
+        return prev;
+      });
     });
   }, []);
 
@@ -273,7 +276,7 @@ function renderView(view: View, setView: (next: View | ((p: View) => View)) => v
             // STT Phase 2 raw-transcript output: LLM-free, no family. Mount the
             // transcribing spinner synchronously, then run the whole-WAV STT.
             if (choice === 'transcript') {
-              setView({ kind: 'transcribing' });
+              setView({ kind: 'transcribing', startedAt: Date.now() });
               void runTranscribe(setView);
               return;
             }
@@ -296,9 +299,9 @@ function renderView(view: View, setView: (next: View | ((p: View) => View)) => v
       return <NoteRenderProgress progress={view.progress} />;
     case 'transcribing':
       return (
-        <section style={{ padding: 24 }}>
-          <Spinner /> <span style={{ marginLeft: 8 }}>文字起こし中…</span>
-        </section>
+        <NoteRenderProgress
+          progress={{ phase: 'transcribing', pct: view.pct, startedAt: view.startedAt }}
+        />
       );
     case 'transcript':
       return (
@@ -369,12 +372,15 @@ export function applyFinalizeProgress(
   switch (msg.kind) {
     // STT Phase 2a: whole-file transcription precedes note generation.
     case 'transcribe-start':
+      // Enter the transcribing phase WITHOUT a pct — no fabricated progress
+      // until the first real sttProgress event lands.
+      return { phase: 'transcribing', startedAt };
     case 'transcribe-progress':
-      // Keep existing ProgressState (or null) unchanged; the UI will add a
-      // transcription phase view in a follow-up task.
-      return prev ?? null;
+      return { phase: 'transcribing', pct: msg.pct, startedAt };
     case 'transcribe-done':
-      return prev ?? null;
+      // Transcription finished; the LLM loads next, so fall back to the
+      // model-loading message until attempt-start switches to 'chunk'.
+      return { phase: 'loading', startedAt };
     case 'attempt-start':
       return {
         phase: 'chunk',
