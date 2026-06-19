@@ -22,6 +22,7 @@ import { buildDumpSessionContext } from './dump-finalize-context';
 import { listDumps, loadDumpTranscript } from './session-dump-reader';
 import { WhisperCppSTT } from './engines/whisper-cpp-stt';
 import { LlamaCppLLM } from './engines/llama-cpp-llm';
+import { TIMEOUTS } from './sidecar/timeouts';
 import { isMacAudioLoopbackSupported } from './platform/hardware-check';
 import { log, redactPath, sessionLog } from './log';
 import { loadToken } from './auth/keychain';
@@ -234,45 +235,114 @@ function loadGlossaryInitialPrompt(): string {
   }
 }
 
+/** Private stall sentinel (H1): a single transcribe attempt saw no `sttProgress`
+ *  heartbeat for STT_TRANSCRIBE_NO_PROGRESS_MS. Thrown by sttPassWithWatchdog,
+ *  caught by the orchestrator to drive the restart→retry. Never surfaced to the
+ *  renderer — the terminal failure is `STT_STALLED`. */
+const STT_NO_PROGRESS = 'STT_NO_PROGRESS';
+
 /**
- * STT Phase 2 (Task C3) — whole-WAV transcription at finalize. Loads STT WITH
- * the session language (load-time param drives `filterSegments`; `transcribeFile`
- * itself is language-agnostic), runs the whole-file pass, then ALWAYS unloads
- * STT before returning. The unload is in `finally` so the 8 GB memory floor
- * holds even when transcribeFile throws — STT must leave RAM before the caller
- * loads the 3 GB LLM. Returns the (hallucination-filtered) segments; the caller
- * stores them on the orchestrator instance so a note-gen retry reuses them.
+ * ONE whole-WAV transcribe attempt with a NO-PROGRESS watchdog (H1).
+ *
+ * Loads STT WITH the session language (load-time param drives `filterSegments`;
+ * `transcribeFile` itself is language-agnostic). The load is NOT watched — a cold
+ * STT load is slow and emits no `sttProgress`, so arming during it would false-
+ * fire. Once load completes the watchdog arms: it expires after
+ * STT_TRANSCRIBE_NO_PROGRESS_MS of silence and is reset on every forwarded
+ * `sttProgress`. No wall-clock cap — a steadily-progressing 84-min lecture stays
+ * alive indefinitely; only a wedged sidecar (single-threaded `whisper_full`, no
+ * cooperative abort) trips it.
+ *
+ * `forwardPct` forwards each heartbeat as a `transcribe-progress` event (F1).
+ *
+ * Cleanup contract for the 8 GB floor:
+ *  - success / real transcribeFile error → STT is gracefully `unloadModel()`-ed
+ *    in `finally` (client is healthy).
+ *  - STALL → the client is WEDGED; `unloadModel()` would queue behind the
+ *    doomed transcribeFile FOREVER (unload is sent with timeoutMs:Infinity), so
+ *    we do NOT await it. The orchestrator's `supervisor.restart()` SIGKILL frees
+ *    the STT RAM instead. We throw the STT_NO_PROGRESS sentinel.
+ *
+ * The abandoned attempt's `transcribeFile` promise is given a no-op `.catch` so
+ * that when the old process is SIGKILLed (rejecting all pending sends) it does
+ * not surface as an unhandledRejection.
  */
-async function transcribeWavForFinalize(
+async function sttPassWithWatchdog(
   client: SidecarClientLike,
   sttPath: string,
   language: NoteLanguage,
   wavPath: string,
+  forwardPct: (pct: number) => void,
 ): Promise<TranscriptSegment[]> {
   const stt = new WhisperCppSTT(client);
   await stt.loadModel(sttPath, language);
+
+  let stalled = false;
+  let timer: NodeJS.Timeout | null = null;
+  let onStall!: () => void;
+  const stallPromise = new Promise<never>((_resolve, reject) => {
+    onStall = () => {
+      stalled = true;
+      reject(new Error(STT_NO_PROGRESS));
+    };
+  });
+  const arm = (): void => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(onStall, TIMEOUTS.STT_TRANSCRIBE_NO_PROGRESS_MS);
+  };
+  const unsub = client.onEvent((e) => {
+    if (e.type === 'sttProgress') {
+      forwardPct(e.pct);
+      arm(); // heartbeat resets the no-progress window
+    }
+  });
+
+  arm(); // transcribeFile is about to start (load done) — arm now
+  const ip = loadGlossaryInitialPrompt();
+  const tf = stt.transcribeFile(wavPath, ip ? { initialPrompt: ip } : undefined);
+  // Prevent an unhandledRejection from the abandoned promise on a stall: after
+  // supervisor.restart() SIGKILLs the wedged process, SidecarClient rejects all
+  // pending sends → this `tf` rejects with "sidecar process exited" later.
+  tf.catch(() => { /* abandoned-on-stall — swallow the post-SIGKILL rejection */ });
   try {
-    const ip = loadGlossaryInitialPrompt();
-    return await stt.transcribeFile(wavPath, ip ? { initialPrompt: ip } : undefined);
+    return await Promise.race([tf, stallPromise]);
   } finally {
-    await stt.unloadModel().catch(() => {
-      // Best-effort: a failed unload (sidecar gone / model not loaded) still
-      // leaves STT out of resident memory. Proceeding to the LLM load is safe.
-    });
+    if (timer) clearTimeout(timer);
+    unsub();
+    // Graceful unload ONLY when the client is healthy. On a stall the client is
+    // wedged — awaiting unloadModel (timeoutMs:Infinity) would hang; restart
+    // frees the RAM instead.
+    if (!stalled) {
+      await stt.unloadModel().catch(() => {
+        // Best-effort: a failed unload (sidecar gone / model not loaded) still
+        // leaves STT out of resident memory. Proceeding is safe.
+      });
+    }
   }
 }
 
 /**
- * Wrap a whole-WAV transcribe with finalize-progress events (F1): emit
- * `transcribe-start`, forward each sidecar `sttProgress` as `transcribe-progress`,
- * emit `transcribe-done`. Used by BOTH the note path (getCurrentSession step B)
- * and the transcript path (getTranscript). The sidecar emits `sttProgress`
- * id-less during transcribeFile (Group B); we subscribe ONLY for the duration
- * of this one pass — the `finally` unsubscribes so a later transcribe (or a
- * stray late event) cannot leak onto the channel. `transcribe-done` fires even
- * when the transcribe throws, so the renderer's progress UI never wedges on a
- * failed pass. _safeSend is null only before registerIpc (never in production
- * at this call site); the optional-chain matches every other emit here.
+ * Whole-WAV transcribe with finalize-progress events (F1) + the H1 stall
+ * watchdog & single-retry recovery. Used by BOTH the note path
+ * (getCurrentSession step B) and the transcript path (getTranscript).
+ *
+ * F1: emit `transcribe-start` once, forward each sidecar `sttProgress` as
+ * `transcribe-progress`, emit `transcribe-done` even on failure so the renderer
+ * progress UI never wedges. The subscription is scoped to a single attempt
+ * (inside sttPassWithWatchdog) so a stray late event cannot leak onto the channel.
+ *
+ * H1 recovery: attempt 0 runs on the current `client`. On a no-progress stall the
+ * sidecar PROCESS is restarted (SIGKILL + fresh spawn → frees the wedged STT
+ * RAM), we wait for ready, and attempt 1 re-issues transcribeFile ONCE on the
+ * fresh client (which reloads STT). A SECOND stall restarts once more for cleanup
+ * (so the next op meets a healthy sidecar, not a wedged one) and throws
+ * `STT_STALLED`. The LLM is NEVER loaded/reloaded here — the 8 GB floor forbids
+ * STT+LLM co-resident, which is why this does NOT reuse makeRecoveringSidecarFor
+ * (that reloads the LLM). A real transcribeFile error (not a stall) propagates
+ * unchanged after one healthy graceful unload.
+ *
+ * _safeSend is null only before registerIpc (never in production at this call
+ * site); the optional-chain matches every other emit here.
  */
 async function transcribeWithProgress(
   client: SidecarClientLike,
@@ -280,16 +350,37 @@ async function transcribeWithProgress(
   language: NoteLanguage,
   wavPath: string,
 ): Promise<TranscriptSegment[]> {
+  const forwardPct = (pct: number): void =>
+    _safeSend?.(CHANNELS.sessionFinalizeProgress, { kind: 'transcribe-progress', pct });
   _safeSend?.(CHANNELS.sessionFinalizeProgress, { kind: 'transcribe-start' });
-  const unsub = client.onEvent((e) => {
-    if (e.type === 'sttProgress') {
-      _safeSend?.(CHANNELS.sessionFinalizeProgress, { kind: 'transcribe-progress', pct: e.pct });
-    }
-  });
   try {
-    return await transcribeWavForFinalize(client, sttPath, language, wavPath);
+    // Attempt 0 — current client.
+    try {
+      return await sttPassWithWatchdog(client, sttPath, language, wavPath, forwardPct);
+    } catch (e) {
+      if (!(e instanceof Error) || e.message !== STT_NO_PROGRESS) throw e; // real error
+    }
+    // Stalled — restart the sidecar PROCESS (frees the wedged STT RAM) and retry once.
+    log.warn('[finalize] STT transcribe stalled (no progress) — restarting sidecar + retrying STT (no LLM)');
+    // `!` is safe: transcribeWithProgress is only reached via a finalize/transcribe
+    // handler that already resolved a client from _depsRef.supervisor.
+    const fresh = await _depsRef!.supervisor.restart();
+    await fresh.waitForReady(5000);
+    try {
+      return await sttPassWithWatchdog(fresh, sttPath, language, wavPath, forwardPct);
+    } catch (e) {
+      if (!(e instanceof Error) || e.message !== STT_NO_PROGRESS) throw e; // real error on retry
+    }
+    // Second stall — give up. Restart ONCE more so the next op (e.g. a user
+    // retry) hits a healthy sidecar instead of the second wedged process; this
+    // cleanup must not mask the STT_STALLED failure if it itself errors.
+    try {
+      await _depsRef!.supervisor.restart();
+    } catch (e) {
+      log.warn('[finalize] post-stall cleanup restart failed (non-fatal)', e);
+    }
+    throw new Error('STT_STALLED');
   } finally {
-    unsub();
     _safeSend?.(CHANNELS.sessionFinalizeProgress, { kind: 'transcribe-done' });
   }
 }
@@ -430,6 +521,20 @@ export function registerIpc(deps: IpcDeps) {
       // no-op generate). The throw rides the same error machinery as (B).
       if (orch.exposedSegments.length === 0) throw new Error('EMPTY_RECORDING');
 
+      // (C2) RE-RESOLVE the live client after transcribe. The H1 stall watchdog
+      // in step (B) may have restarted the sidecar PROCESS (SIGKILL + fresh
+      // spawn) to recover from a wedged transcribe — in which case the `client`
+      // captured before (B) now points at the DEAD process. Step (E)'s
+      // loadLlmForFinalize sends unload/load with timeoutMs:Infinity; on a dead
+      // client SidecarClient.rejectAllPending already fired on proc.exit and
+      // won't fire again, so those sends NEVER settle → the note finalize hangs
+      // forever (force-quit only). getClient() returns the SAME client on the
+      // no-restart path (harmless) and the FRESH one after recovery. (Step (F)'s
+      // makeRecoveringSidecarFor already resolves lazily via _depsRef, so it
+      // needs no fix here.)
+      const liveClient = deps.supervisor.getClient();
+      if (!liveClient) throw new Error('SIDECAR_DOWN');
+
       // (D) Write the dump transcript NOW — AFTER transcription, with the real
       // segments (not the empty pre-transcribe view the old code wrote).
       if (_activeDump) {
@@ -453,7 +558,7 @@ export function registerIpc(deps: IpcDeps) {
       // generation (visible later via [finalize:*] attempts). Without these,
       // a ~4-min run with a 25 s LLM load looks identical to a 25 s retry.
       if (_llmLoadedForCurrent !== orch) {
-        await loadLlmForFinalize(client, paths.llmPath);
+        await loadLlmForFinalize(liveClient, paths.llmPath);
         _llmLoadedForCurrent = orch;
       }
 

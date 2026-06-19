@@ -39,7 +39,10 @@ const fakeLlmInstances: any[] = [];
 // Shared cross-engine call log so finalize-ordering tests (C3) can assert the
 // 8 GB-floor sequence: STT load → transcribeFile → STT unload → LLM load. Each
 // mocked method appends one tagged entry. Reset per test in beforeEach.
-type EngineCall = { engine: 'stt' | 'llm'; method: string };
+// `clientId` records WHICH sidecar client instance the engine adapter was built
+// with (read from an optional `__id` tag the H1 stall tests set) so a test can
+// prove a post-restart LLM load ran against the FRESH client, not the dead one.
+type EngineCall = { engine: 'stt' | 'llm'; method: string; clientId?: string };
 const engineCallLog: EngineCall[] = [];
 // C3: getCurrentSession now drives the WAV → transcribeFile path. Tests can
 // override this per case (e.g. resolve [] to exercise EMPTY_RECORDING).
@@ -56,11 +59,12 @@ vi.mock('../engines/whisper-cpp-stt', () => ({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   WhisperCppSTT: vi.fn().mockImplementation(function (this: any, client: any) {
     this.client = client;
-    this.loadModel = vi.fn(async () => { engineCallLog.push({ engine: 'stt', method: 'load' }); });
-    this.unloadModel = vi.fn(async () => { engineCallLog.push({ engine: 'stt', method: 'unload' }); });
+    const cid = client?.__id as string | undefined;
+    this.loadModel = vi.fn(async () => { engineCallLog.push({ engine: 'stt', method: 'load', clientId: cid }); });
+    this.unloadModel = vi.fn(async () => { engineCallLog.push({ engine: 'stt', method: 'unload', clientId: cid }); });
     this.transcribe = vi.fn(async () => [{ startSec: 0, endSec: 1, text: 'こんにちは' }]);
     this.transcribeFile = vi.fn(async () => {
-      engineCallLog.push({ engine: 'stt', method: 'transcribeFile' });
+      engineCallLog.push({ engine: 'stt', method: 'transcribeFile', clientId: cid });
       // Mid-transcribe: let the test emit sidecar events to the client's
       // onEvent subscribers (the subscription transcribeWithProgress installs).
       onTranscribeFileCall(this.client);
@@ -73,8 +77,9 @@ vi.mock('../engines/llama-cpp-llm', () => ({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   LlamaCppLLM: vi.fn().mockImplementation(function (this: any, client: any) {
     this.client = client;
-    this.loadModel = vi.fn(async () => { engineCallLog.push({ engine: 'llm', method: 'load' }); });
-    this.unloadModel = vi.fn(async () => { engineCallLog.push({ engine: 'llm', method: 'unload' }); });
+    const cid = client?.__id as string | undefined;
+    this.loadModel = vi.fn(async () => { engineCallLog.push({ engine: 'llm', method: 'load', clientId: cid }); });
+    this.unloadModel = vi.fn(async () => { engineCallLog.push({ engine: 'llm', method: 'unload', clientId: cid }); });
     this.generate = vi.fn(async function* () { yield 'Note '; yield 'body'; });
     fakeLlmInstances.push(this);
   }),
@@ -934,6 +939,272 @@ describe('main/ipc FSM', () => {
         expect(progress.some((p) => p.kind === 'transcribe-done')).toBe(true);
       } finally {
         restore?.();
+        appGetPath.mockReset();
+        fs.rmSync(userDataDir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  // ── H1: whole-WAV transcribe STALL watchdog + single-retry recovery ────────
+  //
+  // transcribeFile is sent with timeoutMs:Infinity (a wall-clock cap would abort
+  // an 84-min lecture). The main side instead arms a NO-PROGRESS watchdog that
+  // resets on every sttProgress heartbeat. On expiry the recovery is: restart
+  // the sidecar PROCESS → waitForReady → reload STT → re-issue transcribeFile
+  // ONCE. It must NEVER load/reload the LLM (8 GB floor). A second stall after
+  // the single retry surfaces STT_STALLED. Uses fake timers to drive the
+  // STT_TRANSCRIBE_NO_PROGRESS_MS (60s) window without real waiting.
+  describe('STT stall watchdog (H1)', () => {
+    // A C3-style client with the extra surface the recovery path touches:
+    // waitForReady (awaited after restart) plus the onEvent/emitEvent bus. The
+    // `__id` tag flows into engineCallLog so a test can prove the post-restart
+    // LLM load ran against the FRESH client, not the dead initial one.
+    function makeStallClient(id: string) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let listeners: ((e: any) => void)[] = [];
+      return {
+        __id: id,
+        send: vi.fn(async () => ({})),
+        sendStream: vi.fn(
+          (_req: unknown, opts: { onDone?: (s: { tokensOut: number; genMs: number }) => void }) => {
+            opts.onDone?.({ tokensOut: 5, genMs: 10 });
+            return (async function* () { yield c3NoteJson; })();
+          },
+        ),
+        waitForReady: vi.fn(async () => ({ type: 'ready' })),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        onEvent: vi.fn((cb: (e: any) => void) => {
+          listeners.push(cb);
+          return () => { listeners = listeners.filter((x) => x !== cb); };
+        }),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        emitEvent: (e: any) => { for (const cb of listeners) cb(e); },
+      };
+    }
+
+    // Register IPC with a real-orchestrator ctor spy + a supervisor whose
+    // restart() hands back a FRESH stall-client each call (mirrors
+    // SidecarSupervisor.restart → new SidecarClient). Returns the supervisor,
+    // the captured fresh clients, and the usual spy/window handles.
+    async function setupH1(userDataDir: string) {
+      appGetPath.mockReturnValue(userDataDir);
+      const { win, send } = makeFakeWindow();
+      const initialClient = makeStallClient('initial');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const freshClients: any[] = [];
+      const supervisor = makeFakeSupervisor(initialClient);
+      supervisor.restart = vi.fn(async () => {
+        const c = makeStallClient(`fresh-${freshClients.length + 1}`);
+        freshClients.push(c);
+        // restart hands the new client back AND makes it the live getClient().
+        supervisor.getClient.mockReturnValue(c);
+        return c;
+      });
+      const orchModule = await import('../sidecar/orchestrator');
+      const RealOrch = orchModule.SessionOrchestrator;
+      const ctorSpy = vi
+        .spyOn(orchModule, 'SessionOrchestrator')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .mockImplementation((opts: any) => new RealOrch(opts));
+      ipc.registerIpc({
+        getMainWindow: () => win,
+        supervisor,
+        getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/models/Llama-3.2-3B-Instruct-Q4_K_M.gguf' }),
+      });
+      return { win, send, initialClient, freshClients, supervisor, ctorSpy };
+    }
+
+    it('single stall → restart once → reload STT → re-issue transcribeFile → success; never loads the LLM during transcribe', async () => {
+      vi.useFakeTimers();
+      delete process.env['LISNA_DISABLE_AUDIO_SAVE'];
+      const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-h1-single-'));
+      let restore: (() => void) | undefined;
+      try {
+        // Attempt 0 hangs forever AND emits no progress → the watchdog fires.
+        // Attempt 1 (after restart) resolves with real segments.
+        let calls = 0;
+        transcribeFileResult = () => {
+          calls += 1;
+          if (calls === 1) return new Promise(() => { /* never resolves — stall */ });
+          return Promise.resolve([{ startSec: 0, endSec: 1, text: 'こんにちは' }]);
+        };
+        const { supervisor, ctorSpy } = await setupH1(userDataDir);
+        restore = () => ctorSpy.mockRestore();
+
+        await ipcHandlers['session/start']!({}, { language: 'ja' });
+        const txPromise = ipcHandlers['session/transcribe']!({}, undefined);
+        const settled = txPromise.then((v) => ({ v }), (e) => ({ e }));
+
+        // Drive past the 60s no-progress window → stall sentinel → restart → retry.
+        await vi.advanceTimersByTimeAsync(60_000 + 10);
+        // Let the restart/waitForReady/reload microtasks + attempt-1 resolve flush.
+        await vi.advanceTimersByTimeAsync(0);
+
+        const out = (await settled) as { v?: { segments: unknown[] }; e?: Error };
+        expect(out.e).toBeUndefined();
+        expect(out.v?.segments).toHaveLength(1);
+
+        expect(supervisor.restart).toHaveBeenCalledTimes(1);
+        // STT was loaded on BOTH the initial client and the fresh one (reload).
+        const seq = engineCallLog.map((c) => `${c.engine}:${c.method}`);
+        expect(seq.filter((s) => s === 'stt:load').length).toBeGreaterThanOrEqual(2);
+        expect(seq.filter((s) => s === 'stt:transcribeFile').length).toBeGreaterThanOrEqual(2);
+        // The 8 GB floor: the LLM is NEVER loaded on the transcript path.
+        expect(seq).not.toContain('llm:load');
+      } finally {
+        restore?.();
+        vi.useRealTimers();
+        appGetPath.mockReset();
+        fs.rmSync(userDataDir, { recursive: true, force: true });
+      }
+    });
+
+    it('NOTE path single stall → step-E LLM load + STT-unload run against the FRESH client, not the dead one (no hang)', async () => {
+      // Regression for the stale-client hang: getCurrentSession captures `client`
+      // ONCE before step B. When the watchdog restarts the sidecar during the
+      // transcribe, the captured client points at the SIGKILLed process; step E's
+      // loadLlmForFinalize(client, …) issues unload/load with timeoutMs:Infinity
+      // on that dead client whose rejectAllPending already fired → never settles →
+      // the note finalize hangs forever. The fix re-resolves the live client after
+      // transcribe. This test pins the LLM-load + step-E unload to the FRESH client.
+      vi.useFakeTimers();
+      delete process.env['LISNA_DISABLE_AUDIO_SAVE'];
+      const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-h1-note-'));
+      let restore: (() => void) | undefined;
+      try {
+        // Attempt 0 (on the initial client) stalls; attempt 1 (on the fresh client)
+        // resolves. Emit a heartbeat on the fresh client's pass so the retry both
+        // forwards progress and never re-stalls.
+        let calls = 0;
+        onTranscribeFileCall = (client) => {
+          if (client?.__id !== 'initial') client.emitEvent({ type: 'sttProgress', pct: 80 });
+        };
+        transcribeFileResult = () => {
+          calls += 1;
+          if (calls === 1) return new Promise(() => { /* never resolves — stall */ });
+          return Promise.resolve([{ startSec: 0, endSec: 1, text: 'こんにちは' }]);
+        };
+        const { supervisor, ctorSpy } = await setupH1(userDataDir);
+        restore = () => ctorSpy.mockRestore();
+
+        await ipcHandlers['session/start']!({}, { language: 'ja' });
+        const finPromise = ipcHandlers['session/finalize']!({}, { family: 'lecture' });
+        const settled = finPromise.then((v) => ({ v }), (e) => ({ e }));
+
+        await vi.advanceTimersByTimeAsync(60_000 + 10); // attempt 0 stall → restart → retry
+        await vi.advanceTimersByTimeAsync(0);           // flush restart/reload/load/generate
+
+        const out = (await settled) as { v?: { note: { family: string } }; e?: Error };
+        expect(out.e).toBeUndefined();
+        expect(out.v?.note).toMatchObject({ family: 'lecture' });
+
+        expect(supervisor.restart).toHaveBeenCalledTimes(1);
+
+        // The headline assertion: step E ran against the FRESH client. The dead
+        // 'initial' client must NEVER see an LLM load (that's the hang).
+        const llmLoads = engineCallLog.filter((c) => c.engine === 'llm' && c.method === 'load');
+        expect(llmLoads.length).toBeGreaterThanOrEqual(1);
+        expect(llmLoads.every((c) => c.clientId === 'fresh-1')).toBe(true);
+        expect(llmLoads.some((c) => c.clientId === 'initial')).toBe(false);
+        // loadLlmForFinalize's own idempotent STT unload (step E) is also on fresh.
+        const stepEUnloads = engineCallLog.filter(
+          (c) => c.engine === 'stt' && c.method === 'unload' && c.clientId === 'initial',
+        );
+        // The only 'initial' STT unload allowed is the watchdog's — and on a stall
+        // the watchdog does NOT unload (restart frees the RAM). So zero 'initial'
+        // unloads: every STT unload after the restart is on the fresh client.
+        expect(stepEUnloads).toHaveLength(0);
+      } finally {
+        restore?.();
+        vi.useRealTimers();
+        appGetPath.mockReset();
+        fs.rmSync(userDataDir, { recursive: true, force: true });
+      }
+    });
+
+    it('double stall → STT_STALLED; no LLM load; finalizeInFlight cleared (next finalize not FINALIZE_IN_FLIGHT)', async () => {
+      vi.useFakeTimers();
+      delete process.env['LISNA_DISABLE_AUDIO_SAVE'];
+      const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-h1-double-'));
+      let restore: (() => void) | undefined;
+      try {
+        // Every attempt hangs with no progress → both attempt 0 and attempt 1 stall.
+        transcribeFileResult = () => new Promise(() => { /* always stalls */ });
+        const { supervisor, ctorSpy } = await setupH1(userDataDir);
+        restore = () => ctorSpy.mockRestore();
+
+        await ipcHandlers['session/start']!({}, { language: 'ja' });
+        const txPromise = ipcHandlers['session/transcribe']!({}, undefined);
+        const settled = txPromise.then((v) => ({ v }), (e) => ({ e }));
+
+        // First window → stall → restart → retry; second window → stall → cleanup restart → STT_STALLED.
+        await vi.advanceTimersByTimeAsync(60_000 + 10); // attempt 0 stall
+        await vi.advanceTimersByTimeAsync(0);           // restart + reload + re-arm
+        await vi.advanceTimersByTimeAsync(60_000 + 10); // attempt 1 stall
+        await vi.advanceTimersByTimeAsync(0);           // cleanup restart + throw
+
+        const out = (await settled) as { v?: unknown; e?: Error };
+        expect(out.e).toBeInstanceOf(Error);
+        expect(out.e?.message).toContain('STT_STALLED');
+        // restart fired for the retry AND once more for cleanup (leave a healthy sidecar).
+        expect(supervisor.restart).toHaveBeenCalledTimes(2);
+
+        const seq = engineCallLog.map((c) => `${c.engine}:${c.method}`);
+        expect(seq).not.toContain('llm:load');
+
+        // finalizeInFlight must be cleared on the terminal failure: a subsequent
+        // transcribe must NOT bounce with FINALIZE_IN_FLIGHT. Make this next call
+        // resolve quickly so we only assert the flag, not another stall.
+        transcribeFileResult = async () => [{ startSec: 0, endSec: 1, text: 'やり直し' }];
+        await expect(ipcHandlers['session/transcribe']!({}, undefined))
+          .resolves.toBeTruthy(); // P0-3: session preserved on failure → retry works
+      } finally {
+        restore?.();
+        vi.useRealTimers();
+        appGetPath.mockReset();
+        fs.rmSync(userDataDir, { recursive: true, force: true });
+      }
+    });
+
+    it('steady heartbeat keeps the pass alive past the window in aggregate (no false restart)', async () => {
+      vi.useFakeTimers();
+      delete process.env['LISNA_DISABLE_AUDIO_SAVE'];
+      const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-h1-heartbeat-'));
+      let restore: (() => void) | undefined;
+      try {
+        // transcribeFile hangs until we manually resolve it; while it "runs" we
+        // emit an sttProgress every 30s for 150s total (5× the window). Each
+        // heartbeat must reset the no-progress timer so the watchdog never fires.
+        let release!: (segs: { startSec: number; endSec: number; text: string }[]) => void;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let activeClient: any;
+        onTranscribeFileCall = (client) => { activeClient = client; };
+        transcribeFileResult = () => new Promise((res) => { release = res; });
+        const { supervisor, ctorSpy } = await setupH1(userDataDir);
+        restore = () => ctorSpy.mockRestore();
+
+        await ipcHandlers['session/start']!({}, { language: 'ja' });
+        const txPromise = ipcHandlers['session/transcribe']!({}, undefined);
+        const settled = txPromise.then((v) => ({ v }), (e) => ({ e }));
+        await vi.advanceTimersByTimeAsync(0); // let transcribeFile start + arm timer
+
+        for (let i = 0; i < 5; i++) {
+          await vi.advanceTimersByTimeAsync(30_000); // < 60s window
+          activeClient.emitEvent({ type: 'sttProgress', pct: (i + 1) * 15 });
+        }
+        // 150s elapsed in aggregate, but never 60s WITHOUT a heartbeat → alive.
+        expect(supervisor.restart).not.toHaveBeenCalled();
+
+        // Finish the pass cleanly.
+        release([{ startSec: 0, endSec: 9, text: 'こんにちは' }]);
+        await vi.advanceTimersByTimeAsync(0);
+        const out = (await settled) as { v?: { segments: unknown[] }; e?: Error };
+        expect(out.e).toBeUndefined();
+        expect(out.v?.segments).toHaveLength(1);
+        expect(supervisor.restart).not.toHaveBeenCalled();
+      } finally {
+        restore?.();
+        vi.useRealTimers();
         appGetPath.mockReset();
         fs.rmSync(userDataDir, { recursive: true, force: true });
       }

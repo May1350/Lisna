@@ -36,6 +36,9 @@ export const ALL_ERROR_CODES = [
   'LLM_LOAD_TIMEOUT',
   'LLM_UNLOAD_TIMEOUT',
   'GENERATE_TIMEOUT',
+  // H1 — whole-WAV transcribe stall: the sidecar wedged mid-transcribe and a
+  // process restart + single re-issue still did not produce progress.
+  'STT_STALLED',
   // Step 5 §5.1 — first-run model resolver
   'MODEL_FILE_MISSING_STT',
   'MODEL_FILE_MISSING_LLM',
@@ -90,6 +93,8 @@ export const ERROR_MESSAGE_MAP_JA: Record<ErrorCode, string> = {
     'ノート生成モデルの解放に時間がかかりすぎています。もう一度お試しください。',
   GENERATE_TIMEOUT:
     'ノート生成が停滞しました。もう一度お試しください。',
+  STT_STALLED:
+    '音声の文字起こしが応答しなくなりました。もう一度お試しください。',
   MODEL_FILE_MISSING_STT:
     '文字起こしモデルのファイルが見つかりません。もう一度選択してください。',
   MODEL_FILE_MISSING_LLM:
