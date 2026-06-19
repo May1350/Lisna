@@ -6,6 +6,7 @@ import { ErrorView } from './routes/ErrorView';
 import { SetupView } from './routes/SetupView';
 import { SignInView } from './routes/SignInView';
 import { FamilyPickerStep } from './components/FamilyPickerStep';
+import { FirstRunAudioNotice } from './components/FirstRunAudioNotice';
 import { TranscriptView } from './routes/TranscriptView';
 import { NoteRenderProgress, type ProgressState } from './components/NoteRenderProgress';
 import type { Note, TranscriptSegment } from '@shared/types';
@@ -19,6 +20,24 @@ export function isEmptyRecording(elapsedSec: number): boolean {
 }
 
 export type ErrorOrigin = { kind: 'live' } | { kind: 'dump'; id: string };
+
+/**
+ * Group G1 §5.7/§13 — once-only first-run on-device audio-retention disclosure
+ * gate. Pure decision (exported for tests; the project's vitest config has no
+ * DOM env so the localStorage state + render swap is verified via the live app).
+ *
+ * The notice gates ALL paths into recording — both the boot-direct
+ * `getModelStatus → ready → recording` jump and the post-setup
+ * `SetupView.onReady → recording` jump. Gating only the boot effect would miss
+ * a brand-new user (setup FIRST, then their first record). So the gate keys
+ * ONLY on (a) not-yet-acknowledged and (b) the view being `recording`: until
+ * acknowledged, FirstRunAudioNotice shows and <Recording> is NOT mounted
+ * (capture cannot begin); after acknowledging, the gate opens and Recording
+ * mounts.
+ */
+export function shouldShowAudioNotice(audioNoticeAck: boolean, viewKind: View['kind']): boolean {
+  return !audioNoticeAck && viewKind === 'recording';
+}
 
 type View =
   | { kind: 'booting' }
@@ -106,6 +125,13 @@ export function App() {
  */
 function AuthenticatedApp() {
   const [view, setView] = useState<View>({ kind: 'booting' });
+  // Group G1 §5.7/§13 — once-only first-run audio-retention disclosure ack.
+  // localStorage-backed (the ONLY renderer persistence pattern, same as
+  // Recording.tsx's `lisna.language`). When false, the recording view shows
+  // FirstRunAudioNotice instead of <Recording> (gate: shouldShowAudioNotice).
+  const [audioNoticeAck, setAudioNoticeAck] = useState(
+    () => localStorage.getItem('lisna.audioNoticeAck') === '1',
+  );
 
   // Session error (sidecar crash). Idempotent merge:
   //   - First push: transition to 'error' view.
@@ -199,12 +225,20 @@ function AuthenticatedApp() {
   return (
     <main style={{ fontFamily: 'system-ui', padding: 24 }}>
       <h1>Lisna v2 — on-device</h1>
-      {renderView(view, setView)}
+      {renderView(view, setView, audioNoticeAck, () => {
+        localStorage.setItem('lisna.audioNoticeAck', '1');
+        setAudioNoticeAck(true);
+      })}
     </main>
   );
 }
 
-function renderView(view: View, setView: (next: View | ((p: View) => View)) => void) {
+function renderView(
+  view: View,
+  setView: (next: View | ((p: View) => View)) => void,
+  audioNoticeAck: boolean,
+  onAckAudioNotice: () => void,
+) {
   switch (view.kind) {
     case 'booting':
       return <div data-testid="booting" />;  // null UI; resolved in ~ms
@@ -217,6 +251,13 @@ function renderView(view: View, setView: (next: View | ((p: View) => View)) => v
         />
       );
     case 'recording':
+      // Group G1 — gate the first recording behind the once-only on-device
+      // audio-retention disclosure. This catches BOTH entry paths into
+      // recording (boot-direct + post-setup), so capture cannot begin until the
+      // user acknowledges. See shouldShowAudioNotice.
+      if (shouldShowAudioNotice(audioNoticeAck, view.kind)) {
+        return <FirstRunAudioNotice onAck={onAckAudioNotice} />;
+      }
       return (
         <Recording
           onStop={(elapsedSec) =>
