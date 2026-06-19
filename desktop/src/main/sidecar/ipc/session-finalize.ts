@@ -15,6 +15,7 @@ import { ipcMain } from 'electron';
 import type { TranscriptSegment as LegacySegment } from '@shared/types';
 import { adaptToV2Transcript } from '@shared/note-schema';
 import type { NoteBase, NoteFamily, NoteLanguage } from '@shared/note-schema';
+import type { SessionTranscribeResult } from '@shared/ipc-protocol';
 import type { GrammarCapableSidecar } from '../grammar-call';
 import {
   finalizeLecture,
@@ -80,7 +81,14 @@ export interface SessionContext {
  */
 export type SessionSettleResult =
   | { ok: true; family: NoteFamily; note: NoteBase }
-  | { ok: false; family: NoteFamily; error: string };
+  | { ok: false; family: NoteFamily; error: string }
+  // Raw-transcript output mode (session/transcribe, 2026-06-19): no note, no
+  // family. Carries no payload — the dump's transcript.json was already
+  // written, and there is no result.json for a transcript run. ipc.ts's
+  // onSessionSettled narrows on `'family' in result` before any family-typed
+  // dump write, and runs the same live-session clear-on-success as a note.
+  | { ok: true; kind: 'transcript' }
+  | { ok: false; kind: 'transcript'; error: string };
 
 export interface SessionFinalizeDeps {
   /**
@@ -130,11 +138,21 @@ export interface SessionFinalizeDeps {
    * When omitted, session/finalize-from-dump rejects with DUMP_FINALIZE_UNAVAILABLE.
    */
   getDumpSession?: (id: string) => Promise<SessionContext>;
+
+  /**
+   * Raw-transcript output mode — transcribe the whole captured WAV and return
+   * the raw segments with NO note generation. Reuses the same whole-WAV
+   * transcription + transcript cache + debug dump as getCurrentSession, but
+   * STOPS before the LLM load. When omitted, `session/transcribe` rejects with
+   * TRANSCRIBE_UNAVAILABLE.
+   */
+  getTranscript?: () => Promise<SessionTranscribeResult>;
 }
 
 // ─── channel constants (mirrors CHANNELS in ipc.ts) ──────────────────────────
 export const SESSION_FINALIZE_CHANNEL = 'session/finalize' as const;
 export const SESSION_FINALIZE_FROM_DUMP_CHANNEL = 'session/finalize-from-dump' as const;
+export const SESSION_TRANSCRIBE_CHANNEL = 'session/transcribe' as const;
 
 export interface SessionFinalizeFromDumpArgs {
   /** Dump dir name under <userData>/sessions — validated main-side. */
@@ -279,6 +297,32 @@ export function registerSessionFinalize(deps: SessionFinalizeDeps): void {
       // live-FSM mutations in there are no-ops for dump runs (`current` is
       // null — the SESSION_ACTIVE guard in getDumpSession ensures it) and
       // `_activeDump` is null (no dump created — P0-1), so reuse is safe.
+      deps.onSessionSettled?.(settle);
+    }
+  });
+
+  // Raw-transcript output mode (2026-06-19): LLM-free whole-WAV transcription.
+  // Shares the single `finalizeInFlight` flag with both finalize channels so a
+  // transcribe can't race a note finalize over the single-threaded sidecar.
+  ipcMain.handle(SESSION_TRANSCRIBE_CHANNEL, async (): Promise<SessionTranscribeResult> => {
+    const getTranscript = deps.getTranscript;
+    if (!getTranscript) throw new Error('TRANSCRIBE_UNAVAILABLE');
+    if (finalizeInFlight) throw new Error('FINALIZE_IN_FLIGHT');
+    finalizeInFlight = true;
+
+    let settle: SessionSettleResult = { ok: false, kind: 'transcript', error: 'FINALIZE_NOT_RUN' };
+    try {
+      const r = await getTranscript();
+      settle = { ok: true, kind: 'transcript' };
+      return r;
+    } catch (err) {
+      settle = { ok: false, kind: 'transcript', error: err instanceof Error ? err.message : String(err) };
+      throw err;
+    } finally {
+      finalizeInFlight = false;
+      // Same settle sink as note finalize: ipc.ts clears the live session on
+      // success + idle-unloads the LLM (a no-op here — none was loaded) and
+      // PRESERVES the session on failure. No note result.json is written.
       deps.onSessionSettled?.(settle);
     }
   });

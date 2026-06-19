@@ -599,6 +599,206 @@ describe('main/ipc FSM', () => {
     }
   });
 
+  // ── session/transcribe: LLM-free whole-WAV raw transcript ─────────────────
+  //
+  // Raw-transcript output mode (2026-06-19): the post-Stop picker's 文字起こし
+  // choice routes here. It reuses the SAME whole-WAV transcription + transcript
+  // cache + debug dump as session/finalize, but STOPS before the LLM load — no
+  // note is generated. Reuses the C3 harness (setupC3 / makeC3StreamClient /
+  // transcribeFileResult / engineCallLog) defined above.
+  describe('session/transcribe (raw transcript)', () => {
+    it('returns the transcribed segments + language + durationSec (last endSec); never loads the LLM', async () => {
+      delete process.env['LISNA_DISABLE_AUDIO_SAVE'];
+      const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-tx-ret-'));
+      let restore: (() => void) | undefined;
+      try {
+        const segs = [
+          { startSec: 0, endSec: 2, text: '第一の発言' },
+          { startSec: 2, endSec: 7, text: '第二の発言' },
+        ];
+        transcribeFileResult = async () => segs;
+        const { ctorSpy } = await setupC3(userDataDir);
+        restore = () => ctorSpy.mockRestore();
+        await ipcHandlers['session/start']!({}, { language: 'ja' });
+
+        const result = await ipcHandlers['session/transcribe']!({}, undefined);
+        expect(result.segments).toEqual(segs);
+        expect(result.language).toBe('ja');
+        expect(result.durationSec).toBe(7); // last segment endSec
+        expect(result.sessionId).toBe('live');
+
+        // The core property: the LLM is NEVER loaded on the transcribe path.
+        const seq = engineCallLog.map((c) => `${c.engine}:${c.method}`);
+        expect(seq).toContain('stt:transcribeFile');
+        expect(seq).not.toContain('llm:load');
+      } finally {
+        restore?.();
+        appGetPath.mockReset();
+        fs.rmSync(userDataDir, { recursive: true, force: true });
+      }
+    });
+
+    it('reuses the orchestrator transcript cache: a second transcribe does NOT re-run transcribeFile', async () => {
+      delete process.env['LISNA_DISABLE_AUDIO_SAVE'];
+      const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-tx-cache-'));
+      let restore: (() => void) | undefined;
+      try {
+        const { ctorSpy, orchInstances } = await setupC3(userDataDir);
+        restore = () => ctorSpy.mockRestore();
+        await ipcHandlers['session/start']!({}, { language: 'ja' });
+        // Pre-populate the transcript cache so transcribeFile must NOT run.
+        orchInstances[0].setFinalizeSegments([{ startSec: 0, endSec: 3, text: 'こんにちは' }]);
+
+        const result = await ipcHandlers['session/transcribe']!({}, undefined);
+        expect(result.segments).toEqual([{ startSec: 0, endSec: 3, text: 'こんにちは' }]);
+        const seq = engineCallLog.map((c) => `${c.engine}:${c.method}`);
+        expect(seq.filter((s) => s === 'stt:transcribeFile')).toHaveLength(0);
+        expect(seq).not.toContain('llm:load');
+      } finally {
+        restore?.();
+        appGetPath.mockReset();
+        fs.rmSync(userDataDir, { recursive: true, force: true });
+      }
+    });
+
+    it('writes transcript.json with the real segments to the dump dir', async () => {
+      delete process.env['LISNA_DISABLE_AUDIO_SAVE'];
+      const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-tx-dump-'));
+      let restore: (() => void) | undefined;
+      try {
+        const segs = [
+          { startSec: 0, endSec: 2, text: '一つ目' },
+          { startSec: 2, endSec: 4, text: '二つ目' },
+        ];
+        transcribeFileResult = async () => segs;
+        const { ctorSpy } = await setupC3(userDataDir);
+        restore = () => ctorSpy.mockRestore();
+        await ipcHandlers['session/start']!({}, { language: 'ja' });
+        await ipcHandlers['session/transcribe']!({}, undefined);
+
+        const sessionsDir = path.join(userDataDir, 'sessions');
+        const dumps = fs.readdirSync(sessionsDir);
+        expect(dumps).toHaveLength(1);
+        const transcript = JSON.parse(
+          fs.readFileSync(path.join(sessionsDir, dumps[0]!, 'transcript.json'), 'utf8'),
+        );
+        expect(transcript.segmentCount).toBe(2);
+        expect(transcript.segments).toEqual(segs);
+        expect(transcript.llmModel).toBe('Llama-3.2-3B-Instruct-Q4_K_M.gguf');
+        // No note was generated → no result.json for a transcript run.
+        expect(fs.existsSync(path.join(sessionsDir, dumps[0]!, 'result.json'))).toBe(false);
+      } finally {
+        restore?.();
+        appGetPath.mockReset();
+        fs.rmSync(userDataDir, { recursive: true, force: true });
+      }
+    });
+
+    it('EMPTY_RECORDING when transcribeFile yields [] — no LLM load, session preserved', async () => {
+      delete process.env['LISNA_DISABLE_AUDIO_SAVE'];
+      const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-tx-empty-'));
+      let restore: (() => void) | undefined;
+      try {
+        transcribeFileResult = async () => [];
+        const { ctorSpy } = await setupC3(userDataDir);
+        restore = () => ctorSpy.mockRestore();
+        await ipcHandlers['session/start']!({}, { language: 'ja' });
+        await expect(ipcHandlers['session/transcribe']!({}, undefined))
+          .rejects.toThrow('EMPTY_RECORDING');
+        const seq = engineCallLog.map((c) => `${c.engine}:${c.method}`);
+        expect(seq).toContain('stt:transcribeFile');
+        expect(seq).not.toContain('llm:load');
+        // Failure PRESERVES the live session (mirrors note finalize P0-3).
+        await expect(ipcHandlers['session/start']!({}, { language: 'ja' }))
+          .rejects.toThrow('SESSION_ACTIVE');
+      } finally {
+        restore?.();
+        appGetPath.mockReset();
+        fs.rmSync(userDataDir, { recursive: true, force: true });
+      }
+    });
+
+    it('WAV_MISSING when the orchestrator wavPath does not exist — before any model load', async () => {
+      process.env['LISNA_DISABLE_AUDIO_SAVE'] = '1';
+      const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-tx-nowav-'));
+      let restore: (() => void) | undefined;
+      try {
+        const { ctorSpy, orchInstances } = await setupC3(userDataDir);
+        restore = () => { ctorSpy.mockRestore(); delete process.env['LISNA_DISABLE_AUDIO_SAVE']; };
+        await ipcHandlers['session/start']!({}, { language: 'ja' });
+        expect(orchInstances[0].wavPath).toBeNull();
+        await expect(ipcHandlers['session/transcribe']!({}, undefined))
+          .rejects.toThrow('WAV_MISSING');
+        const seq = engineCallLog.map((c) => `${c.engine}:${c.method}`);
+        expect(seq).not.toContain('stt:load');
+        expect(seq).not.toContain('stt:transcribeFile');
+        expect(seq).not.toContain('llm:load');
+      } finally {
+        restore?.();
+        appGetPath.mockReset();
+        fs.rmSync(userDataDir, { recursive: true, force: true });
+      }
+    });
+
+    it('shares finalizeInFlight: a concurrent session/finalize rejects FINALIZE_IN_FLIGHT', async () => {
+      delete process.env['LISNA_DISABLE_AUDIO_SAVE'];
+      const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-tx-inflight-'));
+      let restore: (() => void) | undefined;
+      try {
+        // Hang transcribeFile so the transcribe handler stays in flight while we
+        // fire session/finalize concurrently — it must hit the shared flag.
+        let release!: (segs: { startSec: number; endSec: number; text: string }[]) => void;
+        transcribeFileResult = () =>
+          new Promise((res) => { release = res; });
+        const { ctorSpy } = await setupC3(userDataDir);
+        restore = () => ctorSpy.mockRestore();
+        await ipcHandlers['session/start']!({}, { language: 'ja' });
+
+        const txPromise = ipcHandlers['session/transcribe']!({}, undefined);
+        // Let the transcribe handler set finalizeInFlight before we race.
+        await Promise.resolve();
+        await expect(ipcHandlers['session/finalize']!({}, { family: 'lecture' }))
+          .rejects.toThrow('FINALIZE_IN_FLIGHT');
+        // Release the hung transcribe so the first call settles cleanly.
+        release([{ startSec: 0, endSec: 1, text: 'こんにちは' }]);
+        const result = await txPromise;
+        expect(result.segments).toHaveLength(1);
+      } finally {
+        restore?.();
+        appGetPath.mockReset();
+        fs.rmSync(userDataDir, { recursive: true, force: true });
+      }
+    });
+
+    it('clears the live session on success → next session/start is NOT rejected SESSION_ACTIVE', async () => {
+      delete process.env['LISNA_DISABLE_AUDIO_SAVE'];
+      const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-tx-clear-'));
+      let restore: (() => void) | undefined;
+      try {
+        transcribeFileResult = async () => [{ startSec: 0, endSec: 1, text: 'こんにちは' }];
+        const { ctorSpy } = await setupC3(userDataDir);
+        restore = () => ctorSpy.mockRestore();
+        await ipcHandlers['session/start']!({}, { language: 'ja' });
+        await ipcHandlers['session/transcribe']!({}, undefined);
+        // Success clears `current` → a fresh start succeeds.
+        await expect(ipcHandlers['session/start']!({}, { language: 'ja' }))
+          .resolves.toBeUndefined();
+      } finally {
+        restore?.();
+        appGetPath.mockReset();
+        fs.rmSync(userDataDir, { recursive: true, force: true });
+      }
+    });
+
+    it('NO_ACTIVE_SESSION when no session is active', async () => {
+      const { win } = makeFakeWindow();
+      const supervisor = makeFakeSupervisor({});
+      ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/l' }) });
+      await expect(ipcHandlers['session/transcribe']!({}, undefined))
+        .rejects.toThrow('NO_ACTIVE_SESSION');
+    });
+  });
+
   it('recording/chunk before session/start → silent no-op', async () => {
     const { win } = makeFakeWindow();
     const supervisor = makeFakeSupervisor({});

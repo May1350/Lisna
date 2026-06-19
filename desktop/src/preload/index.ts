@@ -13,6 +13,7 @@ import type {
   ModelPickPayload,
   DumpSummary,
   DumpTranscript,
+  SessionTranscribeResult,
 } from '@shared/ipc-protocol';
 import type {
   SessionFinalizeArgs,
@@ -47,6 +48,16 @@ contextBridge.exposeInMainWorld('lisna', {
    */
   finalize: (args: SessionFinalizeArgs): Promise<SessionFinalizeResult> =>
     ipcRenderer.invoke(CHANNELS.sessionFinalize, args),
+
+  /**
+   * Raw-transcript output mode — transcribe the whole captured WAV and return
+   * the raw segments with NO note generation (no LLM load). The post-Stop
+   * picker's 文字起こし choice routes here. Rejects with the same guards as
+   * `finalize` (NO_ACTIVE_SESSION / WAV_MISSING / EMPTY_RECORDING /
+   * FINALIZE_IN_FLIGHT — the in-flight flag is shared with note finalize).
+   */
+  transcribeOnly: (): Promise<SessionTranscribeResult> =>
+    ipcRenderer.invoke(CHANNELS.sessionTranscribe),
 
   // --- F2 history viewer ---
 
@@ -153,6 +164,7 @@ declare global {
       /** Drop the stopped session without generating a note (discard route). */
       discardSession(): Promise<void>;
       finalize(args: SessionFinalizeArgs): Promise<SessionFinalizeResult>;
+      transcribeOnly(): Promise<SessionTranscribeResult>;
       listDumps(): Promise<DumpSummary[]>;
       loadDump(id: string): Promise<DumpTranscript>;
       finalizeFromDump(args: SessionFinalizeFromDumpArgs): Promise<SessionFinalizeResult>;

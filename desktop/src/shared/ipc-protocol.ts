@@ -280,6 +280,20 @@ export interface DumpSummary {
   unreadable?: boolean;
 }
 
+/**
+ * Result of `session/transcribe` — the LLM-free raw-transcript output mode
+ * (2026-06-19). Transcribes the whole captured WAV and returns the raw
+ * segments; NO note is generated. The renderer's TranscriptView renders these
+ * verbatim (subtitle-style).
+ */
+export interface SessionTranscribeResult {
+  sessionId: string;
+  language: string;
+  segments: TranscriptSegment[];
+  /** Last segment endSec — for the view header. */
+  durationSec?: number;
+}
+
 /** Full transcript.json payload of one dump (see session-debug-dump.ts). */
 export interface DumpTranscript {
   sessionId: string;

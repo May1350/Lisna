@@ -9,6 +9,7 @@ import type {
   Capabilities,
   ChunkPayload,
   SessionStartPayload,
+  SessionTranscribeResult,
 } from '@shared/ipc-protocol';
 import type { NoteLanguage } from '@shared/note-schema';
 import type { TranscriptSegment } from '@shared/engine-interfaces';
@@ -77,6 +78,10 @@ export const CHANNELS = {
    *  from-dump) runs. Derived 1:1 from orchestrator telemetry — see
    *  toFinalizeProgressPayload for the field-stripping contract. */
   sessionFinalizeProgress: 'session/finalize-progress',
+  /** renderer → main: LLM-free whole-WAV raw transcript (no note). Reuses the
+   *  finalize transcription + cache + dump, stops before the LLM load.
+   *  Equals SESSION_TRANSCRIBE_CHANNEL in session-finalize.ts. */
+  sessionTranscribe: 'session/transcribe',
 } as const;
 
 export interface IpcDeps {
@@ -463,6 +468,66 @@ export function registerIpc(deps: IpcDeps) {
         makeSidecar: makeRecoveringSidecarFor,
       });
     },
+    // Raw-transcript output mode (2026-06-19) — LLM-free whole-WAV transcript.
+    // Mirrors getCurrentSession's preamble + steps (A)-(D), then RETURNS the
+    // raw segments. Deliberately STOPS before the (E) LLM load and the (F)
+    // recovering-sidecar wrap — no note is generated. The transcript cache
+    // (exposedSegments) + debug dump are shared with the note path, so a later
+    // note finalize on the same orchestrator would reuse this transcription.
+    getTranscript: async (): Promise<SessionTranscribeResult> => {
+      if (!current) throw new Error('NO_ACTIVE_SESSION');
+      const paths = deps.getModelPaths();
+      const client = deps.supervisor.getClient();
+      if (!paths || !client) throw new Error('NO_ACTIVE_SESSION');
+      const orch = current;
+
+      // (A) Debug dump — same as the note path. A transcribe run lands in
+      // history via transcript.json; onSessionSettled writes no result.json.
+      try {
+        _activeDump = createSessionDump({ baseDir: sessionsBaseDir() });
+      } catch {
+        _activeDump = null;
+      }
+      if (_activeDump) log.info('[transcribe:dump]', redactPath(_activeDump.dir));
+
+      // (B) Whole-WAV transcription, cached on the orchestrator instance. Skips
+      // when a transcript is already held (e.g. a prior note-finalize attempt).
+      if (orch.exposedSegments.length === 0) {
+        const wavPath = orch.wavPath;
+        if (!wavPath || !fs.existsSync(wavPath)) throw new Error('WAV_MISSING');
+        const t0 = Date.now();
+        const segs = await transcribeWavForFinalize(
+          client,
+          paths.sttPath,
+          orch.language as NoteLanguage,
+          wavPath,
+        );
+        orch.setFinalizeSegments(segs);
+        sessionLog.phase('stt-transcribe-finalize', Date.now() - t0);
+      }
+
+      // (C) Empty guard — a silent recording yields no transcript.
+      if (orch.exposedSegments.length === 0) throw new Error('EMPTY_RECORDING');
+
+      // (D) Persist the transcript dump with the real segments. llmModel is a
+      // required field even though no LLM runs — pass the configured basename.
+      if (_activeDump) {
+        _activeDump.writeTranscript({
+          sessionId: 'live',
+          language: orch.language,
+          llmModel: path.basename(paths.llmPath),
+          segments: orch.exposedSegments,
+        });
+      }
+
+      // NO LLM load. Spread exposedSegments (readonly) into the mutable result.
+      return {
+        sessionId: 'live',
+        language: orch.language,
+        segments: [...orch.exposedSegments],
+        durationSec: orch.exposedSegments.at(-1)?.endSec,
+      };
+    },
     // The v2 Stop flow ends here, not at session/stop — so finalize owns the
     // idle-return. Mirror the session/stop finally block (lines below): clear
     // `current` + `_llmLoadedForCurrent` and drop `recording` so post-finalize
@@ -484,7 +549,10 @@ export function registerIpc(deps: IpcDeps) {
     onSessionSettled: (result) => {
       // Debug dump tail: persist the parsed note (success) or the failure
       // reason, then drop the handle — the next finalize creates a fresh dir.
-      _activeDump?.writeResult(result);
+      // The transcript settle variant carries no `family` (and no note /
+      // result.json by design); writeResult is family-typed, so guard it —
+      // a transcribe run already wrote transcript.json and needs no result.json.
+      if ('family' in result) _activeDump?.writeResult(result);
       _activeDump = null;
       // Audio writer: close on BOTH success and failure. Audio capture
       // already stopped before finalize (Stop → FamilyPicker flow), so no
