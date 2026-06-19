@@ -631,6 +631,233 @@ describe('main/ipc FSM', () => {
     }
   });
 
+  // ── I1: record-then-transcribe finalize, end-to-end, ALL 4 families ────────
+  //
+  // The C3 cases above prove the new finalize path for LECTURE: a mocked
+  // transcribeFile returns a known transcript → the orchestrator stores it
+  // (setFinalizeSegments / exposedSegments) → routeFamily adapts it and the
+  // family core builds the note FROM the transcribed segments (NOT from any
+  // live accumulation, which Group D removed) → the dump transcript.json holds
+  // those segments. I1 generalizes that proof to meeting / interview /
+  // brainstorm so every family routes correctly through the transcribe-fed path.
+  //
+  // The caveat: setupC3's stream client yields c3NoteJson (a LECTURE note). The
+  // real pipeline PARSES + VALIDATES the streamed JSON against the family's
+  // schema/grammar, so meeting/interview/brainstorm need their OWN matching note
+  // JSON or finalize fails. The minimal valid per-family note JSON below mirror
+  // the builders in sidecar/ipc/__tests__/session-finalize.test.ts (which are
+  // not exported); replicated here so the stream can yield a family-matching
+  // note. setupI1 is setupC3 with a parameterized stream note.
+  describe('I1: finalize e2e across all 4 families (mocked STT)', () => {
+    // Minimal valid note JSON per family. Pipeline Stage 3 inserts `from`
+    // provenance post-decode for items carrying ts + (text|term|…), so the raw
+    // response must NOT include `from` (same constraint as the orchestrator
+    // family tests). brainstorm ideas omit `id` (UUID assigned post-decode).
+    const familyNoteJson: Record<string, () => string> = {
+      lecture: () =>
+        JSON.stringify({
+          schemaVersion: 1,
+          family: 'lecture',
+          title: 'I1講義',
+          generatedAt: new Date().toISOString(),
+          generatedBy: { model: 'llama-3.2-3b-q4-km', promptVersion: 1 },
+          language: 'ja',
+          durationSec: 60,
+          sections: [
+            {
+              heading: 'セクション',
+              ts: 0,
+              summary: 'テストの要約です。',
+              key_terms: [{ term: '概念', definition: '定義', ts: 0 }],
+              examples: [],
+              points: [{ text: '重要な点', ts: 0, important: true }],
+            },
+          ],
+        }),
+      meeting: () =>
+        JSON.stringify({
+          schemaVersion: 1,
+          family: 'meeting',
+          title: 'I1会議',
+          generatedAt: new Date().toISOString(),
+          generatedBy: { model: 'llama-3.2-3b-q4-km', promptVersion: 1 },
+          language: 'ja',
+          durationSec: 60,
+          purpose: 'プロジェクトの進捗確認',
+          executive_summary: 'プロジェクトは順調です。',
+          topic_arc: [{ topic: '進捗確認', ts: 0, speakers_involved: [] }],
+          discussions: [{ topic: '進捗', ts_start: 0, summary: '報告がありました。' }],
+          decisions: [],
+          open_questions: [],
+        }),
+      interview: () =>
+        JSON.stringify({
+          schemaVersion: 1,
+          family: 'interview',
+          title: 'I1面談',
+          generatedAt: new Date().toISOString(),
+          generatedBy: { model: 'llama-3.2-3b-q4-km', promptVersion: 1 },
+          language: 'ja',
+          durationSec: 60,
+          purpose: 'インタビューの目的',
+          subject_summary: '被取材者の概要です。',
+          qa_pairs: [{ question: '質問', answer: '回答', ts: 0, asked_by: 0, answered_by: 1 }],
+          themes: [],
+          quotable_lines: [],
+          key_takeaways: [],
+        }),
+      brainstorm: () =>
+        JSON.stringify({
+          schemaVersion: 1,
+          family: 'brainstorm',
+          title: 'I1ブレスト',
+          generatedAt: new Date().toISOString(),
+          generatedBy: { model: 'llama-3.2-3b-q4-km', promptVersion: 1 },
+          language: 'ja',
+          durationSec: 60,
+          purpose: 'ブレインストーミングの目的',
+          idea_clusters: [{ theme: 'テーマ', ideas: [{ text: 'アイデア', ts: 0 }] }],
+        }),
+    };
+
+    // setupC3 with a parameterized streamed note (the only divergence from the
+    // hardcoded-lecture makeC3StreamClient). Everything else — real-orchestrator
+    // ctor spy, supervisor, model paths — is identical so wavPath /
+    // exposedSegments / setFinalizeSegments behave like production.
+    async function setupI1(userDataDir: string, noteJson: string) {
+      appGetPath.mockReturnValue(userDataDir);
+      const { win, send } = makeFakeWindow();
+      const client = makeC3StreamClient();
+      // Re-point sendStream to yield this family's note (default yields lecture).
+      client.sendStream.mockImplementation(
+        (_req: unknown, opts: { onDone?: (s: { tokensOut: number; genMs: number }) => void }) => {
+          opts.onDone?.({ tokensOut: 5, genMs: 10 });
+          return (async function* () { yield noteJson; })();
+        },
+      );
+      const supervisor = makeFakeSupervisor(client);
+      const orchModule = await import('../sidecar/orchestrator');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const orchInstances: any[] = [];
+      const RealOrch = orchModule.SessionOrchestrator;
+      const ctorSpy = vi
+        .spyOn(orchModule, 'SessionOrchestrator')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .mockImplementation((opts: any) => {
+          const inst = new RealOrch(opts);
+          orchInstances.push(inst);
+          return inst;
+        });
+      ipc.registerIpc({
+        getMainWindow: () => win,
+        supervisor,
+        getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/models/Llama-3.2-3B-Instruct-Q4_K_M.gguf' }),
+      });
+      return { win, send, client, orchInstances, ctorSpy };
+    }
+
+    // A known multi-segment transcript every family case is fed. The note JSON
+    // is independent of the transcript text (the streamed note is what the
+    // family core parses), so the assertion that finalize consumed the
+    // TRANSCRIBED segments comes from exposedSegments + the dump, not the note.
+    const knownSegments = [
+      { startSec: 0, endSec: 3, text: '最初の発言です' },
+      { startSec: 3, endSec: 6, text: '二番目の発言です' },
+      { startSec: 6, endSec: 9, text: '三番目の発言です' },
+    ];
+
+    for (const family of ['lecture', 'meeting', 'interview', 'brainstorm'] as const) {
+      it(`${family}: transcribeFile result feeds the note; stt:transcribeFile precedes llm:load; dump holds the transcript`, async () => {
+        delete process.env['LISNA_DISABLE_AUDIO_SAVE'];
+        const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), `lisna-i1-${family}-`));
+        let restore: (() => void) | undefined;
+        try {
+          transcribeFileResult = async () => knownSegments;
+          const { orchInstances, ctorSpy } = await setupI1(userDataDir, familyNoteJson[family]!());
+          restore = () => ctorSpy.mockRestore();
+
+          await ipcHandlers['session/start']!({}, { language: 'ja' });
+          const result = await ipcHandlers['session/finalize']!({}, { family });
+
+          // (1) Routed correctly through the new transcribe-fed path for THIS family.
+          expect(result.note).toMatchObject({ family, schemaVersion: 1 });
+          expect(typeof result.noteId).toBe('string');
+
+          // (2) The finalize consumed the TRANSCRIBED segments — the orchestrator's
+          // exposedSegments reflect the mocked transcribeFile output exactly (not
+          // any live accumulation, which Group D removed). adaptToV2Transcript
+          // built the note's transcript from THESE segments.
+          expect(orchInstances).toHaveLength(1);
+          expect(orchInstances[0].exposedSegments).toEqual(knownSegments);
+
+          // (3) The 8 GB floor + ordering: STT transcribed the WAV BEFORE the LLM
+          // loaded (and STT unloaded in between). Reuses the C3 indexOf pattern.
+          const seq = engineCallLog.map((c) => `${c.engine}:${c.method}`);
+          const sttLoad = seq.indexOf('stt:load');
+          const transcribe = seq.indexOf('stt:transcribeFile');
+          const sttUnload = seq.indexOf('stt:unload');
+          const llmLoad = seq.indexOf('llm:load');
+          expect(sttLoad).toBeGreaterThanOrEqual(0);
+          expect(transcribe).toBeGreaterThan(sttLoad);
+          expect(sttUnload).toBeGreaterThan(transcribe);
+          expect(llmLoad).toBeGreaterThan(sttUnload);
+
+          // (4) The dump transcript.json holds the TRANSCRIBED segments verbatim.
+          const sessionsDir = path.join(userDataDir, 'sessions');
+          const dumps = fs.readdirSync(sessionsDir);
+          expect(dumps).toHaveLength(1);
+          const transcript = JSON.parse(
+            fs.readFileSync(path.join(sessionsDir, dumps[0]!, 'transcript.json'), 'utf8'),
+          );
+          expect(transcript.segmentCount).toBe(knownSegments.length);
+          expect(transcript.segments).toEqual(knownSegments);
+        } finally {
+          restore?.();
+          appGetPath.mockReset();
+          fs.rmSync(userDataDir, { recursive: true, force: true });
+        }
+      });
+    }
+
+    // Crash-safe / gap-faithful WAV (A1/A2) is already unit-covered by
+    // audio-wav-writer.test.ts (WAV header + crash-safe size patch) and
+    // orchestrator.test.ts (silence preserved → gap-faithful). The e2e harness's
+    // mocked transcribeFile reads no real audio, so duplicating those byte-level
+    // assertions here would prove nothing new. Instead assert only the seam I1
+    // owns: that session/start opens a real WAV writer and the orchestrator
+    // exposes a non-null wavPath that exists on disk — the precondition the
+    // finalize transcribe step (B) depends on (it throws WAV_MISSING otherwise,
+    // covered separately in the C3 block).
+    it('the finalize WAV path exists on disk after recording (the transcribe precondition)', async () => {
+      delete process.env['LISNA_DISABLE_AUDIO_SAVE'];
+      const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-i1-wav-'));
+      let restore: (() => void) | undefined;
+      try {
+        const { orchInstances, ctorSpy } = await setupI1(userDataDir, familyNoteJson['lecture']!());
+        restore = () => ctorSpy.mockRestore();
+        await ipcHandlers['session/start']!({}, { language: 'ja' });
+        // Feed a chunk so the WAV writer has appended audio before finalize.
+        await ipcHandlers['recording/chunk']!(
+          { sender: { send: vi.fn() } },
+          { index: 0, source: 'mic', startMs: 0, endMs: 2000, samples: new Float32Array(32000) },
+        );
+        expect(orchInstances).toHaveLength(1);
+        const wavPath: string | null = orchInstances[0].wavPath;
+        expect(wavPath).not.toBeNull();
+        expect(wavPath!.endsWith('.wav')).toBe(true);
+        expect(fs.existsSync(wavPath!)).toBe(true);
+        // The appended chunk grew the file past the bare 44-byte WAV header.
+        expect(fs.statSync(wavPath!).size).toBeGreaterThan(44);
+        // Clean up the FSM (close the writer) so the next test starts idle.
+        await ipcHandlers['session/discard']!({}, undefined);
+      } finally {
+        restore?.();
+        appGetPath.mockReset();
+        fs.rmSync(userDataDir, { recursive: true, force: true });
+      }
+    });
+  });
+
   // ── session/transcribe: LLM-free whole-WAV raw transcript ─────────────────
   //
   // Raw-transcript output mode (2026-06-19): the post-Stop picker's 文字起こし
