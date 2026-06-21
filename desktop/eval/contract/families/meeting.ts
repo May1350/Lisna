@@ -1,5 +1,6 @@
 // desktop/eval/contract/families/meeting.ts
 import type { ContractRule } from '../contract-test';
+import { meetingDecisionCaptured } from '../../anchor-match';
 
 const requiresDecisionOrAction: ContractRule = {
   id: 'meeting-must-have-decision-or-action',
@@ -48,10 +49,7 @@ const groundTruthDecisionsMustAppear: ContractRule = {
     if (!groundTruth?.decisions) return { pass: true, message: 'no ground-truth decisions, rule N/A' };
     const required = groundTruth.decisions.filter(d => d.mustAppear);
     if (required.length === 0) return { pass: true, message: 'no mustAppear decisions, rule N/A' };
-    const notedDecisions: string[] = (note.decisions ?? []).map((d: any) => String(d.text ?? ''));
-    const missing = required.filter(req =>
-      !notedDecisions.some(n => substringMatch(n, req.text)),
-    );
+    const missing = required.filter(req => !meetingDecisionCaptured(req.text, note));
     return {
       pass: missing.length === 0,
       message: missing.length === 0
@@ -61,12 +59,6 @@ const groundTruthDecisionsMustAppear: ContractRule = {
     };
   },
 };
-
-// JA-friendly substring match — strip whitespace + normalize for kana
-function substringMatch(haystack: string, needle: string): boolean {
-  const norm = (s: string) => s.replace(/\s+/g, '').toLowerCase();
-  return norm(haystack).includes(norm(needle));
-}
 
 export const MEETING_RULES: ContractRule[] = [
   requiresDecisionOrAction,

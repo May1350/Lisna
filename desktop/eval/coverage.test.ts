@@ -45,4 +45,18 @@ describe('computeCoverage', () => {
     expect(r.total).toBe(0);
     expect(r.ratio).toBe(0);
   });
+
+  it('meeting coverage credits atomized decisions against a compound gold (anchor containment)', () => {
+    /* eslint-disable @typescript-eslint/no-explicit-any */
+    const gold = { decisions: [{ text: 'プロプランを3,480円に値上げし、解約9社をウィンバックする', mustAppear: true }] } as any;
+    const note = {
+      decisions: [{ text: 'プロプランを3,480円に値上げする' }],
+      next_steps: [{ text: '解約9社をウィンバックする' }],
+      discussions: [],
+    } as any;
+    /* eslint-enable @typescript-eslint/no-explicit-any */
+    const cov = computeCoverage('meeting', note, gold);
+    // OLD substring matcher → 0 (compound gold not a substring of either atom). NEW anchor matcher → 1.
+    expect(cov.captured).toBe(1);
+  });
 });
