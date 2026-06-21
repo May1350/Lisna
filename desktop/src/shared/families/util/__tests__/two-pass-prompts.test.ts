@@ -27,4 +27,19 @@ describe('buildPass2Prompts', () => {
     expect(system).toMatch(/title/i);
     expect(userPrefix.length).toBeGreaterThan(0);
   });
+
+  it('injects meeting field-semantics when family=meeting (iter2 banked win)', () => {
+    const generic = buildPass2Prompts('ja').system;
+    const meeting = buildPass2Prompts('ja', 'meeting').system;
+    // The meeting variant carries the decision-vs-topic-label distinction +
+    // the next_steps/owner separation; the generic variant does not.
+    expect(generic).not.toContain('topic_arc');
+    expect(meeting).toContain('topic_arc');
+    expect(meeting).toContain('next_steps');
+    expect(meeting).toContain('executive_summary');
+  });
+
+  it('family with no semantics entry falls back to the generic system', () => {
+    expect(buildPass2Prompts('ja', 'lecture').system).toBe(buildPass2Prompts('ja').system);
+  });
 });

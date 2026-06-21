@@ -1031,7 +1031,7 @@ export async function finalizeMeeting(
       },
       lang,
     );
-    const p2 = buildPass2Prompts(lang);
+    const p2 = buildPass2Prompts(lang, 'meeting');
 
     // baseSeed 6000 (lecture 5000) keeps seeds distinct across families; with
     // PASS1_SEED_OFFSET=40000 / POST_DECODE_SEED_OFFSET=10000, lecture and
