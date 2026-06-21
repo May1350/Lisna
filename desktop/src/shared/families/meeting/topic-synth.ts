@@ -4,6 +4,7 @@
  */
 import type { SessionTranscript } from '@shared/note-schema';
 import type { ExtractedAtoms } from './extract-schema';
+import { MEETING_ARRAY_CAPS } from './schema';
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -154,7 +155,11 @@ export function synthesizeTopicArcAndDiscussions(input: TopicSynthInput): TopicS
     const label = boundaries[i]!.label;
     const ts = boundaries[i]!.ts;
     const tsEnd = i + 1 < boundaries.length ? boundaries[i + 1]!.ts : undefined;
-    const speakers = uniq(b.speakerRefs);
+    // Cap to MeetingNoteSchema's `.max(MAX_PARTICIPANTS)` so a topic that gathers
+    // >12 distinct speaker refs can't throw `too_big` at schema.parse. Unreachable
+    // while diarization is forced off (refs collapse to [0]) but pre-empts the
+    // crash when Plan 4 enables real speaker attribution.
+    const speakers = uniq(b.speakerRefs).slice(0, MEETING_ARRAY_CAPS.participants);
     topic_arc.push({ topic: label, ts, speakers_involved: speakers.length > 0 ? speakers : [0] });
     const keyPoints = [...b.decisions.map((d) => d.text), ...b.figures.map((f) => `${f.label}: ${f.value}`)];
     discussions.push({

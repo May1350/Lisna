@@ -195,3 +195,18 @@ it('weaves DEDUPED key_figures into key_points (a figure in two chunks appears o
   expect(allKeyPoints.filter((k) => k === 'MRR: 4,200万円')).toHaveLength(1);
   expect(allKeyPoints).toContain('Proプラン: 3,480円');
 });
+
+it('caps topic_arc speakers_involved to MAX_PARTICIPANTS (12)', () => {
+  // 14 distinct made_by refs in one topic bucket — schema caps speakers_involved
+  // at 12, so the synthesis must slice (else schema.parse throws too_big once
+  // diarization is enabled). Distinct numbers/text → no dedup, all 14 survive.
+  const transcript = tx([seg(0, '議題について議論する')]);
+  const decisions = Array.from({ length: 14 }, (_, i) => ({ text: `決定${i}を承認する`, made_by: i, ts: 5 }));
+  const assembled = assembleMeetingNote(
+    [{ tsRange: [0, 30], atoms: MeetingExtractSchema.parse({ decisions, action_items: [], key_figures: [], open_questions: [], risks: [] }) }],
+    transcript,
+  );
+  for (const t of assembled.topic_arc as Array<{ speakers_involved: number[] }>) {
+    expect(t.speakers_involved.length).toBeLessThanOrEqual(12);
+  }
+});
