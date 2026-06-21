@@ -143,6 +143,27 @@ describe('isFillerAtomText', () => {
   });
 });
 
+it('drops filler-labeled key_figures (no junk topic label / key_point)', () => {
+  const transcript = tx([seg(0, '議題について')]);
+  const assembled = assembleMeetingNote(
+    [
+      {
+        tsRange: [0, 30],
+        atoms: MeetingExtractSchema.parse({
+          decisions: [], action_items: [],
+          key_figures: [{ label: '決める', value: '#' }, { label: 'MRR', value: '4,200万円' }],
+          open_questions: [], risks: [],
+        }),
+      },
+    ],
+    transcript,
+  );
+  const kps = (assembled.discussions as Array<{ key_points?: string[] }>).flatMap((d) => d.key_points ?? []);
+  expect(kps).toContain('MRR: 4,200万円');
+  expect(kps.some((k) => k.includes('決める'))).toBe(false);
+  expect((assembled.topic_arc as Array<{ topic: string }>).map((t) => t.topic)).not.toContain('決める');
+});
+
 it('assembleMeetingNote drops contentless filler decisions, keeps substantive ones', () => {
   const transcript = tx([seg(0, '議題について')]);
   const assembled = assembleMeetingNote(
@@ -206,6 +227,13 @@ describe('deriveTopicLabel', () => {
   it('falls back to a numbered label when the bucket has no proper nouns or figures', () => {
     const b = { ...emptyBucket(), decisions: [{ text: '値上げする方針で合意した' }] };
     expect(deriveTopicLabel(b, 2)).toBe('議題3');
+  });
+
+  it('ignores a filler-labeled figure ("決める") and falls through to 議題N', () => {
+    // The 3B sometimes emits a junk figure {label:"決める", value:"#"}; it must
+    // NOT become the topic label (eval p1tune-2 regression).
+    const b = { ...emptyBucket(), figures: [{ label: '決める', value: '#' }] };
+    expect(deriveTopicLabel(b, 0)).toBe('議題1');
   });
 
   it('never returns an empty topic label (degenerate figure label falls through to 議題N)', () => {

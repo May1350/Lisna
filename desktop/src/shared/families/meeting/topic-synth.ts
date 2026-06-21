@@ -5,6 +5,7 @@
 import type { SessionTranscript } from '@shared/note-schema';
 import type { ExtractedAtoms } from './extract-schema';
 import { MEETING_ARRAY_CAPS } from './schema';
+import { isFillerAtomText } from './dedup';
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -97,9 +98,11 @@ export function deriveTopicLabel(bucket: TopicBucketLike, fallbackIndex: number)
   // 1. Representative figure — label sharing the most tokens with the discussion.
   //    Containment (either direction) not exact equality, so a figure token
   //    "バックエンド" matches the glued content run "バックエンドエンジニア".
+  //    Skip junk filler-labeled figures (3B emits {label:"決める", value:"#"}).
+  const figures = bucket.figures.filter((f) => !isFillerAtomText(f.label));
   const contentTokens = [...freq.keys()];
   let bestFigure: { label: string; overlap: number } | undefined;
-  for (const f of bucket.figures) {
+  for (const f of figures) {
     const overlap = properNounTokens(f.label).reduce(
       (n, t) => n + (contentTokens.some((c) => tokenMatch(c, t.toLowerCase())) ? 1 : 0),
       0,
@@ -121,8 +124,8 @@ export function deriveTopicLabel(bucket: TopicBucketLike, fallbackIndex: number)
 
   // 4. Any figure label (peripheral) is still better than a bare number — but
   //    only if it survives cleaning (a punctuation-only label cleans to '').
-  if (bucket.figures[0]) {
-    const fl = cleanLabel(bucket.figures[0].label);
+  if (figures[0]) {
+    const fl = cleanLabel(figures[0].label);
     if (fl) return fl;
   }
 

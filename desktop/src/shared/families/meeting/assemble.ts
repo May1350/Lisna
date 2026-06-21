@@ -35,7 +35,9 @@ export function assembleMeetingNote(
   const nextStepsRaw = unionContentAtoms(actionsPerChunk);
   const openQuestions = unionContentAtoms(chunkExtracts.map((c) => notFiller(c.atoms.open_questions)));
   const risks = unionContentAtoms(chunkExtracts.map((c) => notFiller(c.atoms.risks)));
-  const keyFigures = unionKeyFigures(chunkExtracts.map((c) => c.atoms.key_figures));
+  const keyFigures = unionKeyFigures(
+    chunkExtracts.map((c) => c.atoms.key_figures.filter((f) => !isFillerAtomText(f.label))),
+  );
 
   // -------------------------------------------------------------------------
   // 2. Derive title + purpose
