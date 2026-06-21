@@ -29,7 +29,6 @@ import { applyGeneratedMeta } from '@shared/note-schema/apply-generated-meta';
 import { deterministicMerge } from '@shared/post-decode/deterministic-merge';
 import { consolidateLectureSections } from '../../shared/post-decode/consolidate-lecture-sections';
 import {
-  consolidateMeetingNote,
   consolidateInterviewNote,
   consolidateBrainstormNote,
 } from '../../shared/post-decode/consolidate-conversation';
@@ -37,6 +36,9 @@ import { runMergeLLMCall } from './merge-llm';
 import { callWithGrammar, findLanguageMismatch, makeSidecarGenerator, type GrammarAttempt, type GrammarCapableSidecar, type LlmGenerator } from './grammar-call';
 import { buildPass1Prompts, buildPass2Prompts } from '@shared/families/util/two-pass-prompts';
 import { degradeToSingleSpeaker } from '@shared/families/meeting/degrade-to-single-speaker';
+import { extractMeetingAtoms } from './meeting-extract';
+import { assembleMeetingNote } from '@shared/families/meeting/assemble';
+import type { ExtractedAtoms } from '@shared/families/meeting/extract-schema';
 import type { FinalizeFamily } from '../log';
 
 // ─── Route (b) latency decomposition (founder smoke 2026-06-09) ──────────────
@@ -985,8 +987,6 @@ export async function finalizeMeeting(
   const fam = familyCoreRegistry['meeting'];
   if (!fam) throw new Error('MEETING_FAMILY_NOT_REGISTERED');
 
-  const grammar = zodToGbnf(fam.schema, 'MeetingNote');
-
   const prompt = selectPromptVariant(
     fam.prompts,
     fam.defaultPromptVariant,
@@ -1011,86 +1011,83 @@ export async function finalizeMeeting(
     throw new Error('EMPTY_TRANSCRIPT');
   }
 
+  const lang = args.language ?? 'ja';
   const generator = makeSidecarGenerator(args.sidecar);
-  const partials: Array<Partial<MeetingNote>> = [];
 
-  let totalAttemptsAcrossChunks = 0;
-  let sanitizedAcrossChunks = 0;
+  // ── Extraction-driven flow (2026-06-21) ────────────────────────────────────
+  // Per chunk: ONE grammar-constrained extraction of flat atoms (the 3B's
+  // strength). The note STRUCTURE (topic_arc, discussions, summary) is then
+  // synthesized DETERMINISTICALLY by assembleMeetingNote — replacing the old
+  // per-chunk full-note generation + deterministicMerge, which asked the 3B to
+  // do global reorganization it can't (note-quality loop, 2026-06-21).
+  const chunkExtracts: Array<{ atoms: ExtractedAtoms; tsRange: [number, number] }> = [];
+  const extractWarnings: string[] = [];
 
   for (let i = 0; i < chunks.length; i++) {
     args.onProgress?.({ phase: 'chunk', chunkIndex: i, totalChunks: chunks.length });
 
-    // ── 2-pass prompts (per-chunk fabrication fix, 2026-06-14) ──────────────
-    const lang = args.language ?? 'ja';
-    const p1 = buildPass1Prompts(
-      'meeting',
-      {
-        chunkIndex: i,
-        totalChunks: chunks.length,
-        transcript: renderTranscriptWithSpeakers(chunks[i]!, activeTranscript.speakers),
-      },
-      lang,
-    );
-    const p2 = buildPass2Prompts(lang, 'meeting');
-
-    // baseSeed 6000 (lecture 5000) keeps seeds distinct across families; with
-    // PASS1_SEED_OFFSET=40000 / POST_DECODE_SEED_OFFSET=10000, lecture and
-    // meeting seed blocks stay disjoint for any plausible chunk count.
-    const chunkResult = await runChunkWithGrammar({
-      family: 'meeting',
-      fam,
+    const r = await extractMeetingAtoms({
+      chunk: chunks[i]!,
+      generator,
+      language: lang,
       chunkIndex: i,
       totalChunks: chunks.length,
-      twoPass: true,
-      pass1System: p1.system,
-      pass1User: p1.user,
-      pass2System: p2.system,
-      pass2UserPrefix: p2.userPrefix,
-      grammar,
-      baseSeed: 6000 + i,
-      tuning,
-      generator,
-      transcriptForPostDecode: activeTranscript,
-      expectedLanguage: lang,
-      onTelemetry: args.onTelemetry,
+      speakers: activeTranscript.speakers,
+      sampling: args.modelProfile.sampling,
+      temperature: tuning.temperature,
     });
-    partials.push(chunkResult.validated as Partial<MeetingNote>);
-    totalAttemptsAcrossChunks += chunkResult.innerAttemptsTotal;
-    sanitizedAcrossChunks += chunkResult.sanitizedTotal;
+    chunkExtracts.push({ atoms: r.atoms, tsRange: r.tsRange });
+    if (!r.ok) extractWarnings.push(`extract: chunk ${i} failed (${r.reason})`);
+
+    // One extraction attempt per chunk — emit the existing chunk-done shape so
+    // the latency-decomposition consumers keep working (extract has no inner
+    // retry ladder: one outer cycle, one inner attempt, no reseed/sanitize).
+    args.onTelemetry?.({
+      kind: 'chunk-done',
+      family: 'meeting',
+      chunkIndex: i,
+      totalChunks: chunks.length,
+      totalLatencyMs: 0,
+      outerAttempts: 1,
+      totalAttempts: 1,
+      freshSeedRetries: 0,
+      sanitizedTotal: 0,
+    });
   }
 
   args.onProgress?.({ phase: 'merge' });
-  const merged = deterministicMerge<Record<string, unknown>>(
-    partials as Array<Partial<Record<string, unknown>>>,
-    fam.mergeStrategy,
-  );
+  const assembled = assembleMeetingNote(chunkExtracts, activeTranscript);
 
-  // Bubble the diarization warning into the merged note before schema parse.
-  if (validationWarnings.length > 0) {
-    merged.validation_warnings = [
-      ...((merged.validation_warnings as string[] | undefined) ?? []),
-      ...validationWarnings,
-    ];
-  }
-
-  // Without diarization every SpeakerRef the model emitted is a hallucination
-  // (founder P1, 2026-06-10) — normalize to the lone speaker 0 and drop the
-  // now-meaningless roster.
+  // Without diarization every SpeakerRef the assembler carried through from an
+  // extracted atom is unreliable (founder P1, 2026-06-10) — normalize to the
+  // lone speaker 0 and drop the now-meaningless roster.
   if (args.diarizationStatus !== 'ok') {
-    collapseSpeakerRefsToZero(merged);
-    delete merged.participants;
+    collapseSpeakerRefsToZero(assembled);
+    delete assembled.participants;
   }
 
-  // Cap-fit unioned arrays to their schema bounds (rung-X) so a long (2h)
-  // recording can't throw `too_big` and lose the finalize — AFTER the merge +
-  // diarization sweeps, BEFORE schema.parse.
-  const { note: consolidated } = consolidateMeetingNote(merged as unknown as MeetingNote);
-  const note = fam.schema.parse(consolidated) as MeetingNote;
+  // Attach all warnings (diarization + per-chunk extract failures) before the
+  // post-decode pipeline runs the final schema.parse.
+  assembled.validation_warnings = [
+    ...((assembled.validation_warnings as string[] | undefined) ?? []),
+    ...validationWarnings,
+    ...extractWarnings,
+  ];
+
+  // runPostDecodePipeline fills `from`, drops empty user-visible items, and runs
+  // MeetingNoteSchema.parse. The assembler already cap-fits to MEETING_ARRAY_CAPS,
+  // so `.max()` won't throw here.
+  const note = runPostDecodePipeline(
+    JSON.stringify(assembled),
+    fam,
+    activeTranscript,
+  ) as MeetingNote;
+
   applyGeneratedMeta(note, {
     generatedAt: generationStartedAt,
     model: args.modelProfile.id,
     promptVersion: prompt.version,
-    language: args.language ?? 'ja',
+    language: lang,
     durationSec: activeTranscript.transcriptSegments.at(-1)?.endTs ?? 0,
   });
 
@@ -1107,6 +1104,8 @@ export async function finalizeMeeting(
       0,
     ),
     totalTokensOut: 0,
+    // extract path has no per-chunk retry ladder / sanitize counters; keep the
+    // diarization warnings, leave the (now-absent) dedup/mutation counters empty.
     validationWarnings: [...validationWarnings],
     dedupHits: [],
     postDecodeMutations: [],
@@ -1118,8 +1117,8 @@ export async function finalizeMeeting(
     family: 'meeting',
     totalLatencyMs: Date.now() - t0,
     chunkCount: chunks.length,
-    totalAttempts: totalAttemptsAcrossChunks,
-    sanitizedTotal: sanitizedAcrossChunks,
+    totalAttempts: chunks.length,
+    sanitizedTotal: 0,
   });
   return { note, telemetry };
 }
