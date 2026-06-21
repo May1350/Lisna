@@ -42,16 +42,22 @@ export function buildMeetingExtractPrompt(
   const isJa = language === 'ja' || language !== 'en';
   const system = isJa
     ? [
-        'この区間のみ抽出してください。',
+        'この区間のみから抽出してください。',
         '数値・日付・固有名詞は文字起こしのとおり正確に記録してください（言い直しは最後の確定値を使用）。',
-        '雑談・休憩・相槌は除外してください。',
+        '決定事項は「何を・どうするか」が具体的に確定した事項だけを記録してください。相槌や同意の発話（「はい」「なるほど」「そうですね」「そうなんです」など）、対象が不明な一言（「決めましょう」「決める」「やります」など）は決定事項に含めないでください。',
+        '宿題は、担当者か期限を伴う具体的なタスクだけを記録してください。',
+        '雑談・休憩・相槌・言い直しの途中は除外してください。',
+        '該当する内容がなければ無理に項目を作らず、空の配列にしてください。',
         '抽出対象: 決定事項 / 宿題（担当者） / 数値・指標 / 質問・懸念 / リスク。',
         'JSONのみを出力してください。説明文は不要です。',
       ].join('\n')
     : [
         'Extract from this segment only.',
         'Record numbers, dates, and proper nouns exactly as spoken (use the last confirmed value for corrections).',
-        'Exclude small talk, breaks, and filler.',
+        'Record a decision only when a concrete outcome was settled (what + how). Do NOT record acknowledgements or agreement fillers ("yes", "right", "I see", "sounds good"), nor contentless verbs ("let\'s decide", "we\'ll do it"), as decisions.',
+        'Record an action item only when it has a concrete owner or due date.',
+        'Exclude small talk, breaks, filler, and mid-sentence restarts.',
+        'If a category has nothing, leave it as an empty array — do not invent items.',
         'Categorize: decisions / action items (owner) / key figures / open questions / risks.',
         'Output JSON only.',
       ].join('\n');
