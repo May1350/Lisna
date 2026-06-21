@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { dedupFitArray } from '@shared/post-decode/cap-fit';
 import { normalizeFigureValue, unionKeyFigures, unionContentAtoms } from '../dedup';
-import { detectTopicBoundaries, assignToTopics } from '../topic-synth';
+import { detectTopicBoundaries, assignToTopics, deriveTopicLabel } from '../topic-synth';
 import { assembleMeetingNote } from '../assemble';
 import { MeetingExtractSchema } from '../extract-schema';
 import { MeetingNoteSchema } from '../schema';
@@ -127,6 +127,62 @@ describe('assignToTopics', () => {
 });
 
 // ---------------------------------------------------------------------------
+// P1 tuning: deriveTopicLabel — concise keyword/figure label, not a sentence fragment
+// ---------------------------------------------------------------------------
+
+const emptyBucket = () => ({ decisions: [], figures: [], questions: [], risks: [], actions: [] });
+
+describe('deriveTopicLabel', () => {
+  it('uses the representative key_figure label whose tokens overlap the discussion', () => {
+    const b = {
+      ...emptyBucket(),
+      decisions: [{ text: 'プロプランを3,480円に値上げする' }],
+      figures: [{ label: 'プロプラン新価格', value: '3,480円' }],
+    };
+    expect(deriveTopicLabel(b, 0)).toBe('プロプラン新価格');
+  });
+
+  it('prefers the figure that overlaps the discussion over a peripheral figure', () => {
+    const b = {
+      ...emptyBucket(),
+      decisions: [{ text: 'バックエンドエンジニアを1名のみ採用する' }],
+      figures: [
+        { label: 'ランウェイ', value: '14ヶ月' }, // peripheral (no token overlap)
+        { label: '新規バックエンド採用コスト', value: '1,040万円' }, // overlaps バックエンド
+      ],
+    };
+    expect(deriveTopicLabel(b, 0)).toBe('新規バックエンド採用コスト');
+  });
+
+  it('uses the dominant recurring proper-noun when there are no figures', () => {
+    const b = {
+      ...emptyBucket(),
+      decisions: [{ text: 'CustomerLoopへ乗り換えを決定' }],
+      actions: [{ text: 'CustomerLoopへ移行する' }, { text: 'CustomerLoopのリージョンを確認' }],
+    };
+    expect(deriveTopicLabel(b, 0)).toBe('CustomerLoop');
+  });
+
+  it('falls back to a numbered label when the bucket has no proper nouns or figures', () => {
+    const b = { ...emptyBucket(), decisions: [{ text: '値上げする方針で合意した' }] };
+    expect(deriveTopicLabel(b, 2)).toBe('議題3');
+  });
+
+  it('never emits a mid-sentence fragment label (no post-cue raw text)', () => {
+    // The phase1-b-flat regression: labels like "トップラインですけど、Q3末のMRRが4,200".
+    const b = {
+      ...emptyBucket(),
+      decisions: [{ text: 'トップラインですけど、Q3末のMRRが4,200万円になりました' }],
+      figures: [{ label: 'Q3末MRR', value: '4,200万円' }],
+    };
+    const label = deriveTopicLabel(b, 0);
+    expect(label).toBe('Q3末MRR');
+    expect(label).not.toContain('ですけど');
+    expect(label).not.toContain('。');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Task 4: assembleMeetingNote round-trip
 // ---------------------------------------------------------------------------
 
@@ -194,6 +250,58 @@ it('weaves DEDUPED key_figures into key_points (a figure in two chunks appears o
   // Deduped across chunks → exactly one, AND the distinct figure also present.
   expect(allKeyPoints.filter((k) => k === 'MRR: 4,200万円')).toHaveLength(1);
   expect(allKeyPoints).toContain('Proプラン: 3,480円');
+});
+
+it('topic_arc labels are concise keywords, not mid-sentence fragments', () => {
+  const transcript = tx([seg(0, '料金改定について'), seg(80, '次は、ベンダー選定です')]);
+  const assembled = assembleMeetingNote(
+    [
+      {
+        tsRange: [0, 60],
+        atoms: MeetingExtractSchema.parse({
+          decisions: [{ text: 'プロプランを3,480円に値上げする', ts: 10 }],
+          action_items: [], key_figures: [{ label: 'プロプラン新価格', value: '3,480円', ts: 5 }],
+          open_questions: [], risks: [],
+        }),
+      },
+      {
+        tsRange: [60, 140],
+        atoms: MeetingExtractSchema.parse({
+          decisions: [{ text: 'CustomerLoopへ乗り換えを決定', ts: 90 }],
+          action_items: [{ task: 'CustomerLoopへ移行する', ts: 100 }],
+          key_figures: [], open_questions: [], risks: [],
+        }),
+      },
+    ],
+    transcript,
+  );
+  const topics = (assembled.topic_arc as Array<{ topic: string }>).map((t) => t.topic);
+  expect(topics).toContain('プロプラン新価格');
+  expect(topics).toContain('CustomerLoop');
+  for (const t of topics) {
+    expect(t).not.toContain('。');
+    expect(t).not.toContain('ですけど');
+  }
+});
+
+it('executive_summary reports the capped decision count, not the pre-cap union count', () => {
+  const transcript = tx([seg(0, '議題について')]);
+  // 22 distinct decisions (per-chunk extract cap is 15 → split 11+11) → union
+  // keeps 22, mapped caps to MAX_DECISIONS (20).
+  const mk = (lo: number, hi: number) =>
+    Array.from({ length: hi - lo }, (_, k) => ({ text: `案件${lo + k}を${lo + k + 100}万円で承認する`, ts: lo + k + 1 }));
+  const assembled = assembleMeetingNote(
+    [
+      { tsRange: [0, 30], atoms: MeetingExtractSchema.parse({ decisions: mk(0, 11), action_items: [], key_figures: [], open_questions: [], risks: [] }) },
+      { tsRange: [30, 60], atoms: MeetingExtractSchema.parse({ decisions: mk(11, 22), action_items: [], key_figures: [], open_questions: [], risks: [] }) },
+    ],
+    transcript,
+  );
+  const summary = assembled.executive_summary as string;
+  const mappedCount = (assembled.decisions as unknown[]).length;
+  expect(mappedCount).toBe(20);
+  expect(summary).toContain('20件の決定');
+  expect(summary).not.toContain('22件');
 });
 
 it('caps topic_arc speakers_involved to MAX_PARTICIPANTS (12)', () => {

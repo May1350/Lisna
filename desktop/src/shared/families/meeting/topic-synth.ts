@@ -12,6 +12,95 @@ import { MEETING_ARRAY_CAPS } from './schema';
 
 function uniq<T>(arr: T[]): T[] { return [...new Set(arr)]; }
 
+// Proper-noun-ish tokens: katakana runs ≥2, and latin/alphanumeric runs starting
+// with a letter (so "MRR", "Q3", "CustomerLoop" match but bare numbers don't).
+const KATAKANA_TOKEN_RE = /[ァ-ヴー]{2,}/g;
+const LATIN_TOKEN_RE = /[A-Za-z][A-Za-z0-9]+/g;
+
+function properNounTokens(text: string): string[] {
+  return [...(text.match(KATAKANA_TOKEN_RE) ?? []), ...(text.match(LATIN_TOKEN_RE) ?? [])];
+}
+
+/** Trim trailing punctuation/separators and clamp length for a topic label. */
+function cleanLabel(s: string): string {
+  return s.trim().replace(/[、。・,.\s]+$/u, '').slice(0, 24);
+}
+
+export interface TopicBucketLike {
+  decisions: ReadonlyArray<{ text: string }>;
+  questions: ReadonlyArray<{ text: string }>;
+  risks: ReadonlyArray<{ text: string }>;
+  actions: ReadonlyArray<{ text: string }>;
+  figures: ReadonlyArray<{ label: string; value: string }>;
+}
+
+/**
+ * Derive a concise, readable topic label from a bucket's atoms — NOT the raw
+ * mid-sentence post-cue transcript text (the phase1-b-flat readability regression
+ * where labels read like "トップラインですけど、Q3末のMRRが4,200").
+ *
+ * Priority:
+ *  1. The key_figure whose label-tokens overlap the discussion content (figure
+ *     labels are already concise noun phrases — "プロプラン新価格", "Q3末MRR").
+ *  2. The proper-noun keyword recurring across the most content atoms (theme word).
+ *  3. Any single content keyword.
+ *  4. Any figure label (peripheral, but still a clean noun phrase).
+ *  5. Numbered fallback `議題N`.
+ */
+export function deriveTopicLabel(bucket: TopicBucketLike, fallbackIndex: number): string {
+  const contentTexts = [
+    ...bucket.decisions.map((d) => d.text),
+    ...bucket.questions.map((q) => q.text),
+    ...bucket.risks.map((r) => r.text),
+    ...bucket.actions.map((a) => a.text),
+  ];
+
+  // Token atom-frequency: how many distinct content atoms each token appears in.
+  const freq = new Map<string, { surface: string; atoms: number; first: number }>();
+  contentTexts.forEach((text, ai) => {
+    const seen = new Set<string>();
+    for (const tok of properNounTokens(text)) {
+      const k = tok.toLowerCase();
+      if (seen.has(k)) continue;
+      seen.add(k);
+      const e = freq.get(k);
+      if (e) e.atoms += 1;
+      else freq.set(k, { surface: tok, atoms: 1, first: ai });
+    }
+  });
+
+  // 1. Representative figure — label sharing the most tokens with the discussion.
+  //    Containment (either direction) not exact equality, so a figure token
+  //    "バックエンド" matches the glued content run "バックエンドエンジニア".
+  const contentTokens = [...freq.keys()];
+  let bestFigure: { label: string; overlap: number } | undefined;
+  for (const f of bucket.figures) {
+    const overlap = properNounTokens(f.label).reduce(
+      (n, t) => n + (contentTokens.some((c) => c.includes(t.toLowerCase()) || t.toLowerCase().includes(c)) ? 1 : 0),
+      0,
+    );
+    if (
+      overlap > 0 &&
+      (!bestFigure || overlap > bestFigure.overlap || (overlap === bestFigure.overlap && f.label.length < bestFigure.label.length))
+    ) {
+      bestFigure = { label: f.label, overlap };
+    }
+  }
+  if (bestFigure) return cleanLabel(bestFigure.label);
+
+  // 2/3. Dominant (recurring) keyword, else any single keyword.
+  const ranked = [...freq.values()].sort(
+    (a, b) => b.atoms - a.atoms || b.surface.length - a.surface.length || a.first - b.first,
+  );
+  if (ranked[0]) return cleanLabel(ranked[0].surface);
+
+  // 4. Any figure label (peripheral) is still better than a bare number.
+  if (bucket.figures[0]) return cleanLabel(bucket.figures[0].label);
+
+  // 5. Numbered fallback.
+  return `議題${fallbackIndex + 1}`;
+}
+
 export function deterministicSummary(
   label: string,
   decisions: Array<{ text: string }>,
@@ -149,10 +238,13 @@ export function synthesizeTopicArcAndDiscussions(input: TopicSynthInput): TopicS
   const topic_arc: Array<{ topic: string; ts: number; speakers_involved: number[] }> = [];
   const discussions: Array<{ topic: string; ts_start: number; ts_end?: number; summary: string; key_points?: string[] }> = [];
 
+  let emitted = 0;
   for (let i = 0; i < boundaries.length; i++) {
     const b = buckets.get(i)!;
     if (b.decisions.length + b.figures.length + b.questions.length + b.risks.length + b.actions.length === 0) continue;
-    const label = boundaries[i]!.label;
+    // Label from the bucket's dominant keyword/figure, not the raw post-cue text.
+    const label = deriveTopicLabel(b, emitted);
+    emitted += 1;
     const ts = boundaries[i]!.ts;
     const tsEnd = i + 1 < boundaries.length ? boundaries[i + 1]!.ts : undefined;
     // Cap to MeetingNoteSchema's `.max(MAX_PARTICIPANTS)` so a topic that gathers
@@ -171,7 +263,7 @@ export function synthesizeTopicArcAndDiscussions(input: TopicSynthInput): TopicS
   }
 
   if (topic_arc.length === 0) {
-    const label = boundaries[0]?.label ?? '会議メモ';
+    const label = '会議メモ';
     const ts = boundaries[0]?.ts ?? 0;
     topic_arc.push({ topic: label, ts, speakers_involved: [0] });
     discussions.push({ topic: label, ts_start: ts, summary: deterministicSummary(label, [], [], []) });

@@ -58,22 +58,13 @@ export function assembleMeetingNote(
   });
 
   // -------------------------------------------------------------------------
-  // 4. executive_summary (deterministic)
-  // -------------------------------------------------------------------------
-  const topicLabels = topic_arc.map((t) => t.topic);
-  const executive_summary =
-    topicLabels.length > 0
-      ? `本会議では、${topicLabels.join('、')}について議論し、${decisions.length}件の決定と${nextStepsRaw.length}件の宿題を確認した。`
-      : '会議の記録';
-
-  // -------------------------------------------------------------------------
-  // 5. title + purpose (non-empty fallbacks)
+  // 4. title + purpose (non-empty fallbacks)
   // -------------------------------------------------------------------------
   const title = longestTitle || topic_arc[0]?.topic || '会議メモ';
   const purpose = longestPurpose || '会議の記録';
 
   // -------------------------------------------------------------------------
-  // 6. Map to note fields + apply caps
+  // 5. Map to note fields + apply caps
   // -------------------------------------------------------------------------
   const mappedDecisions = decisions.slice(0, MEETING_ARRAY_CAPS.decisions).map((d) => ({
     text: d.text,
@@ -99,6 +90,16 @@ export function assembleMeetingNote(
     ts: r.ts ?? 0,
     ...(r.raised_by !== undefined ? { raised_by: r.raised_by } : {}),
   }));
+
+  // -------------------------------------------------------------------------
+  // 6. executive_summary (deterministic) — counts match the CAPPED arrays the
+  //    reader actually sees (not the pre-cap union counts).
+  // -------------------------------------------------------------------------
+  const topicLabels = topic_arc.map((t) => t.topic);
+  const executive_summary =
+    topicLabels.length > 0
+      ? `本会議では、${topicLabels.join('、')}について議論し、${mappedDecisions.length}件の決定と${mappedNextSteps.length}件の宿題を確認した。`
+      : '会議の記録';
 
   // -------------------------------------------------------------------------
   // 7. Assemble final object (placeholders for system-owned NoteBase fields)
