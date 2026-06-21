@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { dedupFitArray } from '@shared/post-decode/cap-fit';
-import { normalizeFigureValue, unionKeyFigures, unionContentAtoms } from '../dedup';
+import { normalizeFigureValue, unionKeyFigures, unionContentAtoms, isFillerAtomText } from '../dedup';
 import { detectTopicBoundaries, assignToTopics, deriveTopicLabel } from '../topic-synth';
 import { assembleMeetingNote } from '../assemble';
 import { MeetingExtractSchema } from '../extract-schema';
@@ -127,6 +127,46 @@ describe('assignToTopics', () => {
 });
 
 // ---------------------------------------------------------------------------
+// P1 tuning: deterministic filler drop (robust replacement for prompt-tightening)
+// ---------------------------------------------------------------------------
+
+describe('isFillerAtomText', () => {
+  it('flags contentless agreement/decision fillers', () => {
+    for (const t of ['決める', 'そうなんです', '決めましょう。', 'はい', 'なるほど', '了解です', 'やります']) {
+      expect(isFillerAtomText(t)).toBe(true);
+    }
+  });
+  it('keeps substantive atoms (including terse real decisions)', () => {
+    for (const t of ['プロプランを3,480円に値上げする', '予算案を承認', '採用を確定', 'CustomerLoopへ乗り換え']) {
+      expect(isFillerAtomText(t)).toBe(false);
+    }
+  });
+});
+
+it('assembleMeetingNote drops contentless filler decisions, keeps substantive ones', () => {
+  const transcript = tx([seg(0, '議題について')]);
+  const assembled = assembleMeetingNote(
+    [
+      {
+        tsRange: [0, 30],
+        atoms: MeetingExtractSchema.parse({
+          decisions: [
+            { text: 'プロプランを3,480円に値上げする', ts: 5 },
+            { text: '決める', ts: 6 },
+            { text: 'そうなんです', ts: 7 },
+            { text: '決めましょう。', ts: 8 },
+          ],
+          action_items: [], key_figures: [], open_questions: [], risks: [],
+        }),
+      },
+    ],
+    transcript,
+  );
+  const texts = (assembled.decisions as Array<{ text: string }>).map((d) => d.text);
+  expect(texts).toEqual(['プロプランを3,480円に値上げする']);
+});
+
+// ---------------------------------------------------------------------------
 // P1 tuning: deriveTopicLabel — concise keyword/figure label, not a sentence fragment
 // ---------------------------------------------------------------------------
 
@@ -166,6 +206,33 @@ describe('deriveTopicLabel', () => {
   it('falls back to a numbered label when the bucket has no proper nouns or figures', () => {
     const b = { ...emptyBucket(), decisions: [{ text: '値上げする方針で合意した' }] };
     expect(deriveTopicLabel(b, 2)).toBe('議題3');
+  });
+
+  it('never returns an empty topic label (degenerate figure label falls through to 議題N)', () => {
+    // Reviewer finding: a pure-kanji bucket + a punctuation-only figure label
+    // ("・") would clean to "" and produce an empty topic + dangling exec_summary.
+    const b = { ...emptyBucket(), decisions: [{ text: '値上げする方針で合意した' }], figures: [{ label: '・', value: '50%' }] };
+    expect(deriveTopicLabel(b, 0)).toBe('議題1');
+  });
+
+  it('does not let a 2-char acronym substring-match an unrelated figure label', () => {
+    const b = { ...emptyBucket(), decisions: [{ text: 'AI戦略を推進する' }], figures: [{ label: 'AIRDROP費用', value: '10万円' }] };
+    expect(deriveTopicLabel(b, 0)).not.toBe('AIRDROP費用');
+  });
+
+  it('does not emit an English stop-word as a topic label', () => {
+    const b = {
+      ...emptyBucket(),
+      decisions: [
+        { text: 'We will migrate to the new vendor' },
+        { text: 'We should review the new pricing' },
+        { text: 'We agreed to ship the feature' },
+      ],
+    };
+    const label = deriveTopicLabel(b, 0).toLowerCase();
+    expect(label).not.toBe('the');
+    expect(label).not.toBe('we');
+    expect(label).not.toBe('to');
   });
 
   it('never emits a mid-sentence fragment label (no post-cue raw text)', () => {

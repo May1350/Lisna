@@ -17,8 +17,33 @@ function uniq<T>(arr: T[]): T[] { return [...new Set(arr)]; }
 const KATAKANA_TOKEN_RE = /[ァ-ヴー]{2,}/g;
 const LATIN_TOKEN_RE = /[A-Za-z][A-Za-z0-9]+/g;
 
+// English function words that would otherwise win a topic label by frequency in
+// an English meeting (decisions repeat "we", "the", "to" …). JA is the primary
+// path; this keeps the secondary EN path from emitting a bare stop-word heading.
+const EN_STOP = new Set([
+  'the', 'we', 'to', 'by', 'of', 'and', 'a', 'an', 'in', 'on', 'for', 'will', 'with', 'is',
+  'are', 'be', 'that', 'this', 'it', 'at', 'as', 'or', 'our', 'us', 'you', 'they', 'but', 'not',
+  'new', 'should', 'would', 'could', 'can', 'may', 'do', 'does', 'did', 'have', 'has', 'had',
+  'from', 'so', 'then', 'than', 'their', 'your', 'its', 'was', 'were', 'if', 'about', 'into',
+  'over', 'per', 'we’ll', "we'll",
+]);
+
 function properNounTokens(text: string): string[] {
-  return [...(text.match(KATAKANA_TOKEN_RE) ?? []), ...(text.match(LATIN_TOKEN_RE) ?? [])];
+  return [...(text.match(KATAKANA_TOKEN_RE) ?? []), ...(text.match(LATIN_TOKEN_RE) ?? [])].filter(
+    (t) => !EN_STOP.has(t.toLowerCase()),
+  );
+}
+
+/**
+ * Token equality OR containment — but containment only counts when the CONTAINED
+ * (shorter) token is ≥3 chars, so a 2-char acronym ("AI") can't substring-match an
+ * unrelated longer token ("AIRDROP"). Containment is what lets a figure token
+ * "バックエンド" match the glued content run "バックエンドエンジニア".
+ */
+function tokenMatch(a: string, b: string): boolean {
+  if (a === b) return true;
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a];
+  return short.length >= 3 && long.includes(short);
 }
 
 /** Trim trailing punctuation/separators and clamp length for a topic label. */
@@ -76,7 +101,7 @@ export function deriveTopicLabel(bucket: TopicBucketLike, fallbackIndex: number)
   let bestFigure: { label: string; overlap: number } | undefined;
   for (const f of bucket.figures) {
     const overlap = properNounTokens(f.label).reduce(
-      (n, t) => n + (contentTokens.some((c) => c.includes(t.toLowerCase()) || t.toLowerCase().includes(c)) ? 1 : 0),
+      (n, t) => n + (contentTokens.some((c) => tokenMatch(c, t.toLowerCase())) ? 1 : 0),
       0,
     );
     if (
@@ -94,8 +119,12 @@ export function deriveTopicLabel(bucket: TopicBucketLike, fallbackIndex: number)
   );
   if (ranked[0]) return cleanLabel(ranked[0].surface);
 
-  // 4. Any figure label (peripheral) is still better than a bare number.
-  if (bucket.figures[0]) return cleanLabel(bucket.figures[0].label);
+  // 4. Any figure label (peripheral) is still better than a bare number — but
+  //    only if it survives cleaning (a punctuation-only label cleans to '').
+  if (bucket.figures[0]) {
+    const fl = cleanLabel(bucket.figures[0].label);
+    if (fl) return fl;
+  }
 
   // 5. Numbered fallback.
   return `議題${fallbackIndex + 1}`;

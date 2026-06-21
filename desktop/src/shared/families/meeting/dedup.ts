@@ -22,6 +22,19 @@ export const LATIN_RE = /[A-Za-z][A-Za-z0-9]{1,}/g;
 // Exported dedup helpers
 // ---------------------------------------------------------------------------
 
+// Contentless filler utterances the 3B mis-extracts as decisions/actions
+// ("決める", "そうなんです", "決めましょう"). Anchored to the WHOLE trimmed text so
+// a real decision with content ("予算を決める") never matches. Deterministic
+// drop is robust where prompt instructions are not — naming these in the
+// extraction prompt PRIMED the 3B to emit them (eval p1tune-1, 15×"決めましょう。").
+const FILLER_RE =
+  /^(?:はい|ええ|うん|うーん|なるほど|そう(?:です|ですね|なんです|なんですね)?|わかりました|了解(?:です)?|お願いします|決め(?:る|ます|ました|ましょう)|やり(?:ます|ましょう)|やる|それで(?:いきましょう|いいです(?:ね)?)?)[。、．，！!？?\s]*$/;
+
+/** True when the atom text is contentless filler (drop before union). */
+export function isFillerAtomText(text: string): boolean {
+  return FILLER_RE.test(text.trim());
+}
+
 /**
  * Strip separators + 円, normalize digits, KEEP unit suffixes (万/億/%) so
  * 4,200 and 4,200万 stay distinct.

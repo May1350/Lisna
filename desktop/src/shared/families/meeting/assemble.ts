@@ -7,7 +7,7 @@
 import type { SessionTranscript } from '@shared/note-schema';
 import type { ExtractedAtoms } from './extract-schema';
 import { MEETING_ARRAY_CAPS } from './schema';
-import { unionKeyFigures, unionContentAtoms } from './dedup';
+import { unionKeyFigures, unionContentAtoms, isFillerAtomText } from './dedup';
 import { synthesizeTopicArcAndDiscussions } from './topic-synth';
 
 /**
@@ -24,13 +24,17 @@ export function assembleMeetingNote(
   // -------------------------------------------------------------------------
   // Reshape action_items.task → text up front so the union and the midpoint
   // tracking (below) operate on the same object identities.
+  // Drop contentless filler ("決める" / "そうなんです") before union — robust where
+  // the extraction prompt is not (see dedup.ts::isFillerAtomText).
+  const notFiller = <T extends { text: string }>(arr: ReadonlyArray<T>): T[] =>
+    arr.filter((a) => !isFillerAtomText(a.text));
   const actionsPerChunk = chunkExtracts.map((c) =>
-    c.atoms.action_items.map((a) => ({ text: a.task, owner: a.owner, due: a.due, ts: a.ts })),
+    notFiller(c.atoms.action_items.map((a) => ({ text: a.task, owner: a.owner, due: a.due, ts: a.ts }))),
   );
-  const decisions = unionContentAtoms(chunkExtracts.map((c) => c.atoms.decisions));
+  const decisions = unionContentAtoms(chunkExtracts.map((c) => notFiller(c.atoms.decisions)));
   const nextStepsRaw = unionContentAtoms(actionsPerChunk);
-  const openQuestions = unionContentAtoms(chunkExtracts.map((c) => c.atoms.open_questions));
-  const risks = unionContentAtoms(chunkExtracts.map((c) => c.atoms.risks));
+  const openQuestions = unionContentAtoms(chunkExtracts.map((c) => notFiller(c.atoms.open_questions)));
+  const risks = unionContentAtoms(chunkExtracts.map((c) => notFiller(c.atoms.risks)));
   const keyFigures = unionKeyFigures(chunkExtracts.map((c) => c.atoms.key_figures));
 
   // -------------------------------------------------------------------------
