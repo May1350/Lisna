@@ -46,7 +46,10 @@ export function Recording({ onStop, onError, onOpenHistory }: Props) {
   // (ipc rejects them). Persisted so a lecture-course routine doesn't reset
   // to ja every launch.
   const [language, setLanguage] = useState<Language>(
-    () => (localStorage.getItem('lisna.language') === 'en' ? 'en' : 'ja'),
+    () => {
+      const v = localStorage.getItem('lisna.language');
+      return v === 'en' || v === 'ko' ? v : 'ja';
+    },
   );
   // Elapsed-seconds indicator. Counts while `running`; resets on each start.
   const [elapsedSec, setElapsedSec] = useState(0);
@@ -243,6 +246,16 @@ export function Recording({ onStop, onError, onOpenHistory }: Props) {
             onChange={() => { setLanguage('en'); localStorage.setItem('lisna.language', 'en'); }}
           />
           English
+        </label>
+        <label>
+          <input
+            type="radio"
+            name="language"
+            value="ko"
+            checked={language === 'ko'}
+            onChange={() => { setLanguage('ko'); localStorage.setItem('lisna.language', 'ko'); }}
+          />
+          한국어
         </label>
       </fieldset>
       <button disabled={starting} onClick={running ? stop : start}>
