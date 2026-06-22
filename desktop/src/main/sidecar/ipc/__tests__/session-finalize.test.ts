@@ -291,6 +291,17 @@ describe('registerSessionFinalize', () => {
       .rejects.toThrow('NO_ACTIVE_SESSION');
   });
 
+  // (m) ko session + note family → NOTES_NOT_SUPPORTED_FOR_LANGUAGE
+  // Phase-1 backstop: ko is transcription-only. routeFamily must reject before
+  // calling adaptToV2Transcript / any LLM work.
+  it('(m) ko session + lecture family → throws NOTES_NOT_SUPPORTED_FOR_LANGUAGE', async () => {
+    const koSession: SessionContext = { ...makeSessionContext(), language: 'ko' as const };
+    const handler = setup(() => koSession);
+    await expect(
+      handler({}, { family: 'lecture' }),
+    ).rejects.toThrow('NOTES_NOT_SUPPORTED_FOR_LANGUAGE');
+  });
+
   // (i) onSessionSettled fires after a SUCCESSFUL finalize. The v2 Stop flow
   // never calls session/stop, so finalize is the only path that returns the
   // main-side session FSM to idle. Without this callback the next session/start

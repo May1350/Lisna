@@ -25,6 +25,7 @@ import {
   type FinalizeTelemetryEvent,
 } from '../orchestrator';
 import { modelProfiles } from '@shared/models/profiles';
+import { languageCapabilities } from '@shared/language-capabilities';
 
 // Side-effect imports: register family cores so familyCoreRegistry is populated
 // at app boot. All four families (lecture / meeting / interview / brainstorm)
@@ -190,6 +191,13 @@ async function routeFamily(
   promptVariantId: string | undefined,
   onTelemetry: SessionFinalizeDeps['onTelemetry'],
 ): Promise<SessionFinalizeResult> {
+  // Phase-1 backstop: ko (and any non-notes language) must not generate a
+  // structured note. The picker UX (renderer) already restricts ko to
+  // transcript; this is the server-side guard for direct-IPC / future callers.
+  if (!languageCapabilities(session.language).notes) {
+    throw new Error('NOTES_NOT_SUPPORTED_FOR_LANGUAGE');
+  }
+
   // 1. Adapt legacy segments → v2 SessionTranscript
   const transcript = adaptToV2Transcript(session.segments, session.sessionId);
 
