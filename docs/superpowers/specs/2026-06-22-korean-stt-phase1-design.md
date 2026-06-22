@@ -63,16 +63,23 @@ ships Korean transcription now, and keeps `ko` off the un-eval'd note path until
 
 1. **`languageCapabilities(lang)` seam** — one small helper (shared) returning
    `{ transcript: boolean; notes: boolean }`. `ja`/`en` → both true; `ko` →
-   `{ transcript: true, notes: false }`. Consumed by the entry gate, the finalize
-   guard, and the renderer so the `ja|en|ko` policy lives in ONE place and Phase 2 is
-   a one-line flip (`ko.notes = true`).
+   `{ transcript: true, notes: false }`. **Everything else (incl. `zh`, which is a
+   valid `Language` type in `shared/types.ts` but unsupported) → `{ transcript: false,
+   notes: false }`** so the entry gate keeps rejecting it. Consumed by the entry gate,
+   the finalize guard, and the renderer so the `ja|en|ko` policy lives in ONE place and
+   Phase 2 is a one-line flip (`ko.notes = true`).
 2. **Entry gate (`ipc.ts:771`)** — accept `ko` (allow start when `transcript || notes`).
    Still reject truly unknown codes.
-3. **Note-finalize guard** — in the family `session/finalize` path, reject when
-   `!languageCapabilities(lang).notes` (i.e. `ko`) with a clear code. Defense-in-depth
-   behind the picker UX so a `ko` structured note can't be produced in Phase 1.
-   `dump-finalize-context.ts:44` already enforces the same for the regenerate path —
-   leave it.
+3. **Note-finalize guard** — the live family `session/finalize` path has **no
+   language gate today** (`session-finalize.ts` `routeFamily` passes `session.language`
+   straight into the family finalizers), so unblocking the entry gate would otherwise
+   let a `ko` session generate a Korean note via the un-eval'd override. Add a guard
+   that rejects when `!languageCapabilities(lang).notes` (i.e. `ko`) with a clear code,
+   firing **upstream of** the `orch.language as NoteLanguage` casts in the finalize
+   context-builder (`ipc.ts:512,577,654,663`); also update the now-stale comment at
+   `ipc.ts:576` ("Gate above admits only ja/en…"). This is the server-side backstop
+   behind the picker UX. `dump-finalize-context.ts:44` already enforces the same for
+   the regenerate path — leave it.
 4. **Whisper Korean** — pass `ko` through `whisper-cpp-stt.ts` → sidecar →
    `whisper_full.language = "ko"`. No model change.
 5. **Language picker (`Recording.tsx`)** — add a `한국어`/`ko` radio; fix the line-49
@@ -82,8 +89,9 @@ ships Korean transcription now, and keeps `ko` off the un-eval'd note path until
    when `!notes(lang)`, show only the `transcript` choice + hint. Keeps `ko` off the
    note path at the UI; the finalize guard (3) is the server-side backstop.
 7. **Error i18n (`error-message-map.ts`)** — ensure any code a `ko` session can hit
-   (`UNSUPPORTED_LANGUAGE`, a new "ko notes not yet" code, `EMPTY_RECORDING`) has sane
-   JA/EN copy. No note-only error should be reachable on the `ko` transcript path.
+   (`UNSUPPORTED_LANGUAGE`, the new "ko notes not yet" code, and the existing
+   `EMPTY_TRANSCRIPT` / `STT_STALLED` / `STT_MODEL_MISSING`) has sane JA/EN copy. No
+   note-only error should be reachable on the `ko` transcript path.
 
 ## Phase 2 (deferred — separate spec, founder gate)
 
