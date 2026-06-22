@@ -42,9 +42,9 @@ export function Recording({ onStop, onError, onOpenHistory }: Props) {
   // attempt and on completion. Step 5 §3.3 task 2.
   const [slowLoad, setSlowLoad] = useState(false);
   const [source, setSource] = useState<RecordingSource>('mic');
-  // Minimal EN support (2026-06-10) — ja/en only; ko/zh stay gated in main
-  // (ipc rejects them). Persisted so a lecture-course routine doesn't reset
-  // to ja every launch.
+  // Supported capture languages: ja/en (full notes) + ko (transcription-only,
+  // Phase 1 — see languageCapabilities). zh stays gated (ipc rejects it).
+  // Persisted so a lecture-course routine doesn't reset to ja every launch.
   const [language, setLanguage] = useState<Language>(
     () => {
       const v = localStorage.getItem('lisna.language');
