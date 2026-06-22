@@ -1458,11 +1458,11 @@ describe('main/ipc FSM', () => {
     await expect(ipcHandlers['session/start']!({}, { language: 'ja' })).rejects.toThrow('MODELS_NOT_CONFIGURED');
   });
 
-  it('session/start rejects un-eval\'d languages (ko/zh) → UNSUPPORTED_LANGUAGE', async () => {
+  it('session/start rejects un-eval\'d languages (zh) → UNSUPPORTED_LANGUAGE', async () => {
     const { win } = makeFakeWindow();
     const supervisor = makeFakeSupervisor({});
     ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/l' }) });
-    await expect(ipcHandlers['session/start']!({}, { language: 'ko' })).rejects.toThrow('UNSUPPORTED_LANGUAGE');
+    // ko is now accepted (Phase 1: transcription-only); only zh + unknown codes are rejected.
     await expect(ipcHandlers['session/start']!({}, { language: 'zh' })).rejects.toThrow('UNSUPPORTED_LANGUAGE');
   });
 
@@ -1764,5 +1764,15 @@ describe('main/ipc FSM', () => {
     expect(fakeSttInstances).toHaveLength(2);
     expect(fakeSttInstances[0].client).toBe(clientA);
     expect(fakeSttInstances[1].client).toBe(clientB);
+  });
+
+  it('session/start accepts ko (transcription) and still rejects zh/unknown', async () => {
+    const { win } = makeFakeWindow();
+    const supervisor = makeFakeSupervisor({});
+    ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/l' }) });
+    await expect(ipcHandlers['session/start']!({}, { language: 'ko' })).resolves.toBeUndefined();
+    // reset session between calls exactly as the 'session/discard clears' test does:
+    await ipcHandlers['session/discard']!({}, undefined);
+    await expect(ipcHandlers['session/start']!({}, { language: 'zh' })).rejects.toThrow('UNSUPPORTED_LANGUAGE');
   });
 });
