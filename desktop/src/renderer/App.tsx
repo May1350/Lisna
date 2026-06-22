@@ -306,6 +306,10 @@ function renderView(
     case 'familyPicking':
       return (
         <FamilyPickerStep
+          language={(() => {
+            const v = localStorage.getItem('lisna.language');
+            return v === 'en' || v === 'ko' ? v : 'ja';
+          })()}
           onDiscard={() => {
             // Drop the session in main (clears SESSION_ACTIVE) and return to
             // Recording. Fire-and-forget: the handler is idempotent and the
