@@ -1,0 +1,19 @@
+{
+  "fixtureId": "q3-allhands-noisy-ja",
+  "family": "meeting",
+  "language": "ja",
+  "durationSec": 1692,
+  "bucketSeconds": 10,
+  "scenarioTags": [
+    "all-hands",
+    "noisy",
+    "5-speaker",
+    "adversarial-numbers",
+    "postmortem",
+    "pricing",
+    "launch"
+  ],
+  "expectedSlots": [],
+  "sourceUrl": null,
+  "notes": "Synthetic Q3 all-hands stress fixture: 6 topics, embedded noise (AC/ramen/offsite tangents), adversarial number traps (MRR/Pro price misheard then corrected). Author=Claude (note-quality loop)."
+}

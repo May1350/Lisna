@@ -6,6 +6,7 @@
 
 import { normalizeKeyTerm, type FixtureGroundTruth } from './fixtures/_schema';
 import type { NoteFamily } from './judges/judge-types';
+import { meetingDecisionCaptured } from './anchor-match';
 
 export interface CoverageResult {
   captured: number;
@@ -51,8 +52,7 @@ export function computeCoverage(
     found = (point) => normContains(blob, point);
   } else if (family === 'meeting' && groundTruth.decisions) {
     required = groundTruth.decisions.filter(d => d.mustAppear).map(d => d.text);
-    const noteDecisions: string[] = (note.decisions ?? []).map((d: any) => String(d.text ?? ''));
-    found = (point) => noteDecisions.some(t => normContains(t, point));
+    found = (point) => meetingDecisionCaptured(point, note);
   } else {
     return empty;
   }
