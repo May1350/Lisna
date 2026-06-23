@@ -7,7 +7,7 @@
 import type { SessionTranscript } from '@shared/note-schema';
 import type { ExtractedAtoms } from './extract-schema';
 import { MEETING_ARRAY_CAPS } from './schema';
-import { unionKeyFigures, unionContentAtoms } from './dedup';
+import { unionKeyFigures, unionContentAtoms, isFillerAtomText } from './dedup';
 import { synthesizeTopicArcAndDiscussions } from './topic-synth';
 
 /**
@@ -24,14 +24,20 @@ export function assembleMeetingNote(
   // -------------------------------------------------------------------------
   // Reshape action_items.task → text up front so the union and the midpoint
   // tracking (below) operate on the same object identities.
+  // Drop contentless filler ("決める" / "そうなんです") before union — robust where
+  // the extraction prompt is not (see dedup.ts::isFillerAtomText).
+  const notFiller = <T extends { text: string }>(arr: ReadonlyArray<T>): T[] =>
+    arr.filter((a) => !isFillerAtomText(a.text));
   const actionsPerChunk = chunkExtracts.map((c) =>
-    c.atoms.action_items.map((a) => ({ text: a.task, owner: a.owner, due: a.due, ts: a.ts })),
+    notFiller(c.atoms.action_items.map((a) => ({ text: a.task, owner: a.owner, due: a.due, ts: a.ts }))),
   );
-  const decisions = unionContentAtoms(chunkExtracts.map((c) => c.atoms.decisions));
+  const decisions = unionContentAtoms(chunkExtracts.map((c) => notFiller(c.atoms.decisions)));
   const nextStepsRaw = unionContentAtoms(actionsPerChunk);
-  const openQuestions = unionContentAtoms(chunkExtracts.map((c) => c.atoms.open_questions));
-  const risks = unionContentAtoms(chunkExtracts.map((c) => c.atoms.risks));
-  const keyFigures = unionKeyFigures(chunkExtracts.map((c) => c.atoms.key_figures));
+  const openQuestions = unionContentAtoms(chunkExtracts.map((c) => notFiller(c.atoms.open_questions)));
+  const risks = unionContentAtoms(chunkExtracts.map((c) => notFiller(c.atoms.risks)));
+  const keyFigures = unionKeyFigures(
+    chunkExtracts.map((c) => c.atoms.key_figures.filter((f) => !isFillerAtomText(f.label))),
+  );
 
   // -------------------------------------------------------------------------
   // 2. Derive title + purpose
@@ -58,22 +64,13 @@ export function assembleMeetingNote(
   });
 
   // -------------------------------------------------------------------------
-  // 4. executive_summary (deterministic)
-  // -------------------------------------------------------------------------
-  const topicLabels = topic_arc.map((t) => t.topic);
-  const executive_summary =
-    topicLabels.length > 0
-      ? `本会議では、${topicLabels.join('、')}について議論し、${decisions.length}件の決定と${nextStepsRaw.length}件の宿題を確認した。`
-      : '会議の記録';
-
-  // -------------------------------------------------------------------------
-  // 5. title + purpose (non-empty fallbacks)
+  // 4. title + purpose (non-empty fallbacks)
   // -------------------------------------------------------------------------
   const title = longestTitle || topic_arc[0]?.topic || '会議メモ';
   const purpose = longestPurpose || '会議の記録';
 
   // -------------------------------------------------------------------------
-  // 6. Map to note fields + apply caps
+  // 5. Map to note fields + apply caps
   // -------------------------------------------------------------------------
   const mappedDecisions = decisions.slice(0, MEETING_ARRAY_CAPS.decisions).map((d) => ({
     text: d.text,
@@ -99,6 +96,16 @@ export function assembleMeetingNote(
     ts: r.ts ?? 0,
     ...(r.raised_by !== undefined ? { raised_by: r.raised_by } : {}),
   }));
+
+  // -------------------------------------------------------------------------
+  // 6. executive_summary (deterministic) — counts match the CAPPED arrays the
+  //    reader actually sees (not the pre-cap union counts).
+  // -------------------------------------------------------------------------
+  const topicLabels = topic_arc.map((t) => t.topic);
+  const executive_summary =
+    topicLabels.length > 0
+      ? `本会議では、${topicLabels.join('、')}について議論し、${mappedDecisions.length}件の決定と${mappedNextSteps.length}件の宿題を確認した。`
+      : '会議の記録';
 
   // -------------------------------------------------------------------------
   // 7. Assemble final object (placeholders for system-owned NoteBase fields)
