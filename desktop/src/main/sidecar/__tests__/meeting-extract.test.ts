@@ -1,6 +1,6 @@
 // desktop/src/main/sidecar/__tests__/meeting-extract.test.ts
 import { describe, it, expect } from 'vitest';
-import { extractMeetingAtoms } from '../meeting-extract';
+import { extractMeetingAtoms, buildMeetingExtractPrompt, renderChunk } from '../meeting-extract';
 import type { LlmGenerator } from '../grammar-call';
 
 const atomsJson = JSON.stringify({
@@ -19,6 +19,29 @@ describe('extractMeetingAtoms', () => {
     expect(r.ok).toBe(true);
     expect(r.atoms.decisions).toHaveLength(1);
     expect(r.tsRange).toEqual([0, 12]);
+  });
+
+  it('JA prompt is positive-framed: names NO negatives, targets abstraction + empty-array', () => {
+    const { system } = buildMeetingExtractPrompt('[0] テスト', 'ja');
+    // anti-priming: never name what to exclude (the p1tune backfire)
+    expect(system).not.toContain('除外');
+    expect(system).not.toContain('雑談');
+    expect(system).not.toContain('相槌');
+    // positive levers present: paraphrase/abstract + explicit empty-array + role
+    expect(system).toContain('まとめて');
+    expect(system).toContain('空の配列');
+    expect(system).toContain('書記');
+    // the one place verbatim fidelity is still required
+    expect(system).toContain('正確に');
+  });
+
+  it('renderChunk drops the [話者id] echo magnet but keeps the [ts] ordering cue', () => {
+    const rendered = renderChunk({
+      sessionId: 's', speakers: [{ id: 0 }],
+      transcriptSegments: [{ ts: 7, endTs: 9, text: 'はい、完成です!', speakerId: 0 }],
+    });
+    expect(rendered).toBe('[7] はい、完成です!');
+    expect(rendered).not.toContain('話者');
   });
 
   it('returns ok:false with empty atoms when the model output is unparseable', async () => {

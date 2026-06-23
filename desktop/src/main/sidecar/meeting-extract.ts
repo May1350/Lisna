@@ -21,10 +21,18 @@ const EMPTY_ATOMS: ExtractedAtoms = {
  * Local chunk renderer — intentionally NOT imported from orchestrator.ts
  * (renderTranscriptWithSpeakers is file-local there; importing it would
  * create a circular dependency since the orchestrator imports meeting-extract).
+ *
+ * Renders `[<ts>] <text>` — the `[話者<id>]` token was DROPPED (2026-06-23): the
+ * 3B echoed that front-of-line marker verbatim into decisions[].text. `[ts]`
+ * stays as a low-echo-risk within-chunk ordering cue (it's not read back —
+ * topic-synth anchors atoms from transcriptSegments[].ts directly — and
+ * quality-filters strips any echoed `[\d+]` anyway). Speaker attribution is off
+ * while diarization is disabled (owners already undefined); reintroduce it as a
+ * natural suffix, not a leading bracket token, when diarization returns.
  */
-function renderChunk(chunk: SessionTranscript): string {
+export function renderChunk(chunk: SessionTranscript): string {
   return chunk.transcriptSegments
-    .map((seg) => `[${seg.ts}] [話者${seg.speakerId}] ${seg.text}`)
+    .map((seg) => `[${seg.ts}] ${seg.text}`)
     .join('\n');
 }
 
@@ -39,20 +47,33 @@ export function buildMeetingExtractPrompt(
 ): { system: string; user: string } {
   // JA rules (current only supported language for extraction).
   // `language` is part of the public API for future locale expansion.
+  //
+  // Positive-framing rewrite (2026-06-23): the prior prompt named negatives
+  // ("雑談・相槌は除外") which PRIMES a 3B to EMIT them (p1tune backfire), and gave
+  // no positive target for abstraction, so the model echoed transcript lines
+  // verbatim as decisions. Every line now states what TO do — paraphrase into a
+  // short point (言い換え/まとめ), keep numbers/proper-nouns verbatim, return []
+  // when a category is empty (positive antidote to the placeholder
+  // hallucination). NO negative examples; NO in-prompt JSON example (the grammar
+  // fixes the shape; an example anchors small models). Designed + adversarially
+  // critiqued; SHIP gated on a reboot A/B (copyRate↓, coverage not regressed,
+  // figure-fidelity intact).
   const isJa = language === 'ja' || language !== 'en';
   const system = isJa
     ? [
-        'この区間のみ抽出してください。',
-        '数値・日付・固有名詞は文字起こしのとおり正確に記録してください（言い直しは最後の確定値を使用）。',
-        '雑談・休憩・相槌は除外してください。',
-        '抽出対象: 決定事項 / 宿題（担当者） / 数値・指標 / 質問・懸念 / リスク。',
-        'JSONのみを出力してください。説明文は不要です。',
+        'あなたは会議の書記です。発言を聞いて、要点だけを記録します。',
+        '決まったこと・やること（担当者がいれば owner）・数値や日付・未解決の質問・リスクを記録してください。',
+        '各項目は、発言の内容を自分の言葉で一文の短い要点にまとめてください。一読で「何が決まったか」「何をするか」が分かる形にします。',
+        '数値・日付・金額・固有名詞・製品名は、発言のとおり正確に書いてください（言い直された場合は最後に確定した値を使います）。',
+        '実際に挙がった内容だけを記録してください。記録すべき内容が無い分類は、空の配列 [] にします。',
+        'JSONのみを出力してください。',
       ].join('\n')
     : [
-        'Extract from this segment only.',
-        'Record numbers, dates, and proper nouns exactly as spoken (use the last confirmed value for corrections).',
-        'Exclude small talk, breaks, and filler.',
-        'Categorize: decisions / action items (owner) / key figures / open questions / risks.',
+        'You are the meeting scribe. Record only the key points from what is said.',
+        'Record decisions, action items (owner if stated), numbers/dates, open questions, and risks.',
+        'For each item, paraphrase the point into one short line in your own words — so a reader sees at a glance what was decided or is to be done.',
+        'Write numbers, dates, amounts, and proper nouns exactly as spoken (use the last confirmed value for corrections).',
+        'Record only what actually came up; use an empty array [] for any category with nothing real.',
         'Output JSON only.',
       ].join('\n');
 
