@@ -19,6 +19,7 @@ import { INTERVIEW_RULES } from '../eval/contract/families/interview';
 import { BRAINSTORM_RULES } from '../eval/contract/families/brainstorm';
 import { faithfulnessPrepass } from '../eval/faithfulness-prepass';
 import { computeCoverage } from '../eval/coverage';
+import { noteQualityDetectors } from '../eval/note-quality-detectors';
 import { __testOnly_resolveRunner } from './eval-notes';
 
 const StubSchemas: Record<string, z.ZodType> = {
@@ -51,11 +52,15 @@ async function main(): Promise<void> {
   const transcriptText = transcript.transcripts.map(b => b.text).join('');
   const prepass = faithfulnessPrepass(note as never, transcriptText);
   const coverage = computeCoverage(meta.family, note as never, groundTruth);
+  // Detector scorer — catches the failure class faithfulness/coverage MISS
+  // (verbatim-copy that groundingJa rewards, mixed-script garble, leaked markers,
+  // placeholder hallucinations). Required to make a STEP-1 model swap judgeable.
+  const detectors = noteQualityDetectors(note, transcript.transcripts.map((b) => b.text));
 
   const outDir = join('/tmp/lisna-note-eval/runs', label);
   mkdirSync(outDir, { recursive: true });
   writeFileSync(join(outDir, 'note.json'), JSON.stringify(note, null, 2));
-  const scorecard = { label, runnerId, fixtureId: meta.fixtureId, family: meta.family, runMs, retryAttempts: pr.retryAttempts, contractTest: ct, coverage, faithfulnessPrepass: prepass };
+  const scorecard = { label, runnerId, fixtureId: meta.fixtureId, family: meta.family, runMs, retryAttempts: pr.retryAttempts, contractTest: ct, coverage, faithfulnessPrepass: prepass, detectors };
   writeFileSync(join(outDir, 'scorecard.json'), JSON.stringify(scorecard, null, 2));
 
   console.log('=== LABEL', label, '| runner', runnerId, '| runMs', runMs, '===');
@@ -64,6 +69,7 @@ async function main(): Promise<void> {
   console.log('contract.overall:', JSON.stringify(ct.overall ?? (ct as Record<string, unknown>)['verdict']));
   console.log('coverage:', JSON.stringify(coverage));
   console.log('prepass:', JSON.stringify(prepass));
+  console.log('detectors:', JSON.stringify(detectors), '(copyRate/garble/markers/placeholder — lower=better)');
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
