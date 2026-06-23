@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { NoteFamily } from '@shared/note-schema';
+import { languageCapabilities } from '@shared/language-capabilities';
 
 /**
  * Family picker shown after Stop is clicked, before finalize runs.
@@ -69,10 +70,14 @@ interface Props {
    *  history-regenerate picker, where the transcript is already displayed and
    *  regenerate produces notes only. */
   showTranscript?: boolean;
+  /** Recording language code (e.g. 'ja', 'ko'). When the language does not
+   *  support notes (ko Phase 1), only the transcript option is shown. */
+  language?: string;
 }
 
-export function FamilyPickerStep({ onPick, onDiscard, showTranscript = true }: Props) {
-  const [selected, setSelected] = useState<PickChoice>('lecture');
+export function FamilyPickerStep({ onPick, onDiscard, showTranscript = true, language = 'ja' }: Props) {
+  const notesAllowed = languageCapabilities(language).notes;
+  const [selected, setSelected] = useState<PickChoice>(notesAllowed ? 'lecture' : 'transcript');
   // In-flight guard. Click-then-click would otherwise call onPick twice; the
   // parent's prev.kind FSM guard short-circuits the second state transition
   // but the underlying window.lisna.finalize would still fire twice — two
@@ -115,20 +120,30 @@ export function FamilyPickerStep({ onPick, onDiscard, showTranscript = true }: P
   return (
     <div style={{ maxWidth: 560, margin: '0 auto', padding: 24, fontFamily: 'system-ui' }} data-testid="family-picker">
       <h2 style={{ marginTop: 0 }}>このセッションの種類は?</h2>
-      <ul style={{ listStyle: 'none', padding: 0 }}>
-        {FAMILIES.map((f) => (
-          <li key={f.id} style={{ marginBottom: 12 }}>
-            {renderOption(f)}
-          </li>
-        ))}
-      </ul>
+      {notesAllowed && (
+        <ul style={{ listStyle: 'none', padding: 0 }}>
+          {FAMILIES.map((f) => (
+            <li key={f.id} style={{ marginBottom: 12 }}>
+              {renderOption(f)}
+            </li>
+          ))}
+        </ul>
+      )}
+      {!notesAllowed && (
+        <p style={{ color: '#888', fontSize: 13 }}>
+          この言語では文字起こしのみ対応しています（ノート生成は近日対応 / coming soon）。
+        </p>
+      )}
       {/* Transcript output mode, set apart from the 4 note "types" — it's an
           output format, not a session type. Hidden in the history-regenerate
           picker (showTranscript=false): the dump transcript is already shown
-          and regenerate only produces notes. */}
-      {showTranscript && (
+          and regenerate only produces notes. When !notesAllowed, always show
+          the transcript option (it's the only available choice). */}
+      {(showTranscript || !notesAllowed) && (
         <div style={{ borderTop: '1px solid #ddd', paddingTop: 12, marginTop: 4 }}>
-          <div style={{ color: '#888', fontSize: 12, marginBottom: 8 }}>またはノートにせず</div>
+          {notesAllowed && (
+            <div style={{ color: '#888', fontSize: 12, marginBottom: 8 }}>またはノートにせず</div>
+          )}
           <ul style={{ listStyle: 'none', padding: 0 }}>
             <li style={{ marginBottom: 12 }}>{renderOption(TRANSCRIPT_OPTION)}</li>
           </ul>

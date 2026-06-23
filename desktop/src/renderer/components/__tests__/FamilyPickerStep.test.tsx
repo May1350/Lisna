@@ -122,4 +122,22 @@ describe('FamilyPickerStep', () => {
     expect(m).not.toBeNull();
     expect(m?.[0]).not.toContain('disabled');
   });
+
+  it('with language=ko, shows only the transcript option (no note families)', () => {
+    const html = renderToStaticMarkup(
+      <FamilyPickerStep language="ko" onPick={() => {}} onDiscard={() => {}} />,
+    );
+    expect(html).toContain('data-testid="family-radio-transcript"');
+    expect(html).not.toContain('data-testid="family-radio-lecture"');
+    expect(html).not.toContain('data-testid="family-radio-meeting"');
+    expect(html).toContain('coming soon'); // ko-notes hint
+  });
+
+  it('with language=ja, shows all 4 families + transcript (unchanged)', () => {
+    const html = renderToStaticMarkup(
+      <FamilyPickerStep language="ja" onPick={() => {}} onDiscard={() => {}} />,
+    );
+    expect(html).toContain('data-testid="family-radio-lecture"');
+    expect(html).toContain('data-testid="family-radio-transcript"');
+  });
 });

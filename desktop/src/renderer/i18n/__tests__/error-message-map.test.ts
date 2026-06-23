@@ -8,7 +8,7 @@ import {
 } from '../error-message-map';
 
 describe('error-message-map (JA)', () => {
-  it('covers all 24 known codes (Step 5 §3.2 + §5.1 + fabrication guard + history dumps + STT stall)', () => {
+  it('covers all 25 known codes (Step 5 §3.2 + §5.1 + fabrication guard + history dumps + STT stall + Ko-STT)', () => {
     // Coverage contract: every code we throw from anywhere in main/ has a
     // corresponding JA copy. This list is duplicated in main/ipc.ts and
     // main/sidecar/timeouts.ts as bare string throws — if a new code is
@@ -41,6 +41,8 @@ describe('error-message-map (JA)', () => {
       'INVALID_DUMP_ID',
       'DUMP_NOT_FOUND',
       'DUMP_UNREADABLE',
+      // Ko-STT Task 3 — note generation not yet supported for this language
+      'NOTES_NOT_SUPPORTED_FOR_LANGUAGE',
     ];
     expect(ALL_ERROR_CODES).toEqual(expect.arrayContaining(expectedCodes));
     expect(ALL_ERROR_CODES).toHaveLength(expectedCodes.length);
@@ -125,6 +127,13 @@ describe('error-message-map (JA)', () => {
     expect(ERROR_MESSAGE_MAP_JA.LLM_LOAD_TIMEOUT).toMatch(/もう一度|再度|再試行/);
     expect(ERROR_MESSAGE_MAP_JA.LLM_UNLOAD_TIMEOUT).toMatch(/もう一度|再度|再試行/);
     expect(ERROR_MESSAGE_MAP_JA.GENERATE_TIMEOUT).toMatch(/もう一度|再度|再試行/);
+  });
+});
+
+// Ko-STT Task 4 — new code added for KO (and any future non-JA/EN language)
+describe('NOTES_NOT_SUPPORTED_FOR_LANGUAGE', () => {
+  it('NOTES_NOT_SUPPORTED_FOR_LANGUAGE has JA copy', () => {
+    expect(ERROR_MESSAGE_MAP_JA['NOTES_NOT_SUPPORTED_FOR_LANGUAGE']).toBeTruthy();
   });
 });
 

@@ -29,6 +29,7 @@ import { loadToken } from './auth/keychain';
 import { registerSessionFinalize } from './sidecar/ipc/session-finalize';
 import { toFinalizeProgressPayload } from './sidecar/ipc/finalize-progress';
 import { createSessionDump, type SessionDump } from './session-debug-dump';
+import { languageCapabilities } from '@shared/language-capabilities';
 
 export const CHANNELS = {
   startRecording: 'recording/start',
@@ -573,7 +574,8 @@ export function registerIpc(deps: IpcDeps) {
         sessionId: 'live',   // placeholder — real session-ID assignment lands in Task 13
         segments: orch.exposedSegments,
         llmModelPath: paths.llmPath,
-        // Gate above admits only ja/en, both valid NoteLanguage values.
+        // orch.language is one of ja/en/ko — all valid NoteLanguage values.
+        // (ko reaches here only on a note finalize, which Task 3 rejects.)
         language: orch.language as NoteLanguage,
         // Dump wrap sits OUTSIDE the recovery wrapper so the recorded calls
         // are exactly what callWithGrammar issued (prompt, seed, raw output
@@ -765,10 +767,9 @@ export function registerIpc(deps: IpcDeps) {
     // NOTE: a from-dump finalize holds finalizeInFlight WITHOUT setting `current`,
     // so this guard alone doesn't block start-during-regen — the renderer FSM
     // (curatingV2 has no record button) gates that overlap.
-    // Minimal EN support (2026-06-10): ja + en accepted. ko/zh stay gated —
-    // prompts are adapted via renderSystemTemplate but un-eval'd, and the
-    // bundled STT models cover ja (kotoba) / multilingual (large-v3-turbo).
-    if (language !== 'ja' && language !== 'en') throw new Error('UNSUPPORTED_LANGUAGE');
+    // ja + en: full notes. ko: transcription-only (notes deferred to Phase 2,
+    // see languageCapabilities). zh + unknown codes stay rejected.
+    if (!languageCapabilities(language).transcript) throw new Error('UNSUPPORTED_LANGUAGE');
     const paths = deps.getModelPaths();
     if (!paths) throw new Error('MODELS_NOT_CONFIGURED');
     // Record-only start (STT Phase 2): the WAV becomes the SOLE transcript

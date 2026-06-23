@@ -51,6 +51,8 @@ export const ALL_ERROR_CODES = [
   'INVALID_DUMP_ID',
   'DUMP_NOT_FOUND',
   'DUMP_UNREADABLE',
+  // Ko-STT Task 3 — note generation not yet supported for this language
+  'NOTES_NOT_SUPPORTED_FOR_LANGUAGE',
 ] as const;
 
 export type ErrorCode = (typeof ALL_ERROR_CODES)[number];
@@ -115,6 +117,8 @@ export const ERROR_MESSAGE_MAP_JA: Record<ErrorCode, string> = {
     'この録音履歴は見つかりませんでした。削除された可能性があります。',
   DUMP_UNREADABLE:
     'この録音履歴のデータが破損していて読み込めませんでした。',
+  NOTES_NOT_SUPPORTED_FOR_LANGUAGE:
+    'この言語ではノート生成にまだ対応していません。文字起こしをご利用ください。',
 };
 
 /**
