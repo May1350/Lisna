@@ -79,6 +79,18 @@ export const BESPOKE_SAMPLING: Required<SamplingParams> = {
 };
 
 /**
+ * Per-family tuning shared by the STEP-1 model-swap eval candidates below — a
+ * verbatim copy of the llama-3.2-3b-q4-km defaults. Methodology requires chunking
+ * held CONSTANT across models so any A/B/C delta is the model, not the budget.
+ */
+const STEP1_EVAL_PERFAMILY: Record<NoteFamily, PerFamilyTuning> = {
+  lecture:    { recommendedChunkTokens: 3000, maxGenTokens: 3000, temperature: 0.4, tier: 'default' },
+  meeting:    { recommendedChunkTokens: 3000, maxGenTokens: 3000, temperature: 0.4, tier: 'default' },
+  interview:  { recommendedChunkTokens: 3000, maxGenTokens: 3500, temperature: 0.4, tier: 'default' },
+  brainstorm: { recommendedChunkTokens: 3000, maxGenTokens: 3500, temperature: 0.5, tier: 'default' },
+};
+
+/**
  * Runtime profile registry. Two entries alpha-ships with:
  *
  * - `llama-3.2-3b-q4-km` — default for Lecture (Path F: 1B quality FAIL on Lecture).
@@ -140,6 +152,55 @@ export const modelProfiles: Record<string, ModelProfile> = {
       interview:  { recommendedChunkTokens: 7000, maxGenTokens: 3500, temperature: 0.4, tier: 'fallback' },
       brainstorm: { recommendedChunkTokens: 7000, maxGenTokens: 3500, temperature: 0.5, tier: 'fallback' },
     },
+  },
+
+  // ── STEP-1 model-swap EVAL candidates (2026-06-24, branch feat/v2-note-eval-detectors).
+  // NOT shipped — used only by the offline eval runner (OFFLINE_MODEL_ID +
+  // note-loop-run.ts) to test whether a same-footprint, native-JA model lifts the
+  // Llama-3.2-3B note-quality floor (prompt lever proven exhausted; see memory
+  // v2-note-quality-step0). To keep the A/B/C fair, every candidate REUSES the 3B's
+  // ALIGNED_SAMPLING + perFamily chunk budgets (held constant) + n_ctx 16384 (8GB
+  // safety). Only id/file/footprint differ. The C++ engine applies each GGUF's
+  // EMBEDDED chat template (llama_model_chat_template), so chatTemplate here is inert
+  // metadata; watch sidecar stderr for `no_chat_template_in_gguf` (raw-concat fallback
+  // = that model's template isn't in llama.cpp's list).
+  'sarashina-2.2-3b-q4-km': {
+    id: 'sarashina-2.2-3b-q4-km',
+    displayName: 'Sarashina2.2 3B Instruct (Q4_K_M) — MIT, native JA',
+    filename: 'sarashina2.2-3b-instruct-v0.1-Q4_K_M.gguf',
+    chatTemplate: 'auto',
+    contextWindow: 16384,
+    grammarDialect: 'llama-cpp',
+    warmupRequired: true,
+    ramBudgetMB: 2400,
+    sampling: ALIGNED_SAMPLING,
+    perFamily: STEP1_EVAL_PERFAMILY,
+  },
+  'llm-jp-3-3.7b-q4-km': {
+    id: 'llm-jp-3-3.7b-q4-km',
+    displayName: 'llm-jp-3 3.7B Instruct3 (Q4_K_M) — Apache-2.0, native JA',
+    filename: 'llm-jp-3-3.7b-instruct3-Q4_K_M.gguf',
+    chatTemplate: 'auto',
+    contextWindow: 16384,
+    grammarDialect: 'llama-cpp',
+    warmupRequired: true,
+    ramBudgetMB: 2600,
+    sampling: ALIGNED_SAMPLING,
+    perFamily: STEP1_EVAL_PERFAMILY,
+  },
+  // Quality REFERENCE only — Qwen Research License is NON-COMMERCIAL, cannot ship.
+  // Run it to see the achievable 3B JA ceiling (are the shippable picks near it?).
+  'qwen-2.5-3b-q4-km': {
+    id: 'qwen-2.5-3b-q4-km',
+    displayName: 'Qwen2.5 3B Instruct (Q4_K_M) — NON-COMMERCIAL ceiling probe',
+    filename: 'Qwen2.5-3B-Instruct-Q4_K_M.gguf',
+    chatTemplate: 'qwen-2.5',
+    contextWindow: 16384,
+    grammarDialect: 'llama-cpp',
+    warmupRequired: true,
+    ramBudgetMB: 2200,
+    sampling: ALIGNED_SAMPLING,
+    perFamily: STEP1_EVAL_PERFAMILY,
   },
 };
 
