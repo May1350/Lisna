@@ -31,6 +31,7 @@ add_executable(lisna_sidecar
   src/ipc/json_protocol.cpp
   src/ipc/base64.cpp
   src/stt/whisper_engine.cpp
+  src/stt/wav_reader.cpp
   src/llm/llama_engine.cpp
   src/memory/os_reclaim.cpp
   src/lifecycle/parent_watchdog.cpp

@@ -242,6 +242,64 @@ TEST_F(JsonProtocolDispatchSTT, TranscribeValidInitialPromptStillReachesNotLoade
   EXPECT_EQ(r["code"], "not_loaded");
 }
 
+// ---- transcribeFile (STT Phase 2a, whole-file decode from a WAV path) ----
+//
+// Mirrors the `transcribe` shape tests: shape-before-state, so wrong-shape
+// requests fire even with no model loaded. The valid-shape case bails at
+// not_loaded BEFORE any file read, so the fake path is never opened
+// (model-free + IO-free). Real whole-file decode is covered by a separate
+// env-gated manual smoke, NOT here.
+
+TEST_F(JsonProtocolDispatchSTT, TranscribeFileMissingPathReturnsMissingField) {
+  auto r = json::parse(lisna::ipc::dispatch(
+      R"({"id":"tf1","type":"transcribeFile","sampleRate":16000})"));
+  EXPECT_EQ(r["id"], "tf1");
+  EXPECT_EQ(r["type"], "error");
+  EXPECT_EQ(r["code"], "missing_field");
+}
+
+TEST_F(JsonProtocolDispatchSTT, TranscribeFileMissingSampleRateReturnsMissingField) {
+  auto r = json::parse(lisna::ipc::dispatch(
+      R"({"id":"tf2","type":"transcribeFile","path":"/tmp/x.wav"})"));
+  EXPECT_EQ(r["id"], "tf2");
+  EXPECT_EQ(r["type"], "error");
+  EXPECT_EQ(r["code"], "missing_field");
+}
+
+TEST_F(JsonProtocolDispatchSTT, TranscribeFileWrongTypePathReturnsInvalidType) {
+  auto r = json::parse(lisna::ipc::dispatch(
+      R"({"id":"tf3","type":"transcribeFile","path":123,"sampleRate":16000})"));
+  EXPECT_EQ(r["id"], "tf3");
+  EXPECT_EQ(r["type"], "error");
+  EXPECT_EQ(r["code"], "invalid_type");
+}
+
+TEST_F(JsonProtocolDispatchSTT, TranscribeFileWrongTypeSampleRateReturnsInvalidType) {
+  auto r = json::parse(lisna::ipc::dispatch(
+      R"({"id":"tf4","type":"transcribeFile","path":"/tmp/x.wav","sampleRate":"16000"})"));
+  EXPECT_EQ(r["id"], "tf4");
+  EXPECT_EQ(r["type"], "error");
+  EXPECT_EQ(r["code"], "invalid_type");
+}
+
+TEST_F(JsonProtocolDispatchSTT, TranscribeFileWrongTypeInitialPromptReturnsInvalidType) {
+  auto r = json::parse(lisna::ipc::dispatch(
+      R"({"id":"tf5","type":"transcribeFile","path":"/tmp/x.wav","sampleRate":16000,"initialPrompt":123})"));
+  EXPECT_EQ(r["id"], "tf5");
+  EXPECT_EQ(r["type"], "error");
+  EXPECT_EQ(r["code"], "invalid_type");
+}
+
+TEST_F(JsonProtocolDispatchSTT, TranscribeFileWithoutLoadReturnsNotLoaded) {
+  // Valid shape, model not loaded → bails at not_loaded BEFORE the file read,
+  // so the fake path is never opened.
+  auto r = json::parse(lisna::ipc::dispatch(
+      R"({"id":"tf6","type":"transcribeFile","path":"/tmp/x.wav","sampleRate":16000})"));
+  EXPECT_EQ(r["id"], "tf6");
+  EXPECT_EQ(r["type"], "error");
+  EXPECT_EQ(r["code"], "not_loaded");
+}
+
 // ---- LLM dispatch (generate without load) ----
 
 TEST(JsonProtocol, GenerateWithoutLoadReturnsNotLoaded) {

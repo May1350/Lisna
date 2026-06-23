@@ -6,7 +6,7 @@ import electronUpdater from 'electron-updater';
 const { autoUpdater } = electronUpdater;
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { registerIpc, handleSidecarExit, handleSidecarGiveUp, setAppQuitting, isSessionInFlight } from './ipc';
+import { registerIpc, handleSidecarExit, handleSidecarGiveUp, isSessionInFlight } from './ipc';
 import { resolveModels, registerModelIpc } from './model-resolver';
 import { installSystemAudioHandler } from './audio/system-audio-handler';
 import { SidecarSupervisor } from './sidecar/supervisor';
@@ -290,9 +290,6 @@ app.on('before-quit', (event) => {
   if (!supervisor) return;
   event.preventDefault();
   shuttingDown = true;
-  // setAppQuitting BEFORE supervisor.shutdown so in-flight session/stop
-  // catches read it after sidecar SIGTERM rejects their orch.stop.
-  setAppQuitting();
   supervisor.shutdown().finally(() => app.quit());
 });
 

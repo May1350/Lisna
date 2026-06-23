@@ -2,6 +2,7 @@
 #include "base64.h"
 #include "llm/llama_engine.h"
 #include "stt/whisper_engine.h"
+#include "stt/wav_reader.h"
 #include <algorithm>
 #include <chrono>
 #include <cstring>
@@ -225,6 +226,50 @@ std::string dispatch(const std::string& jsonLine) {
                                   samples_aligned.size(),
                                   req["sampleRate"].get<int>(),
                                   initialPrompt);
+    auto arr = nlohmann::json::array();
+    for (const auto& s : segs) {
+      arr.push_back({{"startSec", s.startSec},
+                     {"endSec", s.endSec},
+                     {"text", s.text},
+                     {"noSpeechProb", s.noSpeechProb}});
+    }
+    return nlohmann::json{{"id", id}, {"type", "segments"}, {"segments", arr}}.dump();
+  }
+
+  if (type == "transcribeFile") {
+    // Shape-before-state, symmetric with the `transcribe` branch above: a
+    // wrong-shape request against an unloaded engine surfaces the SHAPE error,
+    // not a misleading not_loaded.
+    if (!req.contains("path") || !req.contains("sampleRate")) {
+      return err("missing_field", "path/sampleRate required");
+    }
+    if (!req["path"].is_string()) return err("invalid_type", "path must be string");
+    if (!req["sampleRate"].is_number_integer()) {
+      return err("invalid_type", "sampleRate must be integer");
+    }
+    if (req.contains("initialPrompt") && !req["initialPrompt"].is_string()) {
+      return err("invalid_type", "initialPrompt must be string");
+    }
+    if (!g_stt || !g_stt->loaded()) return err("not_loaded", "stt model not loaded");
+    std::vector<float> samples;
+    std::string werr;
+    if (!lisna::stt::read_wav_pcm16_mono_16k(req["path"].get<std::string>(), samples, werr)) {
+      return err("wav_read_failed", werr);
+    }
+    if (samples.empty()) return err("invalid_payload", "wav decoded to empty");
+    // Lives until after transcribe() returns → whisper_full's const char* into it
+    // stays valid (same lifetime contract as the `transcribe` branch).
+    const std::string initialPrompt = req.value("initialPrompt", std::string{});
+    // Progress events are id-less (single-concurrency finalize). Throttle to whole
+    // percents (whisper already steps in integer %) to keep stdout light.
+    int lastPct = -1;
+    auto segs = g_stt->transcribe(samples.data(), samples.size(),
+                                  req["sampleRate"].get<int>(), initialPrompt,
+                                  [&](int pct) {
+      if (pct == lastPct) return;
+      lastPct = pct;
+      emit_event(nlohmann::json{{"type", "sttProgress"}, {"pct", pct}}.dump());
+    });
     auto arr = nlohmann::json::array();
     for (const auto& s : segs) {
       arr.push_back({{"startSec", s.startSec},

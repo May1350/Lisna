@@ -12,6 +12,7 @@ describe('shared types', () => {
       loadModel: async () => {},
       unloadModel: async () => {},
       transcribe: async () => ([] as TranscriptSegment[]),
+      transcribeFile: async () => ([] as TranscriptSegment[]),
     };
     expect(typeof e.transcribe).toBe('function');
   });

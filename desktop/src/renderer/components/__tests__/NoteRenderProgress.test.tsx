@@ -101,6 +101,29 @@ describe('NoteRenderProgress', () => {
     );
     expect(html).toMatch(/width:\s*100%/);
   });
+
+  it('renders the transcribing phase with a real percent bar driven by pct', () => {
+    const html = renderToStaticMarkup(
+      <NoteRenderProgress progress={{ phase: 'transcribing', pct: 42 }} />,
+    );
+    expect(html).toContain('data-testid="progress-transcribing"');
+    expect(html).toContain('文字起こし中');
+    expect(html).toContain('42%');
+    expect(html).toMatch(/width:\s*42%/);
+  });
+
+  it('renders the transcribing phase with NO fake percent before the first pct event', () => {
+    const html = renderToStaticMarkup(
+      <NoteRenderProgress progress={{ phase: 'transcribing' }} />,
+    );
+    expect(html).toContain('data-testid="progress-transcribing"');
+    expect(html).toContain('文字起こし中');
+    // No-fake-progress founder rule: the visible copy must show no percent
+    // until a real pct arrives. (The 0% bar `width:0%` is a style, not copy —
+    // assert against the <p> label text, not the raw style attributes.)
+    const label = html.match(/<p>([^<]*)<\/p>/)?.[1] ?? '';
+    expect(label).not.toMatch(/\d+\s*%/);
+  });
 });
 
 describe('formatElapsed', () => {

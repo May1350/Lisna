@@ -16,9 +16,11 @@ add_executable(sidecar_tests
   test_json_protocol.cpp
   test_os_reclaim.cpp
   test_chat_prompt.cpp
+  test_wav_reader.cpp
   ../src/ipc/json_protocol.cpp
   ../src/ipc/base64.cpp
   ../src/stt/whisper_engine.cpp
+  ../src/stt/wav_reader.cpp
   ../src/llm/llama_engine.cpp
   ../src/memory/os_reclaim.cpp
 )

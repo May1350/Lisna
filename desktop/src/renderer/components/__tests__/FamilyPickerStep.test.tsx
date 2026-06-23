@@ -66,6 +66,53 @@ describe('FamilyPickerStep', () => {
     expect(m?.[0]).not.toContain('disabled');
   });
 
+  it('renders the 文字起こし (transcript) output choice set apart from the 4 families', () => {
+    const html = renderToStaticMarkup(<FamilyPickerStep onDiscard={() => {}} onPick={() => {}} />);
+    // STT Phase 2 raw-transcript output mode: a 5th radio that is NOT a note
+    // family but an LLM-free output format.
+    expect(html).toContain('文字起こし (Transcript)');
+    expect(html).toContain('data-testid="family-radio-transcript"');
+    // The transcript radio is NOT selected by default (lecture stays the default).
+    expect(html).not.toMatch(/data-testid="family-radio-transcript"[^>]*checked/);
+    // It is enabled (selectable).
+    const m = html.match(/<input[^>]*value="transcript"[^>]*\/?>/);
+    expect(m).not.toBeNull();
+    expect(m?.[0]).not.toContain('disabled');
+  });
+
+  it('hides the 文字起こし choice when showTranscript={false} (history-regenerate picker)', () => {
+    const html = renderToStaticMarkup(
+      <FamilyPickerStep onDiscard={() => {}} onPick={() => {}} showTranscript={false} />,
+    );
+    // The dump transcript is already displayed in the history view, so the
+    // raw-transcript output radio is not rendered there.
+    expect(html).not.toContain('data-testid="family-radio-transcript"');
+    expect(html).not.toContain('文字起こし (Transcript)');
+    // The 4 note families remain.
+    expect(html).toContain('data-testid="family-radio-lecture"');
+    expect(html).toContain('data-testid="family-radio-brainstorm"');
+  });
+
+  it('shows the 文字起こし choice by default (showTranscript defaults to true)', () => {
+    const html = renderToStaticMarkup(<FamilyPickerStep onDiscard={() => {}} onPick={() => {}} />);
+    expect(html).toContain('data-testid="family-radio-transcript"');
+  });
+
+  it('accepts onPick with the transcript output choice (widened type)', () => {
+    // Compile-time contract: onPick is `(choice: NoteFamily | 'transcript') => void`.
+    // A handler that narrows on 'transcript' must type-check and render.
+    const picks: Array<string> = [];
+    const html = renderToStaticMarkup(
+      <FamilyPickerStep
+        onDiscard={() => {}}
+        onPick={(choice) => {
+          picks.push(choice === 'transcript' ? 'transcript' : choice);
+        }}
+      />,
+    );
+    expect(html).toContain('data-testid="family-radio-transcript"');
+  });
+
   it('exposes a discard button (note-less exit route, 2026-06-10)', () => {
     const html = renderToStaticMarkup(<FamilyPickerStep onDiscard={() => {}} onPick={() => {}} />);
     expect(html).toContain('ノートを作らずに戻る');

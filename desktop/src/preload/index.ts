@@ -4,9 +4,7 @@ import type {
   AuthState,
   Capabilities,
   ChunkPayload,
-  ChunkResultPayload,
   SessionStartPayload,
-  SessionPhasePayload,
   SessionErrorPayload,
   FinalizeProgressPayload,
   ModelStatus,
@@ -15,8 +13,8 @@ import type {
   ModelPickPayload,
   DumpSummary,
   DumpTranscript,
+  SessionTranscribeResult,
 } from '@shared/ipc-protocol';
-import type { Note } from '@shared/types';
 import type {
   SessionFinalizeArgs,
   SessionFinalizeResult,
@@ -29,31 +27,18 @@ contextBridge.exposeInMainWorld('lisna', {
   sendChunk: (chunk: ChunkPayload) => ipcRenderer.invoke(CHANNELS.chunk, chunk),
   capabilities: () => ipcRenderer.invoke(CHANNELS.capabilities),
 
-  /**
-   * Subscribe to STT segment results pushed from the main process after each
-   * chunk. Returns an unsubscribe function — call it in `useEffect` cleanup to
-   * avoid duplicate listeners across Strict Mode double-mounts.
-   */
-  onChunk: (cb: (msg: ChunkResultPayload) => void): (() => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, msg: ChunkResultPayload) => cb(msg);
-    ipcRenderer.on(CHANNELS.onChunk, listener);
-    return () => ipcRenderer.removeListener(CHANNELS.onChunk, listener);
-  },
-
   // --- Step 4 additions ---
 
   startSession: ({ language }: SessionStartPayload): Promise<void> =>
     ipcRenderer.invoke(CHANNELS.sessionStart, { language }),
 
-  stopSession: (): Promise<Note> =>
-    ipcRenderer.invoke(CHANNELS.sessionStop),
-
   /** Drop the stopped session without generating a note (discard route). */
   discardSession: (): Promise<void> => ipcRenderer.invoke(CHANNELS.sessionDiscard),
 
   /**
-   * V2 family-routed note generation. Replaces the legacy `stopSession`
-   * markdown path for structured notes. Per Plan 3 Task 10 + spec §9.
+   * V2 family-routed note generation — the sole finalize path for structured
+   * notes (the legacy `session/stop` markdown path was removed in STT Phase 2).
+   * Per Plan 3 Task 10 + spec §9.
    *
    * The main process loads the LLM lazily inside `getCurrentSession`
    * (first call may take ~30 s on cold cache; subsequent calls within
@@ -63,6 +48,16 @@ contextBridge.exposeInMainWorld('lisna', {
    */
   finalize: (args: SessionFinalizeArgs): Promise<SessionFinalizeResult> =>
     ipcRenderer.invoke(CHANNELS.sessionFinalize, args),
+
+  /**
+   * Raw-transcript output mode — transcribe the whole captured WAV and return
+   * the raw segments with NO note generation (no LLM load). The post-Stop
+   * picker's 文字起こし choice routes here. Rejects with the same guards as
+   * `finalize` (NO_ACTIVE_SESSION / WAV_MISSING / EMPTY_RECORDING /
+   * FINALIZE_IN_FLIGHT — the in-flight flag is shared with note finalize).
+   */
+  transcribeOnly: (): Promise<SessionTranscribeResult> =>
+    ipcRenderer.invoke(CHANNELS.sessionTranscribe),
 
   // --- F2 history viewer ---
 
@@ -85,16 +80,6 @@ contextBridge.exposeInMainWorld('lisna', {
     ipcRenderer.invoke(CHANNELS.sessionFinalizeFromDump, args),
 
   /**
-   * Subscribe to phase indicator events during session/start and session/stop.
-   * Returns an unsubscribe function.
-   */
-  onPhase: (cb: (msg: SessionPhasePayload) => void): (() => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, msg: SessionPhasePayload) => cb(msg);
-    ipcRenderer.on(CHANNELS.sessionPhase, listener);
-    return () => ipcRenderer.removeListener(CHANNELS.sessionPhase, listener);
-  },
-
-  /**
    * Subscribe to async session errors (sidecar crash mid-session). Returns an
    * unsubscribe function. NOTE: synchronous IPC rejections from session/start
    * or session/stop come via the invoke promise's catch — this channel covers
@@ -109,7 +94,7 @@ contextBridge.exposeInMainWorld('lisna', {
   /**
    * Subscribe to real finalize progress (chunk N/M, attempt, phase) pushed
    * while `finalize` / `finalizeFromDump` runs. Returns an unsubscribe
-   * function — same useEffect-cleanup contract as onChunk / onPhase.
+   * function — same useEffect-cleanup contract as onSessionError.
    */
   onFinalizeProgress: (cb: (msg: FinalizeProgressPayload) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, msg: FinalizeProgressPayload) => cb(msg);
@@ -159,7 +144,7 @@ contextBridge.exposeInMainWorld('lisna', {
    * Subscribe to the post-redeem `auth/signed-in` broadcast. Returns an
    * unsubscribe function — the auth gate's useEffect MUST call it on cleanup
    * to avoid duplicate listeners across Strict Mode double-mounts. Matches
-   * the onChunk / onPhase / onSessionError unsubscriber convention.
+   * the onSessionError unsubscriber convention.
    */
   onSignedIn: (cb: () => void): (() => void) => {
     const listener = () => cb();
@@ -175,16 +160,14 @@ declare global {
       stopRecording(): Promise<{ ok: boolean }>;
       sendChunk(chunk: ChunkPayload): Promise<{ ok: boolean }>;
       capabilities(): Promise<Capabilities>;
-      onChunk(cb: (msg: ChunkResultPayload) => void): () => void;
       startSession(payload: SessionStartPayload): Promise<void>;
-      stopSession(): Promise<Note>;
       /** Drop the stopped session without generating a note (discard route). */
       discardSession(): Promise<void>;
       finalize(args: SessionFinalizeArgs): Promise<SessionFinalizeResult>;
+      transcribeOnly(): Promise<SessionTranscribeResult>;
       listDumps(): Promise<DumpSummary[]>;
       loadDump(id: string): Promise<DumpTranscript>;
       finalizeFromDump(args: SessionFinalizeFromDumpArgs): Promise<SessionFinalizeResult>;
-      onPhase(cb: (msg: SessionPhasePayload) => void): () => void;
       onSessionError(cb: (msg: SessionErrorPayload) => void): () => void;
       onFinalizeProgress(cb: (msg: FinalizeProgressPayload) => void): () => void;
       restartApp(): Promise<void>;

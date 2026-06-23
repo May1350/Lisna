@@ -8,7 +8,7 @@ import {
 } from '../error-message-map';
 
 describe('error-message-map (JA)', () => {
-  it('covers all 24 known codes (Step 5 §3.2 + §5.1 + fabrication guard + history dumps)', () => {
+  it('covers all 24 known codes (Step 5 §3.2 + §5.1 + fabrication guard + history dumps + STT stall)', () => {
     // Coverage contract: every code we throw from anywhere in main/ has a
     // corresponding JA copy. This list is duplicated in main/ipc.ts and
     // main/sidecar/timeouts.ts as bare string throws — if a new code is
@@ -20,7 +20,6 @@ describe('error-message-map (JA)', () => {
       'NO_ACTIVE_SESSION',
       'SESSION_NOT_READY',
       'SESSION_ACTIVE',
-      'APP_QUIT',
       'UNSUPPORTED_LANGUAGE',
       'EMPTY_TRANSCRIPT',
       'NOTE_LANGUAGE_MISMATCH',
@@ -28,6 +27,8 @@ describe('error-message-map (JA)', () => {
       'LLM_LOAD_TIMEOUT',
       'LLM_UNLOAD_TIMEOUT',
       'GENERATE_TIMEOUT',
+      // H1 — whole-WAV transcribe stall (sidecar wedged, restart+retry failed)
+      'STT_STALLED',
       // Step 5 §5.1 — first-run model resolver
       'MODEL_FILE_MISSING_STT',
       'MODEL_FILE_MISSING_LLM',

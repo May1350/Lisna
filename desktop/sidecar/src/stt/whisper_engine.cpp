@@ -3,6 +3,7 @@
 #include <whisper.h>
 #include <algorithm>
 #include <cstring>
+#include <functional>
 
 namespace lisna::stt {
 
@@ -41,7 +42,8 @@ void WhisperEngine::unload() {
 }
 
 std::vector<Segment> WhisperEngine::transcribe(const float* samples, size_t n, int sampleRate,
-                                               const std::string& initialPrompt) {
+                                               const std::string& initialPrompt,
+                                               const std::function<void(int)>& onProgress) {
   std::vector<Segment> out;
   (void)sampleRate; // caller guarantees 16kHz Float32 (Task 2.6 adapter will validate)
   if (!impl_->ctx) return out;
@@ -58,6 +60,19 @@ std::vector<Segment> WhisperEngine::transcribe(const float* samples, size_t n, i
   // when non-empty. `initialPrompt` (a const ref to the caller's string) must
   // stay alive through whisper_full — it does.
   if (!initialPrompt.empty()) p.initial_prompt = initialPrompt.c_str();
+  // Optional progress reporting (used by the finalize whole-file path). whisper's
+  // C callback is a bare function pointer + void* user-data, so we bridge through
+  // a small stack struct that points at the caller's std::function. Both `pc` and
+  // `onProgress` outlive the synchronous whisper_full call below.
+  struct ProgCtx { const std::function<void(int)>* cb; };
+  ProgCtx pc{ onProgress ? &onProgress : nullptr };
+  if (pc.cb) {
+    p.progress_callback = [](whisper_context*, whisper_state*, int progress, void* ud) {
+      auto* c = static_cast<ProgCtx*>(ud);
+      if (c && c->cb && *c->cb) (*c->cb)(progress);
+    };
+    p.progress_callback_user_data = &pc;
+  }
   if (whisper_full(impl_->ctx, p, samples, static_cast<int>(n)) != 0) return out;
   const int nSeg = whisper_full_n_segments(impl_->ctx);
   for (int i = 0; i < nSeg; ++i) {

@@ -1,4 +1,5 @@
 #pragma once
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -25,8 +26,11 @@ public:
   // `initialPrompt` (STT Phase 1) seeds whisper's decoder context with
   // proper-noun spellings for THIS call; empty = no bias. Must outlive the
   // call (whisper.cpp keeps a const char* into it through whisper_full).
+  // `onProgress` (when set) receives whisper's integer 0..100 progress during
+  // transcription; default {} = no callback (existing call sites unchanged).
   std::vector<Segment> transcribe(const float* samples, size_t n, int sampleRate,
-                                  const std::string& initialPrompt = "");
+                                  const std::string& initialPrompt = "",
+                                  const std::function<void(int)>& onProgress = {});
   bool loaded() const;
 
 private:

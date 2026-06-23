@@ -8,12 +8,11 @@ import type {
   AuthState,
   Capabilities,
   ChunkPayload,
-  ChunkResultPayload,
   SessionStartPayload,
-  SessionPhase,
+  SessionTranscribeResult,
 } from '@shared/ipc-protocol';
-import type { Note } from '@shared/types';
 import type { NoteLanguage } from '@shared/note-schema';
+import type { TranscriptSegment } from '@shared/engine-interfaces';
 import type { SidecarSupervisor } from './sidecar/supervisor';
 import { SessionOrchestrator } from './sidecar/orchestrator';
 import { makeGrammarSidecar } from './sidecar/grammar-call';
@@ -23,6 +22,7 @@ import { buildDumpSessionContext } from './dump-finalize-context';
 import { listDumps, loadDumpTranscript } from './session-dump-reader';
 import { WhisperCppSTT } from './engines/whisper-cpp-stt';
 import { LlamaCppLLM } from './engines/llama-cpp-llm';
+import { TIMEOUTS } from './sidecar/timeouts';
 import { isMacAudioLoopbackSupported } from './platform/hardware-check';
 import { log, redactPath, sessionLog } from './log';
 import { loadToken } from './auth/keychain';
@@ -35,20 +35,14 @@ export const CHANNELS = {
   stopRecording: 'recording/stop',
   /** renderer → main: a finalized PCM chunk for downstream STT */
   chunk: 'recording/chunk',
-  /** main → renderer: STT result segments pushed back after each chunk */
-  onChunk: 'recording/chunk-result',
   /** renderer → main: query platform capabilities on mount (sync, cheap) */
   capabilities: 'platform/capabilities',
   /** renderer → main: create SessionOrchestrator + load STT */
   sessionStart: 'session/start',
-  /** renderer → main: orch.stop() returning Note */
-  sessionStop: 'session/stop',
   /** renderer → main: drop the stopped session WITHOUT generating a note.
    *  Clears the orchestrator + LLM-loaded cache so the next session/start
    *  isn't rejected with SESSION_ACTIVE. No-op when nothing is active. */
   sessionDiscard: 'session/discard',
-  /** main → renderer: phase indicator during long awaits */
-  sessionPhase: 'session/phase',
   /** main → renderer: sidecar crashed mid-session */
   sessionError: 'session/error',
   /** renderer → main: app.relaunch() + app.quit() for §3.6 give-up recovery */
@@ -85,6 +79,10 @@ export const CHANNELS = {
    *  from-dump) runs. Derived 1:1 from orchestrator telemetry — see
    *  toFinalizeProgressPayload for the field-stripping contract. */
   sessionFinalizeProgress: 'session/finalize-progress',
+  /** renderer → main: LLM-free whole-WAV raw transcript (no note). Reuses the
+   *  finalize transcription + cache + dump, stops before the LLM load.
+   *  Equals SESSION_TRANSCRIBE_CHANNEL in session-finalize.ts. */
+  sessionTranscribe: 'session/transcribe',
 } as const;
 
 export interface IpcDeps {
@@ -122,7 +120,6 @@ export interface IpcDeps {
 //   which short-circuits future session/start calls until lifecycle/restart fires.
 let current: SessionOrchestrator | null = null;
 let recording = false;
-let _appQuitting = false;
 // Tracks the orchestrator instance whose LLM has been loaded for the v2
 // session/finalize path. Spec §9 — IPC finalize needs an explicit unload-STT
 // + load-LLM prep step (unlike orchestrator.stop(), which loads inline).
@@ -145,10 +142,12 @@ let _sessionHandlerInFlight = false;
 // retries included), finalized + cleared in onSessionSettled. Null when the
 // dump is disabled (LISNA_DISABLE_SESSION_DUMP=1) or unavailable.
 let _activeDump: SessionDump | null = null;
-// Raw-audio capture for diarization spike (gate: LISNA_SAVE_AUDIO=1, default off).
+// Always-on raw-audio capture (STT Phase 2 — WAV is the SOLE transcript
+// source for whole-file re-transcription at finalize). Audio is on-device
+// only, retained in userData/audio-captures/, and user-deletable (spec §13).
 // Opened at session/start, closed at every session-end path (stop, discard,
-// crash, give-up). PII note: raw meeting audio — never enable in production
-// without explicit user consent. Null when gate is off or writer failed to open.
+// crash, give-up, write-failure). Null when LISNA_DISABLE_AUDIO_SAVE=1
+// (test kill-switch only) or when the writer failed to open.
 let _audioWriter: WavWriter | null = null;
 
 // ── Session-scoped sidecar lifecycle (2026-06-10, founder reboot incident) ──
@@ -236,6 +235,156 @@ function loadGlossaryInitialPrompt(): string {
   }
 }
 
+/** Private stall sentinel (H1): a single transcribe attempt saw no `sttProgress`
+ *  heartbeat for STT_TRANSCRIBE_NO_PROGRESS_MS. Thrown by sttPassWithWatchdog,
+ *  caught by the orchestrator to drive the restart→retry. Never surfaced to the
+ *  renderer — the terminal failure is `STT_STALLED`. */
+const STT_NO_PROGRESS = 'STT_NO_PROGRESS';
+
+/**
+ * ONE whole-WAV transcribe attempt with a NO-PROGRESS watchdog (H1).
+ *
+ * Loads STT WITH the session language (load-time param drives `filterSegments`;
+ * `transcribeFile` itself is language-agnostic). The load is NOT watched — a cold
+ * STT load is slow and emits no `sttProgress`, so arming during it would false-
+ * fire. Once load completes the watchdog arms: it expires after
+ * STT_TRANSCRIBE_NO_PROGRESS_MS of silence and is reset on every forwarded
+ * `sttProgress`. No wall-clock cap — a steadily-progressing 84-min lecture stays
+ * alive indefinitely; only a wedged sidecar (single-threaded `whisper_full`, no
+ * cooperative abort) trips it.
+ *
+ * `forwardPct` forwards each heartbeat as a `transcribe-progress` event (F1).
+ *
+ * Cleanup contract for the 8 GB floor:
+ *  - success / real transcribeFile error → STT is gracefully `unloadModel()`-ed
+ *    in `finally` (client is healthy).
+ *  - STALL → the client is WEDGED; `unloadModel()` would queue behind the
+ *    doomed transcribeFile FOREVER (unload is sent with timeoutMs:Infinity), so
+ *    we do NOT await it. The orchestrator's `supervisor.restart()` SIGKILL frees
+ *    the STT RAM instead. We throw the STT_NO_PROGRESS sentinel.
+ *
+ * The abandoned attempt's `transcribeFile` promise is given a no-op `.catch` so
+ * that when the old process is SIGKILLed (rejecting all pending sends) it does
+ * not surface as an unhandledRejection.
+ */
+async function sttPassWithWatchdog(
+  client: SidecarClientLike,
+  sttPath: string,
+  language: NoteLanguage,
+  wavPath: string,
+  forwardPct: (pct: number) => void,
+): Promise<TranscriptSegment[]> {
+  const stt = new WhisperCppSTT(client);
+  await stt.loadModel(sttPath, language);
+
+  let stalled = false;
+  let timer: NodeJS.Timeout | null = null;
+  let onStall!: () => void;
+  const stallPromise = new Promise<never>((_resolve, reject) => {
+    onStall = () => {
+      stalled = true;
+      reject(new Error(STT_NO_PROGRESS));
+    };
+  });
+  const arm = (): void => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(onStall, TIMEOUTS.STT_TRANSCRIBE_NO_PROGRESS_MS);
+  };
+  const unsub = client.onEvent((e) => {
+    if (e.type === 'sttProgress') {
+      forwardPct(e.pct);
+      arm(); // heartbeat resets the no-progress window
+    }
+  });
+
+  arm(); // transcribeFile is about to start (load done) — arm now
+  const ip = loadGlossaryInitialPrompt();
+  const tf = stt.transcribeFile(wavPath, ip ? { initialPrompt: ip } : undefined);
+  // Prevent an unhandledRejection from the abandoned promise on a stall: after
+  // supervisor.restart() SIGKILLs the wedged process, SidecarClient rejects all
+  // pending sends → this `tf` rejects with "sidecar process exited" later.
+  tf.catch(() => { /* abandoned-on-stall — swallow the post-SIGKILL rejection */ });
+  try {
+    return await Promise.race([tf, stallPromise]);
+  } finally {
+    if (timer) clearTimeout(timer);
+    unsub();
+    // Graceful unload ONLY when the client is healthy. On a stall the client is
+    // wedged — awaiting unloadModel (timeoutMs:Infinity) would hang; restart
+    // frees the RAM instead.
+    if (!stalled) {
+      await stt.unloadModel().catch(() => {
+        // Best-effort: a failed unload (sidecar gone / model not loaded) still
+        // leaves STT out of resident memory. Proceeding is safe.
+      });
+    }
+  }
+}
+
+/**
+ * Whole-WAV transcribe with finalize-progress events (F1) + the H1 stall
+ * watchdog & single-retry recovery. Used by BOTH the note path
+ * (getCurrentSession step B) and the transcript path (getTranscript).
+ *
+ * F1: emit `transcribe-start` once, forward each sidecar `sttProgress` as
+ * `transcribe-progress`, emit `transcribe-done` even on failure so the renderer
+ * progress UI never wedges. The subscription is scoped to a single attempt
+ * (inside sttPassWithWatchdog) so a stray late event cannot leak onto the channel.
+ *
+ * H1 recovery: attempt 0 runs on the current `client`. On a no-progress stall the
+ * sidecar PROCESS is restarted (SIGKILL + fresh spawn → frees the wedged STT
+ * RAM), we wait for ready, and attempt 1 re-issues transcribeFile ONCE on the
+ * fresh client (which reloads STT). A SECOND stall restarts once more for cleanup
+ * (so the next op meets a healthy sidecar, not a wedged one) and throws
+ * `STT_STALLED`. The LLM is NEVER loaded/reloaded here — the 8 GB floor forbids
+ * STT+LLM co-resident, which is why this does NOT reuse makeRecoveringSidecarFor
+ * (that reloads the LLM). A real transcribeFile error (not a stall) propagates
+ * unchanged after one healthy graceful unload.
+ *
+ * _safeSend is null only before registerIpc (never in production at this call
+ * site); the optional-chain matches every other emit here.
+ */
+async function transcribeWithProgress(
+  client: SidecarClientLike,
+  sttPath: string,
+  language: NoteLanguage,
+  wavPath: string,
+): Promise<TranscriptSegment[]> {
+  const forwardPct = (pct: number): void =>
+    _safeSend?.(CHANNELS.sessionFinalizeProgress, { kind: 'transcribe-progress', pct });
+  _safeSend?.(CHANNELS.sessionFinalizeProgress, { kind: 'transcribe-start' });
+  try {
+    // Attempt 0 — current client.
+    try {
+      return await sttPassWithWatchdog(client, sttPath, language, wavPath, forwardPct);
+    } catch (e) {
+      if (!(e instanceof Error) || e.message !== STT_NO_PROGRESS) throw e; // real error
+    }
+    // Stalled — restart the sidecar PROCESS (frees the wedged STT RAM) and retry once.
+    log.warn('[finalize] STT transcribe stalled (no progress) — restarting sidecar + retrying STT (no LLM)');
+    // `!` is safe: transcribeWithProgress is only reached via a finalize/transcribe
+    // handler that already resolved a client from _depsRef.supervisor.
+    const fresh = await _depsRef!.supervisor.restart();
+    await fresh.waitForReady(5000);
+    try {
+      return await sttPassWithWatchdog(fresh, sttPath, language, wavPath, forwardPct);
+    } catch (e) {
+      if (!(e instanceof Error) || e.message !== STT_NO_PROGRESS) throw e; // real error on retry
+    }
+    // Second stall — give up. Restart ONCE more so the next op (e.g. a user
+    // retry) hits a healthy sidecar instead of the second wedged process; this
+    // cleanup must not mask the STT_STALLED failure if it itself errors.
+    try {
+      await _depsRef!.supervisor.restart();
+    } catch (e) {
+      log.warn('[finalize] post-stall cleanup restart failed (non-fatal)', e);
+    }
+    throw new Error('STT_STALLED');
+  } finally {
+    _safeSend?.(CHANNELS.sessionFinalizeProgress, { kind: 'transcribe-done' });
+  }
+}
+
 /**
  * Spec §9 finalize prep, shared by the live path (getCurrentSession) and the
  * from-dump path: unload STT (idempotent) → load LLM, with the phase
@@ -291,31 +440,24 @@ function makeRecoveringSidecarFor(llmPath: string): GrammarCapableSidecar {
 /**
  * Exported for unit testing — the chunk handler exposed as a pure function. The
  * production code uses the inline IPC handler registered in registerIpc; tests
- * can also drive this directly with a fake IpcMainInvokeEvent.
+ * can also drive this directly. Per-chunk it only drives the orchestrator's WAV
+ * side-channel (onAudioChunk); no STT results are sent back to the renderer
+ * (whole-file STT happens at finalize — STT Phase 2).
  *
  * (Step 4 note: the old handleChunk-with-deps signature is gone; the FSM in
  * module-level state replaces dependency injection at the per-chunk level.)
  */
-export async function handleChunk(
-  event: { sender: { send: (channel: string, payload: ChunkResultPayload) => void } },
-  payload: ChunkPayload,
-): Promise<{ ok: boolean }> {
+export async function handleChunk(payload: ChunkPayload): Promise<{ ok: boolean }> {
   if (!recording || !current) return { ok: true };  // silent no-op
   const orch = current;
   try {
-    // startMs → seconds: re-anchor Whisper's chunk-relative segment ts to
-    // session time (see SessionOrchestrator.onChunk JSDoc).
-    const segs = await orch.onChunk(payload.samples, payload.startMs / 1000);
-    event.sender.send(CHANNELS.onChunk, {
-      index: payload.index,
-      segments: segs,
-      startMs: payload.startMs,
-    });
+    // Whole-file STT happens at finalize (STT Phase 2). Per-chunk we only
+    // drive the orchestrator's WAV side-channel (onAudioChunk) — no live
+    // captions are pushed to the renderer anymore.
+    await orch.onChunk(payload.samples, payload.startMs / 1000);
   } catch (err) {
     // One failed chunk must not break the session — log, allow next chunk.
-    // Index is shape-safe (a small integer); error message may include
-    // sidecar diagnostic text but not user transcript content.
-    log.error('[stt] chunk transcribe error', payload.index, err);
+    log.error('[stt] chunk handler error', payload.index, err);
   }
   return { ok: true };
 }
@@ -336,13 +478,14 @@ export function registerIpc(deps: IpcDeps) {
       const paths = deps.getModelPaths();
       const client = deps.supervisor.getClient();
       if (!paths || !client) return null;
+      const orch = current;  // stable ref held across the awaits below
 
-      // Debug dump (2026-06-11): one dir per finalize invocation under
-      // <userData>/sessions/. Created BEFORE the LLM-load step so even a
-      // load failure leaves the transcript on disk — the 13-min coverage-
-      // collapse incident was undiagnosable because neither the transcript
-      // nor the prompts/raw output ever persisted. app.getPath is guarded:
-      // a harness without it just runs the finalize undumped.
+      // (A) Debug dump (2026-06-11): one dir per finalize invocation under
+      // <userData>/sessions/. Created FIRST so even a transcription / LLM-load
+      // failure leaves a result.json on disk — onSessionSettled(ok:false)
+      // writes the error to this same handle. The 13-min coverage-collapse
+      // incident was undiagnosable because nothing ever persisted. app.getPath
+      // is guarded: a harness without it just runs the finalize undumped.
       try {
         _activeDump = createSessionDump({
           baseDir: sessionsBaseDir(),
@@ -350,34 +493,76 @@ export function registerIpc(deps: IpcDeps) {
       } catch {
         _activeDump = null;
       }
+      if (_activeDump) log.info('[finalize:dump]', redactPath(_activeDump.dir));
+
+      // (B) STT Phase 2 (Task C3) — transcribe the whole captured WAV. Cached
+      // on the ORCHESTRATOR INSTANCE (via exposedSegments / setFinalizeSegments)
+      // so a note-gen retry — which nulls _llmLoadedForCurrent and idle-unloads
+      // the LLM (P0-3 + onSessionSettled) — does NOT re-run the expensive
+      // whole-file pass on a long recording. Runs only while no transcript is
+      // held. This cache is INDEPENDENT of the LLM cache in (E): a retry skips
+      // (B) but re-runs (E). Do NOT collapse them into one gate.
+      if (orch.exposedSegments.length === 0) {
+        const wavPath = orch.wavPath;
+        if (!wavPath || !fs.existsSync(wavPath)) throw new Error('WAV_MISSING');
+        const t0 = Date.now();
+        const segs = await transcribeWithProgress(
+          client,
+          paths.sttPath,
+          orch.language as NoteLanguage,
+          wavPath,
+        );
+        orch.setFinalizeSegments(segs);
+        sessionLog.phase('stt-transcribe-finalize', Date.now() - t0);
+      }
+
+      // (C) Empty guard — a silent / empty recording yields no usable
+      // transcript. Throw before loading the LLM (the 3 GB load is wasted on a
+      // no-op generate). The throw rides the same error machinery as (B).
+      if (orch.exposedSegments.length === 0) throw new Error('EMPTY_RECORDING');
+
+      // (C2) RE-RESOLVE the live client after transcribe. The H1 stall watchdog
+      // in step (B) may have restarted the sidecar PROCESS (SIGKILL + fresh
+      // spawn) to recover from a wedged transcribe — in which case the `client`
+      // captured before (B) now points at the DEAD process. Step (E)'s
+      // loadLlmForFinalize sends unload/load with timeoutMs:Infinity; on a dead
+      // client SidecarClient.rejectAllPending already fired on proc.exit and
+      // won't fire again, so those sends NEVER settle → the note finalize hangs
+      // forever (force-quit only). getClient() returns the SAME client on the
+      // no-restart path (harmless) and the FRESH one after recovery. (Step (F)'s
+      // makeRecoveringSidecarFor already resolves lazily via _depsRef, so it
+      // needs no fix here.)
+      const liveClient = deps.supervisor.getClient();
+      if (!liveClient) throw new Error('SIDECAR_DOWN');
+
+      // (D) Write the dump transcript NOW — AFTER transcription, with the real
+      // segments (not the empty pre-transcribe view the old code wrote).
       if (_activeDump) {
-        log.info('[finalize:dump]', redactPath(_activeDump.dir));
         _activeDump.writeTranscript({
           sessionId: 'live',
-          language: current.language,
+          language: orch.language,
           llmModel: path.basename(paths.llmPath),
-          segments: current.exposedSegments,
+          segments: orch.exposedSegments,
         });
       }
 
-      // Spec §9 — the v2 finalize path needs the LLM loaded before
-      // generateWithGrammar can succeed (else `not_loaded`). Mirror the
-      // 8GB-safe sequence orchestrator.stop() uses internally:
-      // unload STT → load LLM. STT unload is idempotent (catch+ignore)
-      // so a session that never recorded chunks isn't penalized. Cached
-      // per-orchestrator via _llmLoadedForCurrent.
+      // (E) Spec §9 — the v2 finalize path needs the LLM loaded before
+      // generateWithGrammar can succeed (else `not_loaded`). loadLlmForFinalize
+      // unloads STT (idempotent) → loads LLM, SHARED with the from-dump path.
+      // Cached per-orchestrator via _llmLoadedForCurrent; reloads after a failed
+      // finalize's idle-unload (onSessionSettled nulls the cache).
       //
       // Telemetry: each phase emits its own `sessionLog.phase(...)`
       // breadcrumb so the founder-visible main.log can attribute a long
       // Stop → Note interval to cold-cache (llm-load-finalize huge) vs
       // generation (visible later via [finalize:*] attempts). Without these,
       // a ~4-min run with a 25 s LLM load looks identical to a 25 s retry.
-      if (_llmLoadedForCurrent !== current) {
-        await loadLlmForFinalize(client, paths.llmPath);
-        _llmLoadedForCurrent = current;
+      if (_llmLoadedForCurrent !== orch) {
+        await loadLlmForFinalize(liveClient, paths.llmPath);
+        _llmLoadedForCurrent = orch;
       }
 
-      // Wedged-retry fix (2026-06-10): resolve the client LAZILY per
+      // (F) Wedged-retry fix (2026-06-10): resolve the client LAZILY per
       // generate call and restart + LLM-reload on a no-progress stall, so
       // callWithGrammar's fresh-seed retries hit a live process instead of
       // queueing behind a doomed generation in the single-threaded C++
@@ -386,10 +571,10 @@ export function registerIpc(deps: IpcDeps) {
 
       return {
         sessionId: 'live',   // placeholder — real session-ID assignment lands in Task 13
-        segments: current.exposedSegments,
+        segments: orch.exposedSegments,
         llmModelPath: paths.llmPath,
         // Gate above admits only ja/en, both valid NoteLanguage values.
-        language: current.language as NoteLanguage,
+        language: orch.language as NoteLanguage,
         // Dump wrap sits OUTSIDE the recovery wrapper so the recorded calls
         // are exactly what callWithGrammar issued (prompt, seed, raw output
         // per attempt) — including attempts that stall and recover.
@@ -420,6 +605,66 @@ export function registerIpc(deps: IpcDeps) {
         makeSidecar: makeRecoveringSidecarFor,
       });
     },
+    // Raw-transcript output mode (2026-06-19) — LLM-free whole-WAV transcript.
+    // Mirrors getCurrentSession's preamble + steps (A)-(D), then RETURNS the
+    // raw segments. Deliberately STOPS before the (E) LLM load and the (F)
+    // recovering-sidecar wrap — no note is generated. The transcript cache
+    // (exposedSegments) + debug dump are shared with the note path, so a later
+    // note finalize on the same orchestrator would reuse this transcription.
+    getTranscript: async (): Promise<SessionTranscribeResult> => {
+      if (!current) throw new Error('NO_ACTIVE_SESSION');
+      const paths = deps.getModelPaths();
+      const client = deps.supervisor.getClient();
+      if (!paths || !client) throw new Error('NO_ACTIVE_SESSION');
+      const orch = current;
+
+      // (A) Debug dump — same as the note path. A transcribe run lands in
+      // history via transcript.json; onSessionSettled writes no result.json.
+      try {
+        _activeDump = createSessionDump({ baseDir: sessionsBaseDir() });
+      } catch {
+        _activeDump = null;
+      }
+      if (_activeDump) log.info('[transcribe:dump]', redactPath(_activeDump.dir));
+
+      // (B) Whole-WAV transcription, cached on the orchestrator instance. Skips
+      // when a transcript is already held (e.g. a prior note-finalize attempt).
+      if (orch.exposedSegments.length === 0) {
+        const wavPath = orch.wavPath;
+        if (!wavPath || !fs.existsSync(wavPath)) throw new Error('WAV_MISSING');
+        const t0 = Date.now();
+        const segs = await transcribeWithProgress(
+          client,
+          paths.sttPath,
+          orch.language as NoteLanguage,
+          wavPath,
+        );
+        orch.setFinalizeSegments(segs);
+        sessionLog.phase('stt-transcribe-finalize', Date.now() - t0);
+      }
+
+      // (C) Empty guard — a silent recording yields no transcript.
+      if (orch.exposedSegments.length === 0) throw new Error('EMPTY_RECORDING');
+
+      // (D) Persist the transcript dump with the real segments. llmModel is a
+      // required field even though no LLM runs — pass the configured basename.
+      if (_activeDump) {
+        _activeDump.writeTranscript({
+          sessionId: 'live',
+          language: orch.language,
+          llmModel: path.basename(paths.llmPath),
+          segments: orch.exposedSegments,
+        });
+      }
+
+      // NO LLM load. Spread exposedSegments (readonly) into the mutable result.
+      return {
+        sessionId: 'live',
+        language: orch.language,
+        segments: [...orch.exposedSegments],
+        durationSec: orch.exposedSegments.at(-1)?.endSec,
+      };
+    },
     // The v2 Stop flow ends here, not at session/stop — so finalize owns the
     // idle-return. Mirror the session/stop finally block (lines below): clear
     // `current` + `_llmLoadedForCurrent` and drop `recording` so post-finalize
@@ -441,7 +686,10 @@ export function registerIpc(deps: IpcDeps) {
     onSessionSettled: (result) => {
       // Debug dump tail: persist the parsed note (success) or the failure
       // reason, then drop the handle — the next finalize creates a fresh dir.
-      _activeDump?.writeResult(result);
+      // The transcript settle variant carries no `family` (and no note /
+      // result.json by design); writeResult is family-typed, so guard it —
+      // a transcribe run already wrote transcript.json and needs no result.json.
+      if ('family' in result) _activeDump?.writeResult(result);
       _activeDump = null;
       // Audio writer: close on BOTH success and failure. Audio capture
       // already stopped before finalize (Stop → FamilyPicker flow), so no
@@ -523,6 +771,11 @@ export function registerIpc(deps: IpcDeps) {
     if (language !== 'ja' && language !== 'en') throw new Error('UNSUPPORTED_LANGUAGE');
     const paths = deps.getModelPaths();
     if (!paths) throw new Error('MODELS_NOT_CONFIGURED');
+    // Record-only start (STT Phase 2): the WAV becomes the SOLE transcript
+    // source, transcribed whole at finalize. getModelPaths() returns cached
+    // paths validated at resolve time — the STT file could have been moved/
+    // deleted since. Fail fast so we never record audio we cannot transcribe.
+    if (!fs.existsSync(paths.sttPath)) throw new Error('STT_MODEL_MISSING');
     cancelIdleStop();
     // Lazy respawn: the idle-stop policy (or a user kill while idle) leaves
     // no live sidecar — that is the EXPECTED state now, not an error. Spawn
@@ -551,17 +804,13 @@ export function registerIpc(deps: IpcDeps) {
     // glossary. Empty (default) → omitted → identical to the pre-Phase-1 path.
     const initialPrompt = loadGlossaryInitialPrompt();
     if (initialPrompt) opts.sttInitialPrompt = initialPrompt;
-    // Raw-audio capture gate (diarization spike). Off by default — raw meeting
-    // audio is PII; only enable for local spike runs with explicit intent.
+    // Always-on audio capture (STT Phase 2 — the WAV is the SOLE transcript
+    // source for whole-file re-transcription at finalize; spec §13).
+    // LISNA_DISABLE_AUDIO_SAVE=1 is a test-only kill-switch (default = capture ON).
+    // On write failure the session is terminated: a silent disk-full would lose
+    // the entire recording with no recovery path.
     _audioWriter = null;
-    // Enable via env var (dev/terminal launch) OR a `save-audio.on` marker file
-    // in userData — the marker lets the Dock-launched LOCAL test build capture
-    // audio without an env var it can't inherit from Finder. Default OFF: raw
-    // meeting audio is PII. Toggle: `touch`/`rm <userData>/save-audio.on`.
-    const saveAudioOn =
-      process.env.LISNA_SAVE_AUDIO === '1' ||
-      fs.existsSync(path.join(app.getPath('userData'), 'save-audio.on'));
-    if (saveAudioOn) {
+    if (process.env['LISNA_DISABLE_AUDIO_SAVE'] !== '1') {
       try {
         const dir = path.join(app.getPath('userData'), 'audio-captures');
         fs.mkdirSync(dir, { recursive: true });
@@ -569,7 +818,23 @@ export function registerIpc(deps: IpcDeps) {
         const wavPath = path.join(dir, `${stamp}.wav`);
         const w = new WavWriter(wavPath);
         _audioWriter = w;
-        opts.onAudioChunk = (audio) => { try { w.append(audio); } catch { /* best-effort */ } };
+        opts.wavPath = wavPath;
+        opts.onAudioChunk = (audio) => {
+          try {
+            w.append(audio);
+          } catch (err) {
+            // Disk-full / write error — WAV is the SOLE transcript source;
+            // swallowing this would lose the entire recording silently.
+            closeAudioWriter();
+            recording = false;
+            current = null;
+            _llmLoadedForCurrent = null;
+            // _activeDump is always null here (created at finalize in
+            // getCurrentSession, never at record time) — nothing to clear.
+            safeSend(CHANNELS.sessionError, { message: 'AUDIO_WRITE_FAILED' });
+            log.error('[audio-capture] write failed — session terminated', err);
+          }
+        };
         log.info('[audio-capture] saving session audio to', wavPath);
       } catch (err) {
         log.warn('[audio-capture] disabled — could not open writer', err);
@@ -584,11 +849,10 @@ export function registerIpc(deps: IpcDeps) {
     // start↔stop pairs cleanly without spurious "start lang=ja" entries from
     // rejected attempts.
     sessionLog.start(language);
-    const sttLoadStartMs = Date.now();
     try {
-      safeSend(CHANNELS.sessionPhase, { phase: 'stt-loading' });
+      // orch.start() is now a state-reset no-op (STT Phase 2: no live STT load
+      // happens at record time; the WAV is transcribed whole at finalize).
       await orch.start();
-      sessionLog.phase('stt-load', Date.now() - sttLoadStartMs);
       recording = true;
     } catch (err) {
       const code = err instanceof Error ? err.message : String(err);
@@ -608,7 +872,7 @@ export function registerIpc(deps: IpcDeps) {
     return { ok: true, source: opts.source };
   });
   ipcMain.handle(CHANNELS.stopRecording, async () => ({ ok: true }));
-  ipcMain.handle(CHANNELS.chunk, (e, payload: ChunkPayload) => handleChunk(e, payload));
+  ipcMain.handle(CHANNELS.chunk, (_e, payload: ChunkPayload) => handleChunk(payload));
   ipcMain.handle(CHANNELS.capabilities, (): Capabilities => ({
     systemAudio: isMacAudioLoopbackSupported(),
     platform: process.platform,
@@ -657,61 +921,6 @@ export function registerIpc(deps: IpcDeps) {
   ipcMain.handle(CHANNELS.authGetState, async (): Promise<AuthState> => ({
     signedIn: (await loadToken()) !== null,
   }));
-
-  ipcMain.handle(CHANNELS.sessionStop, async (): Promise<Note> => {
-    if (current === null) throw new Error('NO_ACTIVE_SESSION');
-    if (!recording) throw new Error('SESSION_NOT_READY');  // start in flight
-    const orch = current;
-    recording = false;  // sync: post-stop chunks immediately no-op
-    _sessionHandlerInFlight = true;
-    // Step 5 §4.2 — phase timings. The orchestrator fires onPhase synchronously
-    // BEFORE each of its three internal awaits (stt-unloading → llm-loading →
-    // generating). We wrap that callback to (1) forward the safeSend (unchanged
-    // renderer behavior) and (2) record the elapsed ms since the previous
-    // phase entry, emitting a breadcrumb when the next one starts.
-    let lastPhaseAt = Date.now();
-    let lastPhase: SessionPhase | null = null;
-    const onPhase = (phase: SessionPhase): void => {
-      const now = Date.now();
-      if (lastPhase !== null) sessionLog.phase(lastPhase, now - lastPhaseAt);
-      lastPhase = phase;
-      lastPhaseAt = now;
-      safeSend(CHANNELS.sessionPhase, { phase });
-    };
-    try {
-      const note = await orch.stop(onPhase);
-      // Emit the timing for the final phase (`generating`) — orch.stop's
-      // finally-block llm.unloadModel() doesn't get its own breadcrumb (the
-      // 'stt-unloading' / 'llm-loading' / 'generating' set covers all observed
-      // phases per Step 5 spec).
-      if (lastPhase !== null) sessionLog.phase(lastPhase, Date.now() - lastPhaseAt);
-      sessionLog.stop({ noteChars: note.markdown.length, segments: note.transcriptSegments.length });
-      return note;
-    } catch (err) {
-      if (lastPhase !== null) sessionLog.phase(lastPhase, Date.now() - lastPhaseAt);
-      if (_appQuitting) {
-        sessionLog.error('APP_QUIT');
-        throw new Error('APP_QUIT');
-      }
-      const code = err instanceof Error ? err.message : String(err);
-      sessionLog.error(code);
-      throw err;
-    } finally {
-      closeAudioWriter();
-      current = null;
-      _llmLoadedForCurrent = null;
-      _sessionHandlerInFlight = false;
-    }
-  });
-}
-
-/**
- * Called by main/index.ts before-quit hook BEFORE supervisor.shutdown() SIGTERMs
- * the sidecar. session/stop's catch reads this to remap "sidecar process exited"
- * rejections to APP_QUIT, which the renderer suppresses (window is dying).
- */
-export function setAppQuitting() {
-  _appQuitting = true;
 }
 
 /**

@@ -7,6 +7,7 @@ function makeStub(segments: TranscriptSegment[], onTranscribe?: (audio: Float32A
     loadModel: async () => {},
     unloadModel: async () => {},
     transcribe: async (audio) => { onTranscribe?.(audio); return segments; },
+    transcribeFile: async () => segments,
   };
 }
 
@@ -40,6 +41,7 @@ describe('makeRealSttFn', () => {
       loadModel: async () => {},
       unloadModel: async () => {},
       transcribe: async () => { calls++; return [seg('x')]; },
+      transcribeFile: async () => [],
     };
     const fn = makeRealSttFn(stub);
     await fn(new Float32Array(1), 16000, 'far-field-real');

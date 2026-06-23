@@ -3,17 +3,6 @@ import type { Language, TranscriptSegment } from './types';
 export type RecordingSource = 'mic' | 'system';
 
 /**
- * Pushed from main → renderer when the STT adapter returns segments for a
- * committed chunk. Renderer subscribes via `window.lisna.onChunk`.
- */
-export interface ChunkResultPayload {
-  index: number;
-  segments: TranscriptSegment[];
-  /** Inclusive start of the original chunk, relative to recording start, in ms. */
-  startMs: number;
-}
-
-/**
  * Finalized PCM chunk emitted by the renderer-side capture pipeline and
  * shipped over IPC to the main process for downstream STT. Single source of
  * truth across renderer (orchestrator), preload (sendChunk bridge), and main
@@ -101,6 +90,16 @@ export type SidecarRequest =
     }
   | {
       id: string;
+      type: 'transcribeFile';
+      /** Absolute path to a 16 kHz mono PCM16 WAV on disk (what WavWriter emits). */
+      path: string;
+      sampleRate: number;
+      /** Whisper proper-noun bias (STT Phase 1). Omitted when empty — the
+       *  sidecar treats absent/'' as "no initial_prompt". Mirrors `transcribe`. */
+      initialPrompt?: string;
+    }
+  | {
+      id: string;
       type: 'generate';
       /**
        * Preferred shape: structured chat messages. The sidecar applies the
@@ -141,18 +140,18 @@ export type SidecarEvent =
       source: 'whisper' | 'ggml' | 'system';
       message: string;
     }
-  | { type: 'memory'; rssBytes: number; phase: 'idle' | 'stt' | 'llm' | 'transition' };
+  | { type: 'memory'; rssBytes: number; phase: 'idle' | 'stt' | 'llm' | 'transition' }
+  /**
+   * Progress during a `transcribeFile` call. 0..100, monotonic per call.
+   * Id-less is safe because finalize is single-concurrency (only one
+   * transcribeFile in flight at a time).
+   */
+  | { type: 'sttProgress'; pct: number };
 
 // --- Session-level IPC (Step 4: UI integration of SessionOrchestrator) ---
 
-export type SessionPhase = 'stt-loading' | 'stt-unloading' | 'llm-loading' | 'generating';
-
 export interface SessionStartPayload {
   language: Language;
-}
-
-export interface SessionPhasePayload {
-  phase: SessionPhase;
 }
 
 export interface SessionErrorPayload {
@@ -181,6 +180,10 @@ export interface SessionErrorPayload {
  * which the shape-only PII contract keeps out of this channel.
  */
 export type FinalizeProgressPayload =
+  // Whole-file STT phase that now precedes note generation (STT Phase 2a).
+  | { kind: 'transcribe-start' }
+  | { kind: 'transcribe-progress'; pct: number }
+  | { kind: 'transcribe-done' }
   | {
       kind: 'attempt-start';
       /** 0-based. */
@@ -275,6 +278,20 @@ export interface DumpSummary {
   family?: string;
   ok?: boolean;
   unreadable?: boolean;
+}
+
+/**
+ * Result of `session/transcribe` — the LLM-free raw-transcript output mode
+ * (2026-06-19). Transcribes the whole captured WAV and returns the raw
+ * segments; NO note is generated. The renderer's TranscriptView renders these
+ * verbatim (subtitle-style).
+ */
+export interface SessionTranscribeResult {
+  sessionId: string;
+  language: string;
+  segments: TranscriptSegment[];
+  /** Last segment endSec — for the view header. */
+  durationSec?: number;
 }
 
 /** Full transcript.json payload of one dump (see session-debug-dump.ts). */

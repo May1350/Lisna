@@ -81,4 +81,27 @@ describe('applyFinalizeProgress', () => {
       phase: 'chunk', chunkIndex: 0, totalChunks: 1, attempt: 1, attemptMax: 6, startedAt: undefined,
     });
   });
+
+  // STT Phase 2a — whole-file transcription precedes note generation.
+  it('transcribe-start enters the transcribing phase with NO fabricated pct, preserving startedAt', () => {
+    const prev: ProgressState = { phase: 'loading', startedAt: START };
+    const next = applyFinalizeProgress(prev, { kind: 'transcribe-start' });
+    expect(next).toEqual({ phase: 'transcribing', startedAt: START });
+    // No-fake-progress founder rule: transcribe-start must not invent a pct.
+    expect(next?.pct).toBeUndefined();
+  });
+
+  it('transcribe-progress carries the real pct and preserves startedAt', () => {
+    const prev: ProgressState = { phase: 'transcribing', startedAt: START };
+    expect(
+      applyFinalizeProgress(prev, { kind: 'transcribe-progress', pct: 42 }),
+    ).toEqual({ phase: 'transcribing', pct: 42, startedAt: START });
+  });
+
+  it('transcribe-done falls back to the loading phase (LLM loads next), preserving startedAt', () => {
+    const prev: ProgressState = { phase: 'transcribing', pct: 100, startedAt: START };
+    expect(
+      applyFinalizeProgress(prev, { kind: 'transcribe-done' }),
+    ).toEqual({ phase: 'loading', startedAt: START });
+  });
 });

@@ -12,10 +12,12 @@
  */
 import { useEffect, useState } from 'react';
 
-export type ProgressPhase = 'loading' | 'chunk' | 'merge' | 'persist';
+export type ProgressPhase = 'loading' | 'transcribing' | 'chunk' | 'merge' | 'persist';
 
 export interface ProgressState {
   phase: ProgressPhase;
+  /** 0..100 STT progress when phase==='transcribing'. Absent until the first sttProgress event. */
+  pct?: number;
   /** 0-based chunk index when phase==='chunk'. */
   chunkIndex?: number;
   /** Total chunks when phase==='chunk'. */
@@ -72,6 +74,42 @@ export function NoteRenderProgress({ progress }: Props) {
     return (
       <div style={wrap} data-testid="progress-loading">
         <p>{`モデルを読み込み中... (初回は最大 30 秒ほどかかります)${elapsed}`}</p>
+      </div>
+    );
+  }
+  if (progress.phase === 'transcribing') {
+    // Whole-file STT progress (STT Phase 2a). The bar is driven by the REAL
+    // sttProgress pct forwarded from the sidecar — never a simulated bar. Until
+    // the first progress event arrives, `pct` is undefined: show NO percent and
+    // a 0% bar (no-fake-progress founder constraint).
+    const { pct } = progress;
+    const known = typeof pct === 'number';
+    const clamped = known ? Math.min(100, Math.max(0, Math.round(pct))) : 0;
+    return (
+      <div style={wrap} data-testid="progress-transcribing">
+        <div
+          style={{
+            background: '#eee',
+            height: 8,
+            borderRadius: 4,
+            overflow: 'hidden',
+            marginBottom: 12,
+          }}
+        >
+          <div
+            style={{
+              width: `${clamped}%`,
+              height: '100%',
+              background: '#6e1e1e',
+              transition: 'width 200ms ease',
+            }}
+          />
+        </div>
+        <p>
+          {known
+            ? `音声を文字起こし中... ${clamped}%${elapsed}`
+            : `音声を文字起こし中...${elapsed}`}
+        </p>
       </div>
     );
   }

@@ -1,10 +1,5 @@
-import type { STTEngine, LLMEngine, Language, TranscriptSegment, ChatMessage } from '@shared/engine-interfaces';
-import type { Note } from '@shared/types';
-import type { SessionPhase, SamplingParams } from '@shared/ipc-protocol';
-import { withTimeout } from '@shared/with-timeout';
-import { buildJaNoteV1Prompt } from './prompts/ja-note-v1';
-import { TIMEOUTS, TIMEOUT_CODES } from './timeouts';
-import { generateChunkedNote } from './chunked-note';
+import type { STTEngine, LLMEngine, Language, TranscriptSegment } from '@shared/engine-interfaces';
+import type { SamplingParams } from '@shared/ipc-protocol';
 
 // ─── finalizeLecture / finalizeMeeting imports ───────────────────────────────
 import type { SessionTranscript } from '@shared/note-schema/transcript';
@@ -557,17 +552,11 @@ interface Opts {
   llmModelPath: string;
   language: Language;
   /**
-   * Optional override for the chat-message builder. Returns `ChatMessage[]`
-   * so the sidecar can apply the GGUF chat template. Tests typically inject
-   * a fixed array so they don't need to parse the prompt content.
-   */
-  buildPrompt?(language: Language, segments: TranscriptSegment[]): ChatMessage[];
-  /**
    * Optional side-channel fired once per recording chunk with the RAW audio
    * buffer (16kHz mono Float32) and its session offset, BEFORE STT and before
    * the segment-timestamp remap. Wired by the session/* IPC handlers to the
-   * WAV writer when LISNA_SAVE_AUDIO=1. Must not throw (fire-and-forget); the
-   * caller guarantees non-throwing behavior. No-op when unset.
+   * WAV writer (always-on, STT Phase 2). Must not throw (fire-and-forget); the
+   * caller guarantees non-throwing behavior by catching internally. No-op when unset.
    */
   onAudioChunk?(audio: Float32Array, sessionOffsetSec: number): void;
   /**
@@ -576,165 +565,88 @@ interface Opts {
    * `shared/stt/glossary.ts`); undefined/'' = no bias.
    */
   sttInitialPrompt?: string;
+  /**
+   * Absolute path to the WAV file opened for this session (STT Phase 2 — the
+   * WAV is the SOLE transcript source for whole-file re-transcription at
+   * finalize). Set when the audio writer is successfully opened; null when
+   * LISNA_DISABLE_AUDIO_SAVE=1 (test kill-switch only) or writer failed to
+   * open. Read by the finalize IPC route (Task C1) to locate the file.
+   */
+  wavPath?: string;
 }
 
 /**
- * Default prompt builder. v2.0 alpha is JA-only (concept-lock), so we route
- * everything through the JA-note-v1 plain-text builder. See
- * `prompts/ja-note-v1.ts` for the format contract.
+ * Coordinates audio capture for a single recording session. STT is NO LONGER
+ * run during recording (STT Phase 2 — record-then-transcribe): the chunk loop
+ * only side-channels raw audio to the WAV writer, and the whole WAV is
+ * transcribed once at finalize. The transcript is supplied back to this
+ * instance via `setFinalizeSegments()` so a finalize retry reuses it.
  *
- * The `buildPrompt?` opt remains as an injection seam: tests override it
- * with a fixed string (no need to validate prompt content) and a future
- * multilingual v2.1 can dispatch on `language`.
- */
-const defaultPrompt = buildJaNoteV1Prompt;
-
-/**
- * Coordinates STT → LLM in time-sliced order for a single recording session.
- *
- * **Lifecycle (single-use, strict FSM):**
+ * **Lifecycle (single-use):**
  *   idle → recording → finalizing → done
  *
- * - `start()` transitions idle → recording (loads STT, clears segments).
- * - `onChunk(audio)` is valid only in `recording` state; appends transcribed segments.
- * - `stop()` transitions recording → finalizing → done. Unloads STT, loads LLM,
- *   generates note, unloads LLM. LLM unload runs in `finally`, so a thrown
- *   `generate()` does not leave the model resident. Optional `onPhase`
- *   callback observes the three internal awaits (stt-unloading → llm-loading
- *   → generating) before each begins; the final `llm.unloadModel()` in
- *   `finally` is intentionally silent (renderer is already past 'Generating').
+ * - `start()` resets per-session state (clears `finalizeSegments`). No model I/O.
+ * - `onChunk(audio)` fires the `onAudioChunk` side-channel (WAV write); it does
+ *   NOT transcribe and returns `[]`.
+ * - finalize (the v2 family pipeline in the `finalize*` functions / the
+ *   `session/finalize` IPC route) transcribes the WAV, calls
+ *   `setFinalizeSegments()`, then drives note generation.
  *
- * **Out-of-order callers (`onChunk` before `start()`, double `start()`, double
- * `stop()`) are NOT guarded by this class.** Callers (typically the `session/*`
- * IPC handlers registered by the main process) are responsible for ordering.
- * Treat each instance as a single-use disposable per session.
+ * **Out-of-order callers (`onChunk` before `start()`, double `start()`) are
+ * NOT guarded by this class.** Callers (typically the `session/*` IPC handlers
+ * registered by the main process) are responsible for ordering. Treat each
+ * instance as a single-use disposable per session.
  *
  * Memory floor (8GB RAM) requires STT and LLM never coexist in resident memory;
- * `stt.unloadModel()` blocks until OS-confirmed RSS drop (mach API, Task 3.4)
- * before `llm.loadModel()` is invoked.
+ * the finalize route unloads STT (mach-API-confirmed RSS drop) before loading
+ * the LLM.
  */
 export class SessionOrchestrator {
-  private segments: TranscriptSegment[] = [];
+  // Set once at finalize (Task C3), not during recording. Held on the
+  // orchestrator instance so a finalize retry reuses the transcript instead of
+  // re-transcribing the WAV.
+  private finalizeSegments: TranscriptSegment[] | null = null;
   constructor(private opts: Opts) {}
 
   /**
-   * Read-only view of accumulated transcript segments. Used by the
-   * `session/finalize` IPC handler (Task 10) to build a SessionTranscript
-   * without exposing the mutable internal array.
+   * Read-only view of the transcript segments. Empty until the finalize route
+   * sets them via `setFinalizeSegments()`. Used by the `session/finalize` IPC
+   * handler to build a SessionTranscript without exposing a mutable array.
    */
-  get exposedSegments(): readonly TranscriptSegment[] { return this.segments; }
+  get exposedSegments(): readonly TranscriptSegment[] { return this.finalizeSegments ?? []; }
+  /** Orchestrator-instance transcript store so a finalize retry reuses it. */
+  setFinalizeSegments(segs: TranscriptSegment[]): void { this.finalizeSegments = segs; }
   /** Session language as passed at start — read by the finalize IPC route. */
   get language(): Language { return this.opts.language; }
+  /**
+   * Absolute path to the WAV file opened for this session, or null when the
+   * writer was not opened (LISNA_DISABLE_AUDIO_SAVE=1 or open failure).
+   * Read by the finalize route (Task C1) to locate the whole-session audio
+   * for re-transcription. Null until ipc.ts wires opts.wavPath at session/start.
+   */
+  get wavPath(): string | null { return this.opts.wavPath ?? null; }
 
+  /**
+   * Reset per-session state for a new recording. No model I/O — STT is no
+   * longer loaded during recording (STT Phase 2); the WAV captured via
+   * `onChunk`'s side-channel is transcribed at finalize. Stays `async` so the
+   * `session/start` IPC caller's signature is unchanged.
+   */
   async start(): Promise<void> {
-    this.segments = [];
-    // Cap STT cold load. 60s budget covers TCC mic-permission prompt + GGUF
-    // mmap + Metal init on M1 (see TIMEOUTS comment for the calibration).
-    // Throws STT_TIMEOUT if the sidecar wedges.
-    await withTimeout(
-      this.opts.stt.loadModel(this.opts.sttModelPath, this.opts.language),
-      TIMEOUTS.STT_LOAD_MS,
-      TIMEOUT_CODES.STT_TIMEOUT,
-    );
+    this.finalizeSegments = null;
   }
 
   /**
-   * Transcribe one audio chunk and accumulate its segments.
-   *
-   * `sessionOffsetSec` re-anchors Whisper's CHUNK-RELATIVE timestamps
-   * (each 10s chunk is transcribed independently, so every segment's
-   * startSec is in [0, chunkLen]) to session time. Without it, a long
-   * recording's transcript claims everything happened in the first few
-   * seconds — live captions show resetting timestamps, and the finalize
-   * prompt hands the LLM time anchors that are all ~0, so the model
-   * fabricates section ts (2026-06-10: 12-min EN lecture → uniform fake
-   * 12s ladder). Callers pass ChunkPayload.startMs / 1000.
+   * Forward one recording chunk to the WAV side-channel. Live STT was REMOVED
+   * (STT Phase 2 — record-then-transcribe): the WAV written via `onAudioChunk`
+   * is now the SOLE capture, transcribed whole at finalize. This no longer
+   * calls `stt.transcribe`; it returns `[]` (Task D1 will drop the return type
+   * + the caller's caption push). `sessionOffsetSec` is still passed through to
+   * the side-channel so the WAV writer can place silent gaps faithfully.
    */
   async onChunk(audio: Float32Array, sessionOffsetSec = 0): Promise<TranscriptSegment[]> {
-    this.opts.onAudioChunk?.(audio, sessionOffsetSec);   // raw buffer, pre-remap
-    const raw = await this.opts.stt.transcribe(audio, { initialPrompt: this.opts.sttInitialPrompt });
-    const segs = sessionOffsetSec === 0 ? raw : raw.map((s) => ({
-      ...s,
-      startSec: s.startSec + sessionOffsetSec,
-      endSec: s.endSec + sessionOffsetSec,
-    }));
-    this.segments.push(...segs);
-    return segs;
-  }
-
-  /**
-   * @param onPhase Optional observer fired synchronously BEFORE each of the
-   *   three internal awaits: 'stt-unloading' → 'llm-loading' → 'generating'.
-   *   Return value is ignored (fire-and-forget — do not await side effects
-   *   from inside). Callback errors are not caught; caller must ensure
-   *   non-throwing behavior. Caller emits 'stt-loading' around `start()`
-   *   separately (in this codebase: from the `session/start` IPC handler).
-   */
-  async stop(onPhase?: (phase: SessionPhase) => void): Promise<Note> {
-    // Empty-transcript guard: if no segments were captured (silence-only
-    // recording, or user clicked Start/Stop without speaking), skip the
-    // LLM round-trip entirely. Loading a 2GB GGUF to generate hallucinated
-    // text from an empty prompt is a 10-30s waste that produces garbage.
-    // Throw EMPTY_TRANSCRIPT so the renderer can show a friendly error
-    // ("It looks like nothing was recorded — please try again") instead of
-    // routing the user to a NoteView containing LLM-confabulated content.
-    if (this.segments.length === 0) {
-      onPhase?.('stt-unloading');
-      // 5s timeout cap on unload. If unload throws a non-timeout error
-      // (sidecar said `error`, etc.), propagate it — that's a diagnostic
-      // the user/devs need to see. The EMPTY_TRANSCRIPT throw below only
-      // fires if unload resolved cleanly.
-      await withTimeout(
-        this.opts.stt.unloadModel(),
-        TIMEOUTS.STT_UNLOAD_MS,
-        TIMEOUT_CODES.STT_TIMEOUT,
-      );
-      throw new Error('EMPTY_TRANSCRIPT');
-    }
-    try {
-      onPhase?.('stt-unloading');
-      // 5s STT unload — see TIMEOUTS comment. Throws STT_TIMEOUT.
-      await withTimeout(
-        this.opts.stt.unloadModel(),
-        TIMEOUTS.STT_UNLOAD_MS,
-        TIMEOUT_CODES.STT_TIMEOUT,
-      );
-      onPhase?.('llm-loading');
-      // 30s LLM load (Q4_K_M mmap + Metal init). Throws LLM_LOAD_TIMEOUT.
-      await withTimeout(
-        this.opts.llm.loadModel(this.opts.llmModelPath),
-        TIMEOUTS.LLM_LOAD_MS,
-        TIMEOUT_CODES.LLM_LOAD_TIMEOUT,
-      );
-      onPhase?.('generating');
-      // generateChunkedNote chunks long transcripts to stay within n_ctx
-      // (see chunked-note.ts) — short transcripts still take the single-pass
-      // path (byte-identical output). GENERATE_TIMEOUT (no-progress 60s) is
-      // enforced per generate() call inside LlamaCppLLM → SidecarClient.sendStream.
-      const md = await generateChunkedNote({
-        segments: this.segments,
-        language: this.opts.language,
-        buildPrompt: this.opts.buildPrompt ?? defaultPrompt,
-        generate: (messages) =>
-          this.opts.llm.generate(messages, { maxTokens: 4096, temperature: 0.4 }),
-      });
-      return {
-        language: this.opts.language,
-        generatedAt: new Date().toISOString(),
-        markdown: md,
-        transcriptSegments: this.segments,
-      };
-    } finally {
-      // Best-effort unload — swallow secondary errors so we don't mask the primary throw.
-      // Also cap with timeout so a wedged sidecar can't strand the renderer in Finalizing
-      // forever. 5s budget; on timeout we just move on (the renderer has already left
-      // 'generating' phase by the time finally runs).
-      await withTimeout(
-        this.opts.llm.unloadModel(),
-        TIMEOUTS.LLM_UNLOAD_MS,
-        TIMEOUT_CODES.LLM_UNLOAD_TIMEOUT,
-      ).catch(() => {});
-    }
+    this.opts.onAudioChunk?.(audio, sessionOffsetSec);   // raw buffer, sole capture
+    return [];
   }
 }
 

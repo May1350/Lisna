@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { DumpTranscript } from '@shared/ipc-protocol';
 import type { NoteFamily } from '@shared/note-schema';
-import type { TranscriptSegment } from '@shared/types';
 import { FamilyPickerStep } from '../components/FamilyPickerStep';
 import { Spinner } from '../components/Spinner';
 import { toFriendlyJa } from '../i18n/error-message-map';
@@ -16,7 +15,7 @@ interface DetailProps {
   id: string;
   transcript: DumpTranscript;
   onBack: () => void;
-  onRegenerate: (family: NoteFamily, segments: TranscriptSegment[]) => void;
+  onRegenerate: (family: NoteFamily) => void;
 }
 
 /** Pure detail view — exported for static-markup tests. */
@@ -36,7 +35,13 @@ export function HistoryDetail({ id, transcript, onBack, onRegenerate }: DetailPr
         ))}
       </ul>
       <FamilyPickerStep
-        onPick={(family) => onRegenerate(family, transcript.segments)}
+        // Regenerate-from-dump only produces NOTES. The raw transcript is
+        // already shown above, so the 文字起こし choice is hidden here; the
+        // narrowing guard stays as a defensive no-op.
+        showTranscript={false}
+        onPick={(choice) => {
+          if (choice !== 'transcript') onRegenerate(choice);
+        }}
         onDiscard={onBack}
       />
     </section>
@@ -46,7 +51,7 @@ export function HistoryDetail({ id, transcript, onBack, onRegenerate }: DetailPr
 interface Props {
   id: string;
   onBack: () => void;
-  onRegenerate: (family: NoteFamily, segments: TranscriptSegment[]) => void;
+  onRegenerate: (family: NoteFamily) => void;
 }
 
 /** Container: fetches the dump transcript, then renders HistoryDetail. */
