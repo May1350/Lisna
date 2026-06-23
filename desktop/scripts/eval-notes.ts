@@ -42,6 +42,10 @@ export function __testOnly_parseArgs(argv: string[]): CliArgs {
 const OFFLINE_MODEL_ID: Record<string, string> = {
   'offline-3b': 'llama-3.2-3b-q4-km',
   'offline-1b': 'llama-3.2-1b-q4-km',
+  // STEP-1 model-swap eval candidates (see profiles.ts). Eval-only, not shipped.
+  'offline-sarashina': 'sarashina-2.2-3b-q4-km',
+  'offline-llmjp': 'llm-jp-3-3.7b-q4-km',
+  'offline-qwen': 'qwen-2.5-3b-q4-km',
 };
 
 export async function __testOnly_resolveRunner(
