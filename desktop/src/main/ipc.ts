@@ -1,7 +1,7 @@
 import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
-import { app, ipcMain, shell, type BrowserWindow } from 'electron';
+import { app, ipcMain, shell, dialog, type BrowserWindow } from 'electron';
 import { WavWriter } from './audio-wav-writer';
 import { buildInitialPrompt, parseGlossary } from '@shared/stt/glossary';
 import type {
@@ -84,6 +84,10 @@ export const CHANNELS = {
    *  finalize transcription + cache + dump, stops before the LLM load.
    *  Equals SESSION_TRANSCRIBE_CHANNEL in session-finalize.ts. */
   sessionTranscribe: 'session/transcribe',
+  /** renderer → main: save a text payload to a user-chosen file via the native
+   *  save dialog (the note/transcript Export button). Content is pre-serialized
+   *  in the renderer; main only writes bytes. Returns {ok, canceled, path?}. */
+  exportFile: 'file/export',
 } as const;
 
 export interface IpcDeps {
@@ -742,6 +746,20 @@ export function registerIpc(deps: IpcDeps) {
       }
     },
   });
+
+  // ── Export note / transcript to a user-chosen file (Copy/Export buttons) ──
+  // Renderer pre-serializes the text; main only shows the save dialog + writes.
+  ipcMain.handle(
+    CHANNELS.exportFile,
+    async (_e, payload: { content: string; defaultName: string }): Promise<{ ok: boolean; canceled: boolean; path?: string }> => {
+      const win = deps.getMainWindow();
+      const opts = { defaultPath: payload.defaultName };
+      const res = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts);
+      if (res.canceled || !res.filePath) return { ok: false, canceled: true };
+      await fs.promises.writeFile(res.filePath, payload.content, 'utf8');
+      return { ok: true, canceled: false, path: res.filePath };
+    },
+  );
 
   // ── F2 history viewer: dump list + transcript (read-only) ────────────────
   ipcMain.handle(CHANNELS.sessionListDumps, async () => listDumps(sessionsBaseDir()));

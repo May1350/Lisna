@@ -123,6 +123,15 @@ contextBridge.exposeInMainWorld('lisna', {
   openExternal: (url: string): Promise<void> =>
     ipcRenderer.invoke(CHANNELS.shellOpenExternal, { url }),
 
+  /**
+   * Save a pre-serialized text payload to a user-chosen file via the native
+   * save dialog (note/transcript Export button). `defaultName` seeds the dialog
+   * filename (extension implies format). Resolves `{ok:false, canceled:true}`
+   * when the user dismisses the dialog.
+   */
+  exportFile: (args: { content: string; defaultName: string }): Promise<{ ok: boolean; canceled: boolean; path?: string }> =>
+    ipcRenderer.invoke(CHANNELS.exportFile, args),
+
   // --- Phase M Task 70 — sign-in handshake bridges ---
 
   /**
@@ -174,6 +183,7 @@ declare global {
       getModelStatus(): Promise<ModelStatus>;
       pickModel(slot: ModelSlot): Promise<PickResult>;
       openExternal(url: string): Promise<void>;
+      exportFile(args: { content: string; defaultName: string }): Promise<{ ok: boolean; canceled: boolean; path?: string }>;
       signIn(): Promise<void>;
       getAuthState(): Promise<AuthState>;
       onSignedIn(cb: () => void): () => void;
