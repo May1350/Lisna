@@ -8,6 +8,7 @@ import type { SessionTranscript } from '@shared/note-schema';
 import type { ExtractedAtoms } from './extract-schema';
 import { MEETING_ARRAY_CAPS } from './schema';
 import { unionKeyFigures, unionContentAtoms, isFillerAtomText } from './dedup';
+import { stripSpeakerMarker, hasMixedScript, isPlaceholderAtom } from './quality-filters';
 import { synthesizeTopicArcAndDiscussions } from './topic-synth';
 
 /**
@@ -20,30 +21,53 @@ export function assembleMeetingNote(
   transcript: SessionTranscript,
 ): Record<string, unknown> {
   // -------------------------------------------------------------------------
+  // 0. Clean each chunk's atoms ONCE (strip leaked "[ts] [話者id]" markers the 3B
+  //    echoes, then drop contentless filler / out-of-script garble / generic
+  //    placeholder atoms). Marker-strip MUST precede filler-drop — FILLER_RE is
+  //    ^…$-anchored, so "[0] [話者0] はい" would never match it (the bug that let
+  //    chitchat through as decisions, 2026-06-23). Build cleanedExtracts and use
+  //    it EVERYWHERE below (union + topic-synth) so object identities stay
+  //    consistent for topic-synth's ts-midpoint maps.
+  // -------------------------------------------------------------------------
+  const keepText = (text: string): boolean =>
+    text.length > 0 && !isFillerAtomText(text) && !hasMixedScript(text) && !isPlaceholderAtom(text);
+  const cleanTextAtoms = <T extends { text: string }>(arr: ReadonlyArray<T>): T[] =>
+    arr.map((a) => ({ ...a, text: stripSpeakerMarker(a.text) })).filter((a) => keepText(a.text));
+  const cleanedExtracts = chunkExtracts.map((c) => ({
+    ...c,
+    atoms: {
+      ...c.atoms,
+      decisions: cleanTextAtoms(c.atoms.decisions),
+      open_questions: cleanTextAtoms(c.atoms.open_questions),
+      risks: cleanTextAtoms(c.atoms.risks),
+      action_items: c.atoms.action_items
+        .map((a) => ({ ...a, task: stripSpeakerMarker(a.task) }))
+        .filter((a) => keepText(a.task)),
+      key_figures: c.atoms.key_figures
+        .map((f) => ({ ...f, label: stripSpeakerMarker(f.label), value: stripSpeakerMarker(f.value) }))
+        .filter((f) => f.label.length > 0 && !isFillerAtomText(f.label) && !hasMixedScript(f.label) && !hasMixedScript(f.value)),
+    },
+  }));
+
+  // -------------------------------------------------------------------------
   // 1. Union flat atoms with field-specific dedup
   // -------------------------------------------------------------------------
   // Reshape action_items.task → text up front so the union and the midpoint
   // tracking (below) operate on the same object identities.
-  // Drop contentless filler ("決める" / "そうなんです") before union — robust where
-  // the extraction prompt is not (see dedup.ts::isFillerAtomText).
-  const notFiller = <T extends { text: string }>(arr: ReadonlyArray<T>): T[] =>
-    arr.filter((a) => !isFillerAtomText(a.text));
-  const actionsPerChunk = chunkExtracts.map((c) =>
-    notFiller(c.atoms.action_items.map((a) => ({ text: a.task, owner: a.owner, due: a.due, ts: a.ts }))),
+  const actionsPerChunk = cleanedExtracts.map((c) =>
+    c.atoms.action_items.map((a) => ({ text: a.task, owner: a.owner, due: a.due, ts: a.ts })),
   );
-  const decisions = unionContentAtoms(chunkExtracts.map((c) => notFiller(c.atoms.decisions)));
+  const decisions = unionContentAtoms(cleanedExtracts.map((c) => c.atoms.decisions));
   const nextStepsRaw = unionContentAtoms(actionsPerChunk);
-  const openQuestions = unionContentAtoms(chunkExtracts.map((c) => notFiller(c.atoms.open_questions)));
-  const risks = unionContentAtoms(chunkExtracts.map((c) => notFiller(c.atoms.risks)));
-  const keyFigures = unionKeyFigures(
-    chunkExtracts.map((c) => c.atoms.key_figures.filter((f) => !isFillerAtomText(f.label))),
-  );
+  const openQuestions = unionContentAtoms(cleanedExtracts.map((c) => c.atoms.open_questions));
+  const risks = unionContentAtoms(cleanedExtracts.map((c) => c.atoms.risks));
+  const keyFigures = unionKeyFigures(cleanedExtracts.map((c) => c.atoms.key_figures));
 
   // -------------------------------------------------------------------------
   // 2. Derive title + purpose
   // -------------------------------------------------------------------------
-  const allTitles = chunkExtracts.map((c) => c.atoms.title).filter((t): t is string => !!t);
-  const allPurposes = chunkExtracts.map((c) => c.atoms.purpose).filter((p): p is string => !!p);
+  const allTitles = cleanedExtracts.map((c) => c.atoms.title).filter((t): t is string => !!t);
+  const allPurposes = cleanedExtracts.map((c) => c.atoms.purpose).filter((p): p is string => !!p);
   const longestTitle =
     allTitles.reduce<string>((best, t) => (t.length > best.length ? t : best), '') || '';
   const longestPurpose =
@@ -54,7 +78,7 @@ export function assembleMeetingNote(
   // -------------------------------------------------------------------------
   const { topic_arc, discussions } = synthesizeTopicArcAndDiscussions({
     transcript,
-    chunkExtracts,
+    chunkExtracts: cleanedExtracts,
     decisions,
     nextStepsRaw,
     openQuestions,
