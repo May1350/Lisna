@@ -1,4 +1,6 @@
 import type { TranscriptSegment } from '@shared/types';
+import { transcriptToText } from '@shared/note-export';
+import { CopyExportButtons } from '../components/CopyExportButtons';
 
 interface Props {
   segments: TranscriptSegment[];
@@ -43,13 +45,19 @@ export function TranscriptView({ segments, language, durationSec, onNewSession }
           </li>
         ))}
       </ul>
-      <button
-        data-testid="transcript-new-session"
-        onClick={onNewSession}
-        style={{ padding: '8px 16px', fontSize: 14, marginTop: 8 }}
-      >
-        新しい録音
-      </button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8 }}>
+        <CopyExportButtons
+          getText={() => transcriptToText(segments)}
+          exportName="transcript.txt"
+        />
+        <button
+          data-testid="transcript-new-session"
+          onClick={onNewSession}
+          style={{ padding: '8px 16px', fontSize: 14 }}
+        >
+          新しい録音
+        </button>
+      </div>
     </section>
   );
 }

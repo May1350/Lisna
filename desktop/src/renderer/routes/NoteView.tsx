@@ -1,6 +1,14 @@
 import type { Note } from '@shared/types';
 import type { NoteBase } from '@shared/note-schema';
 import { familyRendererRegistry } from '@shared/families/renderer';
+import { noteToMarkdown } from '@shared/note-export';
+import { CopyExportButtons } from '../components/CopyExportButtons';
+
+/** Filesystem-safe `.md` filename from the note title. */
+function noteFileName(title: string): string {
+  const base = (title || 'note').replace(/[/\\:*?"<>|\n]+/g, '_').trim().slice(0, 60);
+  return `${base || 'note'}.md`;
+}
 
 interface Props {
   note: Note | NoteBase;
@@ -34,9 +42,10 @@ export function NoteView({ note, onNewSession }: Props) {
           {note.language.toUpperCase()}
           {isStructured && <> · {note.family}</>}
         </p>
-        <button onClick={onNewSession} style={{ marginLeft: 'auto' }}>
-          New session
-        </button>
+        <div style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 12 }}>
+          <CopyExportButtons getText={() => noteToMarkdown(note)} exportName={noteFileName('title' in note ? note.title : 'note')} />
+          <button onClick={onNewSession}>New session</button>
+        </div>
       </header>
 
       {isStructured ? <StructuredBody note={note} /> : <LegacyBody note={note} />}
