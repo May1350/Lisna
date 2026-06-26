@@ -26,6 +26,14 @@ export function cer(ref: string, hyp: string): number {
   return editDistance(r, [...hyp]) / r.length;
 }
 
+/** Normalize for a fairer JA CER: NFKC-fold (full-width→half-width digits/
+ *  letters, ％→%, etc.) then drop whitespace, commas, and JA/ASCII punctuation.
+ *  Isolates real word/proper-noun errors from trivial formatting differences
+ *  (4,200 vs 4200, ％ vs %, 、。 vs none) that a raw code-point CER over-counts. */
+export function normalizeForCer(s: string): string {
+  return s.normalize('NFKC').replace(/[-\s,.、。・…「」『』()【】!?~〜]/gu, '');
+}
+
 /** Word Error Rate (whitespace tokenization; secondary for JA). */
 export function wer(ref: string, hyp: string): number {
   const r = ref.trim().split(/\s+/).filter(Boolean);
