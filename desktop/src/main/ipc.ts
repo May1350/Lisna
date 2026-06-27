@@ -21,6 +21,7 @@ import type { GrammarCapableSidecar } from './sidecar/grammar-call';
 import { makeRecoveringGrammarSidecar } from './sidecar/recovering-grammar-sidecar';
 import { buildDumpSessionContext } from './dump-finalize-context';
 import { listDumps, loadDumpTranscript } from './session-dump-reader';
+import { saveTranscriptEdit, type EditedSegment } from './transcript-edit';
 import { WhisperCppSTT } from './engines/whisper-cpp-stt';
 import { LlamaCppLLM } from './engines/llama-cpp-llm';
 import { TIMEOUTS } from './sidecar/timeouts';
@@ -94,6 +95,10 @@ export const CHANNELS = {
   /** renderer → main: persist the glossary (atomic). Returns the NORMALIZED list
    *  (trim/dedupe/cap) so the UI reflects exactly what was stored. */
   glossarySet: 'glossary/set',
+  /** renderer → main: persist edited transcript segment text to a dump's
+   *  transcript.json (atomic, text-only, merged by index). id validated by
+   *  resolveDumpDir (rejects traversal/symlink). */
+  transcriptSave: 'transcript/save',
 } as const;
 
 export interface IpcDeps {
@@ -675,6 +680,10 @@ export function registerIpc(deps: IpcDeps) {
         language: orch.language,
         segments: [...orch.exposedSegments],
         durationSec: orch.exposedSegments.at(-1)?.endSec,
+        // The persist target for transcript edits — undefined when no dump dir
+        // was created (LISNA_DISABLE_SESSION_DUMP / dir-create failure), in
+        // which case the renderer renders the transcript view-only.
+        dumpId: _activeDump ? path.basename(_activeDump.dir) : undefined,
       };
     },
     // The v2 Stop flow ends here, not at session/stop — so finalize owns the
@@ -772,6 +781,13 @@ export function registerIpc(deps: IpcDeps) {
     loadGlossary(app.getPath('userData')));
   ipcMain.handle(CHANNELS.glossarySet, async (_e, payload: { terms: string[] }): Promise<string[]> =>
     saveGlossary(app.getPath('userData'), Array.isArray(payload?.terms) ? payload.terms : []));
+  ipcMain.handle(
+    CHANNELS.transcriptSave,
+    async (_e, payload: { id: string; segments: EditedSegment[] }): Promise<{ ok: boolean }> => {
+      await saveTranscriptEdit(sessionsBaseDir(), payload.id, Array.isArray(payload?.segments) ? payload.segments : []);
+      return { ok: true };
+    },
+  );
 
   // ── F2 history viewer: dump list + transcript (read-only) ────────────────
   ipcMain.handle(CHANNELS.sessionListDumps, async () => listDumps(sessionsBaseDir()));
