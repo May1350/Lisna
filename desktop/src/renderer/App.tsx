@@ -8,6 +8,7 @@ import { SignInView } from './routes/SignInView';
 import { FamilyPickerStep } from './components/FamilyPickerStep';
 import { FirstRunAudioNotice } from './components/FirstRunAudioNotice';
 import { TranscriptView } from './routes/TranscriptView';
+import { TermsView } from './routes/TermsView';
 import { NoteRenderProgress, type ProgressState } from './components/NoteRenderProgress';
 import type { Note, TranscriptSegment } from '@shared/types';
 import type { FinalizeProgressPayload } from '@shared/ipc-protocol';
@@ -49,6 +50,7 @@ type View =
   | { kind: 'transcribing'; pct?: number; startedAt?: number }
   | { kind: 'transcript'; segments: TranscriptSegment[]; language: string; durationSec?: number }
   | { kind: 'note'; note: Note | NoteBase }
+  | { kind: 'terms' }
   | { kind: 'error'; message: string; permanent?: boolean; origin?: ErrorOrigin };
 
 /**
@@ -285,8 +287,11 @@ function renderView(
             })
           }
           onOpenHistory={(id) => setView({ kind: 'history', id })}
+          onOpenTerms={() => setView({ kind: 'terms' })}
         />
       );
+    case 'terms':
+      return <TermsView onBack={() => setView({ kind: 'recording' })} />;
     case 'history':
       return (
         <History

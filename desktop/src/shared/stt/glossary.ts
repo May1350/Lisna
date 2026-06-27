@@ -22,6 +22,31 @@
  *  userData `glossary.json`, or the eval `--initial-prompt` flag). */
 export const DEFAULT_GLOSSARY: readonly string[] = [];
 
+/** Whisper truncates `initial_prompt` to the last ~224 tokens; cap the list so
+ *  it stays fully effective and the file stays bounded. Per-term length cap
+ *  keeps a single pasted paragraph from eating the budget. */
+export const MAX_GLOSSARY_TERMS = 64;
+export const MAX_TERM_LEN = 40;
+
+/**
+ * Clean a user-supplied term list for persistence + display: trim, drop empty
+ * and over-long terms, de-dupe (first occurrence wins — case-sensitive, since
+ * product names like "iOS" are meaningful), cap to MAX_GLOSSARY_TERMS. Pure.
+ */
+export function normalizeGlossary(terms: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const term of terms) {
+    if (typeof term !== 'string') continue;
+    const t = term.trim();
+    if (t.length === 0 || t.length > MAX_TERM_LEN || seen.has(t)) continue;
+    seen.add(t);
+    out.push(t);
+    if (out.length >= MAX_GLOSSARY_TERMS) break;
+  }
+  return out;
+}
+
 /**
  * Validate an untrusted value (e.g. parsed `glossary.json`) into a clean term
  * list: keep only non-empty trimmed strings, in order. Non-array / wrong-shape

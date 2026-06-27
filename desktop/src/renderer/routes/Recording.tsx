@@ -32,9 +32,10 @@ interface Props {
    * history entry and the parent transitions to { kind: 'history', id }.
    */
   onOpenHistory: (id: string) => void;
+  onOpenTerms: () => void;
 }
 
-export function Recording({ onStop, onError, onOpenHistory }: Props) {
+export function Recording({ onStop, onError, onOpenHistory, onOpenTerms }: Props) {
   const [running, setRunning] = useState(false);
   const [starting, setStarting] = useState(false);
   // Flips true SLOW_LOAD_HINT_MS into the `starting=true` window so we can
@@ -277,6 +278,16 @@ export function Recording({ onStop, onError, onOpenHistory }: Props) {
         <p style={{ color: '#888', fontSize: '0.9em', marginTop: '0.25em' }}>
           (taking longer than usual…)
         </p>
+      )}
+      {!running && !starting && (
+        <div style={{ marginTop: '0.5em', textAlign: 'right' }}>
+          <button
+            onClick={onOpenTerms}
+            style={{ background: 'transparent', border: 'none', color: '#777', cursor: 'pointer', fontSize: 13, padding: 4 }}
+          >
+            用語集 ›
+          </button>
+        </div>
       )}
       {!running && !starting && <HistoryList dumps={dumps} onOpen={onOpenHistory} />}
     </section>

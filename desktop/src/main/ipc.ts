@@ -4,6 +4,7 @@ import path from 'node:path';
 import { app, ipcMain, shell, dialog, type BrowserWindow } from 'electron';
 import { WavWriter } from './audio-wav-writer';
 import { buildInitialPrompt, parseGlossary } from '@shared/stt/glossary';
+import { loadGlossary, saveGlossary } from './glossary-store';
 import type {
   AuthState,
   Capabilities,
@@ -88,6 +89,11 @@ export const CHANNELS = {
    *  save dialog (the note/transcript Export button). Content is pre-serialized
    *  in the renderer; main only writes bytes. Returns {ok, canceled, path?}. */
   exportFile: 'file/export',
+  /** renderer → main: read the user's proper-noun glossary (Terms UI). → string[] */
+  glossaryGet: 'glossary/get',
+  /** renderer → main: persist the glossary (atomic). Returns the NORMALIZED list
+   *  (trim/dedupe/cap) so the UI reflects exactly what was stored. */
+  glossarySet: 'glossary/set',
 } as const;
 
 export interface IpcDeps {
@@ -760,6 +766,12 @@ export function registerIpc(deps: IpcDeps) {
       return { ok: true, canceled: false, path: res.filePath };
     },
   );
+
+  // ── Glossary (Terms UI): read/write the proper-noun list that biases STT ──
+  ipcMain.handle(CHANNELS.glossaryGet, async (): Promise<string[]> =>
+    loadGlossary(app.getPath('userData')));
+  ipcMain.handle(CHANNELS.glossarySet, async (_e, payload: { terms: string[] }): Promise<string[]> =>
+    saveGlossary(app.getPath('userData'), Array.isArray(payload?.terms) ? payload.terms : []));
 
   // ── F2 history viewer: dump list + transcript (read-only) ────────────────
   ipcMain.handle(CHANNELS.sessionListDumps, async () => listDumps(sessionsBaseDir()));
