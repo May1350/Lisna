@@ -132,6 +132,16 @@ contextBridge.exposeInMainWorld('lisna', {
   exportFile: (args: { content: string; defaultName: string }): Promise<{ ok: boolean; canceled: boolean; path?: string }> =>
     ipcRenderer.invoke(CHANNELS.exportFile, args),
 
+  /** Proper-noun glossary (Terms UI). `setGlossary` returns the normalized list
+   *  (trim/dedupe/cap) actually persisted. Both bias the next transcribe. */
+  getGlossary: (): Promise<string[]> => ipcRenderer.invoke(CHANNELS.glossaryGet),
+  setGlossary: (terms: string[]): Promise<string[]> => ipcRenderer.invoke(CHANNELS.glossarySet, { terms }),
+
+  /** Persist edited transcript segment text to its session dump (text-only,
+   *  merged by index). `id` is the transcript view's `dumpId`. */
+  saveTranscript: (id: string, segments: { startSec: number; endSec: number; text: string }[]): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke(CHANNELS.transcriptSave, { id, segments }),
+
   // --- Phase M Task 70 — sign-in handshake bridges ---
 
   /**
@@ -184,6 +194,9 @@ declare global {
       pickModel(slot: ModelSlot): Promise<PickResult>;
       openExternal(url: string): Promise<void>;
       exportFile(args: { content: string; defaultName: string }): Promise<{ ok: boolean; canceled: boolean; path?: string }>;
+      getGlossary(): Promise<string[]>;
+      setGlossary(terms: string[]): Promise<string[]>;
+      saveTranscript(id: string, segments: { startSec: number; endSec: number; text: string }[]): Promise<{ ok: boolean }>;
       signIn(): Promise<void>;
       getAuthState(): Promise<AuthState>;
       onSignedIn(cb: () => void): () => void;

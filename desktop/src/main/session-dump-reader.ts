@@ -26,7 +26,7 @@ function recordedAtFromId(id: string): string {
  * resolve-and-compare equality, not string prefix. Throws INVALID_DUMP_ID.
  * Returns the resolved dump dir path.
  */
-function resolveDumpDir(baseDir: string, id: string): string {
+export function resolveDumpDir(baseDir: string, id: string): string {
   if (!DUMP_DIR_RE.test(id)) throw new Error('INVALID_DUMP_ID');
   const dir = path.join(baseDir, id);
   if (!fs.existsSync(dir)) throw new Error('DUMP_NOT_FOUND');

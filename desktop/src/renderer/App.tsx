@@ -8,6 +8,7 @@ import { SignInView } from './routes/SignInView';
 import { FamilyPickerStep } from './components/FamilyPickerStep';
 import { FirstRunAudioNotice } from './components/FirstRunAudioNotice';
 import { TranscriptView } from './routes/TranscriptView';
+import { TermsView } from './routes/TermsView';
 import { NoteRenderProgress, type ProgressState } from './components/NoteRenderProgress';
 import type { Note, TranscriptSegment } from '@shared/types';
 import type { FinalizeProgressPayload } from '@shared/ipc-protocol';
@@ -47,8 +48,9 @@ type View =
   | { kind: 'familyPicking' }
   | { kind: 'curatingV2'; progress: ProgressState | null }
   | { kind: 'transcribing'; pct?: number; startedAt?: number }
-  | { kind: 'transcript'; segments: TranscriptSegment[]; language: string; durationSec?: number }
+  | { kind: 'transcript'; segments: TranscriptSegment[]; language: string; durationSec?: number; dumpId?: string }
   | { kind: 'note'; note: Note | NoteBase }
+  | { kind: 'terms' }
   | { kind: 'error'; message: string; permanent?: boolean; origin?: ErrorOrigin };
 
 /**
@@ -285,8 +287,11 @@ function renderView(
             })
           }
           onOpenHistory={(id) => setView({ kind: 'history', id })}
+          onOpenTerms={() => setView({ kind: 'terms' })}
         />
       );
+    case 'terms':
+      return <TermsView onBack={() => setView({ kind: 'recording' })} />;
     case 'history':
       return (
         <History
@@ -354,6 +359,7 @@ function renderView(
           segments={view.segments}
           language={view.language}
           durationSec={view.durationSec}
+          dumpId={view.dumpId}
           onNewSession={() => setView({ kind: 'recording' })}
         />
       );
@@ -495,7 +501,7 @@ async function runTranscribe(
 ): Promise<void> {
   try {
     const r = await window.lisna.transcribeOnly();
-    setView({ kind: 'transcript', segments: r.segments, language: r.language, durationSec: r.durationSec });
+    setView({ kind: 'transcript', segments: r.segments, language: r.language, durationSec: r.durationSec, dumpId: r.dumpId });
   } catch (err) {
     const message = String((err as Error)?.message ?? err);
     setView((prev) => (prev.kind === 'error' ? prev : { kind: 'error', message }));

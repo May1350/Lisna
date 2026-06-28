@@ -292,6 +292,11 @@ export interface SessionTranscribeResult {
   segments: TranscriptSegment[];
   /** Last segment endSec — for the view header. */
   durationSec?: number;
+  /** The debug-dump dir id (`<sessions>/<ts>` basename) this transcript was
+   *  written to, or undefined when dumps are disabled / dir-create failed. The
+   *  renderer needs it to persist edits via `transcript/save`; when undefined,
+   *  the transcript is view-only (no persist target). */
+  dumpId?: string;
 }
 
 /** Full transcript.json payload of one dump (see session-debug-dump.ts). */
