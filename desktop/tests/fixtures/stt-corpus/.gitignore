@@ -1,0 +1,3 @@
+# Derived audio — regenerate from the committed stt-*.txt via generate.sh (macOS).
+*.wav
+*.aiff
