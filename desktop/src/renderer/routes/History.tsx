@@ -18,32 +18,83 @@ interface DetailProps {
   onRegenerate: (family: NoteFamily) => void;
 }
 
-/** Pure detail view — exported for static-markup tests. */
+/** Pure detail view — exported for static-markup tests. Transcript text is
+ *  editable in-place (persists to the dump's transcript.json, same loop as the
+ *  live TranscriptView). Mounted with `key={id}` so the edit state is fresh per
+ *  recording. Edit logic is intentionally inline (2nd call site after
+ *  TranscriptView — inline per the no-premature-abstraction rule). */
 export function HistoryDetail({ id, transcript, onBack, onRegenerate }: DetailProps) {
+  const [local, setLocal] = useState(transcript.segments);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  function setText(i: number, text: string) {
+    setLocal((prev) => prev.map((s, j) => (j === i ? { ...s, text } : s)));
+  }
+  async function save() {
+    setSaving(true);
+    try {
+      await window.lisna.saveTranscript(
+        id,
+        local.map((s) => ({ startSec: s.startSec, endSec: s.endSec, text: s.text })),
+      );
+      setEditing(false);
+    } finally {
+      setSaving(false);
+    }
+  }
+  function cancel() { setLocal(transcript.segments); setEditing(false); }
+
   return (
     <section data-testid="history-detail">
-      <button data-testid="history-back" onClick={onBack}>← 戻る</button>
+      <button data-testid="history-back" onClick={onBack} disabled={editing}>← 戻る</button>
       <h2>録音履歴</h2>
       <p style={{ color: '#666', fontSize: '0.9em' }}>
-        {id} · {transcript.language} · {transcript.segments.length} segments · {transcript.llmModel}
+        {id} · {transcript.language} · {local.length} segments · {transcript.llmModel}
+        {editing && <span style={{ color: '#c8333a' }}> · 編集中</span>}
       </p>
       <ul style={{ listStyle: 'none', padding: 0, maxHeight: '40vh', overflowY: 'auto' }}>
-        {transcript.segments.map((seg, i) => (
-          <li key={i} style={{ fontFamily: 'monospace', marginBottom: '0.25em' }}>
-            [{seg.startSec.toFixed(1)}] {seg.text}
+        {local.map((seg, i) => (
+          <li key={i} style={{ fontFamily: 'monospace', marginBottom: '0.25em', display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+            <span style={{ flex: '0 0 auto', paddingTop: editing ? 6 : 0 }}>[{seg.startSec.toFixed(1)}]</span>
+            {editing ? (
+              <textarea
+                value={seg.text}
+                onChange={(e) => setText(i, e.target.value)}
+                aria-label={`セグメント ${seg.startSec.toFixed(1)} を編集`}
+                rows={1}
+                style={{ flex: 1, font: 'inherit', padding: '4px 6px', border: '1px solid #ccc', borderRadius: 4, resize: 'vertical', minHeight: '1.6em' }}
+              />
+            ) : (
+              <span>{seg.text}</span>
+            )}
           </li>
         ))}
       </ul>
-      <FamilyPickerStep
-        // Regenerate-from-dump only produces NOTES. The raw transcript is
-        // already shown above, so the 文字起こし choice is hidden here; the
-        // narrowing guard stays as a defensive no-op.
-        showTranscript={false}
-        onPick={(choice) => {
-          if (choice !== 'transcript') onRegenerate(choice);
-        }}
-        onDiscard={onBack}
-      />
+      {editing ? (
+        <div style={{ display: 'flex', gap: 12 }}>
+          <button onClick={() => void save()} disabled={saving} style={{ padding: '8px 16px' }}>
+            {saving ? '保存中…' : '保存'}
+          </button>
+          <button onClick={cancel} disabled={saving} style={{ padding: '8px 16px' }}>キャンセル</button>
+        </div>
+      ) : (
+        <>
+          <button data-testid="transcript-edit" onClick={() => setEditing(true)} style={{ padding: '8px 16px', marginBottom: 12 }}>
+            字幕を編集
+          </button>
+          <FamilyPickerStep
+            // Regenerate-from-dump only produces NOTES. The raw transcript is
+            // already shown above, so the 文字起こし choice is hidden here; the
+            // narrowing guard stays as a defensive no-op.
+            showTranscript={false}
+            onPick={(choice) => {
+              if (choice !== 'transcript') onRegenerate(choice);
+            }}
+            onDiscard={onBack}
+          />
+        </>
+      )}
     </section>
   );
 }
@@ -85,5 +136,5 @@ export function History({ id, onBack, onRegenerate }: Props) {
       </section>
     );
   }
-  return <HistoryDetail id={id} transcript={transcript} onBack={onBack} onRegenerate={onRegenerate} />;
+  return <HistoryDetail key={id} id={id} transcript={transcript} onBack={onBack} onRegenerate={onRegenerate} />;
 }
