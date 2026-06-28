@@ -33,5 +33,7 @@ describe('HistoryDetail', () => {
     // FamilyPickerStep is embedded for re-pickable family (F1 parity).
     expect(html).toContain('family-picker');
     expect(html).toContain('family-continue');
+    // Transcript is editable from History (the correction loop, reachable here too).
+    expect(html).toContain('transcript-edit');
   });
 });
