@@ -165,6 +165,12 @@ let _activeDump: SessionDump | null = null;
 // crash, give-up, write-failure). Null when LISNA_DISABLE_AUDIO_SAVE=1
 // (test kill-switch only) or when the writer failed to open.
 let _audioWriter: WavWriter | null = null;
+// Generation lane (≤1) in-flight gate, lifted from session-finalize.ts (Task 1)
+// so it's lifecycle-visible: it counts in isSessionInFlight() (a background
+// generation crash must respawn the sidecar) and is the single-generation
+// no-collision guarantee. Set by beginGeneration() (passed to
+// registerSessionFinalize), cleared in onSessionSettled.
+let genInFlight = false;
 
 // ── Session-scoped sidecar lifecycle (2026-06-10, founder reboot incident) ──
 // "Runs only when in use": the sidecar previously lived for the app's whole
@@ -190,9 +196,19 @@ function armIdleStop(): void {
 }
 
 /** Respawn gate for the supervisor: a dead sidecar only matters when a
- *  session is actually using it. Exported for index.ts wiring. */
+ *  session is actually using it. Exported for index.ts wiring. `genInFlight`
+ *  is counted so a background generation (capture may already be freed →
+ *  current/recording false) still resurrects a crashed sidecar. */
 export function isSessionInFlight(): boolean {
-  return current !== null || recording;
+  return current !== null || recording || genInFlight;
+}
+
+/** Generation-lane gate (Task 1). Throws FINALIZE_IN_FLIGHT if a generation is
+ *  already running (the single-generation no-collision guarantee); else marks
+ *  it in flight. Cleared in onSessionSettled. Passed to registerSessionFinalize. */
+function beginGeneration(): void {
+  if (genInFlight) throw new Error('FINALIZE_IN_FLIGHT');
+  genInFlight = true;
 }
 
 /** Close and null the audio writer, best-effort. Called at every session-end
@@ -489,6 +505,7 @@ export function registerIpc(deps: IpcDeps) {
 
   // ── session/finalize: v2 family-routed note generation (Task 10) ──────────
   registerSessionFinalize({
+    beginGeneration,  // Task 1 — single-generation gate, lifecycle-visible
     getCurrentSession: async () => {
       if (!current) return null;
       const paths = deps.getModelPaths();
@@ -705,6 +722,10 @@ export function registerIpc(deps: IpcDeps) {
     // recording's transcript is GONE on first failure click — see memory
     // v2_30min_real_record_3_p0s_2026-06-09 for the incident this fixes.
     onSessionSettled: (result) => {
+      // Release the generation lane FIRST — every settle (success or failure,
+      // note / transcript / dump) clears it so the next generation can begin
+      // (Task 1; the gate lives here now, not in session-finalize.ts).
+      genInFlight = false;
       // Debug dump tail: persist the parsed note (success) or the failure
       // reason, then drop the handle — the next finalize creates a fresh dir.
       // The transcript settle variant carries no `family` (and no note /

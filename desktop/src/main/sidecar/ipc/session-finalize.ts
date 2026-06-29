@@ -104,6 +104,16 @@ export interface SessionFinalizeDeps {
   getCurrentSession: () => Promise<SessionContext | null>;
 
   /**
+   * Mark a generation as in flight, or throw FINALIZE_IN_FLIGHT if one already
+   * is. The flag lives in ipc.ts lifecycle state (`genInFlight`) — lifted out of
+   * this module (Task 1) so a background generation counts in isSessionInFlight()
+   * and a sidecar crash respawns. Cleared by ipc.ts inside `onSessionSettled`.
+   * All three handlers (finalize / finalize-from-dump / transcribe) call it so
+   * no two generations race the single-threaded sidecar.
+   */
+  beginGeneration: () => void;
+
+  /**
    * Called once after every finalize attempt settles. `result.ok` discriminates
    * success vs failure so the caller can decide whether to clear session state.
    *
@@ -237,21 +247,18 @@ async function routeFamily(
  * handlers with the given deps.
  * Call once from registerIpc() in main/ipc.ts.
  *
- * Both channels share a single `finalizeInFlight` flag (closure-scoped, fresh
- * per registration call so test re-registrations each get a clean flag).
- * Review P1-1: SESSION_ACTIVE only checked the live `current`; nothing
- * prevented two concurrent finalizes (renderer double-fire, or live-vs-dump)
- * from racing two generate streams over the single-threaded sidecar. One flag
- * covers both channels registered by this call.
+ * The single-generation gate lives in ipc.ts (`genInFlight`, via
+ * deps.beginGeneration / cleared in deps.onSessionSettled) — Task 1 lifted it
+ * out of a closure flag so it's lifecycle-visible (counts in isSessionInFlight,
+ * survives a respawn). All three channels (finalize / finalize-from-dump /
+ * transcribe) delegate to it so no two generations race the single-threaded
+ * sidecar (review P1-1: SESSION_ACTIVE only checked the live `current`).
  */
 export function registerSessionFinalize(deps: SessionFinalizeDeps): void {
-  let finalizeInFlight = false;
-
   ipcMain.handle(SESSION_FINALIZE_CHANNEL, async (_e, args: SessionFinalizeArgs): Promise<SessionFinalizeResult> => {
     const { family, promptVariant } = args;
 
-    if (finalizeInFlight) throw new Error('FINALIZE_IN_FLIGHT');
-    finalizeInFlight = true;
+    deps.beginGeneration(); // throws FINALIZE_IN_FLIGHT if a generation is already running
 
     let settle: SessionSettleResult = { ok: false, family, error: 'FINALIZE_NOT_RUN' };
     try {
@@ -269,7 +276,7 @@ export function registerSessionFinalize(deps: SessionFinalizeDeps): void {
       settle = { ok: false, family, error: err instanceof Error ? err.message : String(err) };
       throw err;
     } finally {
-      finalizeInFlight = false;
+      // genInFlight is cleared by ipc.ts inside onSessionSettled (Task 1).
       // Always notify — the caller (main/ipc.ts) uses `ok` to decide whether
       // to clear the orchestrator. On failure (ok=false) the orchestrator is
       // PRESERVED so the renderer's ErrorView retry can re-invoke finalize
@@ -284,8 +291,7 @@ export function registerSessionFinalize(deps: SessionFinalizeDeps): void {
 
     const getDumpSession = deps.getDumpSession;
     if (!getDumpSession) throw new Error('DUMP_FINALIZE_UNAVAILABLE');
-    if (finalizeInFlight) throw new Error('FINALIZE_IN_FLIGHT');
-    finalizeInFlight = true;
+    deps.beginGeneration(); // throws FINALIZE_IN_FLIGHT if a generation is already running
 
     let settle: SessionSettleResult = { ok: false, family, error: 'FINALIZE_NOT_RUN' };
     try {
@@ -300,7 +306,7 @@ export function registerSessionFinalize(deps: SessionFinalizeDeps): void {
       settle = { ok: false, family, error: err instanceof Error ? err.message : String(err) };
       throw err;
     } finally {
-      finalizeInFlight = false;
+      // genInFlight is cleared by ipc.ts inside onSessionSettled (Task 1).
       // Shared settle sink: ipc.ts unloads the LLM + re-arms idle-stop. The
       // live-FSM mutations in there are no-ops for dump runs (`current` is
       // null — the SESSION_ACTIVE guard in getDumpSession ensures it) and
@@ -310,13 +316,13 @@ export function registerSessionFinalize(deps: SessionFinalizeDeps): void {
   });
 
   // Raw-transcript output mode (2026-06-19): LLM-free whole-WAV transcription.
-  // Shares the single `finalizeInFlight` flag with both finalize channels so a
-  // transcribe can't race a note finalize over the single-threaded sidecar.
+  // Shares the single ipc.ts generation gate (deps.beginGeneration) with both
+  // finalize channels so a transcribe can't race a note finalize over the
+  // single-threaded sidecar.
   ipcMain.handle(SESSION_TRANSCRIBE_CHANNEL, async (): Promise<SessionTranscribeResult> => {
     const getTranscript = deps.getTranscript;
     if (!getTranscript) throw new Error('TRANSCRIBE_UNAVAILABLE');
-    if (finalizeInFlight) throw new Error('FINALIZE_IN_FLIGHT');
-    finalizeInFlight = true;
+    deps.beginGeneration(); // throws FINALIZE_IN_FLIGHT if a generation is already running
 
     let settle: SessionSettleResult = { ok: false, kind: 'transcript', error: 'FINALIZE_NOT_RUN' };
     try {
@@ -327,7 +333,7 @@ export function registerSessionFinalize(deps: SessionFinalizeDeps): void {
       settle = { ok: false, kind: 'transcript', error: err instanceof Error ? err.message : String(err) };
       throw err;
     } finally {
-      finalizeInFlight = false;
+      // genInFlight is cleared by ipc.ts inside onSessionSettled (Task 1).
       // Same settle sink as note finalize: ipc.ts clears the live session on
       // success + idle-unloads the LLM (a no-op here — none was loaded) and
       // PRESERVES the session on failure. No note result.json is written.
