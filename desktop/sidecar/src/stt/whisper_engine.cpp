@@ -47,7 +47,14 @@ std::vector<Segment> WhisperEngine::transcribe(const float* samples, size_t n, i
   std::vector<Segment> out;
   (void)sampleRate; // caller guarantees 16kHz Float32 (Task 2.6 adapter will validate)
   if (!impl_->ctx) return out;
-  whisper_full_params p = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
+  // Beam search (default beam_size=5) over greedy. Measured on the eval-stt-corpus
+  // harness (2026-06-29): clean CERnorm 7.1%→3.1% (halved), far-field 12.5%→9.3%;
+  // notably fixes katakana product names (センドグリッド/ハブスポット, which greedy
+  // emitted as English) WITHOUT a glossary. Homophones (市販機/高級) are unaffected
+  // (acoustic, not a search limit). Trade-off: ~2-3× decode latency (a ~21-min
+  // finalize ≈ 85 s vs ~30 s) — accepted (founder call) for the accuracy gain; the
+  // finalize progress UI + no-progress heartbeat cover the longer wall-time.
+  whisper_full_params p = whisper_full_default_params(WHISPER_SAMPLING_BEAM_SEARCH);
   // Empty langCode → explicit "auto" so the auto-detect path is visible at the
   // call site (whisper.cpp treats "" the same way, but we want intent on record).
   p.language = impl_->lang.empty() ? "auto" : impl_->lang.c_str();
