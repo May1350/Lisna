@@ -666,7 +666,6 @@ export function registerIpc(deps: IpcDeps) {
       // stale-cache bug.
       return buildDumpSessionContext(id, {
         baseDir: sessionsBaseDir(),
-        isLiveSessionActive: () => current !== null || recording,
         getClient: () => deps.supervisor.getClient() ?? null,
         startClient: async () => {
           const c = deps.supervisor.start();

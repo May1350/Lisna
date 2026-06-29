@@ -1638,6 +1638,43 @@ describe('main/ipc FSM', () => {
     }
   });
 
+  // ── Task 5: dump-regen re-entrancy keys on the generation gate, not capture ──
+  // A History regen (session/finalize-from-dump) must run WHILE a recording is
+  // live (a live capture must NOT block it — spec §4.5); two generations are still
+  // rejected by the single generation gate (beginGeneration → genInFlight).
+  it('Task 5: a History regen runs while a capture is live and does not disturb it', async () => {
+    delete process.env['LISNA_DISABLE_AUDIO_SAVE'];
+    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-t5-regen-'));
+    let restore: (() => void) | undefined;
+    try {
+      // A #113 dump on disk with a transcript to regenerate from.
+      const dumpId = '2026-06-29T00-00-00-000Z';
+      const dumpDir = path.join(userDataDir, 'sessions', dumpId);
+      fs.mkdirSync(dumpDir, { recursive: true });
+      fs.writeFileSync(path.join(dumpDir, 'transcript.json'), JSON.stringify({
+        sessionId: 'live', language: 'ja',
+        llmModel: 'Llama-3.2-3B-Instruct-Q4_K_M.gguf',
+        segments: [{ startSec: 0, endSec: 2, text: 'こんにちは' }],
+      }));
+      const { ctorSpy } = await setupC3(userDataDir);
+      restore = () => ctorSpy.mockRestore();
+
+      await ipcHandlers['session/start']!({}, { language: 'ja' }); // capture live (current set)
+      // Regen the dump WHILE recording — must NOT reject SESSION_ACTIVE.
+      const result = await ipcHandlers['session/finalize-from-dump']!({}, { id: dumpId, family: 'lecture' });
+      expect(result.note).toMatchObject({ family: 'lecture' });
+
+      // The live recording survived the regen (generation lane is independent).
+      expect(ipc.isSessionInFlight()).toBe(true);
+      await expect(ipcHandlers['session/start']!({}, { language: 'ja' })).rejects.toThrow('SESSION_ACTIVE');
+      await ipcHandlers['session/discard']!({}, undefined); // cleanup
+    } finally {
+      restore?.();
+      appGetPath.mockReset();
+      fs.rmSync(userDataDir, { recursive: true, force: true });
+    }
+  });
+
   // C2 invariant on the start side: sidecar crash WHILE the session/start
   // handler is awaiting (its `_sessionHandlerInFlight` guard must make
   // handleSidecarExit skip its own session/error push, letting the handler's
