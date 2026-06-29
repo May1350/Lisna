@@ -229,7 +229,7 @@ function AuthenticatedApp() {
   return (
     <main style={{ fontFamily: 'system-ui', padding: 24 }}>
       <h1>Lisna v2 — on-device</h1>
-      {renderView(view, setView, setBackgroundJob, audioNoticeAck, () => {
+      {renderView(view, setView, backgroundJob, setBackgroundJob, audioNoticeAck, () => {
         localStorage.setItem('lisna.audioNoticeAck', '1');
         setAudioNoticeAck(true);
       })}
@@ -254,10 +254,17 @@ function AuthenticatedApp() {
 function renderView(
   view: View,
   setView: (next: View | ((p: View) => View)) => void,
+  backgroundJob: BackgroundJob | null,
   setBackgroundJob: SetBackgroundJob,
   audioNoticeAck: boolean,
   onAckAudioNotice: () => void,
 ) {
+  // Task 9 (ponytail: renderer guard, not a main-side queue): only one
+  // generation at a time. The single backgroundJob can't track two, and a 2nd
+  // beginGeneration throws FINALIZE_IN_FLIGHT in main anyway — so refuse to START
+  // a 2nd while one runs. The chip shows the running job; founder confirmed
+  // concurrent generation won't happen, this is the safety net.
+  const genBusy = backgroundJob?.status === 'running';
   switch (view.kind) {
     case 'booting':
       return <div data-testid="booting" />;  // null UI; resolved in ~ms
@@ -315,6 +322,7 @@ function renderView(
           id={view.id}
           onBack={() => setView({ kind: 'recording' })}
           onRegenerate={(family) => {
+            if (genBusy) return; // Task 9: a generation is already running (chip shows it)
             // Background generation (Task 7): start the job, return to recording,
             // and let the chip carry progress/completion. The regen runs even
             // while a new recording captures (the lane is independent).
@@ -325,6 +333,12 @@ function renderView(
         />
       );
     case 'familyPicking':
+      // Task 9: one generation at a time. If one is running, hold the picker
+      // (the chip shows progress); it re-renders to the picker when the job
+      // settles. Recording B's session waits here until then.
+      if (genBusy) {
+        return <p style={{ color: '#555' }}>別の生成が進行中です。完了までお待ちください。</p>;
+      }
       return (
         <FamilyPickerStep
           language={(() => {
