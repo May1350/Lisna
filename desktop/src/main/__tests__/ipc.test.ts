@@ -593,46 +593,44 @@ describe('main/ipc FSM', () => {
     }
   });
 
-  it('C3: a retry (LLM cache reset) reuses the held transcript — transcribeFile runs ONCE, LLM reloads', async () => {
+  // Task 4 reframe (was: "live retry reuses the held transcript"). The capture is
+  // freed at pick, so a failed note-finalize can't be retried via the live session
+  // — instead it FREES the capture (a fresh start succeeds) and leaves a dump with
+  // transcript.json (written before the LLM stage) so History regen re-generates
+  // WITHOUT re-transcribing (the dump path runs no STT — that's the new retry).
+  it('C3: a failed note-finalize frees the capture and leaves a regen-able dump (transcript.json)', async () => {
     delete process.env['LISNA_DISABLE_AUDIO_SAVE'];
     const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-c3-retry-'));
     let restore: (() => void) | undefined;
     try {
-      // First finalize FAILS at note generation (NOT at family routing — an
-      // unknown family is rejected BEFORE getCurrentSession, so it would never
-      // transcribe). Make EVERY generate attempt throw a plain error (not a
-      // "no progress" stall, so the recovering wrapper just rethrows and the
-      // lecture pipeline exhausts its fresh-seed retries → CHUNK_FAILED). The
-      // failing finalize still runs getCurrentSession fully (transcribe + LLM
-      // load), then onSessionSettled(ok:false) nulls _llmLoadedForCurrent +
-      // idle-unloads the LLM, PRESERVING current + its transcript (P0-3). The
-      // retry must NOT re-transcribe but MUST reload the LLM.
+      const segs = [{ startSec: 0, endSec: 2, text: '第一の発言' }];
+      transcribeFileResult = async () => segs;
       const { ctorSpy, client } = await setupC3(userDataDir);
       restore = () => ctorSpy.mockRestore();
       await ipcHandlers['session/start']!({}, { language: 'ja' });
 
-      // Pass 1: every generate attempt throws → finalize rejects, but
-      // transcribe + LLM-load both ran inside getCurrentSession first.
-      const workingStream = client.sendStream.getMockImplementation()!;
+      // Every generate attempt throws → the lecture pipeline exhausts its
+      // fresh-seed retries → finalize rejects. transcribe + LLM-load + the dump
+      // transcript write all ran first (step D precedes the failing LLM stage).
       client.sendStream.mockImplementation(() => { throw new Error('GENERATE_BOOM'); });
       await expect(ipcHandlers['session/finalize']!({}, { family: 'lecture' }))
         .rejects.toThrow();
-      // Restore the working stream for the retry below.
-      client.sendStream.mockImplementation(workingStream);
+      const seq = engineCallLog.map((c) => `${c.engine}:${c.method}`);
+      expect(seq.filter((s) => s === 'stt:transcribeFile')).toHaveLength(1);
 
-      const afterFirst = engineCallLog.map((c) => `${c.engine}:${c.method}`);
-      expect(afterFirst.filter((s) => s === 'stt:transcribeFile')).toHaveLength(1);
-      expect(afterFirst.filter((s) => s === 'llm:load')).toHaveLength(1);
+      // Capture freed at pick → a fresh session/start succeeds (no live retry).
+      await expect(ipcHandlers['session/start']!({}, { language: 'ja' })).resolves.toBeUndefined();
+      await ipcHandlers['session/discard']!({}, undefined);
 
-      // Pass 2 (retry): same orchestrator, but _llmLoadedForCurrent was nulled by
-      // onSessionSettled(ok:false). transcribeFile must NOT run again (transcript
-      // reused); the LLM must reload (it was idle-unloaded).
-      const result = await ipcHandlers['session/finalize']!({}, { family: 'lecture' });
-      expect(result.note).toMatchObject({ family: 'lecture' });
-
-      const afterRetry = engineCallLog.map((c) => `${c.engine}:${c.method}`);
-      expect(afterRetry.filter((s) => s === 'stt:transcribeFile')).toHaveLength(1); // still once
-      expect(afterRetry.filter((s) => s === 'llm:load').length).toBeGreaterThanOrEqual(2); // reloaded
+      // The dump holds transcript.json (the regen target) + a result.json error.
+      const sessionsDir = path.join(userDataDir, 'sessions');
+      const dumps = fs.readdirSync(sessionsDir);
+      expect(dumps).toHaveLength(1);
+      const dir = path.join(sessionsDir, dumps[0]!);
+      const transcript = JSON.parse(fs.readFileSync(path.join(dir, 'transcript.json'), 'utf8'));
+      expect(transcript.segments).toEqual(segs);
+      const resultJson = JSON.parse(fs.readFileSync(path.join(dir, 'result.json'), 'utf8'));
+      expect(resultJson.ok).toBe(false);
     } finally {
       restore?.();
       appGetPath.mockReset();
@@ -905,39 +903,10 @@ describe('main/ipc FSM', () => {
       }
     });
 
-    it('reuses the genSegments cache (wavPath-keyed): a transcribe after a failed note-finalize does NOT re-transcribe', async () => {
-      delete process.env['LISNA_DISABLE_AUDIO_SAVE'];
-      const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-tx-cache-'));
-      let restore: (() => void) | undefined;
-      try {
-        const segs = [{ startSec: 0, endSec: 3, text: 'こんにちは' }];
-        transcribeFileResult = async () => segs;
-        const { ctorSpy, client } = await setupC3(userDataDir);
-        restore = () => ctorSpy.mockRestore();
-        await ipcHandlers['session/start']!({}, { language: 'ja' });
-
-        // A note-finalize transcribes the WAV (filling genSegments for this
-        // wavPath) then FAILS at generation → P0-3 preserves the live session.
-        client.sendStream.mockImplementation(() => { throw new Error('GENERATE_BOOM'); });
-        await expect(ipcHandlers['session/finalize']!({}, { family: 'lecture' })).rejects.toThrow();
-        const afterFinalize = engineCallLog.map((c) => `${c.engine}:${c.method}`);
-        expect(afterFinalize.filter((s) => s === 'stt:transcribeFile')).toHaveLength(1);
-        const llmLoadsAfterFinalize = afterFinalize.filter((s) => s === 'llm:load').length;
-
-        // session/transcribe on the SAME live session reuses genSegments —
-        // transcribeFile must NOT run again (same wavPath → cache hit).
-        const result = await ipcHandlers['session/transcribe']!({}, undefined);
-        expect(result.segments).toEqual(segs);
-        const afterTranscribe = engineCallLog.map((c) => `${c.engine}:${c.method}`);
-        expect(afterTranscribe.filter((s) => s === 'stt:transcribeFile')).toHaveLength(1); // still once
-        // the transcribe added no LLM load of its own (LLM-free path).
-        expect(afterTranscribe.filter((s) => s === 'llm:load').length).toBe(llmLoadsAfterFinalize);
-      } finally {
-        restore?.();
-        appGetPath.mockReset();
-        fs.rmSync(userDataDir, { recursive: true, force: true });
-      }
-    });
+    // (Removed at Task 4: the live transcript-cache-reuse test. The capture is
+    // freed at pick, so there is no second live call on the same session to
+    // reuse a cache; retry-without-re-transcribe is now the dump path, covered by
+    // dump-finalize-context.test.ts + C3 "failed note-finalize ... regen-able dump".)
 
     it('writes transcript.json with the real segments to the dump dir', async () => {
       delete process.env['LISNA_DISABLE_AUDIO_SAVE'];
@@ -972,7 +941,7 @@ describe('main/ipc FSM', () => {
       }
     });
 
-    it('EMPTY_RECORDING when transcribeFile yields [] — no LLM load, session preserved', async () => {
+    it('EMPTY_RECORDING when transcribeFile yields [] — no LLM load; capture freed at pick', async () => {
       delete process.env['LISNA_DISABLE_AUDIO_SAVE'];
       const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-tx-empty-'));
       let restore: (() => void) | undefined;
@@ -986,9 +955,10 @@ describe('main/ipc FSM', () => {
         const seq = engineCallLog.map((c) => `${c.engine}:${c.method}`);
         expect(seq).toContain('stt:transcribeFile');
         expect(seq).not.toContain('llm:load');
-        // Failure PRESERVES the live session (mirrors note finalize P0-3).
+        // Task 4: the capture is freed at pick — an empty recording is not worth
+        // retrying, so a fresh session/start SUCCEEDS (no SESSION_ACTIVE lock).
         await expect(ipcHandlers['session/start']!({}, { language: 'ja' }))
-          .rejects.toThrow('SESSION_ACTIVE');
+          .resolves.toBeUndefined();
       } finally {
         restore?.();
         appGetPath.mockReset();
@@ -1368,7 +1338,7 @@ describe('main/ipc FSM', () => {
       }
     });
 
-    it('double stall → STT_STALLED; no LLM load; finalizeInFlight cleared (next finalize not FINALIZE_IN_FLIGHT)', async () => {
+    it('double stall → STT_STALLED; no LLM load; generation gate cleared + capture freed (idle)', async () => {
       vi.useFakeTimers();
       delete process.env['LISNA_DISABLE_AUDIO_SAVE'];
       const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-h1-double-'));
@@ -1398,12 +1368,11 @@ describe('main/ipc FSM', () => {
         const seq = engineCallLog.map((c) => `${c.engine}:${c.method}`);
         expect(seq).not.toContain('llm:load');
 
-        // finalizeInFlight must be cleared on the terminal failure: a subsequent
-        // transcribe must NOT bounce with FINALIZE_IN_FLIGHT. Make this next call
-        // resolve quickly so we only assert the flag, not another stall.
-        transcribeFileResult = async () => [{ startSec: 0, endSec: 1, text: 'やり直し' }];
-        await expect(ipcHandlers['session/transcribe']!({}, undefined))
-          .resolves.toBeTruthy(); // P0-3: session preserved on failure → retry works
+        // The generation gate (genInFlight) must clear on the terminal failure,
+        // and the capture was freed at pick — so the FSM is fully idle. (Task 4
+        // replaced the old "session preserved → live retry" with a freed capture;
+        // the dump path is the retry.)
+        expect(ipc.isSessionInFlight()).toBe(false);
       } finally {
         restore?.();
         vi.useRealTimers();
@@ -1611,6 +1580,61 @@ describe('main/ipc FSM', () => {
       await ipcHandlers['session/discard']!({}, undefined); // cleanup: close the writer + reset FSM
     } finally {
       ctorSpy.mockRestore();
+    }
+  });
+
+  // ── Task 4: background generation — free capture at pick, de-clobber settle ──
+  // The headline scenario-2 guarantee (spec §5 #2 + #3): the capture is freed at
+  // pick so a NEW recording starts WHILE a generation runs, and the generation's
+  // settle clears ONLY the generation lane — it must not close the new capture's
+  // writer or drop `recording`.
+  it('Task 4: a new capture starts during a generation and survives the gen settle', async () => {
+    delete process.env['LISNA_DISABLE_AUDIO_SAVE'];
+    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-t4-settle-'));
+    let restore: (() => void) | undefined;
+    try {
+      // Hang the generation's transcribe so we can start a NEW capture mid-flight,
+      // then release it so the generation settles while capture B is live.
+      let releaseTx!: (segs: { startSec: number; endSec: number; text: string }[]) => void;
+      transcribeFileResult = () => new Promise((res) => { releaseTx = res; });
+      const { orchInstances, ctorSpy } = await setupC3(userDataDir);
+      restore = () => ctorSpy.mockRestore();
+
+      await ipcHandlers['session/start']!({}, { language: 'ja' });   // capture A (orchA)
+      const finPromise = ipcHandlers['session/finalize']!({}, { family: 'lecture' });
+      finPromise.catch(() => {});               // avoid an unhandled-rejection warning if it throws
+      await Promise.resolve(); await Promise.resolve();  // flush the adapter: free A + beginGeneration
+
+      // Guarantee 3: capture A freed at pick → a NEW session/start succeeds mid-generation.
+      await expect(ipcHandlers['session/start']!({}, { language: 'ja' })).resolves.toBeUndefined(); // capture B (orchB)
+      expect(ipc.isSessionInFlight()).toBe(true);
+      const orchB = orchInstances[orchInstances.length - 1];
+      const wavB = orchB.wavPath as string;
+      await ipcHandlers['recording/chunk']!(
+        { sender: { send: vi.fn() } },
+        { index: 0, source: 'mic', startMs: 0, endMs: 2000, samples: new Float32Array(32000) },
+      );
+      const sizeBeforeSettle = fs.statSync(wavB).size;
+
+      // Release the generation → it transcribes, generates, and SETTLES.
+      releaseTx([{ startSec: 0, endSec: 1, text: 'こんにちは' }]);
+      const result = await finPromise;
+      expect(result.note).toMatchObject({ family: 'lecture' });
+
+      // Guarantee 2: the settle did NOT clobber capture B — writer still open
+      // (next chunk grows the file), recording still true (start → SESSION_ACTIVE).
+      await ipcHandlers['recording/chunk']!(
+        { sender: { send: vi.fn() } },
+        { index: 1, source: 'mic', startMs: 2000, endMs: 4000, samples: new Float32Array(32000) },
+      );
+      expect(fs.statSync(wavB).size).toBeGreaterThan(sizeBeforeSettle);
+      await expect(ipcHandlers['session/start']!({}, { language: 'ja' })).rejects.toThrow('SESSION_ACTIVE');
+
+      await ipcHandlers['session/discard']!({}, undefined); // cleanup
+    } finally {
+      restore?.();
+      appGetPath.mockReset();
+      fs.rmSync(userDataDir, { recursive: true, force: true });
     }
   });
 
