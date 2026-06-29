@@ -993,53 +993,47 @@ export function registerIpc(deps: IpcDeps) {
 
 /**
  * Called by main/index.ts via supervisor.onExit on every unexpected sidecar exit.
- * Clears session state and pushes `session/error` to renderer.
+ *
+ * LANE-AWARE (Task 2, spec §4.5). A sidecar exit is a GENERATION-lane event:
+ * only generation talks to the sidecar (capture is model-free — renderer audio
+ * → WavWriter, never the sidecar). So this:
+ *   - ALWAYS invalidates the generation lane (`_llmLoadedForCurrent`,
+ *     `genInFlight`, `_activeDump`), and
+ *   - NEVER closes the capture writer / nulls `current`/`recording` when a
+ *     capture is live — the crash didn't break capture; the respawn gate
+ *     (isSessionInFlight, true via current/recording/genInFlight) resurrects
+ *     the sidecar and the recording keeps appending to its WAV.
+ *   The escape hatch from a stuck session is now `session/discard`, not a crash.
  *
  * **Why the in-flight guard:** the supervisor's `proc.on('exit', handleExit)`
  * listener fires synchronously; SidecarClient's `rejectAllPending` schedules
  * pending rejections on the microtask queue. So when a sidecar crashes
- * mid-`session/start` or mid-`session/stop`, this function runs BEFORE the
- * in-flight handler's catch/finally completes — `current` is still non-null.
- * Without the guard, we'd push `session/error` AND the IPC handler would also
- * reject to the renderer → two transitions to error view. With the guard:
- * when a session handler is in-flight, the IPC rejection alone surfaces the
- * error and we suppress the push. State (`current`/`recording`) is still
- * cleared synchronously so the next session/start can proceed.
+ * mid-`session/start`, this runs BEFORE the handler's catch/finally completes —
+ * `current` is still non-null. When a session/start handler is in-flight, that
+ * handler's own catch clears `current` and its IPC rejection surfaces the error;
+ * we suppress the push to avoid a double error-view transition.
  *
- * Chunk handler crashes do NOT trigger a session handler — `recording/chunk`
- * swallows transcribe errors. So for chunk-in-flight + crash, the push fires
- * (which is correct — renderer has no other signal).
+ * `GENERATION_SIDECAR_DOWN` is a non-blocking code: the renderer (Task 8) marks
+ * an active backgroundJob failed and otherwise ignores it — a live recording is
+ * undisturbed. (P0-2: the cache invalidation below is the founder 2026-06-09
+ * 4-min hang fix — a respawn produces a model-less sidecar, so any cached
+ * "loaded for this orchestrator" claim is stale.)
  */
 export function handleSidecarExit() {
-  // P0-2 (2026-06-09) — invalidate the LLM-loaded cache on EVERY sidecar
-  // exit, before any other guard. The cache is keyed on the orchestrator
-  // INSTANCE, not the sidecar pid; a respawn produces a fresh sidecar
-  // process with NO model loaded, so any cached "already loaded for this
-  // orchestrator" claim is stale. This MUST run independently of:
-  //   (a) the idle short-circuit below (clearing is cheap), and
-  //   (b) the in-flight session-handler guard (which suppresses the
-  //       renderer `session/error` push but must not suppress cache
-  //       invalidation — a crash mid-finalize is the founder 2026-06-09
-  //       4-min hang root cause: same orchestrator preserved through
-  //       respawn → cache says "loaded" → generate hits a model-less
-  //       sidecar → 60s timeout × 2 retries).
-  // Companion to P0-3 (onSessionSettled preservation): P0-3 intentionally
-  // keeps `current` non-null after finalize failure; this invalidation
-  // keeps the LLM-load contract honest when the sidecar respawn happens
-  // under P0-3's preserved orchestrator.
+  // Generation lane: invalidated on EVERY sidecar exit (P0-2 cache honesty —
+  // the cache is keyed on the orchestrator INSTANCE, not the sidecar pid).
   _llmLoadedForCurrent = null;
-  if (!current && !recording) return;
-  const wasHandlerInFlight = _sessionHandlerInFlight;
-  closeAudioWriter();   // sidecar gone — no more audio samples will arrive
-  current = null;
-  recording = false;
-  if (wasHandlerInFlight) return;  // IPC rejection handles renderer transition
-  // Code-only payload — renderer maps it to JA copy via `toFriendlyJa`.
-  // Previously this was an EN sentence which the substring matcher couldn't
-  // resolve to any known code → user got the generic JA fallback. SIDECAR_DOWN
-  // is the right code: the supervisor will respawn within 500ms; on success
-  // the next session/start passes the SIDECAR_DOWN guard.
-  _safeSend?.(CHANNELS.sessionError, { message: 'SIDECAR_DOWN' });
+  genInFlight = false;
+  _activeDump = null;
+  // Capture lane: untouched. If no capture is live there is nothing to surface
+  // (an idle crash, or a background generation whose capture was already freed —
+  // that generation's own IPC rejection surfaces its failure).
+  if (current === null && !recording) return;
+  // A capture IS live — preserve it (do NOT closeAudioWriter / null
+  // current/recording). When a session/start is mid-flight its own rejection
+  // surfaces the error; otherwise surface a non-blocking generation failure.
+  if (_sessionHandlerInFlight) return;
+  _safeSend?.(CHANNELS.sessionError, { message: 'GENERATION_SIDECAR_DOWN' });
 }
 
 /**
@@ -1065,7 +1059,12 @@ export function handleSidecarExit() {
  */
 export function handleSidecarGiveUp() {
   _sidecarGaveUp = true;
-  closeAudioWriter();   // sidecar gave up — no more audio samples will arrive
+  genInFlight = false;  // generation lane torn down (Task 2)
+  // Give-up is PERMANENT — the renderer shows "Restart Lisna" and the app
+  // relaunches, so (unlike the transient handleSidecarExit) the capture cannot
+  // meaningfully continue. Cleanly close the writer to flush + save the WAV the
+  // user already captured, then clear the capture lane.
+  closeAudioWriter();
   current = null;
   _llmLoadedForCurrent = null;
   recording = false;

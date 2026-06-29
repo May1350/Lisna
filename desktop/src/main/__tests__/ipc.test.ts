@@ -254,19 +254,23 @@ describe('main/ipc FSM', () => {
       .rejects.toThrow('SESSION_ACTIVE');
   });
 
-  // The dual of the test above: if the sidecar exits (crash OR app close),
-  // handleSidecarExit clears `current` — so the user CAN start a fresh
-  // session after a crash without restarting the app. This is the escape
-  // hatch from "orchestrator stuck forever" if a finalize keeps failing.
-  it('handleSidecarExit clears current → next session/start succeeds (escape hatch)', async () => {
+  // Task 2 reframe (was: "crash clears current = escape hatch"). Under the lane
+  // split, a sidecar exit is a GENERATION-lane event and must NOT clear a live
+  // capture (spec §4.5) — so a crash PRESERVES `current`, and the escape hatch
+  // from a stuck session is now `session/discard`, not a crash.
+  it('handleSidecarExit preserves current; session/discard is the escape hatch', async () => {
     const { win } = makeFakeWindow();
     const supervisor = makeFakeSupervisor({});
     ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/l' }) });
     await ipcHandlers['session/start']!({}, { language: 'ja' });
     await expect(ipcHandlers['session/finalize']!({}, { family: 'garbage' }))
       .rejects.toThrow(/UNKNOWN_FAMILY/);
-    // Sidecar crashes → handleSidecarExit fires → cache + current cleared.
+    // Sidecar crashes → generation lane invalidated, capture PRESERVED.
     ipc.handleSidecarExit();
+    await expect(ipcHandlers['session/start']!({}, { language: 'ja' }))
+      .rejects.toThrow('SESSION_ACTIVE');
+    // Discard clears the capture lane → a fresh start now succeeds.
+    await ipcHandlers['session/discard']!({}, undefined);
     await expect(ipcHandlers['session/start']!({}, { language: 'ja' }))
       .resolves.toBeUndefined();
   });
@@ -1520,19 +1524,19 @@ describe('main/ipc FSM', () => {
   // phase mechanics now live on the finalize path; "state cleared" probes below
   // use `session/finalize` (rejects NO_ACTIVE_SESSION when `current` is null).
 
-  it('handleSidecarExit clears flags + pushes session/error when session active (no handler in-flight)', async () => {
+  it('handleSidecarExit pushes a non-blocking error but PRESERVES a live capture', async () => {
     const { win, send } = makeFakeWindow();
     const supervisor = makeFakeSupervisor({});
     ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/l' }) });
     await ipcHandlers['session/start']!({}, { language: 'ja' });
     send.mockClear();
-    // session/start has resolved, so _sessionHandlerInFlight is false.
-    // Sidecar crash here = "user has been recording, now sidecar died." Push expected.
+    // session/start resolved (_sessionHandlerInFlight false). Sidecar crash with
+    // a live capture = generation-lane failure: push the non-blocking code, but
+    // the recording survives (capture is model-free; spec §4.5).
     ipc.handleSidecarExit();
     expect(send).toHaveBeenCalledWith('session/error', expect.objectContaining({ message: expect.any(String) }));
-    // Subsequent finalize should reject (state cleared by handleSidecarExit).
-    // session/finalize with a known family throws NO_ACTIVE_SESSION when current is null.
-    await expect(ipcHandlers['session/finalize']!({}, { family: 'lecture' })).rejects.toThrow('NO_ACTIVE_SESSION');
+    // Capture PRESERVED → a fresh session/start is rejected (current still set).
+    await expect(ipcHandlers['session/start']!({}, { language: 'ja' })).rejects.toThrow('SESSION_ACTIVE');
   });
 
   it('handleSidecarExit when idle → no session/error push', async () => {
@@ -1541,6 +1545,58 @@ describe('main/ipc FSM', () => {
     ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/l' }) });
     ipc.handleSidecarExit();
     expect(send).not.toHaveBeenCalled();
+  });
+
+  // ── Task 2: lane-aware crash — a sidecar exit must NOT kill a live capture ──
+  // Capture is model-free (recording never touches the sidecar). A sidecar exit
+  // is a GENERATION-lane failure; the live recording's writer must stay open and
+  // `recording`/`current` must survive so the user keeps their audio (spec §4.5,
+  // guarantee 5). The respawn gate (isSessionInFlight) resurrects the sidecar.
+  it('handleSidecarExit during a live capture preserves it — writer open, recording survives', async () => {
+    delete process.env['LISNA_DISABLE_AUDIO_SAVE'];
+    const orchModule = await import('../sidecar/orchestrator');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const orchInstances: any[] = [];
+    const Real = orchModule.SessionOrchestrator;
+    const ctorSpy = vi
+      .spyOn(orchModule, 'SessionOrchestrator')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .mockImplementation((opts: any) => { const i = new Real(opts); orchInstances.push(i); return i; });
+    try {
+      const { win, send } = makeFakeWindow();
+      const supervisor = makeFakeSupervisor({});
+      ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/l' }) });
+      await ipcHandlers['session/start']!({}, { language: 'ja' });
+      // Append a chunk so the WAV holds data; record the size.
+      await ipcHandlers['recording/chunk']!(
+        { sender: { send: vi.fn() } },
+        { index: 0, source: 'mic', startMs: 0, endMs: 2000, samples: new Float32Array(32000) },
+      );
+      const wavPath = orchInstances[0].wavPath as string;
+      const sizeBefore = fs.statSync(wavPath).size;
+      send.mockClear();
+
+      // Sidecar crashes (e.g. a background generation OOM). Capture is model-free.
+      ipc.handleSidecarExit();
+
+      // recording survives → a fresh start is rejected (current preserved).
+      await expect(ipcHandlers['session/start']!({}, { language: 'ja' })).rejects.toThrow('SESSION_ACTIVE');
+      expect(ipc.isSessionInFlight()).toBe(true);
+      // writer still open → the next chunk appends + grows the file (no AUDIO_WRITE_FAILED).
+      await ipcHandlers['recording/chunk']!(
+        { sender: { send: vi.fn() } },
+        { index: 1, source: 'mic', startMs: 2000, endMs: 4000, samples: new Float32Array(32000) },
+      );
+      expect(fs.statSync(wavPath).size).toBeGreaterThan(sizeBefore);
+      const writeFails = send.mock.calls.filter(
+        (c) => c[0] === 'session/error' && c[1]?.message === 'AUDIO_WRITE_FAILED',
+      );
+      expect(writeFails).toHaveLength(0);
+
+      await ipcHandlers['session/discard']!({}, undefined); // cleanup: close the writer + reset FSM
+    } finally {
+      ctorSpy.mockRestore();
+    }
   });
 
   // C2 invariant on the start side: sidecar crash WHILE the session/start
