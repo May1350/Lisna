@@ -190,7 +190,7 @@ function armIdleStop(): void {
   if (_idleStopTimer) clearTimeout(_idleStopTimer);
   _idleStopTimer = setTimeout(() => {
     _idleStopTimer = null;
-    if (current !== null || recording) return; // session started meanwhile
+    if (isSessionInFlight()) return; // a capture or generation began meanwhile
     const sup = _depsRef?.supervisor;
     if (!sup?.getClient()) return; // already gone
     sessionLog.idleStop();
@@ -689,10 +689,15 @@ export function registerIpc(deps: IpcDeps) {
     // (snapshotAndFreeCapture) for a valid generation, so settle must NOT touch
     // it — by the time a generation settles, `current` may be a DIFFERENT live
     // recording (scenario 2). This clears only the generation lane: the gate,
-    // the dump, the LLM cache, and the transcript cache. The recording is never
-    // lost on failure — its transcript is in the dump (written before the LLM
-    // stage), and History regen reads it (the new retry path; live retry is gone
-    // with the capture-free, replacing the P0-3 preserve-current mechanism).
+    // the dump, and the LLM cache.
+    //
+    // Recovery after a failure that occurs AFTER step D (transcript.json written
+    // — the common LLM/generate failure) is History regen of that dump (no STT;
+    // replaces the P0-3 live-retry). KNOWN GAP (review 2026-06-30): a failure
+    // BEFORE step D (STT_STALLED, the rare double-stall) leaves the captured WAV
+    // in userData/audio-captures/ with no in-app re-transcribe path — the bytes
+    // are safe on disk but unreachable from the UI. Tracked for an
+    // orphaned-WAV recovery surface; do NOT claim "never lost on failure".
     onSessionSettled: (result) => {
       genInFlight = false;
       // Debug dump tail: persist the parsed note (success) or the failure reason.
@@ -968,16 +973,24 @@ export function registerIpc(deps: IpcDeps) {
  *
  * `GENERATION_SIDECAR_DOWN` is a non-blocking code: the renderer (Task 8) marks
  * an active backgroundJob failed and otherwise ignores it — a live recording is
- * undisturbed. (P0-2: the cache invalidation below is the founder 2026-06-09
+ * undisturbed. (P0-2: the LLM-cache invalidation below is the founder 2026-06-09
  * 4-min hang fix — a respawn produces a model-less sidecar, so any cached
- * "loaded for this orchestrator" claim is stale.)
+ * "loaded" claim is stale.)
+ *
+ * `genInFlight` / `_activeDump` are NOT cleared here — they belong to the
+ * in-flight generation, whose own settle (onSessionSettled) always runs (the
+ * pending sidecar op rejects on the dead client → its finally) and clears them
+ * + writes the result.json error record. Clearing them here would (a) drop the
+ * debug-dump error record (the settle finds _activeDump null), (b) re-open the
+ * single-generation gate before the dying generation settles, and (c) zero
+ * genInFlight before the supervisor's shouldRespawn (isSessionInFlight) reads it
+ * — so a generation-only crash would NOT respawn (review MEDIUM/LOW, 2026-06-30).
  */
 export function handleSidecarExit() {
-  // Generation lane: invalidated on EVERY sidecar exit (P0-2 cache honesty —
-  // the cache is keyed on the orchestrator INSTANCE, not the sidecar pid).
+  // Generation lane: invalidate ONLY the LLM-loaded cache on every exit (P0-2
+  // cache honesty — a respawned sidecar has no model). genInFlight + _activeDump
+  // are owned by the in-flight generation's settle (see doc above).
   _llmLoadedForWav = null;
-  genInFlight = false;
-  _activeDump = null;
   // Capture lane: untouched. If no capture is live there is nothing to surface
   // (an idle crash, or a background generation whose capture was already freed —
   // that generation's own IPC rejection surfaces its failure).

@@ -1675,6 +1675,50 @@ describe('main/ipc FSM', () => {
     }
   });
 
+  // ── Review fix (2026-06-30): a crash mid-generation keeps the gen lane for the
+  // settle. handleSidecarExit must NOT clear genInFlight / _activeDump — those
+  // belong to the in-flight generation's settle, which: (a) keeps the respawn
+  // gate (isSessionInFlight) open until it runs so the supervisor respawns, and
+  // (b) writes the result.json failure record (the dump survived the crash).
+  it('review: a crash during an in-flight generation keeps the gate + dump for the settle', async () => {
+    delete process.env['LISNA_DISABLE_AUDIO_SAVE'];
+    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-rev-crash-'));
+    let restore: (() => void) | undefined;
+    try {
+      // transcribe hangs → the generation is in flight (genInFlight true; capture
+      // freed at pick → current null) when the sidecar crashes.
+      let rejectTx!: (e: Error) => void;
+      transcribeFileResult = () => new Promise((_res, rej) => { rejectTx = rej; });
+      const { ctorSpy } = await setupC3(userDataDir);
+      restore = () => ctorSpy.mockRestore();
+      await ipcHandlers['session/start']!({}, { language: 'ja' });
+      const finPromise = ipcHandlers['session/finalize']!({}, { family: 'lecture' });
+      finPromise.catch(() => {});
+      await Promise.resolve(); await Promise.resolve(); // flush to the transcribe hang
+
+      // Generation in flight with no live capture → isSessionInFlight is true via
+      // genInFlight ALONE (the respawn gate must see this on a gen-only crash).
+      expect(ipc.isSessionInFlight()).toBe(true);
+      ipc.handleSidecarExit();
+      expect(ipc.isSessionInFlight()).toBe(true); // genInFlight NOT cleared by the crash
+
+      // The generation now fails (transcribe rejects on the dead sidecar) → settle.
+      rejectTx(new Error('SIDECAR_DOWN'));
+      await finPromise.catch(() => {});
+
+      // The settle wrote the failure record (the dump survived handleSidecarExit)
+      // and cleared the gate.
+      const dumps = fs.readdirSync(path.join(userDataDir, 'sessions'));
+      expect(dumps).toHaveLength(1);
+      expect(fs.existsSync(path.join(userDataDir, 'sessions', dumps[0]!, 'result.json'))).toBe(true);
+      expect(ipc.isSessionInFlight()).toBe(false); // settle cleared genInFlight
+    } finally {
+      restore?.();
+      appGetPath.mockReset();
+      fs.rmSync(userDataDir, { recursive: true, force: true });
+    }
+  });
+
   // C2 invariant on the start side: sidecar crash WHILE the session/start
   // handler is awaiting (its `_sessionHandlerInFlight` guard must make
   // handleSidecarExit skip its own session/error push, letting the handler's
