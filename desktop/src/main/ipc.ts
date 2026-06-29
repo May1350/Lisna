@@ -29,6 +29,7 @@ import { isMacAudioLoopbackSupported } from './platform/hardware-check';
 import { log, redactPath, sessionLog } from './log';
 import { loadToken } from './auth/keychain';
 import { registerSessionFinalize } from './sidecar/ipc/session-finalize';
+import type { SessionContext } from './sidecar/ipc/session-finalize';
 import { toFinalizeProgressPayload } from './sidecar/ipc/finalize-progress';
 import { createSessionDump, type SessionDump } from './session-debug-dump';
 import { languageCapabilities } from '@shared/language-capabilities';
@@ -136,13 +137,15 @@ export interface IpcDeps {
 //   which short-circuits future session/start calls until lifecycle/restart fires.
 let current: SessionOrchestrator | null = null;
 let recording = false;
-// Tracks the orchestrator instance whose LLM has been loaded for the v2
-// session/finalize path. Spec §9 — IPC finalize needs an explicit unload-STT
-// + load-LLM prep step (unlike orchestrator.stop(), which loads inline).
-// When `current !== _llmLoadedForCurrent`, the next finalize call performs
-// the load + caches; subsequent calls within the same session are no-ops.
-// Reset everywhere `current` is reset (session end / sidecar exit / give-up).
-let _llmLoadedForCurrent: SessionOrchestrator | null = null;
+// Tracks the wavPath (generation identity) whose LLM has been loaded for the v2
+// finalize path. Spec §9 — IPC finalize needs an explicit unload-STT → load-LLM
+// prep step (unlike orchestrator.stop(), which loads inline). When
+// `_llmLoadedForWav !== snap.wavPath`, the generation performs the load + caches;
+// a retry of the SAME wavPath is a no-op. Reset every settle (onSessionSettled),
+// on sidecar exit/give-up, and on a failed recovery reload. Keyed on wavPath (not
+// the orchestrator instance) so the generation lane is decoupled from `current`
+// (Task 3, spec §4.2).
+let _llmLoadedForWav: string | null = null;
 // True after supervisor.onCrash fires (2 consecutive sidecar crashes; respawn
 // abandoned). Stays true until lifecycle/restart relaunches the app. Gates
 // session/start ahead of the sidecar-getClient check so the user sees a
@@ -462,11 +465,147 @@ function makeRecoveringSidecarFor(llmPath: string): GrammarCapableSidecar {
       } catch (e) {
         // Force the next finalize to re-run the full
         // unload-STT → load-LLM prep instead of trusting the cache.
-        _llmLoadedForCurrent = null;
+        _llmLoadedForWav = null;
         throw e;
       }
     },
   });
+}
+
+/** A generation runs from this snapshot, NOT the live orchestrator — so it
+ *  survives the capture being freed (Task 4) or a different recording going live. */
+interface GenSnapshot {
+  wavPath: string;
+  language: NoteLanguage;
+}
+
+// Generation-lane transcript cache, keyed on the snapshot's wavPath: a retry of
+// the SAME recording reuses the (expensive) whole-WAV STT pass; a NEW recording
+// (different wavPath) re-transcribes. This is the per-orchestrator
+// `exposedSegments` cache relocated OFF `current` onto the generation lane
+// (Task 3, spec §4.2). Independent of the LLM cache (`_llmLoadedForWav`).
+let genSegments: TranscriptSegment[] = [];
+let genSegmentsWav: string | null = null;
+
+/**
+ * Run a background note generation from a {wavPath, language} snapshot — the
+ * former getCurrentSession body (steps A–F) lifted out of the live-orchestrator
+ * closure (Task 3, spec §4.2). Transcribes the whole WAV (cached on genSegments),
+ * loads the LLM, and returns the SessionContext the family router consumes.
+ * Throws WAV_MISSING / EMPTY_RECORDING / SIDECAR_DOWN keyed on the snapshot.
+ */
+async function runGenerationContext(snap: GenSnapshot): Promise<SessionContext> {
+  const paths = _depsRef!.getModelPaths();
+  const client = _depsRef!.supervisor.getClient();
+  if (!paths || !client) throw new Error('SIDECAR_DOWN');
+
+  // (A) Debug dump — one dir per generation invocation (retries included), so a
+  // transcription / LLM-load failure still leaves result.json on disk.
+  try {
+    _activeDump = createSessionDump({ baseDir: sessionsBaseDir() });
+  } catch {
+    _activeDump = null;
+  }
+  if (_activeDump) log.info('[finalize:dump]', redactPath(_activeDump.dir));
+
+  // (B) Whole-WAV STT, cached on genSegments (wavPath-keyed — a retry reuses it,
+  // a new recording re-transcribes). Independent of the LLM cache in (E).
+  if (genSegmentsWav !== snap.wavPath) { genSegments = []; genSegmentsWav = snap.wavPath; }
+  if (genSegments.length === 0) {
+    if (!snap.wavPath || !fs.existsSync(snap.wavPath)) throw new Error('WAV_MISSING');
+    const t0 = Date.now();
+    genSegments = await transcribeWithProgress(client, paths.sttPath, snap.language, snap.wavPath);
+    sessionLog.phase('stt-transcribe-finalize', Date.now() - t0);
+  }
+
+  // (C) Empty guard — before the wasted 3 GB LLM load.
+  if (genSegments.length === 0) throw new Error('EMPTY_RECORDING');
+
+  // (C2) RE-RESOLVE the live client after transcribe — the H1 stall watchdog may
+  // have restarted the sidecar PROCESS, leaving the pre-(B) client dead.
+  const liveClient = _depsRef!.supervisor.getClient();
+  if (!liveClient) throw new Error('SIDECAR_DOWN');
+
+  // (D) Write the dump transcript with the real segments.
+  if (_activeDump) {
+    _activeDump.writeTranscript({
+      sessionId: 'live',
+      language: snap.language,
+      llmModel: path.basename(paths.llmPath),
+      segments: genSegments,
+    });
+  }
+
+  // (E) Spec §9 LLM prep (unload STT → load LLM), cached per wavPath; reset every
+  // settle (onSessionSettled) so a retry after a failed gen reloads.
+  if (_llmLoadedForWav !== snap.wavPath) {
+    await loadLlmForFinalize(liveClient, paths.llmPath);
+    _llmLoadedForWav = snap.wavPath;
+  }
+
+  // (F) Recovering sidecar for fresh-seed retries (lazy per-generate client).
+  const recoveringSidecar = makeRecoveringSidecarFor(paths.llmPath);
+
+  return {
+    sessionId: 'live',   // placeholder — real session-ID assignment lands in Task 13
+    segments: genSegments,
+    llmModelPath: paths.llmPath,
+    language: snap.language,
+    // Dump wrap sits OUTSIDE the recovery wrapper so the recorded calls are
+    // exactly what callWithGrammar issued (prompt, seed, raw output per attempt).
+    sidecar: _activeDump ? _activeDump.wrapSidecar(recoveringSidecar) : recoveringSidecar,
+  };
+}
+
+/**
+ * LLM-free whole-WAV transcript from a snapshot — the former getTranscript body
+ * (steps A–D) lifted out (Task 3). Shares genSegments + the dump with
+ * runGenerationContext; STOPS before the LLM load.
+ */
+async function runTranscriptContext(snap: GenSnapshot): Promise<SessionTranscribeResult> {
+  const paths = _depsRef!.getModelPaths();
+  const client = _depsRef!.supervisor.getClient();
+  if (!paths || !client) throw new Error('NO_ACTIVE_SESSION');
+
+  // (A) Debug dump — a transcribe run lands in history via transcript.json.
+  try {
+    _activeDump = createSessionDump({ baseDir: sessionsBaseDir() });
+  } catch {
+    _activeDump = null;
+  }
+  if (_activeDump) log.info('[transcribe:dump]', redactPath(_activeDump.dir));
+
+  // (B) Whole-WAV STT, cached on genSegments (wavPath-keyed).
+  if (genSegmentsWav !== snap.wavPath) { genSegments = []; genSegmentsWav = snap.wavPath; }
+  if (genSegments.length === 0) {
+    if (!snap.wavPath || !fs.existsSync(snap.wavPath)) throw new Error('WAV_MISSING');
+    const t0 = Date.now();
+    genSegments = await transcribeWithProgress(client, paths.sttPath, snap.language, snap.wavPath);
+    sessionLog.phase('stt-transcribe-finalize', Date.now() - t0);
+  }
+
+  // (C) Empty guard — a silent recording yields no transcript.
+  if (genSegments.length === 0) throw new Error('EMPTY_RECORDING');
+
+  // (D) Persist the transcript dump with the real segments. llmModel is a
+  // required field even though no LLM runs — pass the configured basename.
+  if (_activeDump) {
+    _activeDump.writeTranscript({
+      sessionId: 'live',
+      language: snap.language,
+      llmModel: path.basename(paths.llmPath),
+      segments: genSegments,
+    });
+  }
+
+  return {
+    sessionId: 'live',
+    language: snap.language,
+    segments: [...genSegments],
+    durationSec: genSegments.at(-1)?.endSec,
+    // undefined when no dump dir was created → renderer renders view-only.
+    dumpId: _activeDump ? path.basename(_activeDump.dir) : undefined,
+  };
 }
 
 /**
@@ -506,122 +645,19 @@ export function registerIpc(deps: IpcDeps) {
   // ── session/finalize: v2 family-routed note generation (Task 10) ──────────
   registerSessionFinalize({
     beginGeneration,  // Task 1 — single-generation gate, lifecycle-visible
+    // Thin adapter: build a {wavPath, language} snapshot from the live capture
+    // and delegate to runGenerationContext (Task 3). null → NO_ACTIVE_SESSION.
     getCurrentSession: async () => {
       if (!current) return null;
-      const paths = deps.getModelPaths();
-      const client = deps.supervisor.getClient();
-      if (!paths || !client) return null;
-      const orch = current;  // stable ref held across the awaits below
-
-      // (A) Debug dump (2026-06-11): one dir per finalize invocation under
-      // <userData>/sessions/. Created FIRST so even a transcription / LLM-load
-      // failure leaves a result.json on disk — onSessionSettled(ok:false)
-      // writes the error to this same handle. The 13-min coverage-collapse
-      // incident was undiagnosable because nothing ever persisted. app.getPath
-      // is guarded: a harness without it just runs the finalize undumped.
-      try {
-        _activeDump = createSessionDump({
-          baseDir: sessionsBaseDir(),
-        });
-      } catch {
-        _activeDump = null;
-      }
-      if (_activeDump) log.info('[finalize:dump]', redactPath(_activeDump.dir));
-
-      // (B) STT Phase 2 (Task C3) — transcribe the whole captured WAV. Cached
-      // on the ORCHESTRATOR INSTANCE (via exposedSegments / setFinalizeSegments)
-      // so a note-gen retry — which nulls _llmLoadedForCurrent and idle-unloads
-      // the LLM (P0-3 + onSessionSettled) — does NOT re-run the expensive
-      // whole-file pass on a long recording. Runs only while no transcript is
-      // held. This cache is INDEPENDENT of the LLM cache in (E): a retry skips
-      // (B) but re-runs (E). Do NOT collapse them into one gate.
-      if (orch.exposedSegments.length === 0) {
-        const wavPath = orch.wavPath;
-        if (!wavPath || !fs.existsSync(wavPath)) throw new Error('WAV_MISSING');
-        const t0 = Date.now();
-        const segs = await transcribeWithProgress(
-          client,
-          paths.sttPath,
-          orch.language as NoteLanguage,
-          wavPath,
-        );
-        orch.setFinalizeSegments(segs);
-        sessionLog.phase('stt-transcribe-finalize', Date.now() - t0);
-      }
-
-      // (C) Empty guard — a silent / empty recording yields no usable
-      // transcript. Throw before loading the LLM (the 3 GB load is wasted on a
-      // no-op generate). The throw rides the same error machinery as (B).
-      if (orch.exposedSegments.length === 0) throw new Error('EMPTY_RECORDING');
-
-      // (C2) RE-RESOLVE the live client after transcribe. The H1 stall watchdog
-      // in step (B) may have restarted the sidecar PROCESS (SIGKILL + fresh
-      // spawn) to recover from a wedged transcribe — in which case the `client`
-      // captured before (B) now points at the DEAD process. Step (E)'s
-      // loadLlmForFinalize sends unload/load with timeoutMs:Infinity; on a dead
-      // client SidecarClient.rejectAllPending already fired on proc.exit and
-      // won't fire again, so those sends NEVER settle → the note finalize hangs
-      // forever (force-quit only). getClient() returns the SAME client on the
-      // no-restart path (harmless) and the FRESH one after recovery. (Step (F)'s
-      // makeRecoveringSidecarFor already resolves lazily via _depsRef, so it
-      // needs no fix here.)
-      const liveClient = deps.supervisor.getClient();
-      if (!liveClient) throw new Error('SIDECAR_DOWN');
-
-      // (D) Write the dump transcript NOW — AFTER transcription, with the real
-      // segments (not the empty pre-transcribe view the old code wrote).
-      if (_activeDump) {
-        _activeDump.writeTranscript({
-          sessionId: 'live',
-          language: orch.language,
-          llmModel: path.basename(paths.llmPath),
-          segments: orch.exposedSegments,
-        });
-      }
-
-      // (E) Spec §9 — the v2 finalize path needs the LLM loaded before
-      // generateWithGrammar can succeed (else `not_loaded`). loadLlmForFinalize
-      // unloads STT (idempotent) → loads LLM, SHARED with the from-dump path.
-      // Cached per-orchestrator via _llmLoadedForCurrent; reloads after a failed
-      // finalize's idle-unload (onSessionSettled nulls the cache).
-      //
-      // Telemetry: each phase emits its own `sessionLog.phase(...)`
-      // breadcrumb so the founder-visible main.log can attribute a long
-      // Stop → Note interval to cold-cache (llm-load-finalize huge) vs
-      // generation (visible later via [finalize:*] attempts). Without these,
-      // a ~4-min run with a 25 s LLM load looks identical to a 25 s retry.
-      if (_llmLoadedForCurrent !== orch) {
-        await loadLlmForFinalize(liveClient, paths.llmPath);
-        _llmLoadedForCurrent = orch;
-      }
-
-      // (F) Wedged-retry fix (2026-06-10): resolve the client LAZILY per
-      // generate call and restart + LLM-reload on a no-progress stall, so
-      // callWithGrammar's fresh-seed retries hit a live process instead of
-      // queueing behind a doomed generation in the single-threaded C++
-      // dispatch loop. See recovering-grammar-sidecar.ts for the RCA.
-      const recoveringSidecar = makeRecoveringSidecarFor(paths.llmPath);
-
-      return {
-        sessionId: 'live',   // placeholder — real session-ID assignment lands in Task 13
-        segments: orch.exposedSegments,
-        llmModelPath: paths.llmPath,
-        // orch.language is one of ja/en/ko — all valid NoteLanguage values.
-        // (ko reaches here only on a note finalize, which Task 3 rejects.)
-        language: orch.language as NoteLanguage,
-        // Dump wrap sits OUTSIDE the recovery wrapper so the recorded calls
-        // are exactly what callWithGrammar issued (prompt, seed, raw output
-        // per attempt) — including attempts that stall and recover.
-        sidecar: _activeDump
-          ? _activeDump.wrapSidecar(recoveringSidecar)
-          : recoveringSidecar,
-      };
+      if (!deps.getModelPaths() || !deps.supervisor.getClient()) return null;
+      const orch = current;
+      return runGenerationContext({ wavPath: orch.wavPath ?? '', language: orch.language as NoteLanguage });
     },
     // F2 history viewer — from-dump finalize context. NO dump is created for
     // regen runs (P0-1; buildDumpSessionContext never calls createSessionDump).
     getDumpSession: async (id: string) => {
       cancelIdleStop(); // regen is "in use" — settle re-arms via onSessionSettled
-      // loadLlm runs UNCONDITIONALLY here (no _llmLoadedForCurrent-style cache):
+      // loadLlm runs UNCONDITIONALLY here (no _llmLoadedForWav-style cache):
       // every settle runs unloadLlmIdle, so a dump-run cache would be defeated
       // on the back-to-back regen path anyway. Do not "optimize" this into a
       // stale-cache bug.
@@ -639,73 +675,17 @@ export function registerIpc(deps: IpcDeps) {
         makeSidecar: makeRecoveringSidecarFor,
       });
     },
-    // Raw-transcript output mode (2026-06-19) — LLM-free whole-WAV transcript.
-    // Mirrors getCurrentSession's preamble + steps (A)-(D), then RETURNS the
-    // raw segments. Deliberately STOPS before the (E) LLM load and the (F)
-    // recovering-sidecar wrap — no note is generated. The transcript cache
-    // (exposedSegments) + debug dump are shared with the note path, so a later
-    // note finalize on the same orchestrator would reuse this transcription.
+    // Thin adapter: snapshot the live capture, delegate to runTranscriptContext
+    // (Task 3). LLM-free whole-WAV transcript; no note generated.
     getTranscript: async (): Promise<SessionTranscribeResult> => {
       if (!current) throw new Error('NO_ACTIVE_SESSION');
-      const paths = deps.getModelPaths();
-      const client = deps.supervisor.getClient();
-      if (!paths || !client) throw new Error('NO_ACTIVE_SESSION');
+      if (!deps.getModelPaths() || !deps.supervisor.getClient()) throw new Error('NO_ACTIVE_SESSION');
       const orch = current;
-
-      // (A) Debug dump — same as the note path. A transcribe run lands in
-      // history via transcript.json; onSessionSettled writes no result.json.
-      try {
-        _activeDump = createSessionDump({ baseDir: sessionsBaseDir() });
-      } catch {
-        _activeDump = null;
-      }
-      if (_activeDump) log.info('[transcribe:dump]', redactPath(_activeDump.dir));
-
-      // (B) Whole-WAV transcription, cached on the orchestrator instance. Skips
-      // when a transcript is already held (e.g. a prior note-finalize attempt).
-      if (orch.exposedSegments.length === 0) {
-        const wavPath = orch.wavPath;
-        if (!wavPath || !fs.existsSync(wavPath)) throw new Error('WAV_MISSING');
-        const t0 = Date.now();
-        const segs = await transcribeWithProgress(
-          client,
-          paths.sttPath,
-          orch.language as NoteLanguage,
-          wavPath,
-        );
-        orch.setFinalizeSegments(segs);
-        sessionLog.phase('stt-transcribe-finalize', Date.now() - t0);
-      }
-
-      // (C) Empty guard — a silent recording yields no transcript.
-      if (orch.exposedSegments.length === 0) throw new Error('EMPTY_RECORDING');
-
-      // (D) Persist the transcript dump with the real segments. llmModel is a
-      // required field even though no LLM runs — pass the configured basename.
-      if (_activeDump) {
-        _activeDump.writeTranscript({
-          sessionId: 'live',
-          language: orch.language,
-          llmModel: path.basename(paths.llmPath),
-          segments: orch.exposedSegments,
-        });
-      }
-
-      // NO LLM load. Spread exposedSegments (readonly) into the mutable result.
-      return {
-        sessionId: 'live',
-        language: orch.language,
-        segments: [...orch.exposedSegments],
-        durationSec: orch.exposedSegments.at(-1)?.endSec,
-        // The persist target for transcript edits — undefined when no dump dir
-        // was created (LISNA_DISABLE_SESSION_DUMP / dir-create failure), in
-        // which case the renderer renders the transcript view-only.
-        dumpId: _activeDump ? path.basename(_activeDump.dir) : undefined,
-      };
+      return runTranscriptContext({ wavPath: orch.wavPath ?? '', language: orch.language as NoteLanguage });
     },
     // The v2 Stop flow ends here, not at session/stop — so finalize owns the
     // idle-return. Mirror the session/stop finally block (lines below): clear
-    // `current` + `_llmLoadedForCurrent` and drop `recording` so post-finalize
+    // `current` + `_llmLoadedForWav` and drop `recording` so post-finalize
     // chunk callbacks no-op and the next session/start isn't rejected with
     // SESSION_ACTIVE.
     //
@@ -713,7 +693,7 @@ export function registerIpc(deps: IpcDeps) {
     // parse throw, sidecar generate rejection, LLM-load fail, etc.) we MUST
     // preserve the SessionOrchestrator + its captured `exposedSegments` so the
     // renderer's ErrorView retry button can re-invoke `session/finalize`
-    // against the same accumulated transcript. `_llmLoadedForCurrent` stays
+    // against the same accumulated transcript. `_llmLoadedForWav` stays
     // too — the LLM is already in the sidecar's RAM, no need to re-run the
     // ~25 s load. Audio capture already stopped (Stop fires before
     // familyPicker) so `recording` is already false in both branches. The
@@ -741,9 +721,9 @@ export function registerIpc(deps: IpcDeps) {
       // Session-scoped lifecycle: the LLM's 3 GB leaves RAM the moment a
       // finalize settles — success or failure. P0-3 still preserves the
       // TRANSCRIPT (current) on failure for retry; the retry re-runs the
-      // unload-STT → load-LLM prep because _llmLoadedForCurrent resets.
+      // unload-STT → load-LLM prep because _llmLoadedForWav resets.
       unloadLlmIdle();
-      _llmLoadedForCurrent = null;
+      _llmLoadedForWav = null;
       if (!result.ok) {
         armIdleStop();
         return;
@@ -823,7 +803,7 @@ export function registerIpc(deps: IpcDeps) {
     sessionLog.discard(current !== null);
     closeAudioWriter();
     current = null;
-    _llmLoadedForCurrent = null;
+    _llmLoadedForWav = null;
     recording = false;
     armIdleStop();
   });
@@ -896,7 +876,7 @@ export function registerIpc(deps: IpcDeps) {
             closeAudioWriter();
             recording = false;
             current = null;
-            _llmLoadedForCurrent = null;
+            _llmLoadedForWav = null;
             // _activeDump is always null here (created at finalize in
             // getCurrentSession, never at record time) — nothing to clear.
             safeSend(CHANNELS.sessionError, { message: 'AUDIO_WRITE_FAILED' });
@@ -928,7 +908,7 @@ export function registerIpc(deps: IpcDeps) {
       log.error('[session] start failed', err);
       closeAudioWriter();  // start failed after the writer was opened above → close it (no fd leak)
       current = null;
-      _llmLoadedForCurrent = null;
+      _llmLoadedForWav = null;
       throw err;
     } finally {
       _sessionHandlerInFlight = false;
@@ -997,7 +977,7 @@ export function registerIpc(deps: IpcDeps) {
  * LANE-AWARE (Task 2, spec §4.5). A sidecar exit is a GENERATION-lane event:
  * only generation talks to the sidecar (capture is model-free — renderer audio
  * → WavWriter, never the sidecar). So this:
- *   - ALWAYS invalidates the generation lane (`_llmLoadedForCurrent`,
+ *   - ALWAYS invalidates the generation lane (`_llmLoadedForWav`,
  *     `genInFlight`, `_activeDump`), and
  *   - NEVER closes the capture writer / nulls `current`/`recording` when a
  *     capture is live — the crash didn't break capture; the respawn gate
@@ -1022,7 +1002,7 @@ export function registerIpc(deps: IpcDeps) {
 export function handleSidecarExit() {
   // Generation lane: invalidated on EVERY sidecar exit (P0-2 cache honesty —
   // the cache is keyed on the orchestrator INSTANCE, not the sidecar pid).
-  _llmLoadedForCurrent = null;
+  _llmLoadedForWav = null;
   genInFlight = false;
   _activeDump = null;
   // Capture lane: untouched. If no capture is live there is nothing to surface
@@ -1066,7 +1046,7 @@ export function handleSidecarGiveUp() {
   // user already captured, then clear the capture lane.
   closeAudioWriter();
   current = null;
-  _llmLoadedForCurrent = null;
+  _llmLoadedForWav = null;
   recording = false;
   // Code-only payload like handleSidecarExit. ErrorView's `permanent` branch
   // forces the SIDECAR_GAVE_UP JA copy regardless of `message`, but emitting

@@ -307,6 +307,8 @@ describe('main/ipc FSM', () => {
       });
       // Real makeGrammarSidecar streams from client.sendStream — fake yields
       // the whole note JSON as one token and reports decode stats via onDone.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let dumpListeners: ((e: any) => void)[] = [];
       const client = {
         send: vi.fn(async () => ({})),
         sendStream: vi.fn(
@@ -315,6 +317,11 @@ describe('main/ipc FSM', () => {
             return (async function* () { yield noteJson; })();
           },
         ),
+        // The transcript now comes from the finalize whole-WAV transcribe (the
+        // genSegments lane, not orch.setFinalizeSegments). transcribeWithProgress
+        // subscribes via onEvent; the mocked transcribeFile returns こんにちは.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        onEvent: vi.fn((cb: (e: any) => void) => { dumpListeners.push(cb); return () => { dumpListeners = dumpListeners.filter((x) => x !== cb); }; }),
       };
       const supervisor = makeFakeSupervisor(client);
 
@@ -347,9 +354,9 @@ describe('main/ipc FSM', () => {
       };
       await ipcHandlers['recording/chunk']!({ sender: { send: vi.fn() } }, payload);
 
-      // Seed the finalize transcript (stand-in for the C3 WAV re-transcription).
+      // The finalize transcribes the WAV (mocked transcribeFile → こんにちは) into
+      // the genSegments lane — no manual seeding of the orchestrator needed.
       expect(orchInstances).toHaveLength(1);
-      orchInstances[0].setFinalizeSegments([{ startSec: 0, endSec: 1, text: 'こんにちは' }]);
 
       const result = await ipcHandlers['session/finalize']!({}, { family: 'lecture' });
       expect(result.note).toMatchObject({ family: 'lecture' });
@@ -503,7 +510,7 @@ describe('main/ipc FSM', () => {
     }
   });
 
-  it('C3: the transcribeFile result is stored on the orchestrator + returned in the context', async () => {
+  it('C3: the transcribeFile result feeds the generation lane + the dump transcript', async () => {
     delete process.env['LISNA_DISABLE_AUDIO_SAVE'];
     const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-c3-store-'));
     let restore: (() => void) | undefined;
@@ -520,9 +527,7 @@ describe('main/ipc FSM', () => {
       await ipcHandlers['session/finalize']!({}, { family: 'lecture' });
 
       expect(orchInstances).toHaveLength(1);
-      // The transcript got stored on the orchestrator instance…
-      expect(orchInstances[0].exposedSegments).toEqual(segs);
-      // …and the dump recorded the TRANSCRIBED segments (not empty).
+      // The dump recorded the TRANSCRIBED segments (the genSegments lane fed it).
       const sessionsDir = path.join(userDataDir, 'sessions');
       const dumps = fs.readdirSync(sessionsDir);
       expect(dumps).toHaveLength(1);
@@ -787,12 +792,11 @@ describe('main/ipc FSM', () => {
           expect(result.note).toMatchObject({ family, schemaVersion: 1 });
           expect(typeof result.noteId).toBe('string');
 
-          // (2) The finalize consumed the TRANSCRIBED segments — the orchestrator's
-          // exposedSegments reflect the mocked transcribeFile output exactly (not
-          // any live accumulation, which Group D removed). adaptToV2Transcript
-          // built the note's transcript from THESE segments.
+          // (2) The finalize consumed the TRANSCRIBED segments via the
+          // genSegments lane (relocated off the orchestrator, Task 3). The proof
+          // is the dump transcript (assertion 4) — adaptToV2Transcript built the
+          // note's transcript from those segments.
           expect(orchInstances).toHaveLength(1);
-          expect(orchInstances[0].exposedSegments).toEqual(knownSegments);
 
           // (3) The 8 GB floor + ordering: STT transcribed the WAV BEFORE the LLM
           // loaded (and STT unloaded in between). Reuses the C3 indexOf pattern.
@@ -901,22 +905,33 @@ describe('main/ipc FSM', () => {
       }
     });
 
-    it('reuses the orchestrator transcript cache: a second transcribe does NOT re-run transcribeFile', async () => {
+    it('reuses the genSegments cache (wavPath-keyed): a transcribe after a failed note-finalize does NOT re-transcribe', async () => {
       delete process.env['LISNA_DISABLE_AUDIO_SAVE'];
       const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-tx-cache-'));
       let restore: (() => void) | undefined;
       try {
-        const { ctorSpy, orchInstances } = await setupC3(userDataDir);
+        const segs = [{ startSec: 0, endSec: 3, text: 'こんにちは' }];
+        transcribeFileResult = async () => segs;
+        const { ctorSpy, client } = await setupC3(userDataDir);
         restore = () => ctorSpy.mockRestore();
         await ipcHandlers['session/start']!({}, { language: 'ja' });
-        // Pre-populate the transcript cache so transcribeFile must NOT run.
-        orchInstances[0].setFinalizeSegments([{ startSec: 0, endSec: 3, text: 'こんにちは' }]);
 
+        // A note-finalize transcribes the WAV (filling genSegments for this
+        // wavPath) then FAILS at generation → P0-3 preserves the live session.
+        client.sendStream.mockImplementation(() => { throw new Error('GENERATE_BOOM'); });
+        await expect(ipcHandlers['session/finalize']!({}, { family: 'lecture' })).rejects.toThrow();
+        const afterFinalize = engineCallLog.map((c) => `${c.engine}:${c.method}`);
+        expect(afterFinalize.filter((s) => s === 'stt:transcribeFile')).toHaveLength(1);
+        const llmLoadsAfterFinalize = afterFinalize.filter((s) => s === 'llm:load').length;
+
+        // session/transcribe on the SAME live session reuses genSegments —
+        // transcribeFile must NOT run again (same wavPath → cache hit).
         const result = await ipcHandlers['session/transcribe']!({}, undefined);
-        expect(result.segments).toEqual([{ startSec: 0, endSec: 3, text: 'こんにちは' }]);
-        const seq = engineCallLog.map((c) => `${c.engine}:${c.method}`);
-        expect(seq.filter((s) => s === 'stt:transcribeFile')).toHaveLength(0);
-        expect(seq).not.toContain('llm:load');
+        expect(result.segments).toEqual(segs);
+        const afterTranscribe = engineCallLog.map((c) => `${c.engine}:${c.method}`);
+        expect(afterTranscribe.filter((s) => s === 'stt:transcribeFile')).toHaveLength(1); // still once
+        // the transcribe added no LLM load of its own (LLM-free path).
+        expect(afterTranscribe.filter((s) => s === 'llm:load').length).toBe(llmLoadsAfterFinalize);
       } finally {
         restore?.();
         appGetPath.mockReset();
