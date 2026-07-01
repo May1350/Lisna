@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { Recording } from './routes/Recording';
 import { History } from './routes/History';
 import { NoteView } from './routes/NoteView';
@@ -9,7 +9,7 @@ import { FamilyPickerStep } from './components/FamilyPickerStep';
 import { FirstRunAudioNotice } from './components/FirstRunAudioNotice';
 import { TranscriptView } from './routes/TranscriptView';
 import { TermsView } from './routes/TermsView';
-import { NoteRenderProgress, type ProgressState } from './components/NoteRenderProgress';
+import type { ProgressState } from './components/NoteRenderProgress';
 import type { Note, TranscriptSegment } from '@shared/types';
 import type { FinalizeProgressPayload } from '@shared/ipc-protocol';
 import type { NoteBase, NoteFamily } from '@shared/note-schema';
@@ -46,8 +46,6 @@ type View =
   | { kind: 'recording' }
   | { kind: 'history'; id: string }
   | { kind: 'familyPicking' }
-  | { kind: 'curatingV2'; progress: ProgressState | null }
-  | { kind: 'transcribing'; pct?: number; startedAt?: number }
   | { kind: 'transcript'; segments: TranscriptSegment[]; language: string; durationSec?: number; dumpId?: string }
   | { kind: 'note'; note: Note | NoteBase }
   | { kind: 'terms' }
@@ -113,10 +111,11 @@ export function App() {
 
 /**
  * Post-auth shell — owns the v2 session FSM (`booting | setup | recording |
- * familyPicking | curatingV2 | note | error`) and the
- * onSessionError subscription. The v2 finalize flow runs at the App level:
- * Stop → familyPicking → curatingV2 (window.lisna.finalize) → note (NoteView
- * dispatches via familyRendererRegistry).
+ * familyPicking | transcript | note | terms | error`) PLUS the sibling
+ * `backgroundJob` axis (Task 6) and the onSessionError subscription. The v2
+ * finalize flow runs in the BACKGROUND: Stop → familyPicking → pick starts a
+ * backgroundJob + returns to recording → the chip carries progress/completion
+ * (scenario 2: a new recording can start while the note generates).
  *
  * Why a function component instead of inlining into the gate: keeps the
  * boot sequence (model status, session error, finalize progress) gated behind
@@ -127,6 +126,9 @@ export function App() {
  */
 function AuthenticatedApp() {
   const [view, setView] = useState<View>({ kind: 'booting' });
+  // Background generation lane (Task 6) — sibling to `view`. A note/transcript
+  // generation runs here while the foreground view stays interactive (scenario 2).
+  const [backgroundJob, setBackgroundJob] = useState<BackgroundJob | null>(null);
   // Group G1 §5.7/§13 — once-only first-run audio-retention disclosure ack.
   // localStorage-backed (the ONLY renderer persistence pattern, same as
   // Recording.tsx's `lisna.language`). When false, the recording view shows
@@ -146,6 +148,15 @@ function AuthenticatedApp() {
   // permanent upgrade — both via the same channel.
   useEffect(() => {
     return window.lisna.onSessionError(({ message, permanent }) => {
+      // Task 8: GENERATION_SIDECAR_DOWN is a non-blocking generation-lane failure
+      // (the live capture is model-free and survives). Mark a RUNNING background
+      // job failed; never take over the screen with the full ErrorView. If no
+      // job is running, ignore — a pure recording is undisturbed by it.
+      if (message.includes('GENERATION_SIDECAR_DOWN')) {
+        setBackgroundJob((prev) => (prev && prev.status === 'running' ? { ...prev, status: 'error', message } : prev));
+        return;
+      }
+      // Capture-lane / boot failures still BLOCK with the full-screen ErrorView.
       setView((prev) => {
         if (prev.kind === 'error') {
           // Already in error — only upgrade flag, don't overwrite message.
@@ -156,23 +167,14 @@ function AuthenticatedApp() {
     });
   }, []);
 
-  // Finalize progress (founder ask 2026-06-13): main's onTelemetry forwards
-  // the orchestrator's attempt-start / chunk-done / finalize-done events so
-  // curatingV2 shows real chunk/attempt state instead of a static spinner.
-  // Only curatingV2 consumes them; events arriving in any other view are
-  // dropped (e.g. the error transition already won against a trailing
-  // chunk-done from the failed finalize).
+  // Finalize progress (founder ask 2026-06-13): main's onTelemetry forwards the
+  // orchestrator's transcribe / attempt / chunk / finalize events. Task 6 folds
+  // them into the BackgroundJob UNCONDITIONALLY (no view gate), so progress lands
+  // while the foreground view is `recording` (scenario 2). A settled job ignores
+  // trailing events; with no active job the event is dropped (applyBackgroundProgress).
   useEffect(() => {
     return window.lisna.onFinalizeProgress((msg) => {
-      setView((prev) => {
-        if (prev.kind === 'curatingV2')
-          return { ...prev, progress: applyFinalizeProgress(prev.progress, msg) };
-        // Transcript-only path: same sttProgress feed drives the transcribing
-        // view's pct bar (transcribe-start/done bracket it; only pct updates here).
-        if (prev.kind === 'transcribing' && msg.kind === 'transcribe-progress')
-          return { ...prev, pct: msg.pct };
-        return prev;
-      });
+      setBackgroundJob((prev) => applyBackgroundProgress(prev, msg));
     });
   }, []);
 
@@ -227,10 +229,24 @@ function AuthenticatedApp() {
   return (
     <main style={{ fontFamily: 'system-ui', padding: 24 }}>
       <h1>Lisna v2 — on-device</h1>
-      {renderView(view, setView, audioNoticeAck, () => {
+      {renderView(view, setView, backgroundJob, setBackgroundJob, audioNoticeAck, () => {
         localStorage.setItem('lisna.audioNoticeAck', '1');
         setAudioNoticeAck(true);
       })}
+      <GenerationChip
+        job={backgroundJob}
+        onOpen={() => {
+          if (!backgroundJob) return;
+          if (backgroundJob.kind === 'note' && backgroundJob.note) {
+            setView({ kind: 'note', note: backgroundJob.note });
+          } else if (backgroundJob.kind === 'transcript' && backgroundJob.transcript) {
+            const t = backgroundJob.transcript;
+            setView({ kind: 'transcript', segments: t.segments, language: t.language, durationSec: t.durationSec, dumpId: t.dumpId });
+          }
+          setBackgroundJob(null);
+        }}
+        onDismiss={() => setBackgroundJob(null)}
+      />
     </main>
   );
 }
@@ -238,9 +254,17 @@ function AuthenticatedApp() {
 function renderView(
   view: View,
   setView: (next: View | ((p: View) => View)) => void,
+  backgroundJob: BackgroundJob | null,
+  setBackgroundJob: SetBackgroundJob,
   audioNoticeAck: boolean,
   onAckAudioNotice: () => void,
 ) {
+  // Task 9 (ponytail: renderer guard, not a main-side queue): only one
+  // generation at a time. The single backgroundJob can't track two, and a 2nd
+  // beginGeneration throws FINALIZE_IN_FLIGHT in main anyway — so refuse to START
+  // a 2nd while one runs. The chip shows the running job; founder confirmed
+  // concurrent generation won't happen, this is the safety net.
+  const genBusy = backgroundJob?.status === 'running';
   switch (view.kind) {
     case 'booting':
       return <div data-testid="booting" />;  // null UI; resolved in ~ms
@@ -288,6 +312,14 @@ function renderView(
           }
           onOpenHistory={(id) => setView({ kind: 'history', id })}
           onOpenTerms={() => setView({ kind: 'terms' })}
+          quickTranscriptBusy={genBusy}
+          onQuickTranscript={(startSec, endSec) => {
+            if (genBusy) return; // one generation at a time (also disabled in the button)
+            // Scenario 1: transcribe the span in the background; stay on the
+            // recording screen — the chip carries progress/completion.
+            setBackgroundJob({ kind: 'transcript', status: 'running', progress: { phase: 'transcribing', startedAt: Date.now() } });
+            void runTranscribeSpan(startSec, endSec, setBackgroundJob);
+          }}
         />
       );
     case 'terms':
@@ -298,17 +330,23 @@ function renderView(
           id={view.id}
           onBack={() => setView({ kind: 'recording' })}
           onRegenerate={(family) => {
-            // Mirror the live picker flow: mount progress synchronously,
-            // then run the from-dump finalize.
-            setView({
-              kind: 'curatingV2',
-              progress: { phase: 'loading', startedAt: Date.now() },
-            });
-            void runFinalizeFromDump(view.id, family, setView);
+            if (genBusy) return; // Task 9: a generation is already running (chip shows it)
+            // Background generation (Task 7): start the job, return to recording,
+            // and let the chip carry progress/completion. The regen runs even
+            // while a new recording captures (the lane is independent).
+            setBackgroundJob({ kind: 'note', status: 'running', progress: { phase: 'loading', startedAt: Date.now() } });
+            setView({ kind: 'recording' });
+            void runFinalizeFromDump(view.id, family, setBackgroundJob);
           }}
         />
       );
     case 'familyPicking':
+      // Task 9: one generation at a time. If one is running, hold the picker
+      // (the chip shows progress); it re-renders to the picker when the job
+      // settles. Recording B's session waits here until then.
+      if (genBusy) {
+        return <p style={{ color: '#555' }}>別の生成が進行中です。完了までお待ちください。</p>;
+      }
       return (
         <FamilyPickerStep
           language={(() => {
@@ -323,34 +361,19 @@ function renderView(
             setView({ kind: 'recording' });
           }}
           onPick={(choice) => {
-            // STT Phase 2 raw-transcript output: LLM-free, no family. Mount the
-            // transcribing spinner synchronously, then run the whole-WAV STT.
+            // Task 7: picking starts a BACKGROUND generation and returns the
+            // foreground to `recording` — the chip carries progress/completion,
+            // so the user can immediately start a NEW recording (scenario 2).
             if (choice === 'transcript') {
-              setView({ kind: 'transcribing', startedAt: Date.now() });
-              void runTranscribe(setView);
+              setBackgroundJob({ kind: 'transcript', status: 'running', progress: { phase: 'transcribing', startedAt: Date.now() } });
+              setView({ kind: 'recording' });
+              void runTranscribe(setBackgroundJob);
               return;
             }
-            // Transition to curating BEFORE await so progress UI mounts
-            // synchronously while finalize runs (≈30 s LLM load + per-chunk
-            // generate loop).
-            setView((prev) =>
-              prev.kind === 'familyPicking'
-                ? {
-                    kind: 'curatingV2',
-                    progress: { phase: 'loading', startedAt: Date.now() },
-                  }
-                : prev,
-            );
-            void runFinalize(choice, setView);
+            setBackgroundJob({ kind: 'note', status: 'running', progress: { phase: 'loading', startedAt: Date.now() } });
+            setView({ kind: 'recording' });
+            void runFinalize(choice, setBackgroundJob);
           }}
-        />
-      );
-    case 'curatingV2':
-      return <NoteRenderProgress progress={view.progress} />;
-    case 'transcribing':
-      return (
-        <NoteRenderProgress
-          progress={{ phase: 'transcribing', pct: view.pct, startedAt: view.startedAt }}
         />
       );
     case 'transcript':
@@ -408,11 +431,11 @@ export function retryViewFor(error: { origin?: ErrorOrigin }): View {
 }
 
 /**
- * Fold one main-pushed finalize-progress event into the curatingV2
- * ProgressState. Pure (exported for tests). Every transition is driven by a
- * REAL orchestrator telemetry event — no simulated progress.
+ * Fold one main-pushed finalize-progress event into a ProgressState. Pure
+ * (exported for tests; reused by applyBackgroundProgress). Every transition is
+ * driven by a REAL orchestrator telemetry event — no simulated progress.
  *
- * `startedAt` is renderer-clock state set when curatingV2 mounts; it must
+ * `startedAt` is renderer-clock state set when the generation starts; it must
  * survive every transition because it feeds the elapsed-time line.
  */
 export function applyFinalizeProgress(
@@ -466,70 +489,144 @@ export function applyFinalizeProgress(
 }
 
 /**
- * Runs the v2 finalize IPC and dispatches the FSM accordingly. Lives at
- * module scope so renderView can call it without re-creating per render.
- *
- * On success: transition to `{ kind: 'note', note }` — NoteView dispatches
- * to the registered family renderer via familyRendererRegistry.
- * On error: transition to `{ kind: 'error', ... }`.
+ * Background generation lane (Task 6, spec §4.4) — a sibling axis to `view`.
+ * A note/transcript generation runs in the BACKGROUND while the foreground view
+ * (e.g. a NEW recording) stays interactive. The generation's progress folds here
+ * (not into `view`), completion lands here (not a full-screen note view), and a
+ * failure surfaces here (the chip), NOT the blocking ErrorView.
  */
-async function runFinalize(
-  family: NoteFamily,
-  setView: (next: View | ((p: View) => View)) => void,
-): Promise<void> {
+export interface BackgroundJob {
+  kind: 'note' | 'transcript';
+  status: 'running' | 'done' | 'error';
+  progress: ProgressState | null;
+  /** present when kind==='note' && status==='done' (the chip's "open" target). */
+  note?: Note | NoteBase;
+  /** present when kind==='transcript' && status==='done'. */
+  transcript?: { segments: TranscriptSegment[]; language: string; durationSec?: number; dumpId?: string };
+  /** present when status==='error'. */
+  message?: string;
+}
+
+type SetBackgroundJob = (next: BackgroundJob | null | ((p: BackgroundJob | null) => BackgroundJob | null)) => void;
+
+/**
+ * Fold one main-pushed finalize-progress event into the BackgroundJob (Task 6).
+ * Pure (exported for tests). Folds UNCONDITIONALLY for a RUNNING job — no
+ * `view.kind` gate — so progress lands while the foreground is `recording`
+ * (scenario 2). A settled (done/error) job ignores trailing events; with no
+ * active job the event is dropped. Reuses applyFinalizeProgress for the
+ * ProgressState transition itself.
+ */
+export function applyBackgroundProgress(
+  prev: BackgroundJob | null,
+  msg: FinalizeProgressPayload,
+): BackgroundJob | null {
+  if (!prev || prev.status !== 'running') return prev;
+  return { ...prev, progress: applyFinalizeProgress(prev.progress, msg) };
+}
+
+/**
+ * Runs the v2 finalize IPC into the BackgroundJob (Task 7). On success the note
+ * lands on the job (the chip's "open" shows it — History regen would re-run the
+ * LLM); on failure the job goes to 'error' (the chip surfaces it non-blockingly,
+ * NOT the full-screen ErrorView). The functional updates no-op if the job was
+ * dismissed/replaced mid-flight.
+ */
+async function runFinalize(family: NoteFamily, setBackgroundJob: SetBackgroundJob): Promise<void> {
   try {
     const result = await window.lisna.finalize({ family });
-    setView({ kind: 'note', note: result.note });
+    setBackgroundJob((prev) => (prev ? { ...prev, status: 'done', note: result.note } : prev));
   } catch (err) {
     const message = String((err as Error)?.message ?? err);
-    setView((prev) => {
-      if (prev.kind === 'error') return prev;
-      const permanent = message.includes('SIDECAR_GAVE_UP') || undefined;
-      return { kind: 'error', message, permanent };
-    });
+    setBackgroundJob((prev) => (prev ? { ...prev, status: 'error', message } : prev));
   }
 }
 
-/**
- * Transcript-only path (STT Phase 2 — "文字起こし" picker choice). No LLM:
- * transcribes the whole captured WAV and routes to TranscriptView. On error,
- * the existing live-origin error edge applies (retry → familyPicking, where
- * the same preserved transcript/WAV is re-pickable).
- */
-async function runTranscribe(
-  setView: (next: View | ((p: View) => View)) => void,
-): Promise<void> {
+/** Transcript-only path ("文字起こし") into the BackgroundJob — no LLM. */
+async function runTranscribe(setBackgroundJob: SetBackgroundJob): Promise<void> {
   try {
     const r = await window.lisna.transcribeOnly();
-    setView({ kind: 'transcript', segments: r.segments, language: r.language, durationSec: r.durationSec, dumpId: r.dumpId });
+    setBackgroundJob((prev) =>
+      prev
+        ? { ...prev, status: 'done', transcript: { segments: r.segments, language: r.language, durationSec: r.durationSec, dumpId: r.dumpId } }
+        : prev,
+    );
   } catch (err) {
     const message = String((err as Error)?.message ?? err);
-    setView((prev) => (prev.kind === 'error' ? prev : { kind: 'error', message }));
+    setBackgroundJob((prev) => (prev ? { ...prev, status: 'error', message } : prev));
   }
 }
 
 /**
- * From-dump twin of runFinalize. Failure carries `origin: {kind:'dump', id}`
- * so the ErrorView retry edge routes back to History (review P0-3) instead
- * of the live finalize (which would deterministically NO_ACTIVE_SESSION).
+ * Quick-transcript slice (Phase 2, scenario 1) into the BackgroundJob. The long
+ * recording keeps running; the chip carries the slice transcript's progress +
+ * completion (open → TranscriptView).
  */
-async function runFinalizeFromDump(
-  id: string,
-  family: NoteFamily,
-  setView: (next: View | ((p: View) => View)) => void,
-): Promise<void> {
+async function runTranscribeSpan(startSec: number, endSec: number, setBackgroundJob: SetBackgroundJob): Promise<void> {
   try {
-    const result = await window.lisna.finalizeFromDump({ id, family });
-    setView({ kind: 'note', note: result.note });
+    const r = await window.lisna.transcribeSpan({ startSec, endSec });
+    setBackgroundJob((prev) =>
+      prev
+        ? { ...prev, status: 'done', transcript: { segments: r.segments, language: r.language, durationSec: r.durationSec, dumpId: r.dumpId } }
+        : prev,
+    );
   } catch (err) {
     const message = String((err as Error)?.message ?? err);
-    setView((prev) => {
-      if (prev.kind === 'error') return prev;
-      return {
-        kind: 'error',
-        message,
-        origin: { kind: 'dump', id },
-      };
-    });
+    setBackgroundJob((prev) => (prev ? { ...prev, status: 'error', message } : prev));
   }
+}
+
+/** From-dump twin of runFinalize (History regenerate) into the BackgroundJob. */
+async function runFinalizeFromDump(id: string, family: NoteFamily, setBackgroundJob: SetBackgroundJob): Promise<void> {
+  try {
+    const result = await window.lisna.finalizeFromDump({ id, family });
+    setBackgroundJob((prev) => (prev ? { ...prev, status: 'done', note: result.note } : prev));
+  } catch (err) {
+    const message = String((err as Error)?.message ?? err);
+    setBackgroundJob((prev) => (prev ? { ...prev, status: 'error', message } : prev));
+  }
+}
+
+/** Compact running-progress hint for the chip (no fabricated progress). */
+function backgroundProgressHint(p: ProgressState | null): string {
+  if (!p) return '';
+  if (p.phase === 'transcribing' && p.pct != null) return `${p.pct}%`;
+  if (p.phase === 'chunk' && p.totalChunks) return `${(p.chunkIndex ?? 0) + 1}/${p.totalChunks}`;
+  return '';
+}
+
+/**
+ * Overlaid generation status chip (Task 6/7/8). Renders regardless of `view` —
+ * including on the recording screen — so a background generation is visible
+ * without taking over the UI. Done → "開く" (opens the result; History regen
+ * would re-run the LLM, so this is the cheap path to the just-made note).
+ * Error → non-blocking dismiss (recover via History list when idle).
+ */
+function GenerationChip({ job, onOpen, onDismiss }: { job: BackgroundJob | null; onOpen: () => void; onDismiss: () => void }) {
+  if (!job) return null;
+  const label = job.kind === 'note' ? 'ノート' : '文字起こし';
+  const base: CSSProperties = {
+    position: 'fixed', right: 16, bottom: 16, padding: '10px 14px', borderRadius: 8,
+    fontSize: 13, background: '#fff', border: '1px solid #ddd',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.15)', display: 'flex', gap: 10, alignItems: 'center',
+  };
+  if (job.status === 'running') {
+    const hint = backgroundProgressHint(job.progress);
+    return <div style={base} data-testid="gen-chip-running">{`${label}生成中…${hint ? ' ' + hint : ''}`}</div>;
+  }
+  if (job.status === 'done') {
+    return (
+      <div style={base} data-testid="gen-chip-done">
+        <span>{`${label}完成`}</span>
+        <button onClick={onOpen}>開く</button>
+        <button onClick={onDismiss} aria-label="閉じる">✕</button>
+      </div>
+    );
+  }
+  return (
+    <div style={{ ...base, borderColor: '#cc3a44' }} data-testid="gen-chip-error">
+      <span>{`${label}生成失敗`}</span>
+      <button onClick={onDismiss} aria-label="閉じる">✕</button>
+    </div>
+  );
 }
