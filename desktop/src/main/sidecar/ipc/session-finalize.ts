@@ -158,12 +158,28 @@ export interface SessionFinalizeDeps {
    * TRANSCRIBE_UNAVAILABLE.
    */
   getTranscript?: () => Promise<SessionTranscribeResult>;
+
+  /**
+   * Quick-transcript slice (Phase 2, spec §4.3): transcribe a [startSec,endSec)
+   * span of the LIVE recording's WAV WITHOUT stopping it — a background
+   * generation that shares the beginGeneration gate and does NOT free the
+   * capture lane. When omitted, session/transcribe-span rejects with
+   * TRANSCRIBE_SPAN_UNAVAILABLE.
+   */
+  getTranscriptSpan?: (args: TranscribeSpanArgs) => Promise<SessionTranscribeResult>;
 }
 
 // ─── channel constants (mirrors CHANNELS in ipc.ts) ──────────────────────────
 export const SESSION_FINALIZE_CHANNEL = 'session/finalize' as const;
 export const SESSION_FINALIZE_FROM_DUMP_CHANNEL = 'session/finalize-from-dump' as const;
 export const SESSION_TRANSCRIBE_CHANNEL = 'session/transcribe' as const;
+export const SESSION_TRANSCRIBE_SPAN_CHANNEL = 'session/transcribe-span' as const;
+
+/** Quick-transcript slice bounds (seconds, relative to the live recording). */
+export interface TranscribeSpanArgs {
+  startSec: number;
+  endSec: number;
+}
 
 export interface SessionFinalizeFromDumpArgs {
   /** Dump dir name under <userData>/sessions — validated main-side. */
@@ -337,6 +353,30 @@ export function registerSessionFinalize(deps: SessionFinalizeDeps): void {
       // Same settle sink as note finalize: ipc.ts clears the live session on
       // success + idle-unloads the LLM (a no-op here — none was loaded) and
       // PRESERVES the session on failure. No note result.json is written.
+      deps.onSessionSettled?.(settle);
+    }
+  });
+
+  // Quick-transcript slice (Phase 2, spec §4.3): transcribe a span of the LIVE
+  // recording WITHOUT stopping it. Same generation gate + settle sink as the
+  // other channels; ipc.ts's getTranscriptSpan slices the live WAV and runs the
+  // transcript generation without freeing the capture lane.
+  ipcMain.handle(SESSION_TRANSCRIBE_SPAN_CHANNEL, async (_e, args: TranscribeSpanArgs): Promise<SessionTranscribeResult> => {
+    const getTranscriptSpan = deps.getTranscriptSpan;
+    if (!getTranscriptSpan) throw new Error('TRANSCRIBE_SPAN_UNAVAILABLE');
+    deps.beginGeneration(); // throws FINALIZE_IN_FLIGHT if a generation is already running
+
+    let settle: SessionSettleResult = { ok: false, kind: 'transcript', error: 'FINALIZE_NOT_RUN' };
+    try {
+      const r = await getTranscriptSpan(args);
+      settle = { ok: true, kind: 'transcript' };
+      return r;
+    } catch (err) {
+      settle = { ok: false, kind: 'transcript', error: err instanceof Error ? err.message : String(err) };
+      throw err;
+    } finally {
+      // genInFlight cleared by ipc.ts onSessionSettled; the capture lane is
+      // untouched (the long recording keeps running).
       deps.onSessionSettled?.(settle);
     }
   });

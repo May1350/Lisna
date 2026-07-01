@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { app, ipcMain, shell, dialog, type BrowserWindow } from 'electron';
 import { WavWriter } from './audio-wav-writer';
+import { sliceWav } from './wav-slice';
 import { buildInitialPrompt, parseGlossary } from '@shared/stt/glossary';
 import { loadGlossary, saveGlossary } from './glossary-store';
 import type {
@@ -87,6 +88,10 @@ export const CHANNELS = {
    *  finalize transcription + cache + dump, stops before the LLM load.
    *  Equals SESSION_TRANSCRIBE_CHANNEL in session-finalize.ts. */
   sessionTranscribe: 'session/transcribe',
+  /** renderer → main: quick-transcript SLICE of the LIVE recording (Phase 2).
+   *  Transcribes [startSec,endSec) of the ongoing WAV without stopping it.
+   *  Equals SESSION_TRANSCRIBE_SPAN_CHANNEL in session-finalize.ts. */
+  sessionTranscribeSpan: 'session/transcribe-span',
   /** renderer → main: save a text payload to a user-chosen file via the native
    *  save dialog (the note/transcript Export button). Content is pre-serialized
    *  in the renderer; main only writes bytes. Returns {ok, canceled, path?}. */
@@ -683,6 +688,28 @@ export function registerIpc(deps: IpcDeps) {
       if (!current) throw new Error('NO_ACTIVE_SESSION');
       if (!deps.getModelPaths() || !deps.supervisor.getClient()) throw new Error('NO_ACTIVE_SESSION');
       return runTranscriptContext(snapshotAndFreeCapture());
+    },
+    // Quick-transcript slice (Phase 2, spec §4.3): slice [startSec,endSec) out of
+    // the LIVE recording's WAV into a temp WAV and transcribe it — WITHOUT
+    // freeing the capture (the long recording keeps running). Own read-only fd +
+    // clamp to the live write cursor (guarantee 4). Runs on the generation lane.
+    getTranscriptSpan: async ({ startSec, endSec }): Promise<SessionTranscribeResult> => {
+      if (!current) throw new Error('NO_ACTIVE_SESSION');
+      const orch = current;
+      const wavPath = orch.wavPath;
+      if (!wavPath) throw new Error('WAV_MISSING');
+      if (!deps.getModelPaths() || !deps.supervisor.getClient()) throw new Error('NO_ACTIVE_SESSION');
+      const dataBytes = _audioWriter?.dataBytes ?? 0; // synchronously-known write cursor
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const tempWav = path.join(app.getPath('userData'), 'audio-captures', `span-${stamp}.wav`);
+      sliceWav(wavPath, startSec, endSec, dataBytes, tempWav);
+      try {
+        // NOTE: snap onto the temp WAV — NOT snapshotAndFreeCapture. The capture
+        // lane (current/recording/_audioWriter) is deliberately untouched.
+        return await runTranscriptContext({ wavPath: tempWav, language: orch.language as NoteLanguage });
+      } finally {
+        try { fs.unlinkSync(tempWav); } catch { /* best-effort temp cleanup — transcript is in the dump */ }
+      }
     },
     // GENERATION-LANE ONLY (Task 4, spec §4.1 table + §5 #2). The capture lane
     // (current / recording / _audioWriter) is freed at PICK time

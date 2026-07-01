@@ -1719,6 +1719,89 @@ describe('main/ipc FSM', () => {
     }
   });
 
+  // ── Phase 2: quick-transcript slice (scenario 1) ──────────────────────────
+  // session/transcribe-span slices the LIVE recording's WAV [startSec,endSec)
+  // into a temp WAV and transcribes it as a BACKGROUND generation — WITHOUT
+  // freeing the capture. The long recording keeps running (spec §4.3).
+  describe('session/transcribe-span (quick slice, scenario 1)', () => {
+    it('slices + transcribes the span WITHOUT freeing the live capture', async () => {
+      delete process.env['LISNA_DISABLE_AUDIO_SAVE'];
+      const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-span-'));
+      let restore: (() => void) | undefined;
+      try {
+        const segs = [{ startSec: 0, endSec: 1, text: 'クイック字幕' }];
+        transcribeFileResult = async () => segs;
+        const { orchInstances, ctorSpy } = await setupC3(userDataDir);
+        restore = () => ctorSpy.mockRestore();
+        await ipcHandlers['session/start']!({}, { language: 'ja' });
+        // Append audio so the live WAV has data to slice.
+        await ipcHandlers['recording/chunk']!(
+          { sender: { send: vi.fn() } },
+          { index: 0, source: 'mic', startMs: 0, endMs: 2000, samples: new Float32Array(32000) },
+        );
+        const wavPath = orchInstances[0].wavPath as string;
+        const sizeBefore = fs.statSync(wavPath).size;
+
+        // Quick transcript of [0,1) while recording continues.
+        const result = await ipcHandlers['session/transcribe-span']!({}, { startSec: 0, endSec: 1 });
+        expect(result.segments).toEqual(segs);
+        expect(engineCallLog.map((c) => `${c.engine}:${c.method}`)).not.toContain('llm:load'); // transcript = no LLM
+
+        // The capture SURVIVED: current preserved (fresh start rejects), writer
+        // still open (next chunk grows the file), session still in flight.
+        await expect(ipcHandlers['session/start']!({}, { language: 'ja' })).rejects.toThrow('SESSION_ACTIVE');
+        expect(ipc.isSessionInFlight()).toBe(true);
+        await ipcHandlers['recording/chunk']!(
+          { sender: { send: vi.fn() } },
+          { index: 1, source: 'mic', startMs: 2000, endMs: 4000, samples: new Float32Array(32000) },
+        );
+        expect(fs.statSync(wavPath).size).toBeGreaterThan(sizeBefore);
+        await ipcHandlers['session/discard']!({}, undefined); // cleanup
+      } finally {
+        restore?.();
+        appGetPath.mockReset();
+        fs.rmSync(userDataDir, { recursive: true, force: true });
+      }
+    });
+
+    it('NO_ACTIVE_SESSION when no recording is live', async () => {
+      const { win } = makeFakeWindow();
+      const supervisor = makeFakeSupervisor({});
+      ipc.registerIpc({ getMainWindow: () => win, supervisor, getModelPaths: () => ({ sttPath: fsmFakeSttPath, llmPath: '/l' }) });
+      await expect(ipcHandlers['session/transcribe-span']!({}, { startSec: 0, endSec: 1 }))
+        .rejects.toThrow('NO_ACTIVE_SESSION');
+    });
+
+    it('shares the generation gate: a concurrent finalize rejects FINALIZE_IN_FLIGHT', async () => {
+      delete process.env['LISNA_DISABLE_AUDIO_SAVE'];
+      const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-span-gate-'));
+      let restore: (() => void) | undefined;
+      try {
+        // Hang the span's slice transcribe so it stays in flight while we race.
+        let release!: (s: { startSec: number; endSec: number; text: string }[]) => void;
+        transcribeFileResult = () => new Promise((res) => { release = res; });
+        const { ctorSpy } = await setupC3(userDataDir);
+        restore = () => ctorSpy.mockRestore();
+        await ipcHandlers['session/start']!({}, { language: 'ja' });
+        await ipcHandlers['recording/chunk']!(
+          { sender: { send: vi.fn() } },
+          { index: 0, source: 'mic', startMs: 0, endMs: 2000, samples: new Float32Array(32000) },
+        );
+        const spanPromise = ipcHandlers['session/transcribe-span']!({}, { startSec: 0, endSec: 1 });
+        spanPromise.catch(() => {});
+        await Promise.resolve();
+        await expect(ipcHandlers['session/finalize']!({}, { family: 'lecture' }))
+          .rejects.toThrow('FINALIZE_IN_FLIGHT');
+        release([{ startSec: 0, endSec: 1, text: 'ok' }]);
+        await spanPromise;
+      } finally {
+        restore?.();
+        appGetPath.mockReset();
+        fs.rmSync(userDataDir, { recursive: true, force: true });
+      }
+    });
+  });
+
   // C2 invariant on the start side: sidecar crash WHILE the session/start
   // handler is awaiting (its `_sessionHandlerInFlight` guard must make
   // handleSidecarExit skip its own session/error push, letting the handler's
