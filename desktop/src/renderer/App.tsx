@@ -312,6 +312,14 @@ function renderView(
           }
           onOpenHistory={(id) => setView({ kind: 'history', id })}
           onOpenTerms={() => setView({ kind: 'terms' })}
+          quickTranscriptBusy={genBusy}
+          onQuickTranscript={(startSec, endSec) => {
+            if (genBusy) return; // one generation at a time (also disabled in the button)
+            // Scenario 1: transcribe the span in the background; stay on the
+            // recording screen — the chip carries progress/completion.
+            setBackgroundJob({ kind: 'transcript', status: 'running', progress: { phase: 'transcribing', startedAt: Date.now() } });
+            void runTranscribeSpan(startSec, endSec, setBackgroundJob);
+          }}
         />
       );
     case 'terms':
@@ -538,6 +546,25 @@ async function runFinalize(family: NoteFamily, setBackgroundJob: SetBackgroundJo
 async function runTranscribe(setBackgroundJob: SetBackgroundJob): Promise<void> {
   try {
     const r = await window.lisna.transcribeOnly();
+    setBackgroundJob((prev) =>
+      prev
+        ? { ...prev, status: 'done', transcript: { segments: r.segments, language: r.language, durationSec: r.durationSec, dumpId: r.dumpId } }
+        : prev,
+    );
+  } catch (err) {
+    const message = String((err as Error)?.message ?? err);
+    setBackgroundJob((prev) => (prev ? { ...prev, status: 'error', message } : prev));
+  }
+}
+
+/**
+ * Quick-transcript slice (Phase 2, scenario 1) into the BackgroundJob. The long
+ * recording keeps running; the chip carries the slice transcript's progress +
+ * completion (open → TranscriptView).
+ */
+async function runTranscribeSpan(startSec: number, endSec: number, setBackgroundJob: SetBackgroundJob): Promise<void> {
+  try {
+    const r = await window.lisna.transcribeSpan({ startSec, endSec });
     setBackgroundJob((prev) =>
       prev
         ? { ...prev, status: 'done', transcript: { segments: r.segments, language: r.language, durationSec: r.durationSec, dumpId: r.dumpId } }

@@ -19,6 +19,7 @@ import type {
   SessionFinalizeArgs,
   SessionFinalizeResult,
   SessionFinalizeFromDumpArgs,
+  TranscribeSpanArgs,
 } from '../main/sidecar/ipc/session-finalize';
 
 contextBridge.exposeInMainWorld('lisna', {
@@ -58,6 +59,14 @@ contextBridge.exposeInMainWorld('lisna', {
    */
   transcribeOnly: (): Promise<SessionTranscribeResult> =>
     ipcRenderer.invoke(CHANNELS.sessionTranscribe),
+
+  /**
+   * Quick-transcript SLICE (Phase 2): transcribe [startSec,endSec) of the LIVE
+   * recording WITHOUT stopping it. Runs as a background generation; rejects with
+   * NO_ACTIVE_SESSION / WAV_MISSING / FINALIZE_IN_FLIGHT / EMPTY_RECORDING.
+   */
+  transcribeSpan: (args: TranscribeSpanArgs): Promise<SessionTranscribeResult> =>
+    ipcRenderer.invoke(CHANNELS.sessionTranscribeSpan, args),
 
   // --- F2 history viewer ---
 
@@ -184,6 +193,7 @@ declare global {
       discardSession(): Promise<void>;
       finalize(args: SessionFinalizeArgs): Promise<SessionFinalizeResult>;
       transcribeOnly(): Promise<SessionTranscribeResult>;
+      transcribeSpan(args: TranscribeSpanArgs): Promise<SessionTranscribeResult>;
       listDumps(): Promise<DumpSummary[]>;
       loadDump(id: string): Promise<DumpTranscript>;
       finalizeFromDump(args: SessionFinalizeFromDumpArgs): Promise<SessionFinalizeResult>;
