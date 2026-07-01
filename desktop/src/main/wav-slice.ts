@@ -32,9 +32,18 @@ export function sliceWav(
 
   const src = fs.openSync(srcPath, 'r');
   try {
+    // Read in a loop: fs.readSync may return fewer bytes than requested, and an
+    // allocUnsafe tail left unfilled would leak uninitialized memory into the
+    // WAV. Only the bytes actually read are written, and the header reflects
+    // that count — so an unexpected short read/EOF truncates cleanly.
     const data = Buffer.allocUnsafe(len);
-    if (len > 0) fs.readSync(src, data, 0, len, startByte);
-    fs.writeFileSync(destPath, Buffer.concat([wavHeader(len), data]));
+    let total = 0;
+    while (total < len) {
+      const n = fs.readSync(src, data, total, len - total, startByte + total);
+      if (n === 0) break; // EOF
+      total += n;
+    }
+    fs.writeFileSync(destPath, Buffer.concat([wavHeader(total), data.subarray(0, total)]));
   } finally {
     fs.closeSync(src);
   }

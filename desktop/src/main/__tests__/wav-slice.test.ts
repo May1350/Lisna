@@ -42,9 +42,11 @@ describe('sliceWav', () => {
     expect(buf.readUInt32LE(40)).toBe(BYTES_PER_SEC);       // data chunk size
     expect(buf.readUInt32LE(4)).toBe(36 + BYTES_PER_SEC);   // RIFF size
     expect(buf.readUInt32LE(24)).toBe(16_000);              // sample rate
-    // Every sample in the slice is sec1's 0.5.
-    expect(buf.readInt16LE(44)).toBe(s16(0.5));
-    expect(buf.readInt16LE(44 + BYTES_PER_SEC - 2)).toBe(s16(0.5));
+    // Every sample in the slice is sec1's 0.5 — full byte-equality (no
+    // uninitialized-memory tail from a short read; catches the allocUnsafe leak).
+    const expected = Buffer.alloc(BYTES_PER_SEC);
+    for (let i = 0; i < BYTES_PER_SEC; i += 2) expected.writeInt16LE(s16(0.5), i);
+    expect(buf.subarray(44).equals(expected)).toBe(true);
   });
 
   it('clamps endSec past the recording to the available data', () => {
