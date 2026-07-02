@@ -70,7 +70,7 @@
   }
 }
 
-html, body, #root { height: 100%; margin: 0; }
+html, body, #root { height: 100%; margin: 0; overflow: hidden; }
 body {
   font-family: var(--lz-font);
   font-size: 13.5px;
@@ -120,20 +120,27 @@ a { color: var(--lz-accent); text-decoration: none; }
 
 /* THE one page scroll area. Full height; padding-top clears the drag strip +
    traffic lights so at-rest first content sits below them, fully opaque. */
-.lz-content { flex: 1 1 auto; overflow-y: auto; padding-top: 52px; }
+/* min-height:0 defeats the flex-item default (min-height:auto), which would
+   otherwise let this grow to content height and push the whole document to
+   scroll with a native, unstyled bar instead of scrolling internally. */
+.lz-content { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-top: 52px; }
 .lz-pad { padding: 22px 26px; }
 
-/* Scroll-gated top fade. At rest ([data-scrolled] absent) the mask is fully
-   opaque → the first line is NOT faded. Once scrolled, the top 40px fades so
-   content dissolves under the (invisible) title band as it scrolls up. The swap
-   is instant (mask-image isn't transition-animatable) — imperceptible mid-scroll.
-   Scoped to the PAGE scroller only: a CSS mask multiplies the whole element
-   paint (incl. border + rounded corners), so applying it to a bordered nested
-   box (.lz-scroll) would dissolve that box's top border/corners. Nested boxes
-   keep their overlay scrollbar (below) but no fade — the fade is only meaningful
-   where content passes under the transparent .lz-titlebar. */
-.lz-content { -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 100%); mask-image: linear-gradient(to bottom, #000 0, #000 100%); }
-.lz-content[data-scrolled] { -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 40px, #000 100%); mask-image: linear-gradient(to bottom, transparent 0, #000 40px, #000 100%); }
+/* Scroll-gated top fade — a gradient OVERLAY, not a mask on the scroller.
+   A -webkit-mask on the scroll container is best avoided (it clips the element's
+   whole paint incl. any border, and complicates scrollbar compositing). So the
+   fade is a separate absolutely-positioned element painted over the top of the
+   content: invisible at rest (first line stays fully opaque), fading in only once
+   .lz-content is scrolled. opacity IS animatable, so it eases in/out smoothly.
+   pointer-events:none so it never blocks scroll/clicks; sits above content, below
+   the drag strip (z:50). Surface-colored so content dissolves into the page
+   background as it scrolls up under the title band. */
+.lz-topfade {
+  position: absolute; top: 0; left: 0; right: 0; height: 54px; z-index: 40;
+  pointer-events: none; opacity: 0; transition: opacity .2s ease;
+  background: linear-gradient(to bottom, var(--lz-surface) 0%, var(--lz-surface) 28%, transparent 100%);
+}
+.lz-content[data-scrolled] ~ .lz-topfade { opacity: 1; }
 
 /* Overlay scrollbars — blended (not bright white), inset floating pill,
    transparent when idle, painted only while the element is actively scrolling
@@ -141,9 +148,12 @@ a { color: var(--lz-accent); text-decoration: none; }
    scrollbar-color/scrollbar-width, which disable these pseudo-elements in
    Chromium 121+. Track stays transparent so idle = no visible bar and the thumb
    appearing/disappearing changes color only, never layout (no shift). */
-.lz-content::-webkit-scrollbar, .lz-scroll::-webkit-scrollbar, textarea::-webkit-scrollbar { width: 12px; height: 12px; }
-.lz-content::-webkit-scrollbar-track, .lz-scroll::-webkit-scrollbar-track, textarea::-webkit-scrollbar-track { background: transparent; }
-.lz-content::-webkit-scrollbar-thumb, .lz-scroll::-webkit-scrollbar-thumb, textarea::-webkit-scrollbar-thumb {
+/* Universal (not class-scoped) so EVERY scroller — incl. any we didn't
+   anticipate — is styled, never the OS classic bar. Track + idle thumb are
+   transparent; the thumb paints only via [data-scrolling] below. */
+::-webkit-scrollbar { width: 12px; height: 12px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
   background-color: transparent; border: 4px solid transparent; border-radius: 100px; background-clip: content-box;
 }
 [data-scrolling]::-webkit-scrollbar-thumb { background-color: var(--lz-scrollthumb); }

@@ -238,6 +238,10 @@ function AuthenticatedApp() {
           setAudioNoticeAck(true);
         })}
       </div>
+      {/* Scroll-gated top-fade overlay (theme.css .lz-topfade). Sibling AFTER
+          .lz-content so `.lz-content[data-scrolled] ~ .lz-topfade` matches; this
+          replaces the old mask, which broke .lz-content's custom scrollbar. */}
+      <div className="lz-topfade" aria-hidden="true" />
       <GenerationChip
         job={backgroundJob}
         onOpen={() => {
