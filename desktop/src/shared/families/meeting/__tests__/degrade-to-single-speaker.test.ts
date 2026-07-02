@@ -32,9 +32,9 @@ describe('degradeToSingleSpeaker', () => {
     expect(transcript.speakers).toEqual([{ id: 0, name: '話者' }]);
   });
 
-  it('warning matches /Speaker labels disabled/ and contains no §', () => {
+  it('warning mentions 話者ラベル and contains no §', () => {
     const { warning } = degradeToSingleSpeaker(MULTI_SPEAKER_FIXTURE);
-    expect(warning).toMatch(/Speaker labels disabled/);
+    expect(warning).toMatch(/話者ラベル/);
     expect(warning).not.toContain('§');
     expect(warning).toBe(SINGLE_SPEAKER_WARNING);
   });

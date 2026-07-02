@@ -188,7 +188,7 @@ export const InterviewRenderer: ComponentType<{ note: InterviewNote }> = ({ note
     <KeyTakeaways items={note.key_takeaways} />
     {note.validation_warnings && note.validation_warnings.length > 0 && (
       <aside className="validation-warnings">
-        <p>AI cleanup notes:</p>
+        <p>AI補正メモ:</p>
         <ul>
           {note.validation_warnings.map((w, i) => (
             <li key={i}>{w}</li>

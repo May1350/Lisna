@@ -271,7 +271,7 @@ export const MeetingRenderer: ComponentType<{ note: MeetingNote }> = ({ note }) 
     {note.next_steps && <NextSteps items={note.next_steps} />}
     {note.validation_warnings && note.validation_warnings.length > 0 && (
       <aside className="validation-warnings">
-        <p>AI cleanup notes:</p>
+        <p>AI補正メモ:</p>
         <ul>{note.validation_warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
       </aside>
     )}

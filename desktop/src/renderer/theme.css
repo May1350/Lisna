@@ -177,19 +177,19 @@ a { color: var(--lz-accent); text-decoration: none; }
 /* Structured note content (family renderers) — scoped under .lz-note so the
    shared class vocabulary (.ts-anchor, .key-terms, section h2 …) never touches
    the app chrome. Styles all four families at once. */
-.lz-note { font-size: 13.5px; line-height: 1.75; color: var(--lz-text); }
+.lz-note { font-size: 14px; line-height: 1.75; color: var(--lz-text); }
 .lz-note header { margin-bottom: 20px; }
-.lz-note h1 { font-size: 22px; font-weight: 600; line-height: 1.25; letter-spacing: -0.01em; margin: 0 0 6px; }
-.lz-note h2 { font-size: 15px; font-weight: 600; margin: 0 0 10px; padding-bottom: 7px; border-bottom: 1px solid var(--lz-line); }
-.lz-note h3 { font-size: 13.5px; font-weight: 600; margin: 16px 0 4px; }
-.lz-note section { margin-top: 26px; }
+.lz-note h1 { font-size: 25px; font-weight: 700; line-height: 1.2; letter-spacing: -0.015em; margin: 0 0 8px; }
+.lz-note h2 { font-size: 15px; font-weight: 700; color: var(--lz-text); margin: 0 0 11px; padding-bottom: 8px; border-bottom: 1px solid var(--lz-line); }
+.lz-note h3 { font-size: 14px; font-weight: 600; margin: 18px 0 5px; }
+.lz-note section { margin-top: 32px; }
 .lz-note p { margin: 0 0 8px; }
 .lz-note ul, .lz-note ol { margin: 6px 0 10px; padding-left: 20px; }
-.lz-note li { margin: 5px 0; line-height: 1.7; }
+.lz-note li { margin: 6px 0; line-height: 1.7; }
 .lz-note li::marker { color: var(--lz-text-3); }
 .lz-note .lecturer, .lz-note .course { font-size: 12.5px; color: var(--lz-text-2); }
-.lz-note .tldr, .lz-note .subject-summary { font-size: 14px; line-height: 1.7; margin-top: 10px; }
-.lz-note .ts-anchor { font-family: var(--lz-mono); font-size: 11px; color: var(--lz-accent-quiet); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.lz-note .tldr, .lz-note .subject-summary { font-size: 14.5px; line-height: 1.75; margin-top: 10px; }
+.lz-note .ts-anchor { font-family: var(--lz-mono); font-size: 10.5px; font-weight: 500; color: var(--lz-accent-quiet); white-space: nowrap; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
 .lz-note .provenance-inferred { color: var(--lz-text-3); font-size: 11px; margin-left: 2px; }
 .lz-note li.important { font-weight: 500; }
 .lz-note .key-terms { margin: 8px 0 10px; }
