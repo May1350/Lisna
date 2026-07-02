@@ -30,6 +30,19 @@ describe('WavWriter', () => {
     expect(buf.readInt16LE(44 + 6)).toBe(0x7fff);                 // 4th sample == 1 -> +full scale
   });
 
+  // Phase 2 slice: dataBytes exposes the synchronously-known write cursor so a
+  // quick-transcript slice never reads past what's been appended + fdatasync'd.
+  it('dataBytes reflects the appended PCM byte count (the live write cursor)', () => {
+    const p = tmp(); created.push(p);
+    const w = new WavWriter(p);
+    expect(w.dataBytes).toBe(0);
+    w.append(new Float32Array(16_000)); // 1s @ 16kHz mono PCM16 = 32000 bytes
+    expect(w.dataBytes).toBe(32_000);
+    w.append(new Float32Array(8_000));  // +0.5s = +16000 bytes
+    expect(w.dataBytes).toBe(48_000);
+    w.close();
+  });
+
   it('close() on an empty writer still produces a valid 44-byte header', () => {
     const p = tmp(); created.push(p);
     const w = new WavWriter(p);

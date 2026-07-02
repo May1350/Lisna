@@ -34,7 +34,6 @@ function writeDump(language = 'ja'): void {
 function makeDeps(over: Partial<DumpFinalizeDeps<string>> = {}): DumpFinalizeDeps<string> {
   return {
     baseDir: base,
-    isLiveSessionActive: () => false,
     getClient: () => 'client',
     startClient: vi.fn(async () => 'fresh-client'),
     getModelPaths: () => ({ sttPath: '/m/stt.bin', llmPath: '/m/Llama-3.2-3B-Instruct-Q4_K_M.gguf' }),
@@ -66,12 +65,10 @@ describe('buildDumpSessionContext', () => {
     expect(fs.readdirSync(base).length).toBe(before); // P0-1: no dir created
   });
 
-  it('rejects while a live session is active', async () => {
-    writeDump();
-    await expect(
-      buildDumpSessionContext(ID, makeDeps({ isLiveSessionActive: () => true })),
-    ).rejects.toThrow('SESSION_ACTIVE');
-  });
+  // (Removed at Task 5: the SESSION_ACTIVE-while-live-session guard. Re-entrancy
+  // is now gated by beginGeneration → genInFlight in ipc.ts before this runs, and
+  // a live capture must NOT block a History regen — see the ipc.ts integration
+  // test "a History regen runs while a capture is live".)
 
   it('lazily respawns the sidecar when idle-stopped', async () => {
     writeDump();

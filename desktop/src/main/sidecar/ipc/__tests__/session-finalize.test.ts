@@ -176,6 +176,7 @@ function setup(
   const async_get = async () => getCurrentSession();
   registerSessionFinalize({
     getCurrentSession: async_get,
+    beginGeneration: () => {}, // no-op gate — these single-shot tests don't race
     onSessionSettled,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     onTelemetry: onTelemetry as any,
@@ -429,6 +430,7 @@ describe('session/finalize-from-dump', () => {
     const getDumpSession = vi.fn(async () => dumpSession());
     registerSessionFinalize({
       getCurrentSession: async () => null, // no live session — must NOT matter
+      beginGeneration: () => {},
       getDumpSession,
     });
     const handler = captured.get('session/finalize-from-dump')!;
@@ -441,6 +443,7 @@ describe('session/finalize-from-dump', () => {
   it('propagates getDumpSession guard errors (SESSION_ACTIVE)', async () => {
     registerSessionFinalize({
       getCurrentSession: async () => null,
+      beginGeneration: () => {},
       getDumpSession: async () => { throw new Error('SESSION_ACTIVE'); },
     });
     const handler = captured.get('session/finalize-from-dump')!;
@@ -448,7 +451,7 @@ describe('session/finalize-from-dump', () => {
   });
 
   it('rejects when registered without getDumpSession', async () => {
-    registerSessionFinalize({ getCurrentSession: async () => null });
+    registerSessionFinalize({ getCurrentSession: async () => null, beginGeneration: () => {} });
     const handler = captured.get('session/finalize-from-dump')!;
     await expect(handler({}, { id: 'x', family: 'lecture' })).rejects.toThrow('DUMP_FINALIZE_UNAVAILABLE');
   });
@@ -457,6 +460,7 @@ describe('session/finalize-from-dump', () => {
     const settles: unknown[] = [];
     registerSessionFinalize({
       getCurrentSession: async () => null,
+      beginGeneration: () => {},
       getDumpSession: async () => dumpSession(),
       onSessionSettled: (r) => settles.push(r),
     });
@@ -466,10 +470,21 @@ describe('session/finalize-from-dump', () => {
   });
 });
 
-// ─── finalize in-flight guard (review P1-1) ───────────────────────────────
+// ─── in-flight gate (Task 1: lifted to ipc.ts via deps.beginGeneration) ─────
+// Originally review P1-1 used an internal closure flag. Task 1 lifts the flag
+// into ipc.ts (lifecycle-visible `genInFlight`) so a background generation
+// counts in isSessionInFlight() and a crash respawns the sidecar. The three
+// handlers now DELEGATE the gate to deps.beginGeneration() and rely on the
+// settle (deps.onSessionSettled, where ipc.ts clears genInFlight) to release it.
 
-describe('finalize in-flight guard (review P1-1)', () => {
-  it('rejects a concurrent finalize while one is in flight, allows after settle', async () => {
+describe('in-flight gate delegated to deps.beginGeneration (Task 1)', () => {
+  it('calls beginGeneration, rejects a concurrent finalize, releases on settle', async () => {
+    let genInFlight = false;
+    const beginGeneration = vi.fn(() => {
+      if (genInFlight) throw new Error('FINALIZE_IN_FLIGHT');
+      genInFlight = true;
+    });
+
     // A session whose sidecar never resolves until released.
     let release!: () => void;
     const gate = new Promise<void>((r) => { release = r; });
@@ -489,18 +504,23 @@ describe('finalize in-flight guard (review P1-1)', () => {
     registerSessionFinalize({
       getCurrentSession: async () => session,
       getDumpSession: async () => session,
+      beginGeneration,
+      onSessionSettled: () => { genInFlight = false; }, // ipc.ts clears the lifted flag here
     });
     const live = captured.get('session/finalize')!;
     const fromDump = captured.get('session/finalize-from-dump')!;
 
     const first = live({}, { family: 'lecture' });
-    // Concurrent second call on EITHER channel rejects synchronously-fast.
+    // The gate is delegated — the handler asked ipc.ts to begin a generation
+    // rather than flipping an internal closure flag.
+    expect(beginGeneration).toHaveBeenCalledTimes(1);
+    // Concurrent second call on EITHER channel hits the lifted gate.
     await expect(fromDump({}, { id: 'x', family: 'lecture' })).rejects.toThrow('FINALIZE_IN_FLIGHT');
     await expect(live({}, { family: 'lecture' })).rejects.toThrow('FINALIZE_IN_FLIGHT');
 
     release();
-    await first; // settles fine
-    // Guard released — a new call proceeds past the in-flight rejection.
+    await first; // settles → onSessionSettled clears genInFlight
+    // Gate released — a new call proceeds past the in-flight rejection.
     const second = await fromDump({}, { id: 'x', family: 'lecture' });
     expect(second.note.family).toBe('lecture');
   });

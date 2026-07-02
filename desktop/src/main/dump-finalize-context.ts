@@ -19,8 +19,6 @@ import { loadDumpTranscript } from './session-dump-reader';
 export interface DumpFinalizeDeps<C> {
   /** `<userData>/sessions` in production. */
   baseDir: string;
-  /** Live session / recording in progress? (ipc.ts `current`/`recording`.) */
-  isLiveSessionActive(): boolean;
   getClient(): C | null;
   /** Spawn + waitForReady; used when the idle-stop policy killed the sidecar. */
   startClient(): Promise<C>;
@@ -35,7 +33,10 @@ export async function buildDumpSessionContext<C>(
   id: string,
   deps: DumpFinalizeDeps<C>,
 ): Promise<SessionContext> {
-  if (deps.isLiveSessionActive()) throw new Error('SESSION_ACTIVE');
+  // Re-entrancy (no two generations at once) is gated upstream by
+  // beginGeneration → genInFlight in ipc.ts (Task 5), called before this on the
+  // dump path. A LIVE CAPTURE must NOT block a regen, so there is no
+  // capture-based guard here — History regen runs while a recording continues.
   const paths = deps.getModelPaths();
   if (!paths) throw new Error('MODELS_NOT_CONFIGURED');
 

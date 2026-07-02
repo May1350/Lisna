@@ -1,8 +1,30 @@
 import fs from 'node:fs';
 
-const SAMPLE_RATE = 16_000;
+export const SAMPLE_RATE = 16_000;
 const NUM_CHANNELS = 1;
 const BITS_PER_SAMPLE = 16;
+
+/** The 44-byte canonical WAV header for `dataBytes` of 16 kHz mono PCM16.
+ *  Single source shared by WavWriter (streaming) and wav-slice (Phase 2). */
+export function wavHeader(dataBytes: number): Buffer {
+  const byteRate = (SAMPLE_RATE * NUM_CHANNELS * BITS_PER_SAMPLE) / 8;
+  const blockAlign = (NUM_CHANNELS * BITS_PER_SAMPLE) / 8;
+  const h = Buffer.alloc(44);
+  h.write('RIFF', 0, 'ascii');
+  h.writeUInt32LE(36 + dataBytes, 4);
+  h.write('WAVE', 8, 'ascii');
+  h.write('fmt ', 12, 'ascii');
+  h.writeUInt32LE(16, 16);
+  h.writeUInt16LE(1, 20);
+  h.writeUInt16LE(NUM_CHANNELS, 22);
+  h.writeUInt32LE(SAMPLE_RATE, 24);
+  h.writeUInt32LE(byteRate, 28);
+  h.writeUInt16LE(blockAlign, 32);
+  h.writeUInt16LE(BITS_PER_SAMPLE, 34);
+  h.write('data', 36, 'ascii');
+  h.writeUInt32LE(dataBytes, 40);
+  return h;
+}
 
 /**
  * Streaming 16 kHz mono PCM16 WAV writer. Opens the file, reserves a 44-byte
@@ -15,8 +37,13 @@ const BITS_PER_SAMPLE = 16;
  */
 export class WavWriter {
   private fd: number;
-  private dataBytes = 0;
+  private _dataBytes = 0;
   private closed = false;
+
+  /** Synchronously-known count of appended PCM data bytes (excludes the 44-byte
+   *  header). A Phase-2 slice clamps its read range to this so it never reads
+   *  past the last append()+fdatasync. */
+  get dataBytes(): number { return this._dataBytes; }
   // Track write position explicitly: fs.writeSync with an explicit position
   // argument uses pwrite() and does NOT advance the fd's file offset, so we
   // must manage the cursor ourselves.
@@ -24,7 +51,7 @@ export class WavWriter {
 
   constructor(filePath: string) {
     this.fd = fs.openSync(filePath, 'w');
-    fs.writeSync(this.fd, this.header(0), 0, 44, 0);
+    fs.writeSync(this.fd, wavHeader(0), 0, 44, 0);
     this.pos = 44;
   }
 
@@ -37,39 +64,19 @@ export class WavWriter {
     }
     fs.writeSync(this.fd, buf, 0, buf.length, this.pos);
     this.pos += buf.length;
-    this.dataBytes += buf.length;
+    this._dataBytes += buf.length;
     // Crash-safety: the WAV is now the SOLE transcript source, so it must be a
     // valid, decodable file at all times — not only after close(). Rewrite the
     // 44-byte header in place (pwrite at offset 0 does not move `this.pos`),
     // then fdatasync so a hard power-loss leaves a recoverable file.
-    fs.writeSync(this.fd, this.header(this.dataBytes), 0, 44, 0);
+    fs.writeSync(this.fd, wavHeader(this._dataBytes), 0, 44, 0);
     try { fs.fdatasyncSync(this.fd); } catch { /* fdatasync unsupported on some FS — header rewrite still helps */ }
   }
 
   close(): void {
     if (this.closed) return;
     this.closed = true;
-    fs.writeSync(this.fd, this.header(this.dataBytes), 0, 44, 0); // patch header
+    fs.writeSync(this.fd, wavHeader(this._dataBytes), 0, 44, 0); // patch header
     fs.closeSync(this.fd);
-  }
-
-  private header(dataBytes: number): Buffer {
-    const byteRate = (SAMPLE_RATE * NUM_CHANNELS * BITS_PER_SAMPLE) / 8;
-    const blockAlign = (NUM_CHANNELS * BITS_PER_SAMPLE) / 8;
-    const h = Buffer.alloc(44);
-    h.write('RIFF', 0, 'ascii');
-    h.writeUInt32LE(36 + dataBytes, 4);
-    h.write('WAVE', 8, 'ascii');
-    h.write('fmt ', 12, 'ascii');
-    h.writeUInt32LE(16, 16);
-    h.writeUInt16LE(1, 20);
-    h.writeUInt16LE(NUM_CHANNELS, 22);
-    h.writeUInt32LE(SAMPLE_RATE, 24);
-    h.writeUInt32LE(byteRate, 28);
-    h.writeUInt16LE(blockAlign, 32);
-    h.writeUInt16LE(BITS_PER_SAMPLE, 34);
-    h.write('data', 36, 'ascii');
-    h.writeUInt32LE(dataBytes, 40);
-    return h;
   }
 }

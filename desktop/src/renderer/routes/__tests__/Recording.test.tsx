@@ -48,7 +48,7 @@ beforeEach(() => {
   });
 });
 
-const PROPS = { onStop: () => {}, onError: () => {}, onOpenHistory: () => {}, onOpenTerms: () => {} };
+const PROPS = { onStop: () => {}, onError: () => {}, onOpenHistory: () => {}, onOpenTerms: () => {}, onQuickTranscript: () => {} };
 
 describe('Recording — language radios', () => {
   it('renders a Korean (ko) radio with label 한국어', () => {

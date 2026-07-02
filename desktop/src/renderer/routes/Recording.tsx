@@ -33,9 +33,18 @@ interface Props {
    */
   onOpenHistory: (id: string) => void;
   onOpenTerms: () => void;
+  /**
+   * Phase 2 quick-transcript slice (scenario 1): the user marks a span
+   * [startSec, endSec) of the ONGOING recording; the parent slices the live WAV
+   * and runs a background transcript without stopping the recording.
+   */
+  onQuickTranscript: (startSec: number, endSec: number) => void;
+  /** True while a generation is already running — the slice button is disabled
+   *  (only one generation at a time; the chip shows the running one). */
+  quickTranscriptBusy?: boolean;
 }
 
-export function Recording({ onStop, onError, onOpenHistory, onOpenTerms }: Props) {
+export function Recording({ onStop, onError, onOpenHistory, onOpenTerms, onQuickTranscript, quickTranscriptBusy }: Props) {
   const [running, setRunning] = useState(false);
   const [starting, setStarting] = useState(false);
   // Flips true SLOW_LOAD_HINT_MS into the `starting=true` window so we can
@@ -54,6 +63,9 @@ export function Recording({ onStop, onError, onOpenHistory, onOpenTerms }: Props
   );
   // Elapsed-seconds indicator. Counts while `running`; resets on each start.
   const [elapsedSec, setElapsedSec] = useState(0);
+  // Phase 2 quick-transcript: the elapsed-second the user marked as the span
+  // start, or null when no span is open. Reset when the recording stops.
+  const [spanStartSec, setSpanStartSec] = useState<number | null>(null);
   // Live RMS dBFS audio level for the recording-screen meter, fed from the
   // orchestrator's onLevel. Floor (-60) at rest / between recordings so a
   // stale bar doesn't linger.
@@ -191,6 +203,7 @@ export function Recording({ onStop, onError, onOpenHistory, onOpenTerms }: Props
       return;
     } finally {
       setRunning(false);
+      setSpanStartSec(null); // abandon any open quick-transcript span
     }
     // Hand off to parent. Parent shows FamilyPicker → finalize → NoteView
     // per Plan 3 Task 12; finalize happens in App.tsx where the FSM lives,
@@ -272,6 +285,28 @@ export function Recording({ onStop, onError, onOpenHistory, onOpenTerms }: Props
             ● {Math.floor(elapsedSec / 60)}:{String(elapsedSec % 60).padStart(2, '0')}
           </span>
           <LevelMeter dbfs={level} deviceName={source === 'mic' ? 'Microphone' : 'System audio'} />
+          {/* Phase 2 quick-transcript slice: mark a span, then transcribe it in
+              the background without stopping this recording (scenario 1). */}
+          <div style={{ marginTop: '0.5em' }}>
+            {spanStartSec === null ? (
+              <button
+                disabled={quickTranscriptBusy}
+                onClick={() => setSpanStartSec(elapsedSec)}
+                title={quickTranscriptBusy ? '別の生成が進行中です' : undefined}
+              >
+                クイック字幕 開始
+              </button>
+            ) : (
+              <button
+                onClick={() => {
+                  onQuickTranscript(spanStartSec, elapsedSec);
+                  setSpanStartSec(null);
+                }}
+              >
+                クイック字幕 停止 ({Math.max(0, elapsedSec - spanStartSec)}秒)
+              </button>
+            )}
+          </div>
         </div>
       )}
       {starting && slowLoad && (
