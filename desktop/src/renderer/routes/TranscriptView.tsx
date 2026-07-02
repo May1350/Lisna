@@ -62,7 +62,7 @@ export function TranscriptView({ segments, language, durationSec, dumpId, onNewS
         {local.length} セグメント{durationSec != null ? ` · ${fmt(durationSec)}` : ''} · {language}
         {editing && <span style={{ color: 'var(--lz-accent)' }}> · 編集中</span>}
       </p>
-      <ul style={{ listStyle: 'none', padding: 0, margin: 0, maxHeight: '62vh', overflowY: 'auto' }}>
+      <ul className="lz-scroll lz-scroll--plain" data-lz-scroll style={{ listStyle: 'none', margin: 0 }}>
         {local.map((seg, i) => (
           <li key={i} style={{ marginBottom: 12, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
             <span className="lz-ts" style={{ flex: '0 0 auto', paddingTop: editing ? 8 : 3 }}>{fmt(seg.startSec)}</span>

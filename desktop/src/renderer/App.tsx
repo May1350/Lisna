@@ -228,10 +228,11 @@ function AuthenticatedApp() {
 
   return (
     <div className="lz-app">
-      <div className="lz-toolbar">
-        <span className="lz-wordmark">Lisna</span>
-      </div>
-      <div className="lz-content">
+      {/* Transparent draggable strip — the ONLY -webkit-app-region:drag surface.
+          Replaces the removed header bar so the top edge + traffic-light zone
+          stay draggable while content flows to the very top (theme.css .lz-titlebar). */}
+      <div className="lz-titlebar" />
+      <div className="lz-content" data-lz-scroll>
         {renderView(view, setView, backgroundJob, setBackgroundJob, audioNoticeAck, () => {
           localStorage.setItem('lisna.audioNoticeAck', '1');
           setAudioNoticeAck(true);

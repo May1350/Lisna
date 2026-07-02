@@ -73,7 +73,7 @@ export function HistoryDetail({ id, transcript, onBack, onRegenerate }: DetailPr
       <p className="lz-hint" style={{ marginBottom: 14 }}>
         {fmtDate(id)} · {transcript.language} · {local.length}件
       </p>
-      <div className="lz-scroll" style={{ marginBottom: 16 }}>
+      <div className="lz-scroll" data-lz-scroll style={{ marginBottom: 16 }}>
         {local.map((seg, i) => (
           <div key={i} className="lz-tline">
             <span className="lz-ts">{fmtTs(seg.startSec)}</span>

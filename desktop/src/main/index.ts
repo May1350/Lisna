@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog } from 'electron';
+import { app, BrowserWindow, dialog, nativeTheme } from 'electron';
 // electron-updater is CJS; Node's ESM loader can't pull named exports from it.
 // Default-import the module object, then destructure. Removing this pattern
 // recreates the v0.1.0 boot crash (SyntaxError on autoUpdater named import).
@@ -130,11 +130,12 @@ function createWindow() {
     width: 1100,
     height: 720,
     // Native-Mac chrome (app design 2026-07-02): traffic lights float inset over
-    // the app's own draggable toolbar (.lz-toolbar). backgroundColor avoids a
-    // white flash before the renderer paints the themed surface.
+    // the app content; a transparent .lz-titlebar strip provides the drag region
+    // (no visible header bar). backgroundColor matches the themed surface so there
+    // is no white flash before the renderer paints (dark-aware).
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 16, y: 18 },
-    backgroundColor: '#faf9f6',
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#151412' : '#faf9f6',
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
       contextIsolation: true,
