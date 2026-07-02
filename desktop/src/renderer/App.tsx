@@ -242,6 +242,10 @@ function AuthenticatedApp() {
           .lz-content so `.lz-content[data-scrolled] ~ .lz-topfade` matches; this
           replaces the old mask, which broke .lz-content's custom scrollbar. */}
       <div className="lz-topfade" aria-hidden="true" />
+      {/* Brand wordmark, top-left. Visible only at the very top; fades out as you
+          scroll (inverse of .lz-topfade). Sibling AFTER .lz-content for the
+          `.lz-content[data-scrolled] ~ .lz-wordmark` selector. */}
+      <div className="lz-wordmark" aria-hidden="true">Lisna</div>
       <GenerationChip
         job={backgroundJob}
         onOpen={() => {
