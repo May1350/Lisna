@@ -27,6 +27,7 @@ export {
 
 export { GenerationTelemetrySchema, type GenerationTelemetry } from './telemetry';
 
+export { NOTE_FAMILY_LABEL_JA } from './family-label';
 export { estimateTokens } from './tokens';
 export { chunkTranscript } from './chunking';
 export { adaptToV2Transcript } from './adapt-legacy-transcript';

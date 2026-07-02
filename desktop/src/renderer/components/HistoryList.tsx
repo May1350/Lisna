@@ -1,4 +1,6 @@
 import type { DumpSummary } from '@shared/ipc-protocol';
+import type { NoteFamily } from '@shared/note-schema';
+import { NOTE_FAMILY_LABEL_JA } from '@shared/note-schema/family-label';
 
 /**
  * F2 history viewer — list of past finalize dumps, shown in the idle
@@ -55,7 +57,7 @@ export function HistoryList({ dumps, onOpen }: Props) {
           >
             <div className="lz-row-main">
               <div className="lz-row-title">
-                {d.family ? d.family : '文字起こし'}
+                {d.family ? (NOTE_FAMILY_LABEL_JA[d.family as NoteFamily] ?? d.family) : '文字起こし'}
                 {d.ok === false ? ' · 失敗' : ''}
               </div>
               <div className="lz-row-meta">

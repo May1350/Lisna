@@ -1,5 +1,6 @@
 import type { Note } from '@shared/types';
 import type { NoteBase } from '@shared/note-schema';
+import { NOTE_FAMILY_LABEL_JA } from '@shared/note-schema/family-label';
 import { familyRendererRegistry } from '@shared/families/renderer';
 import { noteToMarkdown } from '@shared/note-export';
 import { CopyExportButtons } from '../components/CopyExportButtons';
@@ -38,7 +39,7 @@ export function NoteView({ note, onNewSession }: Props) {
       <header style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
         <p className="lz-hint" style={{ margin: 0 }}>
           {new Date(note.generatedAt).toLocaleString()} · {note.language.toUpperCase()}
-          {isStructured && <> · {note.family}</>}
+          {isStructured && <> · {NOTE_FAMILY_LABEL_JA[note.family]}</>}
         </p>
         <div style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 10 }}>
           <CopyExportButtons getText={() => noteToMarkdown(note)} exportName={noteFileName('title' in note ? note.title : 'note')} />
