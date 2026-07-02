@@ -18,6 +18,19 @@ interface DetailProps {
   onRegenerate: (family: NoteFamily) => void;
 }
 
+/** mm:ss from seconds (readable timestamp, replaces raw "12.3"). */
+function fmtTs(sec: number): string {
+  const s = Math.max(0, Math.round(sec));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+/** The dump-dir id is an ISO stamp with ':'/'.' replaced by '-'. Reconstruct
+ *  it to a readable locale date; fall back to the raw id if parsing fails. */
+function fmtDate(id: string): string {
+  const iso = id.replace(/T(\d\d)-(\d\d)-(\d\d)-(\d\d\d)Z$/, 'T$1:$2:$3.$4Z');
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? id : d.toLocaleString();
+}
+
 /** Pure detail view — exported for static-markup tests. Transcript text is
  *  editable in-place (persists to the dump's transcript.json, same loop as the
  *  live TranscriptView). Mounted with `key={id}` so the edit state is fresh per
@@ -46,43 +59,47 @@ export function HistoryDetail({ id, transcript, onBack, onRegenerate }: DetailPr
   function cancel() { setLocal(transcript.segments); setEditing(false); }
 
   return (
-    <section data-testid="history-detail">
-      <button data-testid="history-back" onClick={onBack} disabled={editing}>← 戻る</button>
-      <h2>録音履歴</h2>
-      <p style={{ color: '#666', fontSize: '0.9em' }}>
-        {id} · {transcript.language} · {local.length} segments · {transcript.llmModel}
-        {editing && <span style={{ color: '#c8333a' }}> · 編集中</span>}
+    <section className="lz-pad" style={{ maxWidth: 760, margin: '0 auto' }} data-testid="history-detail">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+        <button data-testid="history-back" onClick={onBack} disabled={editing}>← 戻る</button>
+        <h2 style={{ margin: 0 }}>録音履歴</h2>
+        {editing && <span style={{ color: 'var(--lz-accent)', fontSize: 12 }}>編集中</span>}
+        {!editing && (
+          <button data-testid="transcript-edit" onClick={() => setEditing(true)} style={{ marginLeft: 'auto' }}>
+            字幕を編集
+          </button>
+        )}
+      </div>
+      <p className="lz-hint" style={{ marginBottom: 14 }}>
+        {fmtDate(id)} · {transcript.language} · {local.length}件
       </p>
-      <ul style={{ listStyle: 'none', padding: 0, maxHeight: '40vh', overflowY: 'auto' }}>
+      <div className="lz-scroll" style={{ marginBottom: 16 }}>
         {local.map((seg, i) => (
-          <li key={i} style={{ fontFamily: 'monospace', marginBottom: '0.25em', display: 'flex', gap: 6, alignItems: 'flex-start' }}>
-            <span style={{ flex: '0 0 auto', paddingTop: editing ? 6 : 0 }}>[{seg.startSec.toFixed(1)}]</span>
+          <div key={i} className="lz-tline">
+            <span className="lz-ts">{fmtTs(seg.startSec)}</span>
             {editing ? (
               <textarea
                 value={seg.text}
                 onChange={(e) => setText(i, e.target.value)}
-                aria-label={`セグメント ${seg.startSec.toFixed(1)} を編集`}
+                aria-label={`セグメント ${fmtTs(seg.startSec)} を編集`}
                 rows={1}
-                style={{ flex: 1, font: 'inherit', padding: '4px 6px', border: '1px solid #ccc', borderRadius: 4, resize: 'vertical', minHeight: '1.6em' }}
+                style={{ flex: 1, resize: 'vertical', minHeight: '1.7em' }}
               />
             ) : (
-              <span>{seg.text}</span>
+              <span className="txt">{seg.text}</span>
             )}
-          </li>
+          </div>
         ))}
-      </ul>
+      </div>
       {editing ? (
-        <div style={{ display: 'flex', gap: 12 }}>
-          <button onClick={() => void save()} disabled={saving} style={{ padding: '8px 16px' }}>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button className="lz-primary" onClick={() => void save()} disabled={saving}>
             {saving ? '保存中…' : '保存'}
           </button>
-          <button onClick={cancel} disabled={saving} style={{ padding: '8px 16px' }}>キャンセル</button>
+          <button onClick={cancel} disabled={saving}>キャンセル</button>
         </div>
       ) : (
-        <>
-          <button data-testid="transcript-edit" onClick={() => setEditing(true)} style={{ padding: '8px 16px', marginBottom: 12 }}>
-            字幕を編集
-          </button>
+        <div style={{ borderTop: '1px solid var(--lz-line)', marginTop: 4, paddingTop: 6 }}>
           <FamilyPickerStep
             // Regenerate-from-dump only produces NOTES. The raw transcript is
             // already shown above, so the 文字起こし choice is hidden here; the
@@ -93,7 +110,7 @@ export function HistoryDetail({ id, transcript, onBack, onRegenerate }: DetailPr
             }}
             onDiscard={onBack}
           />
-        </>
+        </div>
       )}
     </section>
   );

@@ -165,4 +165,40 @@ a { color: var(--lz-accent); text-decoration: none; }
 .lz-read-h { font-size: 15px; font-weight: 600; margin: 22px 0 8px; }
 .lz-read-h:first-child { margin-top: 0; }
 .lz-read-p { font-size: 13.5px; line-height: 1.75; color: var(--lz-text); }
-.lz-ts { font-family: var(--lz-mono); font-size: 11.5px; color: var(--lz-accent-quiet); }
+.lz-ts { font-family: var(--lz-mono); font-size: 11.5px; color: var(--lz-accent-quiet); font-variant-numeric: tabular-nums; }
+
+/* Transcript reading rows (History detail + TranscriptView) */
+.lz-scroll { max-height: 52vh; overflow-y: auto; border: 1px solid var(--lz-line); border-radius: var(--lz-radius-lg); padding: 8px 4px; }
+.lz-tline { display: flex; gap: 13px; align-items: flex-start; padding: 5px 12px; border-radius: 6px; }
+.lz-tline:hover { background: var(--lz-raised); }
+.lz-tline .lz-ts { flex: 0 0 auto; padding-top: 3px; }
+.lz-tline .txt { font-size: 13.5px; line-height: 1.7; color: var(--lz-text); }
+
+/* Structured note content (family renderers) — scoped under .lz-note so the
+   shared class vocabulary (.ts-anchor, .key-terms, section h2 …) never touches
+   the app chrome. Styles all four families at once. */
+.lz-note { font-size: 13.5px; line-height: 1.75; color: var(--lz-text); }
+.lz-note header { margin-bottom: 20px; }
+.lz-note h1 { font-size: 22px; font-weight: 600; line-height: 1.25; letter-spacing: -0.01em; margin: 0 0 6px; }
+.lz-note h2 { font-size: 15px; font-weight: 600; margin: 0 0 10px; padding-bottom: 7px; border-bottom: 1px solid var(--lz-line); }
+.lz-note h3 { font-size: 13.5px; font-weight: 600; margin: 16px 0 4px; }
+.lz-note section { margin-top: 26px; }
+.lz-note p { margin: 0 0 8px; }
+.lz-note ul, .lz-note ol { margin: 6px 0 10px; padding-left: 20px; }
+.lz-note li { margin: 5px 0; line-height: 1.7; }
+.lz-note li::marker { color: var(--lz-text-3); }
+.lz-note .lecturer, .lz-note .course { font-size: 12.5px; color: var(--lz-text-2); }
+.lz-note .tldr, .lz-note .subject-summary { font-size: 14px; line-height: 1.7; margin-top: 10px; }
+.lz-note .ts-anchor { font-family: var(--lz-mono); font-size: 11px; color: var(--lz-accent-quiet); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.lz-note .provenance-inferred { color: var(--lz-text-3); font-size: 11px; margin-left: 2px; }
+.lz-note li.important { font-weight: 500; }
+.lz-note .key-terms { margin: 8px 0 10px; }
+.lz-note .key-terms dt { font-weight: 600; margin-top: 9px; }
+.lz-note .key-terms dd { margin: 2px 0 0; color: var(--lz-text-2); }
+.lz-note .rationale, .lz-note .due, .lz-note .outcome, .lz-note .speaker-ref,
+.lz-note .speakers, .lz-note .supports, .lz-note .atmosphere, .lz-note .purpose { font-size: 12px; color: var(--lz-text-2); }
+.lz-note .rationale { margin-top: 2px; }
+.lz-note code { font-family: var(--lz-mono); font-size: 12.5px; background: var(--lz-raised); padding: 1px 5px; border-radius: 4px; }
+.lz-note .slot { margin: 8px 0; }
+.lz-note .validation-warnings { margin-top: 26px; padding: 11px 14px; border-left: 2px solid var(--lz-border-strong); background: var(--lz-raised); border-radius: 0 var(--lz-radius) var(--lz-radius) 0; font-size: 12px; color: var(--lz-text-2); }
+.lz-note .validation-warnings p { font-weight: 500; margin-bottom: 4px; }

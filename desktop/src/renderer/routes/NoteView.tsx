@@ -46,7 +46,9 @@ export function NoteView({ note, onNewSession }: Props) {
         </div>
       </header>
 
-      {isStructured ? <StructuredBody note={note} /> : <LegacyBody note={note} />}
+      <div className="lz-note">
+        {isStructured ? <StructuredBody note={note} /> : <LegacyBody note={note} />}
+      </div>
     </section>
   );
 }
