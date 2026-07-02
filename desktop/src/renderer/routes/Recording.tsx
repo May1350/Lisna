@@ -253,7 +253,7 @@ export function Recording({ onStop, onError, onOpenHistory, onOpenTerms, onQuick
 
       {!running ? (
         <div style={{ textAlign: 'center', marginBottom: 22 }}>
-          <button className="lz-primary" disabled={starting} onClick={start} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          <button className="lz-record" disabled={starting} onClick={start} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
             {starting ? (<><Spinner /> 読み込み中…</>) : (<><span style={{ width: 9, height: 9, borderRadius: '50%', background: 'currentColor' }} />録音を開始</>)}
           </button>
           {starting && slowLoad && <p className="lz-hint" style={{ marginTop: 8 }}>(通常より時間がかかっています…)</p>}

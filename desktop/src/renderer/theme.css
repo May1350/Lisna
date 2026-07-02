@@ -22,6 +22,10 @@
   --lz-accent-hover: #82302f;
   --lz-accent-quiet: #b39b9b;
   --lz-on-accent: #ffffff;
+  /* Record button — a clear, vivid red (record convention), distinct from the
+     burgundy brand accent used elsewhere. */
+  --lz-record: #e5484d;
+  --lz-record-hover: #d93a40;
   --lz-success: #4d8c62;
   --lz-success-tint: #eef3ee;
   --lz-radius: 8px;
@@ -32,23 +36,26 @@
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --lz-canvas: #171512;
-    --lz-surface: #201e1a;
-    --lz-toolbar: #272420;
-    --lz-raised: #2c2925;
-    --lz-track: #2c2925;
-    --lz-tint: #3a2626;
-    --lz-text: #efece6;
-    --lz-text-2: #a6a299;
-    --lz-text-3: #807c73;
-    --lz-line: #302d27;
-    --lz-border: #34312b;
-    --lz-border-strong: #3f3b34;
-    --lz-accent: #8f3033;
-    --lz-accent-hover: #a03a3b;
-    --lz-accent-quiet: #d98b8b;
+    /* Black, Claude-app-like — warm near-black surfaces, not the earlier brown. */
+    --lz-canvas: #0d0c0b;
+    --lz-surface: #151412;
+    --lz-toolbar: #1c1a17;
+    --lz-raised: #24221d;
+    --lz-track: #222019;
+    --lz-tint: #33211f;
+    --lz-text: #f2efe9;
+    --lz-text-2: #9c988e;
+    --lz-text-3: #6d6960;
+    --lz-line: #29251f;
+    --lz-border: #322e27;
+    --lz-border-strong: #3d382f;
+    --lz-accent: #b0524f;
+    --lz-accent-hover: #c1605c;
+    --lz-accent-quiet: #c98b8b;
+    --lz-record: #f05a5a;
+    --lz-record-hover: #ff6b6b;
     --lz-success: #7fbf95;
-    --lz-success-tint: #26312a;
+    --lz-success-tint: #22312a;
   }
 }
 
@@ -107,19 +114,24 @@ a { color: var(--lz-accent); text-decoration: none; }
 .lz-muted { color: var(--lz-text-2); }
 .lz-hint { color: var(--lz-text-3); font-size: 11.5px; }
 
-/* Segmented control (CSS-styles radio groups: <fieldset class=lz-seg><label><input radio>…</label>). */
-.lz-seg { display: inline-flex; border: 0; margin: 0; padding: 2px; background: var(--lz-track); border-radius: var(--lz-radius); }
+/* Segmented control (CSS-styles radio groups: <fieldset class=lz-seg><label><input radio>…</label>).
+   Sized large + prominent so Source/Language read at a glance. */
+.lz-seg { display: inline-flex; border: 0; margin: 0; padding: 3px; background: var(--lz-track); border-radius: 11px; }
 .lz-seg legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-.lz-seg label { display: inline-flex; align-items: center; padding: 5px 13px; border-radius: 6px; font-size: 12.5px; color: var(--lz-text-2); cursor: pointer; user-select: none; }
+.lz-seg label { display: inline-flex; align-items: center; justify-content: center; padding: 10px 24px; border-radius: 8px; font-size: 14px; color: var(--lz-text-2); cursor: pointer; user-select: none; }
 .lz-seg label:hover { color: var(--lz-text); }
-.lz-seg label:has(input:checked) { background: var(--lz-surface); color: var(--lz-text); font-weight: 500; box-shadow: 0 1px 1.5px rgba(40,30,15,.10); }
+.lz-seg label:has(input:checked) { background: var(--lz-surface); color: var(--lz-text); font-weight: 500; box-shadow: 0 1px 2px rgba(0,0,0,.18); }
 .lz-seg input { position: absolute; opacity: 0; pointer-events: none; }
 .lz-seg:disabled, .lz-seg[disabled] label { opacity: .5; cursor: default; }
 
 /* Buttons */
 .lz-primary { background: var(--lz-accent); color: var(--lz-on-accent); border: 1px solid var(--lz-accent); border-radius: 9px; padding: 9px 20px; font-size: 13.5px; }
 .lz-primary:hover { background: var(--lz-accent-hover); border-color: var(--lz-accent-hover); }
-.lz-danger-outline { background: var(--lz-surface); color: var(--lz-accent); border: 1px solid var(--lz-accent); border-radius: 9px; padding: 9px 18px; font-size: 13.5px; }
+/* Record button — clear red, prominent. Stop reuses the same red as an outline. */
+.lz-record { background: var(--lz-record); color: #fff; border: 1px solid var(--lz-record); border-radius: 10px; padding: 12px 28px; font-size: 15px; font-weight: 500; }
+.lz-record:hover { background: var(--lz-record-hover); border-color: var(--lz-record-hover); }
+.lz-danger-outline { background: transparent; color: var(--lz-record); border: 1px solid var(--lz-record); border-radius: 10px; padding: 11px 22px; font-size: 14px; }
+.lz-danger-outline:hover { background: var(--lz-tint); }
 
 /* List / choice rows */
 .lz-row { display: flex; align-items: center; gap: 11px; padding: 10px 8px; border-radius: var(--lz-radius); cursor: pointer; }
