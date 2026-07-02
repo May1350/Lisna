@@ -83,6 +83,7 @@ export function HistoryDetail({ id, transcript, onBack, onRegenerate }: DetailPr
                 onChange={(e) => setText(i, e.target.value)}
                 aria-label={`セグメント ${fmtTs(seg.startSec)} を編集`}
                 rows={1}
+                data-lz-scroll
                 style={{ flex: 1, resize: 'vertical', minHeight: '1.7em' }}
               />
             ) : (

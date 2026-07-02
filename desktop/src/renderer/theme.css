@@ -127,9 +127,13 @@ a { color: var(--lz-accent); text-decoration: none; }
    opaque → the first line is NOT faded. Once scrolled, the top 40px fades so
    content dissolves under the (invisible) title band as it scrolls up. The swap
    is instant (mask-image isn't transition-animatable) — imperceptible mid-scroll.
-   Applied to the page scroller + each nested .lz-scroll box (via data-lz-scroll). */
-[data-lz-scroll] { -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 100%); mask-image: linear-gradient(to bottom, #000 0, #000 100%); }
-[data-lz-scroll][data-scrolled] { -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 40px, #000 100%); mask-image: linear-gradient(to bottom, transparent 0, #000 40px, #000 100%); }
+   Scoped to the PAGE scroller only: a CSS mask multiplies the whole element
+   paint (incl. border + rounded corners), so applying it to a bordered nested
+   box (.lz-scroll) would dissolve that box's top border/corners. Nested boxes
+   keep their overlay scrollbar (below) but no fade — the fade is only meaningful
+   where content passes under the transparent .lz-titlebar. */
+.lz-content { -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 100%); mask-image: linear-gradient(to bottom, #000 0, #000 100%); }
+.lz-content[data-scrolled] { -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 40px, #000 100%); mask-image: linear-gradient(to bottom, transparent 0, #000 40px, #000 100%); }
 
 /* Overlay scrollbars — blended (not bright white), inset floating pill,
    transparent when idle, painted only while the element is actively scrolling
