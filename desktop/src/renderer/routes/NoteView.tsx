@@ -34,17 +34,15 @@ export function NoteView({ note, onNewSession }: Props) {
   const isStructured = 'family' in note;
 
   return (
-    <section>
-      <header style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-        <h2 style={{ margin: 0 }}>Note</h2>
-        <p style={{ color: '#888', margin: 0 }}>
-          Generated {new Date(note.generatedAt).toLocaleString()} ·{' '}
-          {note.language.toUpperCase()}
+    <section className="lz-pad" style={{ maxWidth: 720, margin: '0 auto' }}>
+      <header style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
+        <p className="lz-hint" style={{ margin: 0 }}>
+          {new Date(note.generatedAt).toLocaleString()} · {note.language.toUpperCase()}
           {isStructured && <> · {note.family}</>}
         </p>
-        <div style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 10 }}>
           <CopyExportButtons getText={() => noteToMarkdown(note)} exportName={noteFileName('title' in note ? note.title : 'note')} />
-          <button onClick={onNewSession}>New session</button>
+          <button onClick={onNewSession}>新規</button>
         </div>
       </header>
 

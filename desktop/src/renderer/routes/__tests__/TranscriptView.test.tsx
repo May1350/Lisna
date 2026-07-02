@@ -20,13 +20,13 @@ const SEGMENTS = [
 ] as TranscriptSegment[];
 
 describe('TranscriptView', () => {
-  it('renders one [m:ss] text line per segment', () => {
+  it('renders one m:ss timestamp per segment', () => {
     const html = renderToStaticMarkup(
       <TranscriptView segments={SEGMENTS} language="ja" onNewSession={() => {}} />,
     );
-    // startSec 5 → 0:05, startSec 63 → 1:03
-    expect(html).toContain('[0:05]');
-    expect(html).toContain('[1:03]');
+    // startSec 5 → 0:05, startSec 63 → 1:03 (native restyle: no brackets)
+    expect(html).toContain('0:05');
+    expect(html).toContain('1:03');
   });
 
   it('shows every segment text', () => {
@@ -49,7 +49,7 @@ describe('TranscriptView', () => {
     const html = renderToStaticMarkup(
       <TranscriptView segments={SEGMENTS} language="ja" onNewSession={() => {}} />,
     );
-    expect(html).toContain('2 個のセグメント');
+    expect(html).toContain('2 セグメント');
   });
 
   it('header shows the formatted duration when durationSec is passed', () => {

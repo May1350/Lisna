@@ -212,119 +212,90 @@ export function Recording({ onStop, onError, onOpenHistory, onOpenTerms, onQuick
   }
 
   return (
-    <section>
-      <h2>Recording</h2>
-      <fieldset disabled={running || starting}>
-        <legend>Source</legend>
-        <label>
-          <input
-            type="radio"
-            name="source"
-            value="mic"
-            checked={source === 'mic'}
-            onChange={() => setSource('mic')}
-          />
-          Microphone
-        </label>
-        <label>
-          <input
-            type="radio"
-            name="source"
-            value="system"
-            checked={source === 'system'}
-            disabled={!systemAudioAvailable}
-            onChange={() => setSource('system')}
-          />
-          System audio
-        </label>
-      </fieldset>
-      {!systemAudioAvailable && <SystemAudioUnavailableNotice />}
-      <fieldset disabled={running || starting}>
-        <legend>Language</legend>
-        <label>
-          <input
-            type="radio"
-            name="language"
-            value="ja"
-            checked={language === 'ja'}
-            onChange={() => { setLanguage('ja'); localStorage.setItem('lisna.language', 'ja'); }}
-          />
-          日本語
-        </label>
-        <label>
-          <input
-            type="radio"
-            name="language"
-            value="en"
-            checked={language === 'en'}
-            onChange={() => { setLanguage('en'); localStorage.setItem('lisna.language', 'en'); }}
-          />
-          English
-        </label>
-        <label>
-          <input
-            type="radio"
-            name="language"
-            value="ko"
-            checked={language === 'ko'}
-            onChange={() => { setLanguage('ko'); localStorage.setItem('lisna.language', 'ko'); }}
-          />
-          한국어
-        </label>
-      </fieldset>
-      <button disabled={starting} onClick={running ? stop : start}>
-        {running ? 'Stop' : starting ? (
-          <>
-            <Spinner /> Loading model…
-          </>
-        ) : 'Start'}
-      </button>
-      {running && (
-        <div style={{ marginTop: '0.5em' }}>
-          <span style={{ fontFamily: 'monospace', fontVariantNumeric: 'tabular-nums' }}>
-            ● {Math.floor(elapsedSec / 60)}:{String(elapsedSec % 60).padStart(2, '0')}
-          </span>
-          <LevelMeter dbfs={level} deviceName={source === 'mic' ? 'Microphone' : 'System audio'} />
-          {/* Phase 2 quick-transcript slice: mark a span, then transcribe it in
-              the background without stopping this recording (scenario 1). */}
-          <div style={{ marginTop: '0.5em' }}>
+    <section className="lz-pad" style={{ maxWidth: 620, margin: '0 auto' }}>
+      {!running && !starting && (
+        <>
+          <div style={{ marginBottom: 18 }}>
+            <p className="lz-label">ソース</p>
+            <fieldset className="lz-seg" disabled={running || starting}>
+              <legend>ソース</legend>
+              <label>
+                <input type="radio" name="source" value="mic" checked={source === 'mic'} onChange={() => setSource('mic')} />
+                マイク
+              </label>
+              <label>
+                <input type="radio" name="source" value="system" checked={source === 'system'} disabled={!systemAudioAvailable} onChange={() => setSource('system')} />
+                システム音声
+              </label>
+            </fieldset>
+          </div>
+          {!systemAudioAvailable && <SystemAudioUnavailableNotice />}
+          <div style={{ marginBottom: 26 }}>
+            <p className="lz-label">言語</p>
+            <fieldset className="lz-seg" disabled={running || starting}>
+              <legend>言語</legend>
+              <label>
+                <input type="radio" name="language" value="ja" checked={language === 'ja'} onChange={() => { setLanguage('ja'); localStorage.setItem('lisna.language', 'ja'); }} />
+                日本語
+              </label>
+              <label>
+                <input type="radio" name="language" value="en" checked={language === 'en'} onChange={() => { setLanguage('en'); localStorage.setItem('lisna.language', 'en'); }} />
+                English
+              </label>
+              <label>
+                <input type="radio" name="language" value="ko" checked={language === 'ko'} onChange={() => { setLanguage('ko'); localStorage.setItem('lisna.language', 'ko'); }} />
+                한국어
+              </label>
+            </fieldset>
+          </div>
+        </>
+      )}
+
+      {!running ? (
+        <div style={{ textAlign: 'center', marginBottom: 22 }}>
+          <button className="lz-primary" disabled={starting} onClick={start} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            {starting ? (<><Spinner /> 読み込み中…</>) : (<><span style={{ width: 9, height: 9, borderRadius: '50%', background: 'currentColor' }} />録音を開始</>)}
+          </button>
+          {starting && slowLoad && <p className="lz-hint" style={{ marginTop: 8 }}>(通常より時間がかかっています…)</p>}
+        </div>
+      ) : (
+        <div style={{ maxWidth: 480, margin: '0 auto' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: 18 }}>
+            <span className="lz-pulse" />
+            <span className="lz-muted" style={{ fontSize: 13 }}>録音中</span>
+            <span className="lz-timer" style={{ marginLeft: 'auto' }}>
+              {Math.floor(elapsedSec / 60)}:{String(elapsedSec % 60).padStart(2, '0')}
+            </span>
+          </div>
+          <div style={{ marginBottom: 22 }}>
+            <LevelMeter dbfs={level} deviceName={source === 'mic' ? 'マイク' : 'システム音声'} />
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button className="lz-danger-outline" onClick={stop} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ width: 9, height: 9, background: 'currentColor' }} />停止
+            </button>
             {spanStartSec === null ? (
-              <button
-                disabled={quickTranscriptBusy}
-                onClick={() => setSpanStartSec(elapsedSec)}
-                title={quickTranscriptBusy ? '別の生成が進行中です' : undefined}
-              >
+              <button disabled={quickTranscriptBusy} onClick={() => setSpanStartSec(elapsedSec)} title={quickTranscriptBusy ? '別の生成が進行中です' : undefined}>
                 クイック字幕 開始
               </button>
             ) : (
-              <button
-                onClick={() => {
-                  onQuickTranscript(spanStartSec, elapsedSec);
-                  setSpanStartSec(null);
-                }}
-              >
+              <button onClick={() => { onQuickTranscript(spanStartSec, elapsedSec); setSpanStartSec(null); }}>
                 クイック字幕 停止 ({Math.max(0, elapsedSec - spanStartSec)}秒)
               </button>
             )}
           </div>
         </div>
       )}
-      {starting && slowLoad && (
-        <p style={{ color: '#888', fontSize: '0.9em', marginTop: '0.25em' }}>
-          (taking longer than usual…)
-        </p>
-      )}
+
       {!running && !starting && (
-        <div style={{ marginTop: '0.5em', textAlign: 'right' }}>
-          <button
-            onClick={onOpenTerms}
-            style={{ background: 'transparent', border: 'none', color: '#777', cursor: 'pointer', fontSize: 13, padding: 4 }}
-          >
-            用語集 ›
-          </button>
-        </div>
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', margin: '4px 0 6px' }}>
+            <p className="lz-label" style={{ margin: 0 }}>履歴</p>
+            <button className="lz-icon-btn" onClick={onOpenTerms} style={{ marginLeft: 'auto', fontSize: 12.5, color: 'var(--lz-text-2)' }}>用語集 ›</button>
+          </div>
+          <HistoryList dumps={dumps} onOpen={onOpenHistory} />
+        </>
       )}
-      {!running && !starting && <HistoryList dumps={dumps} onOpen={onOpenHistory} />}
     </section>
   );
 }

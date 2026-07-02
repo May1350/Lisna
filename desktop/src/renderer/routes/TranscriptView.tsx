@@ -56,70 +56,45 @@ export function TranscriptView({ segments, language, durationSec, dumpId, onNewS
   }
 
   return (
-    <section>
-      <h2>文字起こし</h2>
-      <p style={{ color: '#666', fontSize: 13 }}>
-        {local.length} 個のセグメント{durationSec != null ? ` · ${fmt(durationSec)}` : ''} · {language}
-        {editing && <span style={{ color: '#c8333a' }}> · 編集中</span>}
+    <section className="lz-pad" style={{ maxWidth: 720, margin: '0 auto' }}>
+      <h2 style={{ marginBottom: 4 }}>文字起こし</h2>
+      <p className="lz-hint" style={{ marginBottom: 16 }}>
+        {local.length} セグメント{durationSec != null ? ` · ${fmt(durationSec)}` : ''} · {language}
+        {editing && <span style={{ color: 'var(--lz-accent)' }}> · 編集中</span>}
       </p>
-      <ul
-        style={{
-          listStyle: 'none',
-          padding: 0,
-          fontFamily: 'monospace',
-          maxHeight: '60vh',
-          overflowY: 'auto',
-        }}
-      >
+      <ul style={{ listStyle: 'none', padding: 0, margin: 0, maxHeight: '62vh', overflowY: 'auto' }}>
         {local.map((seg, i) => (
-          <li key={i} style={{ marginBottom: '0.25em', display: 'flex', gap: 6, alignItems: 'flex-start' }}>
-            <span style={{ color: '#999', flex: '0 0 auto', paddingTop: editing ? 6 : 0 }}>[{fmt(seg.startSec)}]</span>
+          <li key={i} style={{ marginBottom: 12, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+            <span className="lz-ts" style={{ flex: '0 0 auto', paddingTop: editing ? 8 : 3 }}>{fmt(seg.startSec)}</span>
             {editing ? (
               <textarea
                 value={seg.text}
                 onChange={(e) => setText(i, e.target.value)}
                 aria-label={`セグメント ${fmt(seg.startSec)} を編集`}
                 rows={1}
-                style={{
-                  flex: 1, font: 'inherit', padding: '4px 6px', border: '1px solid #ccc',
-                  borderRadius: 4, resize: 'vertical', minHeight: '1.6em',
-                }}
+                style={{ flex: 1, resize: 'vertical', minHeight: '1.7em' }}
               />
             ) : (
-              <span>{seg.text}</span>
+              <span className="lz-read-p">{seg.text}</span>
             )}
           </li>
         ))}
       </ul>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 16 }}>
         {editing ? (
           <>
-            <button onClick={() => void save()} disabled={saving} style={{ padding: '8px 16px', fontSize: 14 }}>
+            <button className="lz-primary" onClick={() => void save()} disabled={saving}>
               {saving ? '保存中…' : '保存'}
             </button>
-            <button onClick={cancel} disabled={saving} style={{ padding: '8px 16px', fontSize: 14 }}>
-              キャンセル
-            </button>
+            <button onClick={cancel} disabled={saving}>キャンセル</button>
           </>
         ) : (
           <>
             {dumpId != null && (
-              <button
-                data-testid="transcript-edit"
-                onClick={() => setEditing(true)}
-                style={{ padding: '8px 16px', fontSize: 14 }}
-              >
-                編集
-              </button>
+              <button data-testid="transcript-edit" onClick={() => setEditing(true)}>編集</button>
             )}
             <CopyExportButtons getText={() => transcriptToText(local)} exportName="transcript.txt" />
-            <button
-              data-testid="transcript-new-session"
-              onClick={onNewSession}
-              style={{ padding: '8px 16px', fontSize: 14 }}
-            >
-              新しい録音
-            </button>
+            <button data-testid="transcript-new-session" onClick={onNewSession}>新しい録音</button>
           </>
         )}
       </div>

@@ -29,43 +29,43 @@ export function HistoryList({ dumps, onOpen }: Props) {
   if (dumps.length === 0) {
     return (
       <div data-testid="history-section">
-        <h3>History</h3>
-        <p style={{ color: '#999', fontSize: '0.9em' }}>まだ履歴がありません</p>
+        <p className="lz-hint">まだ履歴がありません</p>
       </div>
     );
   }
   return (
-    <div data-testid="history-section">
-      <h3>History</h3>
-      <ul style={{ listStyle: 'none', padding: 0 }}>
-        {dumps.map((d) => (
-          <li key={d.id} style={{ marginBottom: '0.25em' }}>
-            {d.unreadable ? (
-              <span style={{ color: '#999' }}>
-                {formatRecordedAt(d.recordedAt)} — 読み込み不可
-              </span>
-            ) : (
-              <button
-                data-testid={`history-row-${d.id}`}
-                onClick={() => onOpen(d.id)}
-                style={{
-                  background: 'transparent',
-                  border: '1px solid #ccc',
-                  borderRadius: 4,
-                  padding: '4px 8px',
-                  cursor: 'pointer',
-                  fontFamily: 'inherit',
-                }}
-              >
-                {formatRecordedAt(d.recordedAt)} · {formatDuration(d.durationSec ?? 0)} ·{' '}
-                {d.language ?? '?'}
-                {d.family ? ` · ${d.family}` : ''}
-                {d.ok === true ? ' · ✓' : d.ok === false ? ' · 失敗' : ''}
-              </button>
-            )}
-          </li>
-        ))}
-      </ul>
+    <div data-testid="history-section" className="lz-list">
+      {dumps.map((d) =>
+        d.unreadable ? (
+          <div key={d.id} className="lz-row" style={{ cursor: 'default' }}>
+            <div className="lz-row-main">
+              <div className="lz-row-title lz-muted">{formatRecordedAt(d.recordedAt)}</div>
+              <div className="lz-row-meta">読み込み不可</div>
+            </div>
+          </div>
+        ) : (
+          <div
+            key={d.id}
+            className="lz-row"
+            data-testid={`history-row-${d.id}`}
+            role="button"
+            tabIndex={0}
+            onClick={() => onOpen(d.id)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onOpen(d.id); }}
+          >
+            <div className="lz-row-main">
+              <div className="lz-row-title">
+                {d.family ? d.family : '文字起こし'}
+                {d.ok === false ? ' · 失敗' : ''}
+              </div>
+              <div className="lz-row-meta">
+                {formatDuration(d.durationSec ?? 0)} · {d.language ?? '?'} · {formatRecordedAt(d.recordedAt)}
+              </div>
+            </div>
+            <span className="lz-row-chev" aria-hidden="true">›</span>
+          </div>
+        ),
+      )}
     </div>
   );
 }

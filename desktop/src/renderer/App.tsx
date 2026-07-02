@@ -227,12 +227,16 @@ function AuthenticatedApp() {
   }, []);
 
   return (
-    <main style={{ fontFamily: 'system-ui', padding: 24 }}>
-      <h1>Lisna v2 — on-device</h1>
-      {renderView(view, setView, backgroundJob, setBackgroundJob, audioNoticeAck, () => {
-        localStorage.setItem('lisna.audioNoticeAck', '1');
-        setAudioNoticeAck(true);
-      })}
+    <div className="lz-app">
+      <div className="lz-toolbar">
+        <span className="lz-wordmark">Lisna</span>
+      </div>
+      <div className="lz-content">
+        {renderView(view, setView, backgroundJob, setBackgroundJob, audioNoticeAck, () => {
+          localStorage.setItem('lisna.audioNoticeAck', '1');
+          setAudioNoticeAck(true);
+        })}
+      </div>
       <GenerationChip
         job={backgroundJob}
         onOpen={() => {
@@ -247,7 +251,7 @@ function AuthenticatedApp() {
         }}
         onDismiss={() => setBackgroundJob(null)}
       />
-    </main>
+    </div>
   );
 }
 
@@ -345,7 +349,7 @@ function renderView(
       // (the chip shows progress); it re-renders to the picker when the job
       // settles. Recording B's session waits here until then.
       if (genBusy) {
-        return <p style={{ color: '#555' }}>別の生成が進行中です。完了までお待ちください。</p>;
+        return <div className="lz-pad lz-muted">別の生成が進行中です。完了までお待ちください。</div>;
       }
       return (
         <FamilyPickerStep
@@ -605,28 +609,33 @@ function backgroundProgressHint(p: ProgressState | null): string {
 function GenerationChip({ job, onOpen, onDismiss }: { job: BackgroundJob | null; onOpen: () => void; onDismiss: () => void }) {
   if (!job) return null;
   const label = job.kind === 'note' ? 'ノート' : '文字起こし';
-  const base: CSSProperties = {
-    position: 'fixed', right: 16, bottom: 16, padding: '10px 14px', borderRadius: 8,
-    fontSize: 13, background: '#fff', border: '1px solid #ddd',
-    boxShadow: '0 2px 8px rgba(0,0,0,0.15)', display: 'flex', gap: 10, alignItems: 'center',
-  };
+  const pos: CSSProperties = { position: 'fixed', right: 18, bottom: 18 };
+  const x: CSSProperties = { background: 'transparent', border: 0, padding: '2px 4px', color: 'var(--lz-text-3)', fontSize: 14 };
   if (job.status === 'running') {
     const hint = backgroundProgressHint(job.progress);
-    return <div style={base} data-testid="gen-chip-running">{`${label}生成中…${hint ? ' ' + hint : ''}`}</div>;
+    return (
+      <div className="lz-chip" style={pos} data-testid="gen-chip-running">
+        <span className="lz-chip-dot"></span>
+        <span style={{ fontWeight: 500 }}>{`${label}生成中`}</span>
+        {hint && <span className="lz-muted">{hint}</span>}
+      </div>
+    );
   }
   if (job.status === 'done') {
     return (
-      <div style={base} data-testid="gen-chip-done">
-        <span>{`${label}完成`}</span>
-        <button onClick={onOpen}>開く</button>
-        <button onClick={onDismiss} aria-label="閉じる">✕</button>
+      <div className="lz-chip" style={pos} data-testid="gen-chip-done">
+        <span className="lz-chip-dot ok"></span>
+        <span style={{ fontWeight: 500 }}>{`${label}完成`}</span>
+        <button onClick={onOpen} style={{ padding: '4px 10px', fontSize: 12 }}>開く</button>
+        <button onClick={onDismiss} aria-label="閉じる" style={x}>✕</button>
       </div>
     );
   }
   return (
-    <div style={{ ...base, borderColor: '#cc3a44' }} data-testid="gen-chip-error">
-      <span>{`${label}生成失敗`}</span>
-      <button onClick={onDismiss} aria-label="閉じる">✕</button>
+    <div className="lz-chip" style={pos} data-testid="gen-chip-error">
+      <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--lz-accent)' }}></span>
+      <span style={{ fontWeight: 500 }}>{`${label}生成失敗`}</span>
+      <button onClick={onDismiss} aria-label="閉じる" style={x}>✕</button>
     </div>
   );
 }

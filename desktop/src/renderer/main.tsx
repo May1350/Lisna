@@ -1,6 +1,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
+import './theme.css';
 
 // Side-effect import — registers Lecture's FamilyRendererDefinition into
 // `familyRendererRegistry` so NoteView's dispatch (`registry[note.family]`)

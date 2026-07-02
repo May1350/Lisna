@@ -129,6 +129,12 @@ function createWindow() {
   const win = new BrowserWindow({
     width: 1100,
     height: 720,
+    // Native-Mac chrome (app design 2026-07-02): traffic lights float inset over
+    // the app's own draggable toolbar (.lz-toolbar). backgroundColor avoids a
+    // white flash before the renderer paints the themed surface.
+    titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 16, y: 18 },
+    backgroundColor: '#faf9f6',
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
       contextIsolation: true,
