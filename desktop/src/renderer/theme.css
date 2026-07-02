@@ -24,8 +24,11 @@
   --lz-on-accent: #ffffff;
   /* Record button — a clear, vivid red (record convention), distinct from the
      burgundy brand accent used elsewhere. */
-  --lz-record: #e5484d;
-  --lz-record-hover: #d93a40;
+  --lz-record: #dc2626;
+  --lz-record-hover: #b91c1c;
+  /* Active segment pill fill — must be LIGHTER than --lz-track so the selection
+     reads as raised (on dark, --lz-surface is darker than the track). */
+  --lz-seg-active: #ffffff;
   --lz-success: #4d8c62;
   --lz-success-tint: #eef3ee;
   --lz-radius: 8px;
@@ -52,8 +55,9 @@
     --lz-accent: #b0524f;
     --lz-accent-hover: #c1605c;
     --lz-accent-quiet: #c98b8b;
-    --lz-record: #f05a5a;
-    --lz-record-hover: #ff6b6b;
+    --lz-record: #ef4444;
+    --lz-record-hover: #f65a5a;
+    --lz-seg-active: #35302a;
     --lz-success: #7fbf95;
     --lz-success-tint: #22312a;
   }
@@ -120,7 +124,7 @@ a { color: var(--lz-accent); text-decoration: none; }
 .lz-seg legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .lz-seg label { display: inline-flex; align-items: center; justify-content: center; padding: 10px 24px; border-radius: 8px; font-size: 14px; color: var(--lz-text-2); cursor: pointer; user-select: none; }
 .lz-seg label:hover { color: var(--lz-text); }
-.lz-seg label:has(input:checked) { background: var(--lz-surface); color: var(--lz-text); font-weight: 500; box-shadow: 0 1px 2px rgba(0,0,0,.18); }
+.lz-seg label:has(input:checked) { background: var(--lz-seg-active); color: var(--lz-text); font-weight: 500; box-shadow: 0 1px 2px rgba(0,0,0,.25); }
 .lz-seg input { position: absolute; opacity: 0; pointer-events: none; }
 .lz-seg:disabled, .lz-seg[disabled] label { opacity: .5; cursor: default; }
 
