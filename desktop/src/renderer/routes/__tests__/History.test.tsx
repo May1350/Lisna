@@ -29,7 +29,7 @@ describe('HistoryDetail', () => {
     expect(html).toContain('history-back');
     expect(html).toContain('こんにちは');
     expect(html).toContain('テストです');
-    expect(html).toContain('2 segments');
+    expect(html).toContain('2件');
     // FamilyPickerStep is embedded for re-pickable family (F1 parity).
     expect(html).toContain('family-picker');
     expect(html).toContain('family-continue');

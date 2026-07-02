@@ -33,7 +33,7 @@ describe('HistoryList', () => {
     const html = renderToStaticMarkup(<HistoryList dumps={ROWS} onOpen={() => {}} />);
     expect(html).toContain('history-row-2026-06-11T01-00-00-000Z');
     expect(html).toContain('1:35');        // 95s formatted m:ss
-    expect(html).toContain('interview');
+    expect(html).toContain('インタビュー'); // family shown as JA label, not raw enum key
     expect(html).toContain('失敗');         // ok:false badge
   });
 

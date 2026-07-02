@@ -92,13 +92,8 @@ export function FamilyPickerStep({ onPick, onDiscard, showTranscript = true, lan
 
   const renderOption = (f: { id: PickChoice; label: string; desc: string; disabled: boolean }) => (
     <label
-      style={{
-        display: 'flex',
-        gap: 12,
-        alignItems: 'flex-start',
-        cursor: f.disabled ? 'not-allowed' : 'pointer',
-        opacity: f.disabled ? 0.55 : 1,
-      }}
+      className={`lz-row lz-choice${selected === f.id && !f.disabled ? ' default' : ''}`}
+      style={{ marginBottom: 8, cursor: f.disabled ? 'not-allowed' : 'pointer', opacity: f.disabled ? 0.55 : 1 }}
     >
       <input
         type="radio"
@@ -108,72 +103,43 @@ export function FamilyPickerStep({ onPick, onDiscard, showTranscript = true, lan
         disabled={f.disabled}
         onChange={() => setSelected(f.id)}
         data-testid={`family-radio-${f.id}`}
+        style={{ position: 'absolute', opacity: 0, pointerEvents: 'none' }}
       />
-      <span>
-        <strong>{f.label}</strong>
-        <div style={{ color: '#666', fontSize: 13 }}>{f.desc}</div>
-        {f.disabled && <small style={{ color: '#999' }}>(coming soon)</small>}
-      </span>
+      <div className="lz-row-main">
+        <div className="lz-row-title">{f.label}</div>
+        <div className="lz-row-meta">{f.desc}</div>
+        {f.disabled && <div className="lz-hint">(coming soon)</div>}
+      </div>
+      {selected === f.id && !f.disabled && (
+        <span style={{ color: 'var(--lz-accent)', fontSize: 17 }} aria-hidden="true">→</span>
+      )}
     </label>
   );
 
   return (
-    <div style={{ maxWidth: 560, margin: '0 auto', padding: 24, fontFamily: 'system-ui' }} data-testid="family-picker">
-      <h2 style={{ marginTop: 0 }}>このセッションの種類は?</h2>
-      {notesAllowed && (
-        <ul style={{ listStyle: 'none', padding: 0 }}>
-          {FAMILIES.map((f) => (
-            <li key={f.id} style={{ marginBottom: 12 }}>
-              {renderOption(f)}
-            </li>
-          ))}
-        </ul>
-      )}
+    <div className="lz-pad" style={{ maxWidth: 480, margin: '0 auto' }} data-testid="family-picker">
+      <h2 style={{ marginBottom: 4 }}>このセッションの種類は?</h2>
+      <p className="lz-hint" style={{ marginBottom: 16 }}>録音からノートを生成します。</p>
+      {notesAllowed && <div>{FAMILIES.map((f) => <div key={f.id}>{renderOption(f)}</div>)}</div>}
       {!notesAllowed && (
-        <p style={{ color: '#888', fontSize: 13 }}>
+        <p className="lz-muted" style={{ fontSize: 13 }}>
           この言語では文字起こしのみ対応しています（ノート生成は近日対応 / coming soon）。
         </p>
       )}
-      {/* Transcript output mode, set apart from the 4 note "types" — it's an
-          output format, not a session type. Hidden in the history-regenerate
-          picker (showTranscript=false): the dump transcript is already shown
-          and regenerate only produces notes. When !notesAllowed, always show
-          the transcript option (it's the only available choice). */}
       {(showTranscript || !notesAllowed) && (
-        <div style={{ borderTop: '1px solid #ddd', paddingTop: 12, marginTop: 4 }}>
-          {notesAllowed && (
-            <div style={{ color: '#888', fontSize: 12, marginBottom: 8 }}>またはノートにせず</div>
-          )}
-          <ul style={{ listStyle: 'none', padding: 0 }}>
-            <li style={{ marginBottom: 12 }}>{renderOption(TRANSCRIPT_OPTION)}</li>
-          </ul>
+        <div style={{ borderTop: '1px solid var(--lz-line)', paddingTop: 14, marginTop: 10 }}>
+          {notesAllowed && <div className="lz-label" style={{ marginBottom: 8 }}>またはノートにせず</div>}
+          {renderOption(TRANSCRIPT_OPTION)}
         </div>
       )}
-      <button
-        onClick={handleSubmit}
-        disabled={submitting}
-        data-testid="family-continue"
-        style={{ padding: '8px 16px', fontSize: 14, marginTop: 8 }}
-      >
-        続行
-      </button>
-      <button
-        onClick={onDiscard}
-        disabled={submitting}
-        data-testid="family-discard"
-        style={{
-          padding: '8px 16px',
-          fontSize: 14,
-          marginTop: 8,
-          marginLeft: 12,
-          background: 'transparent',
-          color: '#666',
-          border: '1px solid #ccc',
-          borderRadius: 4,
-        }}
-      >
-        ノートを作らずに戻る
-      </button>
+      <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
+        <button className="lz-primary" onClick={handleSubmit} disabled={submitting} data-testid="family-continue">
+          続行
+        </button>
+        <button onClick={onDiscard} disabled={submitting} data-testid="family-discard">
+          ノートを作らずに戻る
+        </button>
+      </div>
     </div>
   );
 }

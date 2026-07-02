@@ -1,0 +1,268 @@
+/*
+ * Lisna app theme — native-Mac (MacWhisper-style) with Lisna brand tokens.
+ * Spec: docs/superpowers/specs/2026-07-02-app-native-mac-design.md
+ * System font (SF), minimal chrome, burgundy accent instead of macOS blue.
+ * Light + dark via prefers-color-scheme. First pass — tokens live here for now;
+ * extraction to shared/design is the spec's later step.
+ */
+:root {
+  --lz-canvas: #eae8e3;
+  --lz-surface: #ffffff;
+  --lz-toolbar: #faf9f6;
+  --lz-raised: #f4f2ec;
+  --lz-track: #efeee7;
+  --lz-tint: #f4eaea;
+  --lz-text: #1d1b17;
+  --lz-text-2: #86847d;
+  --lz-text-3: #b0aea6;
+  --lz-line: #eeece6;
+  --lz-border: #e2e0d9;
+  --lz-border-strong: #dcdad2;
+  --lz-accent: #6e1e1e;
+  --lz-accent-hover: #82302f;
+  --lz-accent-quiet: #b39b9b;
+  --lz-on-accent: #ffffff;
+  /* Record button — a clear, vivid red (record convention), distinct from the
+     burgundy brand accent used elsewhere. */
+  --lz-record: #dc2626;
+  --lz-record-hover: #b91c1c;
+  /* Active segment pill fill — must be LIGHTER than --lz-track so the selection
+     reads as raised (on dark, --lz-surface is darker than the track). */
+  --lz-seg-active: #ffffff;
+  --lz-success: #4d8c62;
+  --lz-success-tint: #eef3ee;
+  /* Overlay scrollbar thumb — quiet grey (ink at low alpha), decidedly not the
+     OS bright-white classic bar. */
+  --lz-scrollthumb: rgba(29, 27, 23, 0.28);
+  --lz-scrollthumb-hover: rgba(29, 27, 23, 0.42);
+  --lz-radius: 8px;
+  --lz-radius-lg: 12px;
+  --lz-font: -apple-system, "SF Pro Text", system-ui, sans-serif;
+  --lz-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --lz-serif: ui-serif, Georgia, serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* Black, Claude-app-like — warm near-black surfaces, not the earlier brown. */
+    --lz-canvas: #0d0c0b;
+    --lz-surface: #151412;
+    --lz-toolbar: #1c1a17;
+    --lz-raised: #24221d;
+    --lz-track: #222019;
+    --lz-tint: #33211f;
+    --lz-text: #f2efe9;
+    --lz-text-2: #9c988e;
+    --lz-text-3: #6d6960;
+    --lz-line: #29251f;
+    --lz-border: #322e27;
+    --lz-border-strong: #3d382f;
+    --lz-accent: #b0524f;
+    --lz-accent-hover: #c1605c;
+    --lz-accent-quiet: #c98b8b;
+    --lz-record: #ef4444;
+    --lz-record-hover: #f65a5a;
+    --lz-seg-active: #35302a;
+    --lz-success: #7fbf95;
+    --lz-success-tint: #22312a;
+    /* Off-white at low alpha → soft grey pill on near-black, not bright white. */
+    --lz-scrollthumb: rgba(242, 239, 233, 0.24);
+    --lz-scrollthumb-hover: rgba(242, 239, 233, 0.40);
+  }
+}
+
+html, body, #root { height: 100%; margin: 0; overflow: hidden; }
+body {
+  font-family: var(--lz-font);
+  font-size: 13.5px;
+  color: var(--lz-text);
+  background: var(--lz-surface);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+::selection { background: var(--lz-tint); }
+
+h1, h2, h3 { margin: 0; font-weight: 600; color: var(--lz-text); }
+h2 { font-size: 15px; }
+h3 { font-size: 13.5px; }
+p { margin: 0; }
+hr { border: 0; border-top: 1px solid var(--lz-line); margin: 14px 0; }
+
+button {
+  font-family: inherit; font-size: 12.5px; font-weight: 500;
+  color: var(--lz-text); background: var(--lz-surface);
+  border: 1px solid var(--lz-border-strong); border-radius: var(--lz-radius);
+  padding: 7px 14px; cursor: pointer; transition: background .12s, border-color .12s;
+}
+button:hover { background: var(--lz-raised); }
+button:active { transform: scale(0.985); }
+button:disabled { opacity: .5; cursor: default; }
+button:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--lz-tint); }
+
+input[type="text"], textarea, select {
+  font-family: inherit; font-size: 13px; color: var(--lz-text);
+  background: var(--lz-surface); border: 1px solid var(--lz-border);
+  border-radius: var(--lz-radius); padding: 7px 10px;
+}
+input[type="text"]:focus, textarea:focus { outline: none; border-color: var(--lz-accent); box-shadow: 0 0 0 3px var(--lz-tint); }
+a { color: var(--lz-accent); text-decoration: none; }
+
+/* App shell — native window. No header bar: content flows to the top edge; a
+   transparent draggable strip covers the traffic-light zone, and the scroll
+   area carries a scroll-gated top fade (see [data-lz-scroll] below). */
+.lz-app { position: relative; display: flex; flex-direction: column; height: 100%; background: var(--lz-surface); }
+
+/* The ONLY drag region. Transparent, pinned over the top of the content. 52px
+   covers the traffic lights (y:18 + ~14px glyph ≈ 32px) with grab margin; kept
+   above content (z:50) so OS window-drag wins in this band. Never set
+   pointer-events:none here — it would kill dragging. */
+.lz-titlebar { position: absolute; top: 0; left: 0; right: 0; height: 52px; -webkit-app-region: drag; z-index: 50; }
+.lz-titlebar button, .lz-titlebar a, .lz-titlebar .lz-noDrag { -webkit-app-region: no-drag; }
+
+/* THE one page scroll area. Full height; padding-top clears the drag strip +
+   traffic lights so at-rest first content sits below them, fully opaque. */
+/* min-height:0 defeats the flex-item default (min-height:auto), which would
+   otherwise let this grow to content height and push the whole document to
+   scroll with a native, unstyled bar instead of scrolling internally. */
+.lz-content { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-top: 52px; }
+.lz-pad { padding: 22px 26px; }
+
+/* Scroll-gated top fade — a gradient OVERLAY, not a mask on the scroller.
+   A -webkit-mask on the scroll container is best avoided (it clips the element's
+   whole paint incl. any border, and complicates scrollbar compositing). So the
+   fade is a separate absolutely-positioned element painted over the top of the
+   content: invisible at rest (first line stays fully opaque), fading in only once
+   .lz-content is scrolled. opacity IS animatable, so it eases in/out smoothly.
+   pointer-events:none so it never blocks scroll/clicks; sits above content, below
+   the drag strip (z:50). Surface-colored so content dissolves into the page
+   background as it scrolls up under the title band. */
+.lz-topfade {
+  position: absolute; top: 0; left: 0; right: 0; height: 54px; z-index: 40;
+  pointer-events: none; opacity: 0; transition: opacity .2s ease;
+  background: linear-gradient(to bottom, var(--lz-surface) 0%, var(--lz-surface) 28%, transparent 100%);
+}
+.lz-content[data-scrolled] ~ .lz-topfade { opacity: 1; }
+
+/* Brand wordmark — top-left, visible only at the very top (scrollTop 0), fading
+   out as you scroll (the inverse of the top fade, so it never fights content
+   scrolling up under the title band). Sits right of the traffic lights (x82)
+   within the 52px band; below the drag strip (z:50) so the top edge stays
+   draggable, above the fade (z:40). Decorative → pointer-events:none. */
+.lz-wordmark {
+  position: absolute; top: 0; left: 82px; height: 52px; z-index: 45;
+  display: flex; align-items: center; pointer-events: none;
+  font-family: var(--lz-serif); font-weight: 600; font-size: 15px; letter-spacing: .2px;
+  color: var(--lz-text); opacity: 1; transition: opacity .2s ease;
+}
+.lz-content[data-scrolled] ~ .lz-wordmark { opacity: 0; }
+
+/* Overlay scrollbars — blended (not bright white), inset floating pill,
+   transparent when idle, painted only while the element is actively scrolling
+   (main.tsx toggles [data-scrolling]). ONLY ::-webkit-scrollbar is used — never
+   scrollbar-color/scrollbar-width, which disable these pseudo-elements in
+   Chromium 121+. Track stays transparent so idle = no visible bar and the thumb
+   appearing/disappearing changes color only, never layout (no shift). */
+/* Universal (not class-scoped) so EVERY scroller — incl. any we didn't
+   anticipate — is styled, never the OS classic bar. Track + idle thumb are
+   transparent; the thumb paints only via [data-scrolling] below. */
+::-webkit-scrollbar { width: 12px; height: 12px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background-color: transparent; border: 4px solid transparent; border-radius: 100px; background-clip: content-box;
+}
+[data-scrolling]::-webkit-scrollbar-thumb { background-color: var(--lz-scrollthumb); }
+[data-scrolling]::-webkit-scrollbar-thumb:hover, [data-scrolling]:hover::-webkit-scrollbar-thumb { background-color: var(--lz-scrollthumb-hover); }
+::-webkit-scrollbar-corner { background: transparent; }
+.lz-icon-btn { background: transparent; border: 0; padding: 5px; color: var(--lz-text-3); font-size: 17px; line-height: 1; }
+.lz-icon-btn:hover { background: var(--lz-raised); color: var(--lz-text-2); }
+
+.lz-label { font-size: 11px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; color: var(--lz-text-3); margin: 0 0 7px; }
+.lz-muted { color: var(--lz-text-2); }
+.lz-hint { color: var(--lz-text-3); font-size: 11.5px; }
+
+/* Segmented control (CSS-styles radio groups: <fieldset class=lz-seg><label><input radio>…</label>).
+   Sized large + prominent so Source/Language read at a glance. */
+.lz-seg { display: inline-flex; border: 0; margin: 0; padding: 3px; background: var(--lz-track); border-radius: 11px; }
+.lz-seg legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.lz-seg label { display: inline-flex; align-items: center; justify-content: center; padding: 10px 24px; border-radius: 8px; font-size: 14px; color: var(--lz-text-2); cursor: pointer; user-select: none; }
+.lz-seg label:hover { color: var(--lz-text); }
+.lz-seg label:has(input:checked) { background: var(--lz-seg-active); color: var(--lz-text); font-weight: 500; box-shadow: 0 1px 2px rgba(0,0,0,.25); }
+.lz-seg input { position: absolute; opacity: 0; pointer-events: none; }
+.lz-seg:disabled, .lz-seg[disabled] label { opacity: .5; cursor: default; }
+
+/* Buttons */
+.lz-primary { background: var(--lz-accent); color: var(--lz-on-accent); border: 1px solid var(--lz-accent); border-radius: 9px; padding: 9px 20px; font-size: 13.5px; }
+.lz-primary:hover { background: var(--lz-accent-hover); border-color: var(--lz-accent-hover); }
+/* Record button — clear red, prominent. Stop reuses the same red as an outline. */
+.lz-record { background: var(--lz-record); color: #fff; border: 1px solid var(--lz-record); border-radius: 10px; padding: 12px 28px; font-size: 15px; font-weight: 500; }
+.lz-record:hover { background: var(--lz-record-hover); border-color: var(--lz-record-hover); }
+.lz-danger-outline { background: transparent; color: var(--lz-record); border: 1px solid var(--lz-record); border-radius: 10px; padding: 11px 22px; font-size: 14px; }
+.lz-danger-outline:hover { background: var(--lz-tint); }
+
+/* List / choice rows */
+.lz-row { display: flex; align-items: center; gap: 11px; padding: 10px 8px; border-radius: var(--lz-radius); cursor: pointer; }
+.lz-row:hover { background: var(--lz-raised); }
+.lz-list .lz-row + .lz-row { border-top: 1px solid var(--lz-line); }
+.lz-row-ic { flex: 0 0 auto; width: 30px; height: 30px; border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 16px; background: var(--lz-tint); color: var(--lz-accent); }
+.lz-row-ic.ok { background: var(--lz-success-tint); color: var(--lz-success); }
+.lz-row-main { flex: 1 1 auto; min-width: 0; }
+.lz-row-title { font-size: 13.5px; font-weight: 500; }
+.lz-row-meta { font-size: 12px; color: var(--lz-text-2); }
+.lz-row-chev { color: var(--lz-text-3); font-size: 16px; }
+.lz-choice { border: 1px solid var(--lz-line); }
+.lz-choice.default { border: 1.5px solid var(--lz-accent); }
+
+/* Recording bits */
+.lz-timer { font-family: var(--lz-mono); font-size: 26px; font-weight: 500; letter-spacing: .5px; }
+.lz-meter { flex: 1 1 auto; height: 5px; border-radius: 3px; background: var(--lz-track); overflow: hidden; }
+.lz-meter > i { display: block; height: 100%; background: var(--lz-accent); }
+.lz-pulse { width: 10px; height: 10px; border-radius: 50%; background: var(--lz-accent); }
+
+/* Generation chip (bottom-right overlay) */
+.lz-chip { display: inline-flex; align-items: center; gap: 9px; background: var(--lz-surface); border: 1px solid var(--lz-border); border-radius: 10px; padding: 8px 13px; font-size: 12.5px; box-shadow: 0 2px 8px rgba(40,30,15,.10); }
+.lz-chip-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--lz-accent); }
+.lz-chip-dot.ok { background: var(--lz-success); }
+
+/* Reading (Note / Transcript) */
+.lz-read-h { font-size: 15px; font-weight: 600; margin: 22px 0 8px; }
+.lz-read-h:first-child { margin-top: 0; }
+.lz-read-p { font-size: 13.5px; line-height: 1.75; color: var(--lz-text); }
+.lz-ts { font-family: var(--lz-mono); font-size: 11.5px; color: var(--lz-accent-quiet); font-variant-numeric: tabular-nums; }
+
+/* Transcript reading rows (History detail + TranscriptView) */
+.lz-scroll { max-height: 52vh; overflow-y: auto; border: 1px solid var(--lz-line); border-radius: var(--lz-radius-lg); padding: 8px 4px; }
+/* Borderless variant — TranscriptView's <ul> (shares the 52vh scroller + overlay
+   scrollbar + fade, but no card border/padding). */
+.lz-scroll--plain { border: 0; border-radius: 0; padding: 0; }
+.lz-tline { display: flex; gap: 13px; align-items: flex-start; padding: 5px 12px; border-radius: 6px; }
+.lz-tline:hover { background: var(--lz-raised); }
+.lz-tline .lz-ts { flex: 0 0 auto; padding-top: 3px; }
+.lz-tline .txt { font-size: 13.5px; line-height: 1.7; color: var(--lz-text); }
+
+/* Structured note content (family renderers) — scoped under .lz-note so the
+   shared class vocabulary (.ts-anchor, .key-terms, section h2 …) never touches
+   the app chrome. Styles all four families at once. */
+.lz-note { font-size: 14px; line-height: 1.75; color: var(--lz-text); }
+.lz-note header { margin-bottom: 20px; }
+.lz-note h1 { font-size: 25px; font-weight: 700; line-height: 1.2; letter-spacing: -0.015em; margin: 0 0 8px; }
+.lz-note h2 { font-size: 15px; font-weight: 700; color: var(--lz-text); margin: 0 0 11px; padding-bottom: 8px; border-bottom: 1px solid var(--lz-line); }
+.lz-note h3 { font-size: 14px; font-weight: 600; margin: 18px 0 5px; }
+.lz-note section { margin-top: 32px; }
+.lz-note p { margin: 0 0 8px; }
+.lz-note ul, .lz-note ol { margin: 6px 0 10px; padding-left: 20px; }
+.lz-note li { margin: 6px 0; line-height: 1.7; }
+.lz-note li::marker { color: var(--lz-text-3); }
+.lz-note .lecturer, .lz-note .course { font-size: 12.5px; color: var(--lz-text-2); }
+.lz-note .tldr, .lz-note .subject-summary { font-size: 14.5px; line-height: 1.75; margin-top: 10px; }
+.lz-note .ts-anchor { font-family: var(--lz-mono); font-size: 10.5px; font-weight: 500; color: var(--lz-accent-quiet); white-space: nowrap; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.lz-note .provenance-inferred { color: var(--lz-text-3); font-size: 11px; margin-left: 2px; }
+.lz-note li.important { font-weight: 500; }
+.lz-note .key-terms { margin: 8px 0 10px; }
+.lz-note .key-terms dt { font-weight: 600; margin-top: 9px; }
+.lz-note .key-terms dd { margin: 2px 0 0; color: var(--lz-text-2); }
+.lz-note .rationale, .lz-note .due, .lz-note .outcome, .lz-note .speaker-ref,
+.lz-note .speakers, .lz-note .supports, .lz-note .atmosphere, .lz-note .purpose { font-size: 12px; color: var(--lz-text-2); }
+.lz-note .rationale { margin-top: 2px; }
+.lz-note code { font-family: var(--lz-mono); font-size: 12.5px; background: var(--lz-raised); padding: 1px 5px; border-radius: 4px; }
+.lz-note .slot { margin: 8px 0; }
+.lz-note .validation-warnings { margin-top: 26px; padding: 11px 14px; border-left: 2px solid var(--lz-border-strong); background: var(--lz-raised); border-radius: 0 var(--lz-radius) var(--lz-radius) 0; font-size: 12px; color: var(--lz-text-2); }
+.lz-note .validation-warnings p { font-weight: 500; margin-bottom: 4px; }

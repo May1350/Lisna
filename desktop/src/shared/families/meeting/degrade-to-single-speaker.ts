@@ -8,7 +8,7 @@ import type { SessionTranscript } from '@shared/note-schema/transcript';
  * and tests can assert the exact string without duplicating it.
  */
 export const SINGLE_SPEAKER_WARNING =
-  'Speaker labels disabled: diarization was unavailable for this session, so all segments are attributed to a single speaker.';
+  '話者ラベルは無効です。このセッションでは話者分離が使えなかったため、すべての発言を1人の話者として扱っています。';
 
 /**
  * Collapse a multi-speaker transcript to a single speaker.
