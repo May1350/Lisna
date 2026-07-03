@@ -34,6 +34,15 @@ export function isHallucination(
   // Always drop empty/whitespace-only text
   if (trimmed === '') return true;
 
+  // Degenerate moraic-nasal burst: a segment that is only 「ん」 (or katakana ン),
+  // possibly repeated, with optional trailing punctuation — 「ん」「んん」「ん、」…
+  // Whisper emits these in bursts on hard/quiet audio (one recording had 76, at
+  // noSpeechProb ≈ 1e-9) so no silence marker fires. Zero information, not a
+  // blocklist phrase. Lang-agnostic: only JA output can produce ん at all.
+  // ponytail: matches the observed pure-ん bursts; extend the char class if a
+  // 「んー」/「んっ」 variant ever shows up in real data.
+  if (/^[んン]+[、。！？…]*$/.test(trimmed)) return true;
+
   // Layer F.front: probability filter (lang-agnostic, only when prob is available)
   if (segment.noSpeechProb !== undefined) {
     const threshold = opts.noSpeechProbThreshold ?? DEFAULT_NO_SPEECH_PROB_THRESHOLD;
@@ -69,9 +78,44 @@ export function isHallucination(
   return false;
 }
 
+// Keep at most this many consecutive segments with identical normalized text.
+// A real double (「はい」「はい」) is a run of 2 and survives; a decoder loop
+// (worst observed: one phrase ×343 to end-of-file) collapses to the first 2.
+const MAX_CONSECUTIVE_REPEATS = 2;
+
+/**
+ * Collapse runs of consecutive segments with identical normalized text down to
+ * the first {@link MAX_CONSECUTIVE_REPEATS}. Whisper's decoder latches onto a
+ * phrase on hard audio and repeats it every ~1-2s to the end of the file; those
+ * repeats have noSpeechProb ≈ 0, so the per-segment silence markers never catch
+ * them. Runs are detected AFTER the hallucination filter so a dropped segment
+ * doesn't split a run. Normalization strips trailing punctuation/space so
+ * 「そうですね」/「そうですね。」 count as the same loop.
+ */
+function collapseConsecutiveRepeats(
+  segments: readonly TranscriptSegment[],
+): TranscriptSegment[] {
+  const out: TranscriptSegment[] = [];
+  let prevNorm: string | null = null;
+  let runLen = 0;
+  for (const s of segments) {
+    const norm = s.text.trim().replace(/[、。！？!?…\s]+$/, '');
+    if (norm !== '' && norm === prevNorm) {
+      runLen += 1;
+      if (runLen > MAX_CONSECUTIVE_REPEATS) continue; // drop 3rd+ copy of a loop
+    } else {
+      prevNorm = norm;
+      runLen = 1;
+    }
+    out.push(s);
+  }
+  return out;
+}
+
 export function filterSegments(
   segments: readonly TranscriptSegment[],
   opts: FilterOptions,
 ): TranscriptSegment[] {
-  return segments.filter((s) => !isHallucination(s, opts));
+  const kept = segments.filter((s) => !isHallucination(s, opts));
+  return collapseConsecutiveRepeats(kept);
 }

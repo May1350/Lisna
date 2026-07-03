@@ -277,3 +277,91 @@ describe('filterSegments', () => {
     expect(out[1]!.text).toBe('元気ですか');
   });
 });
+
+describe('collapse consecutive decoder-loop repeats', () => {
+  // Real signature from session 2026-06-29T09-01-28: whisper's decoder latched
+  // onto 「アグリコンペティション?」 and repeated it ×343 to the end of the file,
+  // every one at noSpeechProb ≈ 1.25e-9 — so none of the silence markers fire.
+  const loop = (startSec: number): TranscriptSegment => ({
+    text: 'アグリコンペティション?',
+    startSec,
+    endSec: startSec + 1,
+    noSpeechProb: 1.25e-9,
+  });
+
+  it('collapses a run of ≥3 identical segments to at most 2', () => {
+    const segs: TranscriptSegment[] = [
+      { text: '本題に入りましょう', startSec: 10, endSec: 11, noSpeechProb: 0.05 },
+      loop(1153), loop(1154), loop(1155), loop(1156), loop(1157), // 5 in a row
+      { text: 'ありがとうございます', startSec: 1200, endSec: 1201, noSpeechProb: 0.05 },
+    ];
+    const out = filterSegments(segs, ja);
+    expect(out.filter((s) => s.text === 'アグリコンペティション?').length).toBeLessThanOrEqual(2);
+    expect(out[0]!.text).toBe('本題に入りましょう');
+    expect(out.at(-1)!.text).toBe('ありがとうございます');
+  });
+
+  it('keeps a legitimate double (run of exactly 2) intact', () => {
+    const segs: TranscriptSegment[] = [
+      { text: 'はい', startSec: 5, endSec: 5.5, noSpeechProb: 0.05 },
+      { text: 'はい', startSec: 6, endSec: 6.5, noSpeechProb: 0.05 },
+      { text: '次の議題です', startSec: 7, endSec: 8, noSpeechProb: 0.05 },
+    ];
+    const out = filterSegments(segs, ja);
+    expect(out.filter((s) => s.text === 'はい')).toHaveLength(2);
+  });
+
+  it('collapses near-identical repeats differing only in trailing punctuation', () => {
+    const segs: TranscriptSegment[] = [
+      { text: 'そうですね', startSec: 1, endSec: 2, noSpeechProb: 0.05 },
+      { text: 'そうですね。', startSec: 2, endSec: 3, noSpeechProb: 0.05 },
+      { text: 'そうですね', startSec: 3, endSec: 4, noSpeechProb: 0.05 },
+      { text: 'そうですね。', startSec: 4, endSec: 5, noSpeechProb: 0.05 },
+    ];
+    const out = filterSegments(segs, ja);
+    expect(out.length).toBeLessThanOrEqual(2);
+  });
+
+  it('does not collapse distinct adjacent segments', () => {
+    const segs: TranscriptSegment[] = [
+      { text: 'A', startSec: 1, endSec: 2, noSpeechProb: 0.05 },
+      { text: 'B', startSec: 2, endSec: 3, noSpeechProb: 0.05 },
+      { text: 'A', startSec: 3, endSec: 4, noSpeechProb: 0.05 },
+    ];
+    const out = filterSegments(segs, ja);
+    expect(out).toHaveLength(3);
+  });
+});
+
+describe('degenerate 「ん」 burst drop', () => {
+  // Session 2026-06-29T08-08-44 emitted 76 segments that were exactly 「ん」,
+  // 55 of them consecutive, all at noSpeechProb ≈ 1e-9. Zero information; not a
+  // blocklist phrase, so no existing marker catches them.
+  it('drops a lone 「ん」 segment even at near-zero noSpeechProb', () => {
+    expect(isHallucination(seg({ text: 'ん', noSpeechProb: 1e-9 }), ja)).toBe(true);
+  });
+  it('drops 「んん」 / 「んんん」', () => {
+    expect(isHallucination(seg({ text: 'んん' }), ja)).toBe(true);
+    expect(isHallucination(seg({ text: 'んんん' }), ja)).toBe(true);
+  });
+  it('drops 「ん、」 with trailing punctuation', () => {
+    expect(isHallucination(seg({ text: 'ん、' }), ja)).toBe(true);
+  });
+  it('keeps 「うん」 mid-conversation (real filler — has う, not ん-only)', () => {
+    expect(
+      isHallucination(seg({ text: 'うん', noSpeechProb: 0.05, startSec: 5, endSec: 5.5 }), ja),
+    ).toBe(false);
+  });
+  it('drops a 76-「ん」 burst end-to-end via filterSegments', () => {
+    const segs: TranscriptSegment[] = Array.from({ length: 76 }, (_, i) => ({
+      text: 'ん',
+      startSec: 141 + i,
+      endSec: 142 + i,
+      noSpeechProb: 1.09e-9,
+    }));
+    segs.unshift({ text: '重要な論点があります', startSec: 100, endSec: 101, noSpeechProb: 0.05 });
+    const out = filterSegments(segs, ja);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.text).toBe('重要な論点があります');
+  });
+});
