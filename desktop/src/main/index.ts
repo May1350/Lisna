@@ -18,6 +18,16 @@ import { handleAuthCallback } from './auth/exchange';
 // during boot. macOS log path: ~/Library/Logs/Lisna/main.log (rotating).
 initFileLogger();
 
+// Pin the userData location EXPLICITLY so on-device recordings / notes / glossary
+// / models stay at a STABLE path across versions. Today it derives IMPLICITLY
+// from the package name (~/Library/Application Support/@lisna/desktop); pinning
+// the same value here means a future rename, productName change, or app.getName()
+// tweak can never silently point a reinstalled/updated app at a fresh empty dir
+// and orphan a user's data. Same path as today → NO migration, existing data is
+// read as-is. MUST run before any getPath('userData') (createWindow reads it at
+// boot) and before whenReady — hence at module top level.
+app.setPath('userData', join(app.getPath('appData'), '@lisna', 'desktop'));
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Module-level so the before-quit hook + handleSidecarExit's safeSend
