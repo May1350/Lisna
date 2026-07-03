@@ -4,21 +4,49 @@ import { MarketingShell } from '@/components/layout/marketing-shell';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import type { Locale } from '@/i18n/routing';
+import { env } from '@/lib/env';
+
+/**
+ * Latest-release facts for the version line — fetched from the GitHub API so the
+ * page never hardcodes (and never goes stale on) a version. Mirrors the
+ * resolution in /dl/dmg/latest. Cached 5 min; null on any error so the page
+ * still renders using the message's default placeholders.
+ */
+async function getLatestReleaseInfo(): Promise<{ version: string | null; sizeMB: number | null; checksumsUrl: string | null } | null> {
+  try {
+    const res = await fetch(`https://api.github.com/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/releases/latest`, {
+      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'lisna.jp' },
+      next: { revalidate: 300 },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const assets: { name?: string; size?: number; browser_download_url?: string }[] = data.assets ?? [];
+    const dmg = assets.find((a) => a.name?.toLowerCase().endsWith('.dmg'));
+    const sums = assets.find((a) => a.name === 'SHA256SUMS.txt');
+    return {
+      version: (data.tag_name as string) || null,
+      sizeMB: dmg?.size ? Math.round(dmg.size / 1_000_000) : null,
+      checksumsUrl: sums?.browser_download_url ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
 
 export default async function DownloadPage({ params }: { params: Promise<{ locale: Locale }> }) {
   const { locale } = await params;
   setRequestLocale(locale);
   const t = await getTranslations('downloadPage');
+  const rel = await getLatestReleaseInfo();
   const prefix = locale === 'en' ? '' : `/${locale}`;
   return (
     <MarketingShell locale={locale}>
       <section className="relative mx-auto max-w-5xl pad-x py-16">
         <h1 className="font-serif text-h1 text-ink-900">{t('title')}</h1>
-        <p className="mt-3 font-sans text-body text-ink-700">{t('versionLine')}</p>
-        <details className="mt-2 max-w-[60ch]">
-          <summary className="cursor-pointer select-none text-body-sm text-ink-700/70 hover:text-ink-700">{t('shaToggle')}</summary>
-          <p className="mt-1 text-body-sm text-ink-700/85 font-mono break-all">{t('shaPrefix')}4d05e078a4eceb8152b7e47a88a7eea374fdb06e4a485c63b0271e4d1a2ec770</p>
-        </details>
+        <p className="mt-3 font-sans text-body text-ink-700">{t('versionLine', { version: rel?.version ?? 'latest', size: rel?.sizeMB ?? 110 })}</p>
+        {rel?.checksumsUrl && (
+          <a href={rel.checksumsUrl} className="mt-2 inline-block text-body-sm text-ink-700/70 hover:text-ink-700 underline">{t('shaToggle')} →</a>
+        )}
         <div className="mt-8">
           <Button asChild size="lg">
             <Link href="/dl/dmg/latest">{t('downloadCta')}</Link>
