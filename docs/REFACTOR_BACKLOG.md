@@ -1,6 +1,6 @@
 # Refactor backlog
 
-**Last updated**: 2026-05-27
+**Last updated**: 2026-07-03
 **Last synced** (`/backlog-sync`): 2026-05-23
 
 Living queue of maintenance / refactor / tech-debt items. NOT the
@@ -42,6 +42,7 @@ _(Ready but waiting for capacity. Promote to Now when slot opens.)_
 - [P3] **Passkey sign-in (WebAuthn)** — add passkeys as a returning-user method on the signin page (2026 passwordless standard; complements the existing magic-link + OAuth). Needs an Auth.js WebAuthn provider + a credential-storage table + the "last used" hint already shipped on the signin page. Touches: `web/src/lib/auth.ts`, `web/src/components/ui/sign-in-panel.tsx`, a `webauthn_credentials` migration. Effort: L.
 - [P2] **Extract design tokens to `shared/`** — color / type / scale / spacing currently live only in `web/tailwind.config.ts`. Promote to `shared/design/tokens.ts` so web + the future app consume one source (brand-drift prevention, same pattern as the `Outline`-type item). Touches: `shared/`, `web/tailwind.config.ts`. Effort: M. Spec: `docs/superpowers/specs/2026-05-25-app-design-system-layering.md`.
 - [P3] **App design layer (desktop)** — give the unstyled desktop app its product-component layer + `.claude/rules/app-design.md`, built on the shared tokens (NOT a forked design system). Set up Tailwind v4 in `desktop/`, self-host fonts (offline), reuse legal-pad CSS only on low-density screens (SignIn/Setup), keep Recording function-first. Gated on desktop un-park. Touches: `desktop/`, `shared/design`. Effort: L. Spec: `docs/superpowers/specs/2026-05-25-app-design-system-layering.md`.
+- [P3] **Recording data export / backup** — on-device storage = no automatic cloud backup, so a wiped/lost `~/Library/Application Support/@lisna/desktop/` (or Mac loss) means unrecoverable recordings. Add an in-app export/backup that zips the data dir (`sessions/` + `audio-captures/` + `glossary.json` + `models.json`) to a user-chosen location, plus an import-to-restore. Complements the userData-path pin (shipped 2026-07-03). Founder-requested 2026-07-03. Touches: `desktop/src/main/` (export/import IPC + zip), `desktop/src/renderer/` (button on the recording home or a settings surface). Effort: M.
 
 ## Parking lot
 
