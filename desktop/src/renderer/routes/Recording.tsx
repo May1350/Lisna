@@ -3,6 +3,7 @@ import type { DumpSummary, RecordingSource } from '@shared/ipc-protocol';
 import type { Language } from '@shared/types';
 import { RecordingOrchestrator } from '../audio/orchestrator';
 import { createCapturer } from '../audio/worklet-capturer';
+import { setPreferredMicDevice } from '../audio/mic-capture';
 import { HistoryList } from '../components/HistoryList';
 import { LevelMeter } from '../components/LevelMeter';
 import { SystemAudioUnavailableNotice } from '../components/SystemAudioUnavailableNotice';
@@ -15,6 +16,13 @@ import { Spinner } from '../components/Spinner';
  * prompt is stacked or sidecar is slow.
  */
 const SLOW_LOAD_HINT_MS = 8_000;
+
+// enumerateDevices() returns nameless / id-less entries until getUserMedia has
+// run once in the document. When mic permission is already granted (returning
+// user — persists via macOS TCC), one throwaway getUserMedia unlocks the labels
+// with NO prompt. Module-scoped so we prime at most once per app launch — not on
+// every return to the recording screen (which would re-flash the mic indicator).
+let micDevicesPrimed = false;
 
 interface Props {
   /**
@@ -52,6 +60,10 @@ export function Recording({ onStop, onError, onOpenHistory, onOpenTerms, onQuick
   // attempt and on completion. Step 5 §3.3 task 2.
   const [slowLoad, setSlowLoad] = useState(false);
   const [source, setSource] = useState<RecordingSource>('mic');
+  // Auto-detected audio input devices (mics / earphones) + the chosen one
+  // ('' = system default). Enumerated on mount + on hot-plug (devicechange).
+  const [micDevices, setMicDevices] = useState<MediaDeviceInfo[]>([]);
+  const [micDeviceId, setMicDeviceId] = useState('');
   // Supported capture languages: ja/en (full notes) + ko (transcription-only,
   // Phase 1 — see languageCapabilities). zh stays gated (ipc rejects it).
   // Persisted so a lecture-course routine doesn't reset to ja every launch.
@@ -92,6 +104,45 @@ export function Recording({ onStop, onError, onOpenHistory, onOpenTerms, onQuick
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  // Detect connected input devices (built-in mic, AirPods, USB mic…) and refresh
+  // on hot-plug. Device LABELS are only populated once mic permission is granted
+  // (persists via macOS TCC after the first recording), so on a first-ever launch
+  // the list may be name-less until then — the picker falls back to a generic
+  // label + "自動" default. mediaDevices is absent in the vitest (no-DOM) env, so
+  // guard it; this effect is live-verified in the app.
+  useEffect(() => {
+    const md = navigator.mediaDevices;
+    if (!md?.enumerateDevices) return;
+    let live = true;
+    const refresh = () => {
+      md.enumerateDevices().then((all) => {
+        if (!live) return;
+        // Keep real inputs only — drop the "default"/"communications" aliases
+        // (they duplicate a real device); our '' option IS the system default.
+        const inputs = all.filter(
+          (d) => d.kind === 'audioinput' && d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications',
+        );
+        setMicDevices(inputs);
+        // If the chosen device was unplugged, fall back to the system default.
+        setMicDeviceId((cur) => (cur && !inputs.some((d) => d.deviceId === cur) ? '' : cur));
+      }).catch(() => { /* enumerate can reject without permission — leave empty */ });
+    };
+    // Prime label access once (if already granted → silent), then enumerate.
+    void (async () => {
+      try {
+        const perm = await navigator.permissions?.query({ name: 'microphone' as PermissionName });
+        if (perm?.state === 'granted' && !micDevicesPrimed) {
+          micDevicesPrimed = true;
+          const s = await md.getUserMedia({ audio: true, video: false });
+          s.getTracks().forEach((t) => t.stop());
+        }
+      } catch { /* permissions/getUserMedia unavailable — fall back to enumerate-only */ }
+      refresh();
+    })();
+    md.addEventListener?.('devicechange', refresh);
+    return () => { live = false; md.removeEventListener?.('devicechange', refresh); };
   }, []);
 
   // F2 history list: fetch dump summaries when idle (not running/starting).
@@ -165,6 +216,9 @@ export function Recording({ onStop, onError, onOpenHistory, onOpenTerms, onQuick
       //   3. Chunks during STT load are dropped server-side (main's
       //      `recording === false`). At 16kHz/2s chunks the lost window is
       //      ≤1 chunk; accepted v2.0.
+      // Route the picked input device into the mic capturer ('' → system default);
+      // ignored for system-audio source.
+      setPreferredMicDevice(source === 'mic' ? (micDeviceId || undefined) : undefined);
       await window.lisna.startRecording(source);
       const orch = new RecordingOrchestrator({
         capturerFactory: (s) => createCapturer(s),
@@ -228,6 +282,37 @@ export function Recording({ onStop, onError, onOpenHistory, onOpenTerms, onQuick
                 システム音声
               </label>
             </fieldset>
+
+            {/* Plain-language helper — non-tech users don't know what each captures. */}
+            <p className="lz-hint" style={{ margin: '8px 2px 0', lineHeight: 1.5 }}>
+              {source === 'mic'
+                ? 'マイクやイヤホンから、目の前の声・音を録ります（対面の会議・自分の声など）。'
+                : 'この端末で再生中の音を録ります（オンライン会議・動画・通話など）。'}
+            </p>
+
+            {/* Auto-detected input devices (mic source only). */}
+            {source === 'mic' && (
+              <div style={{ marginTop: 10 }}>
+                <label htmlFor="mic-device" className="lz-label" style={{ display: 'block' }}>入力デバイス</label>
+                <select
+                  id="mic-device"
+                  value={micDeviceId}
+                  disabled={running || starting}
+                  onChange={(e) => { setMicDeviceId(e.target.value); setPreferredMicDevice(e.target.value || undefined); }}
+                  style={{ minWidth: 240, maxWidth: 340 }}
+                >
+                  <option value="">自動（システムのマイク）</option>
+                  {micDevices.map((d, i) => (
+                    <option key={d.deviceId} value={d.deviceId}>{d.label || `マイク ${i + 1}`}</option>
+                  ))}
+                </select>
+                {micDevices.length === 0 && (
+                  <p className="lz-hint" style={{ marginTop: 5 }}>
+                    接続中のマイクを検出中… 一度録音を許可すると、イヤホン・外部マイクを選べます。
+                  </p>
+                )}
+              </div>
+            )}
           </div>
           {!systemAudioAvailable && <SystemAudioUnavailableNotice />}
           <div style={{ marginBottom: 26 }}>
@@ -268,7 +353,7 @@ export function Recording({ onStop, onError, onOpenHistory, onOpenTerms, onQuick
             </span>
           </div>
           <div style={{ marginBottom: 22 }}>
-            <LevelMeter dbfs={level} deviceName={source === 'mic' ? 'マイク' : 'システム音声'} />
+            <LevelMeter dbfs={level} deviceName={source === 'system' ? 'システム音声' : (micDevices.find((d) => d.deviceId === micDeviceId)?.label || 'マイク')} />
           </div>
           <div style={{ display: 'flex', gap: 10 }}>
             <button className="lz-danger-outline" onClick={stop} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
