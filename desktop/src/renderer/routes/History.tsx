@@ -61,7 +61,9 @@ export function HistoryDetail({ id, transcript, onBack, onRegenerate }: DetailPr
   return (
     <section className="lz-pad" style={{ maxWidth: 760, margin: '0 auto' }} data-testid="history-detail">
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-        <button data-testid="history-back" onClick={onBack} disabled={editing}>← 戻る</button>
+        {/* In edit mode the back button is a dead end (edits pending) — hide it;
+            the キャンセル button at the bottom is the way out. */}
+        {!editing && <button data-testid="history-back" onClick={onBack}>← 戻る</button>}
         <h2 style={{ margin: 0 }}>録音履歴</h2>
         {editing && <span style={{ color: 'var(--lz-accent)', fontSize: 12 }}>編集中</span>}
         {!editing && (
