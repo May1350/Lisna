@@ -570,6 +570,10 @@ async function runGenerationContext(snap: GenSnapshot): Promise<SessionContext> 
     // Dump wrap sits OUTSIDE the recovery wrapper so the recorded calls are
     // exactly what callWithGrammar issued (prompt, seed, raw output per attempt).
     sidecar: _activeDump ? _activeDump.wrapSidecar(recoveringSidecar) : recoveringSidecar,
+    // Undefined when no dump dir was created → NoteView renders without the
+    // editable title (nothing to key title.json by). Same source as the
+    // transcribe path's dumpId (runTranscriptContext).
+    dumpId: _activeDump ? path.basename(_activeDump.dir) : undefined,
   };
 }
 

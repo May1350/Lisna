@@ -1,9 +1,11 @@
+import { useState } from 'react';
 import type { Note } from '@shared/types';
 import type { NoteBase } from '@shared/note-schema';
 import { NOTE_FAMILY_LABEL_JA } from '@shared/note-schema/family-label';
 import { familyRendererRegistry } from '@shared/families/renderer';
 import { noteToMarkdown } from '@shared/note-export';
 import { CopyExportButtons } from '../components/CopyExportButtons';
+import { EditableTitle } from '../components/EditableTitle';
 
 /** Filesystem-safe `.md` filename from the note title. */
 function noteFileName(title: string): string {
@@ -13,6 +15,10 @@ function noteFileName(title: string): string {
 
 interface Props {
   note: Note | NoteBase;
+  /** Source dump dir id. When present, the header shows an inline-editable
+   *  recording title (persisted to the dump's title.json). Absent for the
+   *  legacy/cloud path that has no dump. */
+  dumpId?: string;
   onNewSession: () => void;
 }
 
@@ -31,11 +37,25 @@ interface Props {
  * Discriminator: presence of the `family` field. Legacy `Note` doesn't carry
  * it; every `NoteBase` does.
  */
-export function NoteView({ note, onNewSession }: Props) {
+export function NoteView({ note, dumpId, onNewSession }: Props) {
   const isStructured = 'family' in note;
+  // The recording's user title. Starts empty (a freshly generated note has none
+  // yet) and is persisted to the dump's title.json on edit.
+  // ponytail: starts empty; a regen-revisit won't pre-fill a previously-saved
+  // custom name — add a loadDump(dumpId) on mount if that case ever matters.
+  const [title, setTitle] = useState('');
+  const titleFallback = 'title' in note ? note.title : new Date(note.generatedAt).toLocaleString();
 
   return (
     <section className="lz-pad" style={{ maxWidth: 720, margin: '0 auto' }}>
+      {dumpId && (
+        <EditableTitle
+          value={title}
+          fallback={titleFallback}
+          onSave={(t) => { setTitle(t); void window.lisna.saveDumpTitle(dumpId, t); }}
+          style={{ display: 'block', fontSize: 22, fontWeight: 600, marginBottom: 10 }}
+        />
+      )}
       <header style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
         <p className="lz-hint" style={{ margin: 0 }}>
           {new Date(note.generatedAt).toLocaleString()} · {note.language.toUpperCase()}
