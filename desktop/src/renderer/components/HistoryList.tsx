@@ -1,6 +1,14 @@
 import type { DumpSummary } from '@shared/ipc-protocol';
 import type { NoteFamily } from '@shared/note-schema';
 import { NOTE_FAMILY_LABEL_JA } from '@shared/note-schema/family-label';
+import { EditableTitle } from './EditableTitle';
+
+/** Display fallback for a recording with no user title: the note's auto title,
+ *  else the family label, else 文字起こし (+ 失敗 marker for a failed note). */
+function fallbackName(d: DumpSummary): string {
+  const base = d.noteTitle ?? (d.family ? (NOTE_FAMILY_LABEL_JA[d.family as NoteFamily] ?? d.family) : '文字起こし');
+  return d.ok === false ? `${base} · 失敗` : base;
+}
 
 /**
  * F2 history viewer — list of past finalize dumps, shown in the idle
@@ -15,6 +23,8 @@ import { NOTE_FAMILY_LABEL_JA } from '@shared/note-schema/family-label';
 interface Props {
   dumps: DumpSummary[];
   onOpen: (id: string) => void;
+  /** Persist a row's user title ('' clears it). */
+  onRename: (id: string, title: string) => void;
 }
 
 function formatDuration(sec: number): string {
@@ -27,7 +37,7 @@ function formatRecordedAt(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
 }
 
-export function HistoryList({ dumps, onOpen }: Props) {
+export function HistoryList({ dumps, onOpen, onRename }: Props) {
   if (dumps.length === 0) {
     return (
       <div data-testid="history-section">
@@ -57,8 +67,12 @@ export function HistoryList({ dumps, onOpen }: Props) {
           >
             <div className="lz-row-main">
               <div className="lz-row-title">
-                {d.family ? (NOTE_FAMILY_LABEL_JA[d.family as NoteFamily] ?? d.family) : '文字起こし'}
-                {d.ok === false ? ' · 失敗' : ''}
+                <EditableTitle
+                  value={d.title ?? ''}
+                  fallback={fallbackName(d)}
+                  onSave={(t) => onRename(d.id, t)}
+                  inRow
+                />
               </div>
               <div className="lz-row-meta">
                 {formatDuration(d.durationSec ?? 0)} · {d.language ?? '?'} · {formatRecordedAt(d.recordedAt)}

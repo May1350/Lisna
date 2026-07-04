@@ -4,6 +4,7 @@ import type { NoteFamily } from '@shared/note-schema';
 import { FamilyPickerStep } from '../components/FamilyPickerStep';
 import { Spinner } from '../components/Spinner';
 import { GlossarySuggestions } from '../components/GlossarySuggestions';
+import { EditableTitle } from '../components/EditableTitle';
 import { suggestGlossaryTerms } from '@shared/stt/glossary';
 import { toFriendlyJa } from '../i18n/error-message-map';
 
@@ -43,6 +44,7 @@ export function HistoryDetail({ id, transcript, onBack, onRegenerate }: DetailPr
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [titleValue, setTitleValue] = useState(transcript.title ?? '');
 
   function setText(i: number, text: string) {
     setLocal((prev) => prev.map((s, j) => (j === i ? { ...s, text } : s)));
@@ -77,7 +79,12 @@ export function HistoryDetail({ id, transcript, onBack, onRegenerate }: DetailPr
         {/* In edit mode the back button is a dead end (edits pending) — hide it;
             the キャンセル button at the bottom is the way out. */}
         {!editing && <button data-testid="history-back" onClick={onBack}>← 戻る</button>}
-        <h2 style={{ margin: 0 }}>録音履歴</h2>
+        <EditableTitle
+          value={titleValue}
+          fallback={transcript.noteTitle ?? fmtDate(id)}
+          onSave={(t) => { setTitleValue(t); void window.lisna.saveDumpTitle(id, t); }}
+          style={{ fontSize: 20, fontWeight: 600, maxWidth: '60%' }}
+        />
         {editing && <span style={{ color: 'var(--lz-accent)', fontSize: 12 }}>編集中</span>}
         {!editing && (
           <button data-testid="transcript-edit" onClick={() => setEditing(true)} style={{ marginLeft: 'auto' }}>

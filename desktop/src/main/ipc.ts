@@ -23,6 +23,7 @@ import { makeRecoveringGrammarSidecar } from './sidecar/recovering-grammar-sidec
 import { buildDumpSessionContext } from './dump-finalize-context';
 import { listDumps, loadDumpTranscript } from './session-dump-reader';
 import { saveTranscriptEdit, type EditedSegment } from './transcript-edit';
+import { saveDumpTitle } from './dump-title';
 import { WhisperCppSTT } from './engines/whisper-cpp-stt';
 import { LlamaCppLLM } from './engines/llama-cpp-llm';
 import { TIMEOUTS } from './sidecar/timeouts';
@@ -105,6 +106,9 @@ export const CHANNELS = {
    *  transcript.json (atomic, text-only, merged by index). id validated by
    *  resolveDumpDir (rejects traversal/symlink). */
   transcriptSave: 'transcript/save',
+  /** renderer → main: set/clear a dump's user title (title.json, atomic).
+   *  id validated by resolveDumpDir. Empty title clears it. */
+  dumpTitleSave: 'dump/title/save',
 } as const;
 
 export interface IpcDeps {
@@ -791,6 +795,13 @@ export function registerIpc(deps: IpcDeps) {
     CHANNELS.transcriptSave,
     async (_e, payload: { id: string; segments: EditedSegment[] }): Promise<{ ok: boolean }> => {
       await saveTranscriptEdit(sessionsBaseDir(), payload.id, Array.isArray(payload?.segments) ? payload.segments : []);
+      return { ok: true };
+    },
+  );
+  ipcMain.handle(
+    CHANNELS.dumpTitleSave,
+    async (_e, payload: { id: string; title: string }): Promise<{ ok: boolean }> => {
+      await saveDumpTitle(sessionsBaseDir(), payload.id, typeof payload?.title === 'string' ? payload.title : '');
       return { ok: true };
     },
   );

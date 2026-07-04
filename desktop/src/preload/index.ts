@@ -151,6 +151,11 @@ contextBridge.exposeInMainWorld('lisna', {
   saveTranscript: (id: string, segments: { startSec: number; endSec: number; text: string }[]): Promise<{ ok: boolean }> =>
     ipcRenderer.invoke(CHANNELS.transcriptSave, { id, segments }),
 
+  /** Set (or clear, when empty) a recording's user title. `id` is the dump id.
+   *  Persists to title.json (atomic); the next listDumps/loadDump reflects it. */
+  saveDumpTitle: (id: string, title: string): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke(CHANNELS.dumpTitleSave, { id, title }),
+
   // --- Phase M Task 70 — sign-in handshake bridges ---
 
   /**
@@ -207,6 +212,7 @@ declare global {
       getGlossary(): Promise<string[]>;
       setGlossary(terms: string[]): Promise<string[]>;
       saveTranscript(id: string, segments: { startSec: number; endSec: number; text: string }[]): Promise<{ ok: boolean }>;
+      saveDumpTitle(id: string, title: string): Promise<{ ok: boolean }>;
       signIn(): Promise<void>;
       getAuthState(): Promise<AuthState>;
       onSignedIn(cb: () => void): () => void;

@@ -278,6 +278,11 @@ export interface DumpSummary {
   family?: string;
   ok?: boolean;
   unreadable?: boolean;
+  /** User-set recording title (title.json). Absent when unset. */
+  title?: string;
+  /** LLM-generated note title (note.json) — the display fallback when the user
+   *  hasn't set `title`. Absent for transcript-only / un-noted dumps. */
+  noteTitle?: string;
 }
 
 /**
@@ -307,4 +312,8 @@ export interface DumpTranscript {
   segmentCount?: number;
   durationSec?: number;
   segments: TranscriptSegment[];
+  /** User-set recording title (title.json), absent when unset. */
+  title?: string;
+  /** LLM-generated note title (note.json) — display fallback. Absent if un-noted. */
+  noteTitle?: string;
 }

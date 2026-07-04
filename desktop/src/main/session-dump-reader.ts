@@ -52,6 +52,23 @@ function readJson(file: string): unknown {
   return JSON.parse(fs.readFileSync(file, 'utf8'));
 }
 
+/** Best-effort read of the optional user title (title.json, written by
+ *  dump-title.ts) and the LLM note title (note.json). Read inline — NOT via
+ *  dump-title.ts — to keep this module's dependency graph acyclic (dump-title
+ *  imports resolveDumpDir from here). Missing/malformed → undefined. */
+function readTitles(dumpDir: string): { title?: string; noteTitle?: string } {
+  const out: { title?: string; noteTitle?: string } = {};
+  try {
+    const t = (readJson(path.join(dumpDir, 'title.json')) as { title?: unknown }).title;
+    if (typeof t === 'string' && t.trim()) out.title = t.trim();
+  } catch { /* no user title */ }
+  try {
+    const nt = (readJson(path.join(dumpDir, 'note.json')) as { title?: unknown }).title;
+    if (typeof nt === 'string' && nt.trim()) out.noteTitle = nt.trim();
+  } catch { /* un-noted / no note.json */ }
+  return out;
+}
+
 /** Newest-first summaries of every dump dir under baseDir. Never throws. */
 export function listDumps(baseDir: string): DumpSummary[] {
   let names: string[];
@@ -89,6 +106,9 @@ export function listDumps(baseDir: string): DumpSummary[] {
     } catch {
       // result.json absent (finalize crashed before settle) — list it anyway.
     }
+    const { title, noteTitle } = readTitles(path.join(baseDir, id));
+    if (title) summary.title = title;
+    if (noteTitle) summary.noteTitle = noteTitle;
     return summary;
   });
 }
@@ -96,9 +116,16 @@ export function listDumps(baseDir: string): DumpSummary[] {
 /** Full transcript payload of one dump. Throws INVALID_DUMP_ID / DUMP_NOT_FOUND / DUMP_UNREADABLE. */
 export function loadDumpTranscript(baseDir: string, id: string): DumpTranscript {
   const dir = resolveDumpDir(baseDir, id);
+  let transcript: DumpTranscript;
   try {
-    return readJson(path.join(dir, 'transcript.json')) as DumpTranscript;
+    transcript = readJson(path.join(dir, 'transcript.json')) as DumpTranscript;
   } catch {
     throw new Error('DUMP_UNREADABLE');
   }
+  // Attach the optional user + note titles so the detail view can show / edit
+  // the recording name without a second IPC round-trip.
+  const { title, noteTitle } = readTitles(dir);
+  if (title) transcript.title = title;
+  if (noteTitle) transcript.noteTitle = noteTitle;
+  return transcript;
 }

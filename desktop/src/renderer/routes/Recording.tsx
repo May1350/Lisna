@@ -396,7 +396,15 @@ export function Recording({ onStop, onError, onOpenHistory, onOpenTerms, onQuick
               固有名詞がうまく変換されない時は、用語集に登録すると次回から改善します ›
             </button>
           )}
-          <HistoryList dumps={dumps} onOpen={onOpenHistory} />
+          <HistoryList
+            dumps={dumps}
+            onOpen={onOpenHistory}
+            onRename={(id, title) => {
+              // Optimistic: reflect the new name immediately; persist best-effort.
+              setDumps((prev) => prev.map((d) => (d.id === id ? { ...d, title: title || undefined } : d)));
+              void window.lisna.saveDumpTitle(id, title);
+            }}
+          />
         </>
       )}
     </section>
