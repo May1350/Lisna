@@ -8,7 +8,7 @@ import {
 } from '../error-message-map';
 
 describe('error-message-map (JA)', () => {
-  it('covers all 25 known codes (Step 5 §3.2 + §5.1 + fabrication guard + history dumps + STT stall + Ko-STT)', () => {
+  it('covers all 28 known codes (Step 5 §3.2 + §5.1 + fabrication guard + history dumps + STT stall + Ko-STT + model downloader)', () => {
     // Coverage contract: every code we throw from anywhere in main/ has a
     // corresponding JA copy. This list is duplicated in main/ipc.ts and
     // main/sidecar/timeouts.ts as bare string throws — if a new code is
@@ -43,6 +43,10 @@ describe('error-message-map (JA)', () => {
       'DUMP_UNREADABLE',
       // Ko-STT Task 3 — note generation not yet supported for this language
       'NOTES_NOT_SUPPORTED_FOR_LANGUAGE',
+      // In-app first-run model downloader Task 1 — downloadModel core
+      'INSUFFICIENT_DISK',
+      'CHECKSUM_MISMATCH',
+      'NETWORK_FAILED',
     ];
     expect(ALL_ERROR_CODES).toEqual(expect.arrayContaining(expectedCodes));
     expect(ALL_ERROR_CODES).toHaveLength(expectedCodes.length);

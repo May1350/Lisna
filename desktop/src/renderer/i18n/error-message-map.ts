@@ -53,6 +53,10 @@ export const ALL_ERROR_CODES = [
   'DUMP_UNREADABLE',
   // Ko-STT Task 3 — note generation not yet supported for this language
   'NOTES_NOT_SUPPORTED_FOR_LANGUAGE',
+  // In-app first-run model downloader Task 1 — downloadModel core
+  'INSUFFICIENT_DISK',
+  'CHECKSUM_MISMATCH',
+  'NETWORK_FAILED',
 ] as const;
 
 export type ErrorCode = (typeof ALL_ERROR_CODES)[number];
@@ -119,6 +123,12 @@ export const ERROR_MESSAGE_MAP_JA: Record<ErrorCode, string> = {
     'この録音履歴のデータが破損していて読み込めませんでした。',
   NOTES_NOT_SUPPORTED_FOR_LANGUAGE:
     'この言語ではノート生成にまだ対応していません。文字起こしをご利用ください。',
+  INSUFFICIENT_DISK:
+    'ディスクの空き容量が足りません。約3GBの空きを確保して再試行してください。',
+  CHECKSUM_MISMATCH:
+    'ダウンロードしたファイルが破損しています。もう一度お試しください。',
+  NETWORK_FAILED:
+    'ダウンロードに失敗しました。接続を確認して再試行してください。',
 };
 
 /**
