@@ -44,8 +44,6 @@ export const ALL_ERROR_CODES = [
   'MODEL_FILE_MISSING_LLM',
   'INVALID_MAGIC_BYTES_STT',
   'INVALID_MAGIC_BYTES_LLM',
-  'MODEL_READ_FAILED',
-  'PICKER_CANCELLED',
   'MODEL_SAVE_FAILED',
   // F2 history viewer (2026-06-12) — loadDump contract (session-dump-reader.ts)
   'INVALID_DUMP_ID',
@@ -53,6 +51,10 @@ export const ALL_ERROR_CODES = [
   'DUMP_UNREADABLE',
   // Ko-STT Task 3 — note generation not yet supported for this language
   'NOTES_NOT_SUPPORTED_FOR_LANGUAGE',
+  // In-app first-run model downloader Task 1 — downloadModel core
+  'INSUFFICIENT_DISK',
+  'CHECKSUM_MISMATCH',
+  'NETWORK_FAILED',
 ] as const;
 
 export type ErrorCode = (typeof ALL_ERROR_CODES)[number];
@@ -105,10 +107,6 @@ export const ERROR_MESSAGE_MAP_JA: Record<ErrorCode, string> = {
     'このファイルは文字起こしモデルとして読み込めませんでした。Discord で配布されたファイルを再度選択してください。',
   INVALID_MAGIC_BYTES_LLM:
     'このファイルはノート生成モデルとして読み込めませんでした。Discord で配布されたファイルを再度選択してください。',
-  MODEL_READ_FAILED:
-    'モデルファイルを読み込めませんでした。ファイルのアクセス権限をご確認ください。',
-  PICKER_CANCELLED:
-    '選択がキャンセルされました。続行するにはファイルを選択してください。',
   MODEL_SAVE_FAILED:
     'モデル情報の保存に失敗しました。ディスクの空き容量とアクセス権限をご確認ください。',
   INVALID_DUMP_ID:
@@ -119,6 +117,12 @@ export const ERROR_MESSAGE_MAP_JA: Record<ErrorCode, string> = {
     'この録音履歴のデータが破損していて読み込めませんでした。',
   NOTES_NOT_SUPPORTED_FOR_LANGUAGE:
     'この言語ではノート生成にまだ対応していません。文字起こしをご利用ください。',
+  INSUFFICIENT_DISK:
+    'ディスクの空き容量が足りません。約3GBの空きを確保して再試行してください。',
+  CHECKSUM_MISMATCH:
+    'ダウンロードしたファイルが破損しています。もう一度お試しください。',
+  NETWORK_FAILED:
+    'ダウンロードに失敗しました。接続を確認して再試行してください。',
 };
 
 /**

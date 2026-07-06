@@ -57,6 +57,10 @@ export interface SessionFinalizeArgs {
 export interface SessionFinalizeResult {
   noteId: string;
   note: NoteBase;
+  /** Source dump dir id (title.json is keyed by it) so the renderer's NoteView
+   *  can offer inline title editing at note-creation time. Undefined when no
+   *  dump dir backed the generation (e.g. dump creation failed). */
+  dumpId?: string;
 }
 
 /**
@@ -71,6 +75,11 @@ export interface SessionContext {
   /** Session language (minimal EN support, 2026-06-10). Drives prompt
    * output-language adaptation + the Note meta. */
   language: NoteLanguage;
+  /** Source dump dir id, when one backs this generation. Live path
+   * (runGenerationContext) sets it from `_activeDump.dir`; the from-dump leg
+   * (buildDumpSessionContext) sets it to the input id. Passed through to
+   * SessionFinalizeResult so NoteView can edit title.json by this id. */
+  dumpId?: string;
 }
 
 /**
@@ -253,7 +262,7 @@ async function routeFamily(
   // but load-bearing for any direct caller of routeFamily.
   else throw new Error(`UNKNOWN_FAMILY:${family as string}`);
 
-  return { noteId: result.telemetry.noteId, note: result.note };
+  return { noteId: result.telemetry.noteId, note: result.note, dumpId: session.dumpId };
 }
 
 // ─── registration ────────────────────────────────────────────────────────────

@@ -155,3 +155,40 @@ describe('loadDumpTranscript', () => {
     }
   });
 });
+
+describe('recording titles (title.json + note.json)', () => {
+  const ID = '2026-06-12T01-00-00-000Z';
+
+  it('listDumps surfaces the user title AND the note title', () => {
+    writeDump(ID, T1, { ok: true, family: 'lecture', finishedAt: 'x' });
+    fs.writeFileSync(path.join(base, ID, 'title.json'), JSON.stringify({ title: '第3四半期レビュー' }));
+    fs.writeFileSync(path.join(base, ID, 'note.json'), JSON.stringify({ title: '売上会議メモ' }));
+    const row = listDumps(base).find((r) => r.id === ID)!;
+    expect(row.title).toBe('第3四半期レビュー');
+    expect(row.noteTitle).toBe('売上会議メモ');
+  });
+
+  it('omits user title when title.json is absent; still surfaces noteTitle', () => {
+    writeDump(ID, T1, { ok: true, family: 'lecture' });
+    fs.writeFileSync(path.join(base, ID, 'note.json'), JSON.stringify({ title: 'ノート見出し' }));
+    const row = listDumps(base).find((r) => r.id === ID)!;
+    expect(row.title).toBeUndefined();
+    expect(row.noteTitle).toBe('ノート見出し');
+  });
+
+  it('leaves both title fields undefined for a transcript-only dump', () => {
+    writeDump(ID, T1); // no result/note/title
+    const row = listDumps(base).find((r) => r.id === ID)!;
+    expect(row.title).toBeUndefined();
+    expect(row.noteTitle).toBeUndefined();
+  });
+
+  it('loadDumpTranscript attaches title + noteTitle', () => {
+    writeDump(ID, T1);
+    fs.writeFileSync(path.join(base, ID, 'title.json'), JSON.stringify({ title: 'マイ会議' }));
+    fs.writeFileSync(path.join(base, ID, 'note.json'), JSON.stringify({ title: 'auto' }));
+    const t = loadDumpTranscript(base, ID);
+    expect(t.title).toBe('マイ会議');
+    expect(t.noteTitle).toBe('auto');
+  });
+});

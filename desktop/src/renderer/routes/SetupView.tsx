@@ -1,32 +1,25 @@
 import { useEffect, useState } from 'react';
-import type { ModelSlot } from '@shared/ipc-protocol';
-import { ModelPickerStep } from '../components/ModelPickerStep';
+import type { ModelStatus } from '@shared/ipc-protocol';
+import { ModelDownloadStep } from '../components/ModelDownloadStep';
 import { SETUP_STRINGS_JA } from '../i18n/setup-strings';
 
 interface Props {
-  /** Slot the user should pick FIRST. On first-run = 'stt'. On re-launch
-   *  after a file was deleted = the missing slot (may be 'stt' OR 'llm'). */
-  initialStep: ModelSlot;
-  /** Error code preset for the initial step (re-launch case). */
-  initialError?: string;
   /** Fired once both slots are resolved (status.kind === 'ready'). */
   onReady: () => void;
 }
 
-type SetupState =
-  | { kind: 'picker'; step: ModelSlot; error?: string }
-  | { kind: 'done' };
+type SetupState = { kind: 'download' } | { kind: 'done' };
 
 /** §6.1 — 'done' state auto-redirect delay. Single source of truth so the
  *  timer and any future fade animation can't drift apart. */
 const DONE_REDIRECT_MS = 300;
 
-export function SetupView({ initialStep, initialError, onReady }: Props) {
-  const [state, setState] = useState<SetupState>({
-    kind: 'picker',
-    step: initialStep,
-    error: initialError,
-  });
+export function SetupView({ onReady }: Props) {
+  // Download-first is the unconditional default (in-app model downloader
+  // Task 3): every needs-setup case — first-run AND re-launch/partial-missing
+  // — starts on the download step. The manual-picker fallback is removed
+  // from this flow entirely; ModelDownloadStep's retry covers failure.
+  const [state, setState] = useState<SetupState>({ kind: 'download' });
 
   // §6.1: 'done' state auto-redirects to Recording after DONE_REDIRECT_MS.
   // onReady intentionally excluded from deps — fresh ref each parent render
@@ -46,58 +39,38 @@ export function SetupView({ initialStep, initialError, onReady }: Props) {
     // useState flipped one tick after mount. Dead `transition` removed
     // so the CSS doesn't claim behavior it doesn't have.
     return (
-      <div
-        data-testid="setup-done"
-        style={{
-          maxWidth: 560,
-          margin: '0 auto',
-          padding: 24,
-          fontFamily: 'system-ui',
-          textAlign: 'center',
-        }}
-      >
-        <h2>{SETUP_STRINGS_JA.ready}</h2>
+      <div data-testid="setup-done" className="lz-onb">
+        <PencilCheck />
+        <h2 className="lz-onb-title">{SETUP_STRINGS_JA.doneTitle}</h2>
+        <p className="lz-onb-body">{SETUP_STRINGS_JA.doneBody}</p>
       </div>
     );
   }
 
-  // §6.1: step indicator depends on which slot is currently being picked.
-  // We always show 2 total. The "current" displayed number is 1 for STT,
-  // 2 for LLM — regardless of whether the user landed here on first-run
-  // or on re-launch missing the LLM only (in which case Step 1 is skipped
-  // visually but still "Step 2" in the indicator — keeps the UI consistent
-  // with the total). NOTE: on re-launch missing STT only, "Step 1 / 2"
-  // makes sense because LLM is already validated.
-  const indicator: { current: 1 | 2; total: 2 } =
-    state.step === 'stt' ? { current: 1, total: 2 } : { current: 2, total: 2 };
+  // ModelDownloadStep's resolve is either 'ready' (done) or 'needs-setup'.
+  // The manual-picker fallback is gone (Task 3), so 'needs-setup' has
+  // nowhere left to route — in practice a resolved download always reports
+  // 'ready' or surfaces its own error phase (with retry). Treat a
+  // 'needs-setup' resolve as a handler bug: log a breadcrumb and fall
+  // through to 'done' rather than stranding the user on a dead screen.
+  function handleResolved(status: ModelStatus): void {
+    if (status.kind !== 'ready') {
+      console.error('[SetupView] download resolved needs-setup — handler bug?', status.missing);
+    }
+    setState({ kind: 'done' });
+  }
 
+  return <ModelDownloadStep onReady={handleResolved} />;
+}
+
+/** Hand-drawn done checkmark (Task 4 pencil accent) — grain-filtered stroke,
+ *  round caps/joins so it reads as a single pencil gesture rather than a
+ *  mechanical icon-font glyph. Purely decorative (aria-hidden); doneTitle
+ *  carries the actual "ready" semantics for a11y. */
+function PencilCheck() {
   return (
-    <ModelPickerStep
-      key={state.step}
-      slot={state.step}
-      stepIndicator={indicator}
-      initialError={state.error}
-      onSuccess={(status) => {
-        if (status.kind === 'ready') {
-          setState({ kind: 'done' });
-          return;
-        }
-        // needs-setup — pick the next missing slot. Sort guarantees 'stt'
-        // comes before 'llm' so [0] is the right pick. The undefined check
-        // satisfies noUncheckedIndexedAccess; logically unreachable since
-        // needs-setup always has ≥1 missing slot (otherwise it'd be ready).
-        const nextSlot = status.missing[0];
-        if (!nextSlot) {
-          // Handler bug — surface a breadcrumb so the founder can grep
-          // logs. Falling through to 'done' would otherwise manifest as
-          // an opaque Recording-side failure when models aren't actually
-          // resolved.
-          console.error('[SetupView] needs-setup with missing.length=0 — handler bug?');
-          setState({ kind: 'done' });
-          return;
-        }
-        setState({ kind: 'picker', step: nextSlot });
-      }}
-    />
+    <svg className="lz-onb-check" viewBox="0 0 40 40" aria-hidden="true">
+      <path d="M9 21 L17 29 L31 12" />
+    </svg>
   );
 }

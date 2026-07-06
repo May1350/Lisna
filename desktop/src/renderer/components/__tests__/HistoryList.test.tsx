@@ -23,14 +23,14 @@ const ROWS: DumpSummary[] = [
 
 describe('HistoryList', () => {
   it('renders the quiet empty-state line for an empty list', () => {
-    const html = renderToStaticMarkup(<HistoryList dumps={[]} onOpen={() => {}} />);
+    const html = renderToStaticMarkup(<HistoryList dumps={[]} onOpen={() => {}} onRename={() => {}} />);
     expect(html).toContain('まだ履歴がありません');
     expect(html).toContain('history-section');
     expect(html).not.toContain('history-row-');
   });
 
   it('renders a button row per readable dump with duration + status badge', () => {
-    const html = renderToStaticMarkup(<HistoryList dumps={ROWS} onOpen={() => {}} />);
+    const html = renderToStaticMarkup(<HistoryList dumps={ROWS} onOpen={() => {}} onRename={() => {}} />);
     expect(html).toContain('history-row-2026-06-11T01-00-00-000Z');
     expect(html).toContain('1:35');        // 95s formatted m:ss
     expect(html).toContain('インタビュー'); // family shown as JA label, not raw enum key
@@ -38,7 +38,7 @@ describe('HistoryList', () => {
   });
 
   it('renders unreadable dumps as unselectable text, not buttons', () => {
-    const html = renderToStaticMarkup(<HistoryList dumps={ROWS} onOpen={() => {}} />);
+    const html = renderToStaticMarkup(<HistoryList dumps={ROWS} onOpen={() => {}} onRename={() => {}} />);
     expect(html).toContain('読み込み不可');
     expect(html).not.toContain('history-row-2026-06-10T01-00-00-000Z');
   });

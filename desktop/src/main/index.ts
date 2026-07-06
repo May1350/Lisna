@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { registerIpc, handleSidecarExit, handleSidecarGiveUp, isSessionInFlight } from './ipc';
 import { resolveModels, registerModelIpc } from './model-resolver';
+import { registerModelDownloadIpc } from './model-downloader';
 import { installSystemAudioHandler } from './audio/system-audio-handler';
 import { SidecarSupervisor } from './sidecar/supervisor';
 import { initFileLogger, log, redactPath } from './log';
@@ -250,6 +251,13 @@ app.whenReady().then(async () => {
     // Mutate the outer `resolveResult` so getModelPaths above sees the new
     // ready state. Without this, session/start keeps rejecting MODELS_NOT_
     // CONFIGURED forever after a successful needs-setup → ready transition.
+    onStatusChange: (s) => { resolveResult = s; },
+  });
+  registerModelDownloadIpc({
+    getMainWindow: () => mainWindow,
+    userDataDir,
+    // Same seam as registerModelIpc above — keeps getModelPaths (registerIpc)
+    // reading fresh paths after a successful in-app download.
     onStatusChange: (s) => { resolveResult = s; },
   });
 

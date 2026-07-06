@@ -128,6 +128,7 @@ function makeSessionContext(
     llmModelPath?: string;
     segmentCount?: number;
     sidecar?: GrammarCapableSidecar;
+    dumpId?: string;
   } = {},
 ): SessionContext {
   const segmentCount = opts.segmentCount ?? 1;
@@ -142,6 +143,7 @@ function makeSessionContext(
     llmModelPath: opts.llmModelPath ?? '/models/Llama-3.2-3B-Instruct-Q4_K_M.gguf',
     sidecar: opts.sidecar ?? makeMockSidecar(makeLectureNoteJson()),
     language: 'ja',
+    ...(opts.dumpId !== undefined ? { dumpId: opts.dumpId } : {}),
   };
 }
 
@@ -292,6 +294,27 @@ describe('registerSessionFinalize', () => {
       .rejects.toThrow('NO_ACTIVE_SESSION');
   });
 
+  // (n) dumpId passthrough — the finalized note carries the source dump dir id
+  // so the renderer's NoteView can offer inline title editing (title.json is
+  // keyed by dump id). Populated from session.dumpId (ipc.ts runGenerationContext
+  // sets it from _activeDump.dir).
+  it('(n) returns dumpId from session.dumpId when present', async () => {
+    const ctx = makeSessionContext({ dumpId: '2026-07-04T10-00-00-000Z' });
+    const handler = setup(() => ctx);
+    const result = await handler({}, { family: 'lecture' });
+    expect(result.dumpId).toBe('2026-07-04T10-00-00-000Z');
+  });
+
+  // (o) dumpId is undefined when the session had no dump dir (e.g. dump creation
+  // failed → _activeDump null). The renderer renders the note without the
+  // editable title in that case.
+  it('(o) dumpId is undefined when session.dumpId absent', async () => {
+    const ctx = makeSessionContext();
+    const handler = setup(() => ctx);
+    const result = await handler({}, { family: 'lecture' });
+    expect(result.dumpId).toBeUndefined();
+  });
+
   // (m) ko session + note family → NOTES_NOT_SUPPORTED_FOR_LANGUAGE
   // Phase-1 backstop: ko is transcription-only. routeFamily must reject before
   // calling adaptToV2Transcript / any LLM work.
@@ -438,6 +461,18 @@ describe('session/finalize-from-dump', () => {
     expect(getDumpSession).toHaveBeenCalledWith('2026-06-10T01-00-00-000Z');
     expect(res.note.family).toBe('lecture');
     expect(typeof res.noteId).toBe('string'); // shape parity with session/finalize
+  });
+
+  it('returns the dump id as dumpId (from-dump leg — buildDumpSessionContext sets dumpId:id)', async () => {
+    const getDumpSession = vi.fn(async (id: string) => ({ ...dumpSession(), dumpId: id }));
+    registerSessionFinalize({
+      getCurrentSession: async () => null,
+      beginGeneration: () => {},
+      getDumpSession,
+    });
+    const handler = captured.get('session/finalize-from-dump')!;
+    const res = await handler({}, { id: '2026-06-10T01-00-00-000Z', family: 'lecture' });
+    expect(res.dumpId).toBe('2026-06-10T01-00-00-000Z');
   });
 
   it('propagates getDumpSession guard errors (SESSION_ACTIVE)', async () => {

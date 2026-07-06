@@ -37,12 +37,12 @@ describe('TranscriptView', () => {
     expect(html).toContain('本日の議題について');
   });
 
-  it('renders the 新しい録音 button', () => {
+  it('renders the 完了 button', () => {
     const html = renderToStaticMarkup(
       <TranscriptView segments={SEGMENTS} language="ja" onNewSession={() => {}} />,
     );
     expect(html).toContain('data-testid="transcript-new-session"');
-    expect(html).toContain('新しい録音');
+    expect(html).toContain('完了');
   });
 
   it('header shows the segment count', () => {

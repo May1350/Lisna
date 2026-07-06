@@ -61,6 +61,7 @@ describe('buildDumpSessionContext', () => {
     expect(ctx.language).toBe('ja');
     expect(ctx.llmModelPath).toBe('/m/Llama-3.2-3B-Instruct-Q4_K_M.gguf');
     expect(ctx.sidecar).toBe(SIDECAR); // raw sidecar — NOT dump-wrapped (P0-1)
+    expect(ctx.dumpId).toBe(ID); // carried through so a regen's NoteView can edit title.json
     expect(deps.loadLlm).toHaveBeenCalledWith('client', '/m/Llama-3.2-3B-Instruct-Q4_K_M.gguf');
     expect(fs.readdirSync(base).length).toBe(before); // P0-1: no dir created
   });

@@ -5,6 +5,18 @@
  * Light + dark via prefers-color-scheme. First pass — tokens live here for now;
  * extraction to shared/design is the spec's later step.
  */
+
+/* Klee One (SIL OFL) — JA pencil-handwriting face for the onboarding hero only
+ * (wordmark / headline / CTA label). This file is imported as a plain CSS
+ * module from main.tsx, so Vite's CSS pipeline resolves this relative url()
+ * and fingerprints the asset into the renderer build (same mechanism as any
+ * other asset referenced from a processed .css file) — no JS import needed. */
+@font-face {
+  font-family: 'Klee One';
+  src: url('./assets/fonts/KleeOne-onboarding.woff2') format('woff2');
+  font-weight: 400;
+  font-display: swap;
+}
 :root {
   --lz-canvas: #eae8e3;
   --lz-surface: #ffffff;
@@ -272,3 +284,42 @@ a { color: var(--lz-accent); text-decoration: none; }
 .lz-note .slot { margin: 8px 0; }
 .lz-note .validation-warnings { margin-top: 26px; padding: 11px 14px; border-left: 2px solid var(--lz-border-strong); background: var(--lz-raised); border-radius: 0 var(--lz-radius) var(--lz-radius) 0; font-size: 12px; color: var(--lz-text-2); }
 .lz-note .validation-warnings p { font-weight: 500; margin-bottom: 4px; }
+
+/* Onboarding hero (Task 3 — dark centered-hero, structure + states only; Task 4
+   layers Klee One + pencil-accent SVGs onto these same testids/classes).
+   Fills the content area, centered both axes, generous padding so it reads
+   as a moment rather than a form. */
+.lz-onb { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; min-height: calc(100% - 52px); padding: 48px 32px; gap: 14px; }
+/* Wordmark — Klee One (JA pencil handwriting), grain-filtered so it reads as
+   hand-lettered rather than a rendered web font. One of the ≤4 pencil accents
+   on this screen (web-design.md pencil-accents restraint, applied here to the
+   dark onboarding hero even though it's not a marketing surface — same
+   restraint principle). */
+.lz-onb-word { font-family: 'Klee One', var(--lz-serif); font-size: 40px; font-weight: 600; letter-spacing: -0.01em; color: var(--lz-text); margin: 0; filter: url(#pencil-grain); }
+.lz-onb-title { font-family: 'Klee One', var(--lz-serif); font-size: 17px; font-weight: 600; color: var(--lz-text); margin: 4px 0 0; }
+/* word-break:auto-phrase = Chromium JA phrase-aware wrapping — keeps loanwords
+   like ダウンロード whole instead of breaking mid-word (no spaces in JA → default
+   wraps char-by-char at the max-width edge). line-break:strict adds kinsoku. */
+.lz-onb-body { font-size: 13.5px; line-height: 1.7; color: var(--lz-text-2); max-width: 360px; margin: 0; word-break: auto-phrase; line-break: strict; }
+/* CTA button — Klee One label; hand-drawn border via an absolutely-positioned
+   SVG <rect> overlay (.lz-onb-cta-border, filter:url(#pencil-rough)) sized to
+   the button by the wrapper (.lz-onb-cta-wrap). The button itself keeps its
+   normal .lz-primary background/radius; the SVG only adds the rough stroke. */
+.lz-onb-cta-wrap { position: relative; margin-top: 10px; display: inline-block; }
+.lz-onb-cta { font-family: 'Klee One', var(--lz-font); padding: 12px 32px; font-size: 15px; font-weight: 500; position: relative; }
+.lz-onb-cta-border { position: absolute; inset: -3px; width: calc(100% + 6px); height: calc(100% + 6px); pointer-events: none; overflow: visible; }
+.lz-onb-cta-border rect { fill: none; stroke: var(--lz-accent); stroke-width: 1.5; filter: url(#pencil-rough); }
+.lz-onb-hint { margin-top: 2px; }
+.lz-onb-error { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+
+/* Download progress — a pencil-stroke fill instead of a flat bar. The <svg>
+   width is driven by `--lz-onb-progress-pct` (0–100, set inline by
+   ModelDownloadStep); the stroke itself carries #pencil-grain so the fill
+   reads as hand-shaded rather than a mechanical progress bar. */
+.lz-onb-progress { width: 220px; height: 10px; margin-top: 4px; }
+.lz-onb-progress-track { stroke: var(--lz-border); stroke-width: 6; fill: none; }
+.lz-onb-progress-fill { stroke: var(--lz-accent); stroke-width: 6; fill: none; stroke-linecap: round; filter: url(#pencil-grain); }
+
+/* Done check — hand-drawn checkmark, not an icon font glyph. */
+.lz-onb-check { width: 40px; height: 40px; }
+.lz-onb-check path { fill: none; stroke: var(--lz-success); stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; filter: url(#pencil-grain); }

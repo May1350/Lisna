@@ -124,8 +124,6 @@ export const IDENTICAL_VALUES_OK = new Set<string>([
   // Download page — tech / brand strings that don't translate.
   'downloadPage.versionLine',            // "v0.1.1 · 107 MB · Apple Silicon"
   'downloadPage.shaPrefix',              // "SHA256: "
-  'downloadPage.modelsWhisperLabel',     // "Whisper STT"
-  'downloadPage.modelsLlamaLabel',       // "Llama LLM"
   'downloadPage.wlHeading',              // "Windows / Linux"
   'downloadPage.wlEmailPlaceholder',     // "you@example.com"
 ]);

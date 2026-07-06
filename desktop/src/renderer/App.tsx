@@ -42,12 +42,12 @@ export function shouldShowAudioNotice(audioNoticeAck: boolean, viewKind: View['k
 
 type View =
   | { kind: 'booting' }
-  | { kind: 'setup'; initialStep: 'stt' | 'llm'; initialError?: string }
+  | { kind: 'setup' }
   | { kind: 'recording' }
   | { kind: 'history'; id: string }
   | { kind: 'familyPicking' }
   | { kind: 'transcript'; segments: TranscriptSegment[]; language: string; durationSec?: number; dumpId?: string }
-  | { kind: 'note'; note: Note | NoteBase }
+  | { kind: 'note'; note: Note | NoteBase; dumpId?: string }
   | { kind: 'terms' }
   | { kind: 'error'; message: string; permanent?: boolean; origin?: ErrorOrigin };
 
@@ -191,24 +191,11 @@ function AuthenticatedApp() {
           setView({ kind: 'recording' });
           return;
         }
-        // status.missing is sorted: 'stt' before 'llm'. First missing slot
-        // is where the picker starts. If we're re-prompting because a
-        // previously-set path is now missing, surface that as initialError.
-        const initialStep = status.missing[0];
-        if (!initialStep) {
-          // Unreachable: needs-setup always has ≥1 missing slot. Guard for
-          // noUncheckedIndexedAccess strictness. Log a breadcrumb so a
-          // handler bug surfaces in CloudWatch / DevTools instead of
-          // silently manifesting as a Recording-side failure.
-          console.error('[App] needs-setup with missing.length=0 — model-resolver bug?');
-          setView({ kind: 'recording' });
-          return;
-        }
-        const initialError =
-          initialStep === 'stt' ? 'MODEL_FILE_MISSING_STT' : 'MODEL_FILE_MISSING_LLM';
-        // First-run case: missing.length === 2; treat as no error (clean state).
-        const error = status.missing.length === 2 ? undefined : initialError;
-        setView({ kind: 'setup', initialStep, initialError: error });
+        // Auto-detect + in-app download (Task 3) handles every needs-setup
+        // case unconditionally — no per-slot routing needed here anymore
+        // (the manual picker fallback that consumed missing[0]/the derived
+        // MODEL_FILE_MISSING_* code was removed in Task 5).
+        setView({ kind: 'setup' });
       })
       .catch((err) => {
         // The main-side getModelStatus handler returns cached state — no
@@ -228,6 +215,25 @@ function AuthenticatedApp() {
 
   return (
     <div className="lz-app">
+      {/* Hidden pencil SVG filters (Task 4) — defined ONCE here, referenced via
+          filter:url(#pencil-rough) / url(#pencil-grain) from theme.css's
+          .lz-onb-* pencil accents (wordmark, CTA border, progress fill, done
+          check). Verbatim from web/src/app/layout.tsx's #pencil-rough per
+          web-design.md — don't redefine per-component, it'd duplicate IDs. */}
+      <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden="true">
+        <defs>
+          <filter id="pencil-rough" x="-6%" y="-6%" width="112%" height="112%">
+            <feTurbulence type="fractalNoise" baseFrequency="0.05 1.2" numOctaves={2} seed={3} result="n" />
+            <feDisplacementMap in="SourceGraphic" in2="n" scale={2.8} />
+          </filter>
+          <filter id="pencil-grain" x="-8%" y="-8%" width="116%" height="116%">
+            <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves={1} seed={7} result="g" />
+            <feDisplacementMap in="SourceGraphic" in2="g" scale={1.4} result="d" />
+            <feTurbulence type="fractalNoise" baseFrequency="0.04 1.1" numOctaves={2} seed={3} result="r" />
+            <feDisplacementMap in="d" in2="r" scale={2.4} />
+          </filter>
+        </defs>
+      </svg>
       {/* Transparent draggable strip — the ONLY -webkit-app-region:drag surface.
           Replaces the removed header bar so the top edge + traffic-light zone
           stay draggable while content flows to the very top (theme.css .lz-titlebar). */}
@@ -251,7 +257,7 @@ function AuthenticatedApp() {
         onOpen={() => {
           if (!backgroundJob) return;
           if (backgroundJob.kind === 'note' && backgroundJob.note) {
-            setView({ kind: 'note', note: backgroundJob.note });
+            setView({ kind: 'note', note: backgroundJob.note, dumpId: backgroundJob.dumpId });
           } else if (backgroundJob.kind === 'transcript' && backgroundJob.transcript) {
             const t = backgroundJob.transcript;
             setView({ kind: 'transcript', segments: t.segments, language: t.language, durationSec: t.durationSec, dumpId: t.dumpId });
@@ -282,13 +288,7 @@ function renderView(
     case 'booting':
       return <div data-testid="booting" />;  // null UI; resolved in ~ms
     case 'setup':
-      return (
-        <SetupView
-          initialStep={view.initialStep}
-          initialError={view.initialError}
-          onReady={() => setView({ kind: 'recording' })}
-        />
-      );
+      return <SetupView onReady={() => setView({ kind: 'recording' })} />;
     case 'recording':
       // Group G1 — gate the first recording behind the once-only on-device
       // audio-retention disclosure. This catches BOTH entry paths into
@@ -403,6 +403,7 @@ function renderView(
       return (
         <NoteView
           note={view.note}
+          dumpId={view.dumpId}
           onNewSession={() => setView({ kind: 'recording' })}
         />
       );
@@ -514,6 +515,9 @@ export interface BackgroundJob {
   progress: ProgressState | null;
   /** present when kind==='note' && status==='done' (the chip's "open" target). */
   note?: Note | NoteBase;
+  /** source dump dir id for a note job (title.json key for NoteView editing).
+   *  Undefined when the generation had no dump dir. */
+  dumpId?: string;
   /** present when kind==='transcript' && status==='done'. */
   transcript?: { segments: TranscriptSegment[]; language: string; durationSec?: number; dumpId?: string };
   /** present when status==='error'. */
@@ -548,7 +552,7 @@ export function applyBackgroundProgress(
 async function runFinalize(family: NoteFamily, setBackgroundJob: SetBackgroundJob): Promise<void> {
   try {
     const result = await window.lisna.finalize({ family });
-    setBackgroundJob((prev) => (prev ? { ...prev, status: 'done', note: result.note } : prev));
+    setBackgroundJob((prev) => (prev ? { ...prev, status: 'done', note: result.note, dumpId: result.dumpId } : prev));
   } catch (err) {
     const message = String((err as Error)?.message ?? err);
     setBackgroundJob((prev) => (prev ? { ...prev, status: 'error', message } : prev));
@@ -593,7 +597,7 @@ async function runTranscribeSpan(startSec: number, endSec: number, setBackground
 async function runFinalizeFromDump(id: string, family: NoteFamily, setBackgroundJob: SetBackgroundJob): Promise<void> {
   try {
     const result = await window.lisna.finalizeFromDump({ id, family });
-    setBackgroundJob((prev) => (prev ? { ...prev, status: 'done', note: result.note } : prev));
+    setBackgroundJob((prev) => (prev ? { ...prev, status: 'done', note: result.note, dumpId: result.dumpId } : prev));
   } catch (err) {
     const message = String((err as Error)?.message ?? err);
     setBackgroundJob((prev) => (prev ? { ...prev, status: 'error', message } : prev));

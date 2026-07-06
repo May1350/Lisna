@@ -67,5 +67,8 @@ export async function buildDumpSessionContext<C>(
     llmModelPath: paths.llmPath,
     language: dump.language as NoteLanguage,
     sidecar: deps.makeSidecar(paths.llmPath),
+    // A regen re-notes the SAME dump — carry its id so NoteView edits the
+    // existing dump's title.json.
+    dumpId: id,
   };
 }

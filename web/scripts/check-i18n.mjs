@@ -67,8 +67,6 @@ const IDENTICAL_VALUES_OK = new Set([
   'trust.keio',
   'downloadPage.versionLine',
   'downloadPage.shaPrefix',
-  'downloadPage.modelsWhisperLabel',
-  'downloadPage.modelsLlamaLabel',
   'downloadPage.wlHeading',
   'downloadPage.wlEmailPlaceholder',
 ]);

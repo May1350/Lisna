@@ -8,9 +8,8 @@ import type {
   SessionErrorPayload,
   FinalizeProgressPayload,
   ModelStatus,
-  ModelSlot,
-  PickResult,
-  ModelPickPayload,
+  DownloadResult,
+  ModelDownloadProgressPayload,
   DumpSummary,
   DumpTranscript,
   SessionTranscribeResult,
@@ -124,9 +123,19 @@ contextBridge.exposeInMainWorld('lisna', {
   getModelStatus: (): Promise<ModelStatus> =>
     ipcRenderer.invoke(CHANNELS.modelStatus),
 
-  pickModel: (slot: ModelSlot): Promise<PickResult> => {
-    const payload: ModelPickPayload = { slot };
-    return ipcRenderer.invoke(CHANNELS.modelPick, payload);
+  /** In-app first-run downloader — fetches both DEFAULT_MODELS slots,
+   *  verifies sha256, writes models.json. Resolves once the full sequence
+   *  (or an early failure) completes. */
+  downloadModels: (): Promise<DownloadResult> =>
+    ipcRenderer.invoke(CHANNELS.modelDownload),
+
+  /** Subscribe to per-slot download progress while `downloadModels` runs.
+   *  Returns an unsubscribe function — same useEffect-cleanup contract as
+   *  onFinalizeProgress. */
+  onModelDownloadProgress: (cb: (msg: ModelDownloadProgressPayload) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, msg: ModelDownloadProgressPayload) => cb(msg);
+    ipcRenderer.on(CHANNELS.modelDownloadProgress, listener);
+    return () => ipcRenderer.removeListener(CHANNELS.modelDownloadProgress, listener);
   },
 
   openExternal: (url: string): Promise<void> =>
@@ -150,6 +159,11 @@ contextBridge.exposeInMainWorld('lisna', {
    *  merged by index). `id` is the transcript view's `dumpId`. */
   saveTranscript: (id: string, segments: { startSec: number; endSec: number; text: string }[]): Promise<{ ok: boolean }> =>
     ipcRenderer.invoke(CHANNELS.transcriptSave, { id, segments }),
+
+  /** Set (or clear, when empty) a recording's user title. `id` is the dump id.
+   *  Persists to title.json (atomic); the next listDumps/loadDump reflects it. */
+  saveDumpTitle: (id: string, title: string): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke(CHANNELS.dumpTitleSave, { id, title }),
 
   // --- Phase M Task 70 — sign-in handshake bridges ---
 
@@ -201,12 +215,14 @@ declare global {
       onFinalizeProgress(cb: (msg: FinalizeProgressPayload) => void): () => void;
       restartApp(): Promise<void>;
       getModelStatus(): Promise<ModelStatus>;
-      pickModel(slot: ModelSlot): Promise<PickResult>;
+      downloadModels(): Promise<DownloadResult>;
+      onModelDownloadProgress(cb: (msg: ModelDownloadProgressPayload) => void): () => void;
       openExternal(url: string): Promise<void>;
       exportFile(args: { content: string; defaultName: string }): Promise<{ ok: boolean; canceled: boolean; path?: string }>;
       getGlossary(): Promise<string[]>;
       setGlossary(terms: string[]): Promise<string[]>;
       saveTranscript(id: string, segments: { startSec: number; endSec: number; text: string }[]): Promise<{ ok: boolean }>;
+      saveDumpTitle(id: string, title: string): Promise<{ ok: boolean }>;
       signIn(): Promise<void>;
       getAuthState(): Promise<AuthState>;
       onSignedIn(cb: () => void): () => void;

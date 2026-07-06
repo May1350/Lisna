@@ -229,20 +229,19 @@ export type ModelStatus =
  *  separately so resolver-internal types can evolve without a renderer break. */
 export type ResolveResult = ModelStatus;
 
-export type PickResult =
+/** Resolved by `models/download` (in-app first-run downloader). Discriminated
+ *  union shape; `code` is the downloader's thrown Error.message
+ *  (INSUFFICIENT_DISK / NETWORK_FAILED / CHECKSUM_MISMATCH / MODEL_SAVE_FAILED). */
+export type DownloadResult =
   | { ok: true; status: ModelStatus }
-  | { ok: false;
-      code:
-        | 'INVALID_MAGIC_BYTES_STT'
-        | 'INVALID_MAGIC_BYTES_LLM'
-        | 'MODEL_READ_FAILED'
-        | 'PICKER_CANCELLED'
-        | 'MODEL_SAVE_FAILED';
-    };
+  | { ok: false; code: string };
 
-/** Sent over CHANNELS.modelPick. */
-export interface ModelPickPayload {
-  slot: ModelSlot;
+/** Pushed over CHANNELS.modelDownloadProgress while `models/download` runs —
+ *  one stream per slot, sequential (stt then llm). */
+export interface ModelDownloadProgressPayload {
+  slot: CoreModelSlot;
+  received: number;
+  total: number;
 }
 
 // --- Phase M Task 70 — auth gate ---
@@ -278,6 +277,11 @@ export interface DumpSummary {
   family?: string;
   ok?: boolean;
   unreadable?: boolean;
+  /** User-set recording title (title.json). Absent when unset. */
+  title?: string;
+  /** LLM-generated note title (note.json) — the display fallback when the user
+   *  hasn't set `title`. Absent for transcript-only / un-noted dumps. */
+  noteTitle?: string;
 }
 
 /**
@@ -307,4 +311,8 @@ export interface DumpTranscript {
   segmentCount?: number;
   durationSec?: number;
   segments: TranscriptSegment[];
+  /** User-set recording title (title.json), absent when unset. */
+  title?: string;
+  /** LLM-generated note title (note.json) — display fallback. Absent if un-noted. */
+  noteTitle?: string;
 }

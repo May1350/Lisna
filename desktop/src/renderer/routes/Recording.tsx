@@ -87,6 +87,10 @@ export function Recording({ onStop, onError, onOpenHistory, onOpenTerms, onQuick
   // let the user click the system radio and then fail downstream.
   const [systemAudioAvailable, setSystemAudioAvailable] = useState(false);
   const [dumps, setDumps] = useState<DumpSummary[]>([]);
+  // Glossary discoverability: show a one-line nudge toward 用語集 only when the
+  // user has recordings but no terms yet (the "you'd benefit but haven't set it
+  // up" moment). Self-dismisses once they add a term. Refreshed with dumps.
+  const [glossaryEmpty, setGlossaryEmpty] = useState(false);
   const orchRef = useRef<RecordingOrchestrator | null>(null);
   // Synchronous re-click guard within a single component instance. setState is
   // async — a second click that arrives before the next React render still
@@ -155,6 +159,10 @@ export function Recording({ onStop, onError, onOpenHistory, onOpenTerms, onQuick
       .listDumps()
       .then((d) => { if (!cancelled) setDumps(d); })
       .catch(() => { /* best-effort; failure leaves the empty state showing */ });
+    void window.lisna
+      .getGlossary()
+      .then((g) => { if (!cancelled) setGlossaryEmpty(g.length === 0); })
+      .catch(() => { /* best-effort; failure just hides the nudge */ });
     return () => { cancelled = true; };
   }, [running, starting]);
 
@@ -378,7 +386,25 @@ export function Recording({ onStop, onError, onOpenHistory, onOpenTerms, onQuick
             <p className="lz-label" style={{ margin: 0 }}>履歴</p>
             <button className="lz-icon-btn" onClick={onOpenTerms} style={{ marginLeft: 'auto', fontSize: 12.5, color: 'var(--lz-text-2)' }}>用語集 ›</button>
           </div>
-          <HistoryList dumps={dumps} onOpen={onOpenHistory} />
+          {glossaryEmpty && dumps.length > 0 && (
+            <button
+              onClick={onOpenTerms}
+              className="lz-hint"
+              data-testid="glossary-nudge"
+              style={{ display: 'block', textAlign: 'left', width: '100%', background: 'none', border: 0, cursor: 'pointer', padding: '0 0 8px', margin: 0 }}
+            >
+              固有名詞がうまく変換されない時は、用語集に登録すると次回から改善します ›
+            </button>
+          )}
+          <HistoryList
+            dumps={dumps}
+            onOpen={onOpenHistory}
+            onRename={(id, title) => {
+              // Optimistic: reflect the new name immediately; persist best-effort.
+              setDumps((prev) => prev.map((d) => (d.id === id ? { ...d, title: title || undefined } : d)));
+              void window.lisna.saveDumpTitle(id, title);
+            }}
+          />
         </>
       )}
     </section>

@@ -41,8 +41,8 @@ export function CopyExportButtons({ getText, exportName }: Props) {
   const btn = { padding: '6px 12px', fontSize: 13 } as const;
   return (
     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+      <button data-testid="export-button" onClick={onExport} style={btn}>ダウンロード</button>
       <button data-testid="copy-button" onClick={onCopy} style={btn}>コピー</button>
-      <button data-testid="export-button" onClick={onExport} style={btn}>保存</button>
       {status === 'copied' && <span style={{ color: '#5fa872', fontSize: 12 }}>コピーしました</span>}
       {status === 'saved' && <span style={{ color: '#5fa872', fontSize: 12 }}>保存しました</span>}
       {status === 'error' && <span style={{ color: '#c33', fontSize: 12 }}>失敗しました</span>}

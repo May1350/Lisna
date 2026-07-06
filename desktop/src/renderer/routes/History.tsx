@@ -3,6 +3,9 @@ import type { DumpTranscript } from '@shared/ipc-protocol';
 import type { NoteFamily } from '@shared/note-schema';
 import { FamilyPickerStep } from '../components/FamilyPickerStep';
 import { Spinner } from '../components/Spinner';
+import { GlossaryAdded } from '../components/GlossaryAdded';
+import { EditableTitle } from '../components/EditableTitle';
+import { autoRegisterGlossaryFromEdit } from '../lib/glossary-auto';
 import { toFriendlyJa } from '../i18n/error-message-map';
 
 /**
@@ -40,6 +43,8 @@ export function HistoryDetail({ id, transcript, onBack, onRegenerate }: DetailPr
   const [local, setLocal] = useState(transcript.segments);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [addedTerms, setAddedTerms] = useState<string[]>([]);
+  const [titleValue, setTitleValue] = useState(transcript.title ?? '');
 
   function setText(i: number, text: string) {
     setLocal((prev) => prev.map((s, j) => (j === i ? { ...s, text } : s)));
@@ -52,6 +57,19 @@ export function HistoryDetail({ id, transcript, onBack, onRegenerate }: DetailPr
         local.map((s) => ({ startSec: s.startSec, endSec: s.endSec, text: s.text })),
       );
       setEditing(false);
+      // Proper-noun corrections in this edit → auto-register them to the glossary
+      // so the next recording's STT biases toward the fixed spelling. Best-effort:
+      // a glossary-read/write failure must not turn a successful save into an error.
+      try {
+        const pairs = local
+          .map((s, i) => ({ before: transcript.segments[i]?.text ?? '', after: s.text }))
+          .filter((p) => p.before !== p.after);
+        const added = await autoRegisterGlossaryFromEdit(pairs, {
+          getGlossary: window.lisna.getGlossary,
+          setGlossary: window.lisna.setGlossary,
+        });
+        setAddedTerms(added);
+      } catch { /* best-effort — helper already swallows, this guards the pairs build */ }
     } finally {
       setSaving(false);
     }
@@ -64,7 +82,12 @@ export function HistoryDetail({ id, transcript, onBack, onRegenerate }: DetailPr
         {/* In edit mode the back button is a dead end (edits pending) — hide it;
             the キャンセル button at the bottom is the way out. */}
         {!editing && <button data-testid="history-back" onClick={onBack}>← 戻る</button>}
-        <h2 style={{ margin: 0 }}>録音履歴</h2>
+        <EditableTitle
+          value={titleValue}
+          fallback={transcript.noteTitle ?? fmtDate(id)}
+          onSave={(t) => { setTitleValue(t); void window.lisna.saveDumpTitle(id, t); }}
+          style={{ fontSize: 20, fontWeight: 600, maxWidth: '60%' }}
+        />
         {editing && <span style={{ color: 'var(--lz-accent)', fontSize: 12 }}>編集中</span>}
         {!editing && (
           <button data-testid="transcript-edit" onClick={() => setEditing(true)} style={{ marginLeft: 'auto' }}>
@@ -102,7 +125,9 @@ export function HistoryDetail({ id, transcript, onBack, onRegenerate }: DetailPr
           <button onClick={cancel} disabled={saving}>キャンセル</button>
         </div>
       ) : (
-        <div style={{ borderTop: '1px solid var(--lz-line)', marginTop: 4, paddingTop: 6 }}>
+        <>
+          {addedTerms.length > 0 && <GlossaryAdded added={addedTerms} onClose={() => setAddedTerms([])} />}
+          <div style={{ borderTop: '1px solid var(--lz-line)', marginTop: 4, paddingTop: 6 }}>
           <FamilyPickerStep
             // Regenerate-from-dump only produces NOTES. The raw transcript is
             // already shown above, so the 文字起こし choice is hidden here; the
@@ -113,7 +138,8 @@ export function HistoryDetail({ id, transcript, onBack, onRegenerate }: DetailPr
             }}
             onDiscard={onBack}
           />
-        </div>
+          </div>
+        </>
       )}
     </section>
   );
@@ -141,7 +167,7 @@ export function History({ id, onBack, onRegenerate }: Props) {
 
   if (error) {
     // Raw contract codes (DUMP_NOT_FOUND etc.) must never reach the user —
-    // resolve through the same JA map as ErrorView / ModelPickerStep.
+    // resolve through the same JA map as ErrorView.
     return (
       <section data-testid="history-detail-error">
         <p>{toFriendlyJa(error)}</p>

@@ -23,6 +23,7 @@ import { makeRecoveringGrammarSidecar } from './sidecar/recovering-grammar-sidec
 import { buildDumpSessionContext } from './dump-finalize-context';
 import { listDumps, loadDumpTranscript } from './session-dump-reader';
 import { saveTranscriptEdit, type EditedSegment } from './transcript-edit';
+import { saveDumpTitle } from './dump-title';
 import { WhisperCppSTT } from './engines/whisper-cpp-stt';
 import { LlamaCppLLM } from './engines/llama-cpp-llm';
 import { TIMEOUTS } from './sidecar/timeouts';
@@ -54,10 +55,14 @@ export const CHANNELS = {
   lifecycleRestart: 'lifecycle/restart',
   /** renderer → main: query current ModelStatus on App mount */
   modelStatus: 'models/status',
-  /** renderer → main: native file dialog + magic-byte validate + atomic
-   *  save for one slot. Handler awaits the disk write before returning,
-   *  so PickResult.status reflects committed state (spec §5.1 step 7). */
-  modelPick: 'models/pick',
+  /** renderer → main: in-app first-run downloader — fetch both DEFAULT_MODELS
+   *  slots (HF-direct), verify sha256, write models.json, recompute status.
+   *  Handler awaits the full sequence before returning (spec: in-app
+   *  model-downloader). */
+  modelDownload: 'models/download',
+  /** main → renderer: per-chunk download progress for the in-flight slot,
+   *  pushed while `models/download` runs. */
+  modelDownloadProgress: 'models/download-progress',
   /** renderer → main: launch external URL via shell.openExternal.
    *  Guarded https:// allow-list; rejects all other schemes. */
   shellOpenExternal: 'shell/open-external',
@@ -105,6 +110,9 @@ export const CHANNELS = {
    *  transcript.json (atomic, text-only, merged by index). id validated by
    *  resolveDumpDir (rejects traversal/symlink). */
   transcriptSave: 'transcript/save',
+  /** renderer → main: set/clear a dump's user title (title.json, atomic).
+   *  id validated by resolveDumpDir. Empty title clears it. */
+  dumpTitleSave: 'dump/title/save',
 } as const;
 
 export interface IpcDeps {
@@ -566,6 +574,10 @@ async function runGenerationContext(snap: GenSnapshot): Promise<SessionContext> 
     // Dump wrap sits OUTSIDE the recovery wrapper so the recorded calls are
     // exactly what callWithGrammar issued (prompt, seed, raw output per attempt).
     sidecar: _activeDump ? _activeDump.wrapSidecar(recoveringSidecar) : recoveringSidecar,
+    // Undefined when no dump dir was created → NoteView renders without the
+    // editable title (nothing to key title.json by). Same source as the
+    // transcribe path's dumpId (runTranscriptContext).
+    dumpId: _activeDump ? path.basename(_activeDump.dir) : undefined,
   };
 }
 
@@ -794,6 +806,13 @@ export function registerIpc(deps: IpcDeps) {
       return { ok: true };
     },
   );
+  ipcMain.handle(
+    CHANNELS.dumpTitleSave,
+    async (_e, payload: { id: string; title: string }): Promise<{ ok: boolean }> => {
+      await saveDumpTitle(sessionsBaseDir(), payload.id, typeof payload?.title === 'string' ? payload.title : '');
+      return { ok: true };
+    },
+  );
 
   // ── F2 history viewer: dump list + transcript (read-only) ────────────────
   ipcMain.handle(CHANNELS.sessionListDumps, async () => listDumps(sessionsBaseDir()));
@@ -945,9 +964,9 @@ export function registerIpc(deps: IpcDeps) {
   });
 
   ipcMain.handle(CHANNELS.shellOpenExternal, async (_e, payload: { url: string }) => {
-    // Defense-in-depth: caller already gates Discord URL via
-    // isDiscordUrlConfigured(), but the bridge is a public surface — only
-    // https:// links are honored. Anything else is logged and dropped.
+    // Defense-in-depth: this bridge is a public surface — only https://
+    // links are honored regardless of caller. Anything else is logged and
+    // dropped.
     if (!/^https:\/\//.test(payload.url)) {
       log.warn('[shell] rejected non-https openExternal', payload.url);
       return;
