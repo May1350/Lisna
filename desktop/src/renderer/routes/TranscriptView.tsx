@@ -112,7 +112,7 @@ export function TranscriptView({ segments, language, durationSec, dumpId, onNewS
               <button data-testid="transcript-edit" onClick={() => setEditing(true)}>編集</button>
             )}
             <CopyExportButtons getText={() => transcriptToText(local)} exportName="transcript.txt" />
-            <button data-testid="transcript-new-session" onClick={onNewSession}>新しい録音</button>
+            <button data-testid="transcript-new-session" onClick={onNewSession}>完了</button>
           </>
         )}
       </div>

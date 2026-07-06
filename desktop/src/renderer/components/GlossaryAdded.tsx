@@ -36,8 +36,17 @@ export function GlossaryAdded({ added, onClose }: Props) {
       data-testid="glossary-added"
       role="region"
       aria-label="用語集に追加した語"
-      style={{ marginTop: 16, padding: '12px 14px', border: '1px solid var(--lz-border)', borderRadius: 'var(--lz-radius)', background: 'var(--lz-surface)' }}
+      style={{ position: 'relative', marginTop: 16, padding: '12px 14px', border: '1px solid var(--lz-border)', borderRadius: 'var(--lz-radius)', background: 'var(--lz-surface)' }}
     >
+      <button
+        className="lz-icon-btn"
+        style={{ position: 'absolute', top: 8, right: 8 }}
+        onClick={onClose}
+        disabled={busy}
+        aria-label="閉じる"
+      >
+        ✕
+      </button>
       <p style={{ margin: '0 0 2px', fontSize: 13.5, fontWeight: 600 }}>用語集に追加しました</p>
       <p className="lz-hint" style={{ margin: '0 0 10px' }}>次回以降の文字起こしがこの表記に寄ります。不要なら取り消せます。</p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
@@ -52,9 +61,14 @@ export function GlossaryAdded({ added, onClose }: Props) {
       </div>
       <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
         {active.length > 1 && (
-          <button onClick={() => void remove(active)} disabled={busy}>すべて取り消す</button>
+          <button
+            onClick={() => void remove(active)}
+            disabled={busy}
+            style={{ background: 'transparent', border: 0, color: 'var(--lz-text-3)', fontSize: 12, cursor: 'pointer', padding: '2px 4px', textDecoration: 'underline' }}
+          >
+            すべて取り消す
+          </button>
         )}
-        <button className="lz-primary" onClick={onClose} disabled={busy}>閉じる</button>
       </div>
     </div>
   );
