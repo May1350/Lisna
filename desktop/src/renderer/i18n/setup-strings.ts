@@ -13,6 +13,16 @@ export const SETUP_STRINGS_JA = {
   pickButton: 'ファイルを選択',
   discordButton: 'Discord で受け取る',
   ready: '準備が完了しました',
+  // In-app first-run model downloader (Task 3) — download-first default;
+  // ModelPickerStep remains as the manual-file fallback (usePickerLink).
+  downloadTitle: 'AIモデルのダウンロード',
+  downloadBody: (gb: string | number): string =>
+    `合計 約${gb}GB・初回のみ。文字起こしモデルとノート生成モデルをダウンロードします。`,
+  downloadButton: 'ダウンロード',
+  retryButton: '再試行',
+  usePickerLink: 'すでにファイルがある場合は選択',
+  downloadingStt: '文字起こしモデル',
+  downloadingLlm: 'ノート生成モデル',
 } as const;
 
 /**
