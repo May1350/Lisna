@@ -35,7 +35,7 @@
     "typescript": "~5.5.0",
     "typescript-eslint": "^8",
     "vite": "^5.4.0",
-    "vitest": "^2"
+    "vitest": "^3"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.91.1",
