@@ -53,6 +53,7 @@ export function SetupView({ initialStep, initialError, onReady }: Props) {
     // so the CSS doesn't claim behavior it doesn't have.
     return (
       <div data-testid="setup-done" className="lz-onb">
+        <PencilCheck />
         <h2 className="lz-onb-title">{SETUP_STRINGS_JA.doneTitle}</h2>
         <p className="lz-onb-body">{SETUP_STRINGS_JA.doneBody}</p>
       </div>
@@ -73,4 +74,16 @@ export function SetupView({ initialStep, initialError, onReady }: Props) {
   }
 
   return <ModelDownloadStep onReady={handleResolved} />;
+}
+
+/** Hand-drawn done checkmark (Task 4 pencil accent) — grain-filtered stroke,
+ *  round caps/joins so it reads as a single pencil gesture rather than a
+ *  mechanical icon-font glyph. Purely decorative (aria-hidden); doneTitle
+ *  carries the actual "ready" semantics for a11y. */
+function PencilCheck() {
+  return (
+    <svg className="lz-onb-check" viewBox="0 0 40 40" aria-hidden="true">
+      <path d="M9 21 L17 29 L31 12" />
+    </svg>
+  );
 }

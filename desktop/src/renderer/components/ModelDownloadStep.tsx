@@ -61,15 +61,20 @@ export function ModelDownloadStep({ onReady }: Props) {
     }
   }
 
+  const progressPct = downloadProgressPct(phase);
+
   return (
     <div className="lz-onb" data-testid="onboarding-hero">
       {phase.kind === 'idle' && (
         <>
           <h1 className="lz-onb-word">{SETUP_STRINGS_JA.wordmark}</h1>
           <p className="lz-onb-body">{SETUP_STRINGS_JA.startBody}</p>
-          <button className="lz-primary lz-onb-cta" onClick={handleStart} data-testid="start">
-            {SETUP_STRINGS_JA.startButton}
-          </button>
+          <span className="lz-onb-cta-wrap">
+            <button className="lz-primary lz-onb-cta" onClick={handleStart} data-testid="start">
+              {SETUP_STRINGS_JA.startButton}
+            </button>
+            <PencilButtonBorder />
+          </span>
           <p className="lz-hint lz-onb-hint">{SETUP_STRINGS_JA.sizeDisclosure(TOTAL_GB)}</p>
         </>
       )}
@@ -87,6 +92,7 @@ export function ModelDownloadStep({ onReady }: Props) {
           <Spinner size={28} thickness={3} />
           <h2 className="lz-onb-title">{SETUP_STRINGS_JA.downloadTitle}</h2>
           <p className="lz-onb-body">{SETUP_STRINGS_JA.downloadBody2}</p>
+          <PencilProgress pct={progressPct} />
           <p data-testid="download-progress" className="lz-hint lz-onb-hint">
             {progressLabel(phase.progress) ?? SETUP_STRINGS_JA.downloadingStt}
           </p>
@@ -96,11 +102,48 @@ export function ModelDownloadStep({ onReady }: Props) {
       {phase.kind === 'error' && (
         <div data-testid="download-error" className="lz-onb-error">
           <p className="lz-onb-body">{toFriendlyJa(phase.code)}</p>
-          <button className="lz-primary lz-onb-cta" onClick={handleStart} data-testid="download-retry">
-            {SETUP_STRINGS_JA.retryButton}
-          </button>
+          <span className="lz-onb-cta-wrap">
+            <button className="lz-primary lz-onb-cta" onClick={handleStart} data-testid="download-retry">
+              {SETUP_STRINGS_JA.retryButton}
+            </button>
+            <PencilButtonBorder />
+          </span>
         </div>
       )}
     </div>
+  );
+}
+
+/** Overall download pct across both slots (stt+llm), for the pencil progress
+ *  stroke. Falls back to the per-slot pct from progressLabel's own math when
+ *  only one slot's progress event has arrived yet — matches progressLabel's
+ *  clamping (0–100) so the stroke and the text line never visually disagree. */
+function downloadProgressPct(phase: DownloadPhase): number {
+  if (phase.kind !== 'downloading' || !phase.progress) return 0;
+  const { received, total } = phase.progress;
+  return total > 0 ? Math.min(100, Math.round((received / total) * 100)) : 0;
+}
+
+/** Hand-drawn burgundy border overlay for the CTA button (Task 4 pencil
+ *  accent). Sized to the wrapping `.lz-onb-cta-wrap` via absolute inset;
+ *  purely decorative (aria-hidden) — the button underneath carries the real
+ *  interactive semantics + data-testid. */
+function PencilButtonBorder() {
+  return (
+    <svg className="lz-onb-cta-border" aria-hidden="true">
+      <rect x="1.5" y="1.5" width="97%" height="94%" rx="9" />
+    </svg>
+  );
+}
+
+/** Pencil-stroke download progress fill (Task 4 pencil accent). Track +
+ *  fill are both plain <line>s so the stroke-linecap rounds match; only the
+ *  fill carries the grain filter so the track reads as a flat guide. */
+function PencilProgress({ pct }: { pct: number }) {
+  return (
+    <svg className="lz-onb-progress" viewBox="0 0 220 10" aria-hidden="true">
+      <line className="lz-onb-progress-track" x1="3" y1="5" x2="217" y2="5" />
+      <line className="lz-onb-progress-fill" x1="3" y1="5" x2={3 + (214 * Math.max(0, Math.min(100, pct))) / 100} y2="5" />
+    </svg>
   );
 }

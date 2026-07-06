@@ -228,6 +228,25 @@ function AuthenticatedApp() {
 
   return (
     <div className="lz-app">
+      {/* Hidden pencil SVG filters (Task 4) — defined ONCE here, referenced via
+          filter:url(#pencil-rough) / url(#pencil-grain) from theme.css's
+          .lz-onb-* pencil accents (wordmark, CTA border, progress fill, done
+          check). Verbatim from web/src/app/layout.tsx's #pencil-rough per
+          web-design.md — don't redefine per-component, it'd duplicate IDs. */}
+      <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden="true">
+        <defs>
+          <filter id="pencil-rough" x="-6%" y="-6%" width="112%" height="112%">
+            <feTurbulence type="fractalNoise" baseFrequency="0.05 1.2" numOctaves={2} seed={3} result="n" />
+            <feDisplacementMap in="SourceGraphic" in2="n" scale={2.8} />
+          </filter>
+          <filter id="pencil-grain" x="-8%" y="-8%" width="116%" height="116%">
+            <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves={1} seed={7} result="g" />
+            <feDisplacementMap in="SourceGraphic" in2="g" scale={1.4} result="d" />
+            <feTurbulence type="fractalNoise" baseFrequency="0.04 1.1" numOctaves={2} seed={3} result="r" />
+            <feDisplacementMap in="d" in2="r" scale={2.4} />
+          </filter>
+        </defs>
+      </svg>
       {/* Transparent draggable strip — the ONLY -webkit-app-region:drag surface.
           Replaces the removed header bar so the top edge + traffic-light zone
           stay draggable while content flows to the very top (theme.css .lz-titlebar). */}
