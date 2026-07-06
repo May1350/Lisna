@@ -9,23 +9,19 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { ModelDownloadStep } from '../ModelDownloadStep';
 
 describe('ModelDownloadStep', () => {
-  it('renders the download button + size disclosure + fallback picker link on idle', () => {
-    const html = renderToStaticMarkup(
-      <ModelDownloadStep onReady={() => {}} onUsePicker={() => {}} />,
-    );
-    expect(html).toContain('data-testid="download-models"');
-    expect(html).toContain('ダウンロード');
-    expect(html).toContain('data-testid="use-picker"');
-    expect(html).toContain('すでにファイルがある場合は選択');
+  it('idle renders the start button + size disclosure, no picker link', () => {
+    const html = renderToStaticMarkup(<ModelDownloadStep onReady={() => {}} />);
+    expect(html).toContain('data-testid="start"');
+    expect(html).toContain('はじめる');
+    expect(html).not.toContain('use-picker');
     // Size disclosure computed from DEFAULT_MODELS catalog (574_041_195 +
-    // 2_019_377_696 bytes ≈ 2.6 GB) — NOT the stale "2.4" plan literal.
+    // 2_019_377_696 bytes ≈ 2.6 GB) — NOT a stale literal.
     expect(html).toContain('約2.6GB');
   });
 
   it('does not render the error strip or progress lines on idle', () => {
-    const html = renderToStaticMarkup(
-      <ModelDownloadStep onReady={() => {}} onUsePicker={() => {}} />,
-    );
+    const html = renderToStaticMarkup(<ModelDownloadStep onReady={() => {}} />);
     expect(html).not.toContain('data-testid="download-error"');
+    expect(html).not.toContain('data-testid="download-retry"');
   });
 });

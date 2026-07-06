@@ -3,19 +3,18 @@ import type { ModelStatus, ModelDownloadProgressPayload } from '@shared/ipc-prot
 import { DEFAULT_MODELS } from '@shared/models/catalog';
 import { toFriendlyJa } from '../i18n/error-message-map';
 import { SETUP_STRINGS_JA } from '../i18n/setup-strings';
+import { Spinner } from './Spinner';
 
 interface Props {
   /** Fired once the in-app download completes and models resolve to 'ready'
-   *  (or 'needs-setup' — the caller decides what to do with a partial
-   *  result; in practice SetupView expects 'ready' here). */
+   *  (or 'needs-setup' — SetupView decides what to do with a partial
+   *  result). */
   onReady: (status: ModelStatus) => void;
-  /** User already has model files on disk — fall back to the manual
-   *  file-picker flow (ModelPickerStep) instead of downloading. */
-  onUsePicker: () => void;
 }
 
 type DownloadPhase =
   | { kind: 'idle' }
+  | { kind: 'checking' }
   | { kind: 'downloading'; progress?: ModelDownloadProgressPayload }
   | { kind: 'error'; code: string };
 
@@ -32,23 +31,28 @@ function progressLabel(progress: ModelDownloadProgressPayload | undefined): stri
 }
 
 /**
- * In-app first-run model downloader — the download-first default step shown
- * by SetupView. Fetches both DEFAULT_MODELS slots via
- * `window.lisna.downloadModels`, showing per-slot progress from
- * `onModelDownloadProgress`. Users who already have model files can fall
- * back to the existing ModelPickerStep flow via `usePickerLink`.
+ * In-app first-run model downloader — dark centered-hero flow shown by
+ * SetupView. Phase machine: idle (wordmark + CTA) → checking (spinner, while
+ * `window.lisna.downloadModels` resolves whether anything even needs
+ * fetching) → downloading (per-slot progress via `onModelDownloadProgress`)
+ * → done (onReady) or error (retry). No manual-picker escape hatch — this
+ * is the unconditional onboarding path (Task 3; picker removal).
  */
-export function ModelDownloadStep({ onReady, onUsePicker }: Props) {
+export function ModelDownloadStep({ onReady }: Props) {
   const [phase, setPhase] = useState<DownloadPhase>({ kind: 'idle' });
 
   useEffect(() => {
     return window.lisna.onModelDownloadProgress((msg) => {
-      setPhase((prev) => (prev.kind === 'downloading' ? { kind: 'downloading', progress: msg } : prev));
+      setPhase((prev) =>
+        prev.kind === 'checking' || prev.kind === 'downloading'
+          ? { kind: 'downloading', progress: msg }
+          : prev,
+      );
     });
   }, []);
 
-  async function handleDownload(): Promise<void> {
-    setPhase({ kind: 'downloading' });
+  async function handleStart(): Promise<void> {
+    setPhase({ kind: 'checking' });
     const result = await window.lisna.downloadModels();
     if (result.ok) {
       onReady(result.status);
@@ -57,59 +61,46 @@ export function ModelDownloadStep({ onReady, onUsePicker }: Props) {
     }
   }
 
-  const busy = phase.kind === 'downloading';
-  const label = phase.kind === 'downloading' ? progressLabel(phase.progress) : null;
-
   return (
-    <div style={{ maxWidth: 560, margin: '0 auto', padding: 24, fontFamily: 'system-ui' }}>
-      <h2>{SETUP_STRINGS_JA.downloadTitle}</h2>
-      <p>{SETUP_STRINGS_JA.downloadBody(TOTAL_GB)}</p>
-      <div style={{ display: 'flex', gap: 12, marginTop: 16 }}>
-        <button
-          onClick={handleDownload}
-          disabled={busy}
-          data-testid="download-models"
-          style={{ padding: '8px 16px', fontSize: 14 }}
-        >
-          {SETUP_STRINGS_JA.downloadButton}
-        </button>
-      </div>
-      {busy && (
-        <p data-testid="download-progress" style={{ marginTop: 16, color: '#888', fontSize: 14 }}>
-          {label ?? SETUP_STRINGS_JA.downloadingStt}
-        </p>
+    <div className="lz-onb" data-testid="onboarding-hero">
+      {phase.kind === 'idle' && (
+        <>
+          <h1 className="lz-onb-word">{SETUP_STRINGS_JA.wordmark}</h1>
+          <p className="lz-onb-body">{SETUP_STRINGS_JA.startBody}</p>
+          <button className="lz-primary lz-onb-cta" onClick={handleStart} data-testid="start">
+            {SETUP_STRINGS_JA.startButton}
+          </button>
+          <p className="lz-hint lz-onb-hint">{SETUP_STRINGS_JA.sizeDisclosure(TOTAL_GB)}</p>
+        </>
       )}
+
+      {phase.kind === 'checking' && (
+        <>
+          <Spinner size={28} thickness={3} />
+          <h2 className="lz-onb-title">{SETUP_STRINGS_JA.checkingTitle}</h2>
+          <p className="lz-onb-body">{SETUP_STRINGS_JA.checkingBody}</p>
+        </>
+      )}
+
+      {phase.kind === 'downloading' && (
+        <>
+          <Spinner size={28} thickness={3} />
+          <h2 className="lz-onb-title">{SETUP_STRINGS_JA.downloadTitle}</h2>
+          <p className="lz-onb-body">{SETUP_STRINGS_JA.downloadBody2}</p>
+          <p data-testid="download-progress" className="lz-hint lz-onb-hint">
+            {progressLabel(phase.progress) ?? SETUP_STRINGS_JA.downloadingStt}
+          </p>
+        </>
+      )}
+
       {phase.kind === 'error' && (
-        <div
-          data-testid="download-error"
-          style={{
-            marginTop: 16,
-            padding: 12,
-            border: '1px solid #c33',
-            borderRadius: 4,
-            color: '#c33',
-            background: '#fff5f5',
-            fontSize: 14,
-          }}
-        >
-          <p>{toFriendlyJa(phase.code)}</p>
-          <button onClick={handleDownload} data-testid="download-retry" style={{ padding: '8px 16px', fontSize: 14 }}>
+        <div data-testid="download-error" className="lz-onb-error">
+          <p className="lz-onb-body">{toFriendlyJa(phase.code)}</p>
+          <button className="lz-primary lz-onb-cta" onClick={handleStart} data-testid="download-retry">
             {SETUP_STRINGS_JA.retryButton}
           </button>
         </div>
       )}
-      <p style={{ marginTop: 24 }}>
-        <a
-          href="#"
-          data-testid="use-picker"
-          onClick={(e) => {
-            e.preventDefault();
-            onUsePicker();
-          }}
-        >
-          {SETUP_STRINGS_JA.usePickerLink}
-        </a>
-      </p>
     </div>
   );
 }
