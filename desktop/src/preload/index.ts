@@ -11,6 +11,8 @@ import type {
   ModelSlot,
   PickResult,
   ModelPickPayload,
+  DownloadResult,
+  ModelDownloadProgressPayload,
   DumpSummary,
   DumpTranscript,
   SessionTranscribeResult,
@@ -129,6 +131,21 @@ contextBridge.exposeInMainWorld('lisna', {
     return ipcRenderer.invoke(CHANNELS.modelPick, payload);
   },
 
+  /** In-app first-run downloader — fetches both DEFAULT_MODELS slots,
+   *  verifies sha256, writes models.json. Resolves once the full sequence
+   *  (or an early failure) completes. */
+  downloadModels: (): Promise<DownloadResult> =>
+    ipcRenderer.invoke(CHANNELS.modelDownload),
+
+  /** Subscribe to per-slot download progress while `downloadModels` runs.
+   *  Returns an unsubscribe function — same useEffect-cleanup contract as
+   *  onFinalizeProgress. */
+  onModelDownloadProgress: (cb: (msg: ModelDownloadProgressPayload) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, msg: ModelDownloadProgressPayload) => cb(msg);
+    ipcRenderer.on(CHANNELS.modelDownloadProgress, listener);
+    return () => ipcRenderer.removeListener(CHANNELS.modelDownloadProgress, listener);
+  },
+
   openExternal: (url: string): Promise<void> =>
     ipcRenderer.invoke(CHANNELS.shellOpenExternal, { url }),
 
@@ -207,6 +224,8 @@ declare global {
       restartApp(): Promise<void>;
       getModelStatus(): Promise<ModelStatus>;
       pickModel(slot: ModelSlot): Promise<PickResult>;
+      downloadModels(): Promise<DownloadResult>;
+      onModelDownloadProgress(cb: (msg: ModelDownloadProgressPayload) => void): () => void;
       openExternal(url: string): Promise<void>;
       exportFile(args: { content: string; defaultName: string }): Promise<{ ok: boolean; canceled: boolean; path?: string }>;
       getGlossary(): Promise<string[]>;

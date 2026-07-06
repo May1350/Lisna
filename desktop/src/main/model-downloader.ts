@@ -1,7 +1,13 @@
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import path from 'node:path';
+import { ipcMain, type BrowserWindow } from 'electron';
 import type { ModelDescriptor } from '@shared/types';
+import type { CoreModelSlot, ModelStatus, DownloadResult } from '@shared/ipc-protocol';
+import { CHANNELS } from './ipc';
+import { DEFAULT_MODELS } from '@shared/models/catalog';
+import { saveModelsJson, resolveModels } from './model-resolver';
+import { log } from './log';
 
 /** Free-space margin required beyond the model's declared size (512 MiB). */
 const FREE_SPACE_MARGIN_BYTES = 512 * 1024 * 1024;
@@ -88,4 +94,58 @@ export async function downloadModel(
 
   fs.renameSync(partPath, finalPath);
   return finalPath;
+}
+
+export interface ModelDownloadIpcDeps {
+  getMainWindow: () => BrowserWindow | undefined;
+  userDataDir: string;
+  onStatusChange?: (s: ModelStatus) => void;
+  /** Injectable for tests — defaults to the real `downloadModel` above. */
+  downloadImpl?: typeof downloadModel;
+}
+
+/**
+ * Register the in-app first-run downloader's IPC handler. Sequentially
+ * downloads both DEFAULT_MODELS slots (stt then llm) into
+ * `<userDataDir>/models`, persists models.json, and recomputes ModelStatus
+ * via the same resolver `registerModelIpc` uses — so the two handlers never
+ * disagree on what "ready" means.
+ *
+ * Any failure (network/disk/checksum from downloadModel, or a models.json
+ * write failure) short-circuits with `{ok:false, code}` and leaves
+ * models.json untouched — a retry re-downloads both slots rather than
+ * attempting a partial resume.
+ */
+export function registerModelDownloadIpc(deps: ModelDownloadIpcDeps): void {
+  const downloadImpl = deps.downloadImpl ?? downloadModel;
+
+  ipcMain.handle(CHANNELS.modelDownload, async (): Promise<DownloadResult> => {
+    const destDir = path.join(deps.userDataDir, 'models');
+    try {
+      const slots: CoreModelSlot[] = ['stt', 'llm'];
+      const paths: Record<CoreModelSlot, string> = { stt: '', llm: '' };
+      for (const slot of slots) {
+        paths[slot] = await downloadImpl(DEFAULT_MODELS[slot], destDir, {
+          onProgress: (p) => {
+            deps.getMainWindow()?.webContents.send(CHANNELS.modelDownloadProgress, { slot, ...p });
+          },
+        });
+      }
+
+      try {
+        await saveModelsJson(deps.userDataDir, { version: 1, sttPath: paths.stt, llmPath: paths.llm });
+      } catch (err) {
+        log.error('[model-downloader] saveModelsJson failed', err);
+        throw new Error('MODEL_SAVE_FAILED');
+      }
+
+      const status = await resolveModels({ userDataDir: deps.userDataDir, envOverride: {} });
+      deps.onStatusChange?.(status);
+      return { ok: true, status };
+    } catch (err) {
+      const code = err instanceof Error ? err.message : 'UNKNOWN_ERROR';
+      log.error('[model-downloader] download failed', code);
+      return { ok: false, code };
+    }
+  });
 }

@@ -59,6 +59,14 @@ export const CHANNELS = {
    *  save for one slot. Handler awaits the disk write before returning,
    *  so PickResult.status reflects committed state (spec §5.1 step 7). */
   modelPick: 'models/pick',
+  /** renderer → main: in-app first-run downloader — fetch both DEFAULT_MODELS
+   *  slots (HF-direct), verify sha256, write models.json, recompute status.
+   *  Handler awaits the full sequence before returning (spec: in-app
+   *  model-downloader). */
+  modelDownload: 'models/download',
+  /** main → renderer: per-chunk download progress for the in-flight slot,
+   *  pushed while `models/download` runs. */
+  modelDownloadProgress: 'models/download-progress',
   /** renderer → main: launch external URL via shell.openExternal.
    *  Guarded https:// allow-list; rejects all other schemes. */
   shellOpenExternal: 'shell/open-external',

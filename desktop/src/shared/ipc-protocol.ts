@@ -245,6 +245,22 @@ export interface ModelPickPayload {
   slot: ModelSlot;
 }
 
+/** Resolved by `models/download` (in-app first-run downloader). Mirrors
+ *  PickResult's discriminated-union shape; `code` is the downloader's
+ *  thrown Error.message (INSUFFICIENT_DISK / NETWORK_FAILED /
+ *  CHECKSUM_MISMATCH / MODEL_SAVE_FAILED). */
+export type DownloadResult =
+  | { ok: true; status: ModelStatus }
+  | { ok: false; code: string };
+
+/** Pushed over CHANNELS.modelDownloadProgress while `models/download` runs —
+ *  one stream per slot, sequential (stt then llm). */
+export interface ModelDownloadProgressPayload {
+  slot: CoreModelSlot;
+  received: number;
+  total: number;
+}
+
 // --- Phase M Task 70 — auth gate ---
 
 /**
