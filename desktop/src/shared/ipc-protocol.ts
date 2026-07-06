@@ -229,26 +229,9 @@ export type ModelStatus =
  *  separately so resolver-internal types can evolve without a renderer break. */
 export type ResolveResult = ModelStatus;
 
-export type PickResult =
-  | { ok: true; status: ModelStatus }
-  | { ok: false;
-      code:
-        | 'INVALID_MAGIC_BYTES_STT'
-        | 'INVALID_MAGIC_BYTES_LLM'
-        | 'MODEL_READ_FAILED'
-        | 'PICKER_CANCELLED'
-        | 'MODEL_SAVE_FAILED';
-    };
-
-/** Sent over CHANNELS.modelPick. */
-export interface ModelPickPayload {
-  slot: ModelSlot;
-}
-
-/** Resolved by `models/download` (in-app first-run downloader). Mirrors
- *  PickResult's discriminated-union shape; `code` is the downloader's
- *  thrown Error.message (INSUFFICIENT_DISK / NETWORK_FAILED /
- *  CHECKSUM_MISMATCH / MODEL_SAVE_FAILED). */
+/** Resolved by `models/download` (in-app first-run downloader). Discriminated
+ *  union shape; `code` is the downloader's thrown Error.message
+ *  (INSUFFICIENT_DISK / NETWORK_FAILED / CHECKSUM_MISMATCH / MODEL_SAVE_FAILED). */
 export type DownloadResult =
   | { ok: true; status: ModelStatus }
   | { ok: false; code: string };

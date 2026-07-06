@@ -1,17 +1,9 @@
 import { useEffect, useState } from 'react';
-import type { ModelSlot, ModelStatus } from '@shared/ipc-protocol';
+import type { ModelStatus } from '@shared/ipc-protocol';
 import { ModelDownloadStep } from '../components/ModelDownloadStep';
 import { SETUP_STRINGS_JA } from '../i18n/setup-strings';
 
 interface Props {
-  /** Unused now that the manual-picker fallback is removed from this flow
-   *  (Task 3). Left typed/tolerated — Task 5 cleans up the App.tsx call
-   *  site and this prop. */
-  initialStep: ModelSlot;
-  /** Unused now that the manual-picker fallback is removed from this flow
-   *  (Task 3). Left typed/tolerated — Task 5 cleans up the App.tsx call
-   *  site and this prop. */
-  initialError?: string;
   /** Fired once both slots are resolved (status.kind === 'ready'). */
   onReady: () => void;
 }
@@ -22,12 +14,7 @@ type SetupState = { kind: 'download' } | { kind: 'done' };
  *  timer and any future fade animation can't drift apart. */
 const DONE_REDIRECT_MS = 300;
 
-// initialStep/initialError are unused now that the manual-picker fallback is
-// gone (Task 3) — kept on Props so App.tsx's call site still typechecks
-// until Task 5 updates it. Destructured (not dropped) to document that
-// they're intentionally-received-but-ignored, not a signature mismatch.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function SetupView({ initialStep, initialError, onReady }: Props) {
+export function SetupView({ onReady }: Props) {
   // Download-first is the unconditional default (in-app model downloader
   // Task 3): every needs-setup case — first-run AND re-launch/partial-missing
   // — starts on the download step. The manual-picker fallback is removed

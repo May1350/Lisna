@@ -164,7 +164,7 @@ export function History({ id, onBack, onRegenerate }: Props) {
 
   if (error) {
     // Raw contract codes (DUMP_NOT_FOUND etc.) must never reach the user —
-    // resolve through the same JA map as ErrorView / ModelPickerStep.
+    // resolve through the same JA map as ErrorView.
     return (
       <section data-testid="history-detail-error">
         <p>{toFriendlyJa(error)}</p>

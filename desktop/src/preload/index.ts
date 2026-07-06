@@ -8,9 +8,6 @@ import type {
   SessionErrorPayload,
   FinalizeProgressPayload,
   ModelStatus,
-  ModelSlot,
-  PickResult,
-  ModelPickPayload,
   DownloadResult,
   ModelDownloadProgressPayload,
   DumpSummary,
@@ -126,11 +123,6 @@ contextBridge.exposeInMainWorld('lisna', {
   getModelStatus: (): Promise<ModelStatus> =>
     ipcRenderer.invoke(CHANNELS.modelStatus),
 
-  pickModel: (slot: ModelSlot): Promise<PickResult> => {
-    const payload: ModelPickPayload = { slot };
-    return ipcRenderer.invoke(CHANNELS.modelPick, payload);
-  },
-
   /** In-app first-run downloader — fetches both DEFAULT_MODELS slots,
    *  verifies sha256, writes models.json. Resolves once the full sequence
    *  (or an early failure) completes. */
@@ -223,7 +215,6 @@ declare global {
       onFinalizeProgress(cb: (msg: FinalizeProgressPayload) => void): () => void;
       restartApp(): Promise<void>;
       getModelStatus(): Promise<ModelStatus>;
-      pickModel(slot: ModelSlot): Promise<PickResult>;
       downloadModels(): Promise<DownloadResult>;
       onModelDownloadProgress(cb: (msg: ModelDownloadProgressPayload) => void): () => void;
       openExternal(url: string): Promise<void>;

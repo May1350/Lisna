@@ -42,7 +42,7 @@ export function shouldShowAudioNotice(audioNoticeAck: boolean, viewKind: View['k
 
 type View =
   | { kind: 'booting' }
-  | { kind: 'setup'; initialStep: 'stt' | 'llm'; initialError?: string }
+  | { kind: 'setup' }
   | { kind: 'recording' }
   | { kind: 'history'; id: string }
   | { kind: 'familyPicking' }
@@ -191,24 +191,11 @@ function AuthenticatedApp() {
           setView({ kind: 'recording' });
           return;
         }
-        // status.missing is sorted: 'stt' before 'llm'. First missing slot
-        // is where the picker starts. If we're re-prompting because a
-        // previously-set path is now missing, surface that as initialError.
-        const initialStep = status.missing[0];
-        if (!initialStep) {
-          // Unreachable: needs-setup always has ≥1 missing slot. Guard for
-          // noUncheckedIndexedAccess strictness. Log a breadcrumb so a
-          // handler bug surfaces in CloudWatch / DevTools instead of
-          // silently manifesting as a Recording-side failure.
-          console.error('[App] needs-setup with missing.length=0 — model-resolver bug?');
-          setView({ kind: 'recording' });
-          return;
-        }
-        const initialError =
-          initialStep === 'stt' ? 'MODEL_FILE_MISSING_STT' : 'MODEL_FILE_MISSING_LLM';
-        // First-run case: missing.length === 2; treat as no error (clean state).
-        const error = status.missing.length === 2 ? undefined : initialError;
-        setView({ kind: 'setup', initialStep, initialError: error });
+        // Auto-detect + in-app download (Task 3) handles every needs-setup
+        // case unconditionally — no per-slot routing needed here anymore
+        // (the manual picker fallback that consumed missing[0]/the derived
+        // MODEL_FILE_MISSING_* code was removed in Task 5).
+        setView({ kind: 'setup' });
       })
       .catch((err) => {
         // The main-side getModelStatus handler returns cached state — no
@@ -301,13 +288,7 @@ function renderView(
     case 'booting':
       return <div data-testid="booting" />;  // null UI; resolved in ~ms
     case 'setup':
-      return (
-        <SetupView
-          initialStep={view.initialStep}
-          initialError={view.initialError}
-          onReady={() => setView({ kind: 'recording' })}
-        />
-      );
+      return <SetupView onReady={() => setView({ kind: 'recording' })} />;
     case 'recording':
       // Group G1 — gate the first recording behind the once-only on-device
       // audio-retention disclosure. This catches BOTH entry paths into

@@ -55,10 +55,6 @@ export const CHANNELS = {
   lifecycleRestart: 'lifecycle/restart',
   /** renderer → main: query current ModelStatus on App mount */
   modelStatus: 'models/status',
-  /** renderer → main: native file dialog + magic-byte validate + atomic
-   *  save for one slot. Handler awaits the disk write before returning,
-   *  so PickResult.status reflects committed state (spec §5.1 step 7). */
-  modelPick: 'models/pick',
   /** renderer → main: in-app first-run downloader — fetch both DEFAULT_MODELS
    *  slots (HF-direct), verify sha256, write models.json, recompute status.
    *  Handler awaits the full sequence before returning (spec: in-app
@@ -968,9 +964,9 @@ export function registerIpc(deps: IpcDeps) {
   });
 
   ipcMain.handle(CHANNELS.shellOpenExternal, async (_e, payload: { url: string }) => {
-    // Defense-in-depth: caller already gates Discord URL via
-    // isDiscordUrlConfigured(), but the bridge is a public surface — only
-    // https:// links are honored. Anything else is logged and dropped.
+    // Defense-in-depth: this bridge is a public surface — only https://
+    // links are honored regardless of caller. Anything else is logged and
+    // dropped.
     if (!/^https:\/\//.test(payload.url)) {
       log.warn('[shell] rejected non-https openExternal', payload.url);
       return;
