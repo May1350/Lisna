@@ -7,6 +7,7 @@ import type { CoreModelSlot, ModelStatus, DownloadResult } from '@shared/ipc-pro
 import { CHANNELS } from './ipc';
 import { DEFAULT_MODELS } from '@shared/models/catalog';
 import { saveModelsJson, resolveModels } from './model-resolver';
+import { detectExistingModel, recordLocation } from './model-detect';
 import { log } from './log';
 
 /** Free-space margin required beyond the model's declared size (512 MiB). */
@@ -102,22 +103,26 @@ export interface ModelDownloadIpcDeps {
   onStatusChange?: (s: ModelStatus) => void;
   /** Injectable for tests — defaults to the real `downloadModel` above. */
   downloadImpl?: typeof downloadModel;
+  /** Injectable for tests — defaults to the real `detectExistingModel`. */
+  detectImpl?: typeof detectExistingModel;
 }
 
 /**
- * Register the in-app first-run downloader's IPC handler. Sequentially
- * downloads both DEFAULT_MODELS slots (stt then llm) into
- * `<userDataDir>/models`, persists models.json, and recomputes ModelStatus
- * via the same resolver `registerModelIpc` uses — so the two handlers never
- * disagree on what "ready" means.
+ * Register the in-app first-run downloader's IPC handler. For each of the
+ * DEFAULT_MODELS slots (stt then llm), first checks whether a valid model
+ * already exists on disk (`detectExistingModel`) and only downloads what's
+ * missing, into `<userDataDir>/models`. Persists models.json and recomputes
+ * ModelStatus via the same resolver `registerModelIpc` uses — so the two
+ * handlers never disagree on what "ready" means.
  *
  * Any failure (network/disk/checksum from downloadModel, or a models.json
  * write failure) short-circuits with `{ok:false, code}` and leaves
- * models.json untouched — a retry re-downloads both slots rather than
- * attempting a partial resume.
+ * models.json untouched — a retry re-detects/re-downloads both slots rather
+ * than attempting a partial resume.
  */
 export function registerModelDownloadIpc(deps: ModelDownloadIpcDeps): void {
   const downloadImpl = deps.downloadImpl ?? downloadModel;
+  const detectImpl = deps.detectImpl ?? detectExistingModel;
 
   ipcMain.handle(CHANNELS.modelDownload, async (): Promise<DownloadResult> => {
     const destDir = path.join(deps.userDataDir, 'models');
@@ -125,11 +130,16 @@ export function registerModelDownloadIpc(deps: ModelDownloadIpcDeps): void {
       const slots: CoreModelSlot[] = ['stt', 'llm'];
       const paths: Record<CoreModelSlot, string> = { stt: '', llm: '' };
       for (const slot of slots) {
-        paths[slot] = await downloadImpl(DEFAULT_MODELS[slot], destDir, {
-          onProgress: (p) => {
-            deps.getMainWindow()?.webContents.send(CHANNELS.modelDownloadProgress, { slot, ...p });
-          },
-        });
+        const found = await detectImpl(DEFAULT_MODELS[slot], deps.userDataDir);
+        const finalPath =
+          found ??
+          (await downloadImpl(DEFAULT_MODELS[slot], destDir, {
+            onProgress: (p) => {
+              deps.getMainWindow()?.webContents.send(CHANNELS.modelDownloadProgress, { slot, ...p });
+            },
+          }));
+        recordLocation(deps.userDataDir, slot, finalPath);
+        paths[slot] = finalPath;
       }
 
       try {

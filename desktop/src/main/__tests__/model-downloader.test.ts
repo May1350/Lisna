@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import { downloadModel, registerModelDownloadIpc } from '../model-downloader';
 import type { ModelDescriptor } from '@shared/types';
 import type { ModelStatus } from '@shared/ipc-protocol';
+import { DEFAULT_MODELS } from '@shared/models/catalog';
 
 // ─── mock electron (mirrors session-finalize.test.ts's captured-handler harness) ───
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -153,5 +154,89 @@ describe('registerModelDownloadIpc', () => {
     expect(result).toEqual({ ok: false, code: 'NETWORK_FAILED' });
     expect(fs.existsSync(path.join(userDataDir, 'models.json'))).toBe(false);
     expect(statuses).toHaveLength(0);
+  });
+
+  it('both slots detected → NO download, models.json written, onStatusChange(ready)', async () => {
+    const statuses: ModelStatus[] = [];
+    const sentWindow = { webContents: { send: vi.fn() } };
+    const downloadImpl = vi.fn();
+
+    const sttFound = path.join(userDataDir, 'existing-stt.bin');
+    const llmFound = path.join(userDataDir, 'existing-llm.bin');
+    fs.writeFileSync(sttFound, 'stt-existing');
+    fs.writeFileSync(llmFound, 'llm-existing');
+    const detectImpl = vi.fn((d: ModelDescriptor) => Promise.resolve(d.kind === 'stt' ? sttFound : llmFound));
+
+    registerModelDownloadIpc({
+      getMainWindow: () => sentWindow as unknown as Electron.BrowserWindow,
+      userDataDir,
+      onStatusChange: (s) => statuses.push(s),
+      downloadImpl: downloadImpl as unknown as typeof downloadModel,
+      detectImpl,
+    });
+
+    const handler = captured.get(CHANNELS.modelDownload);
+    expect(handler).toBeDefined();
+    const result = await handler!(undefined, undefined);
+
+    expect(result.ok).toBe(true);
+    expect(downloadImpl).not.toHaveBeenCalled();
+
+    const modelsJsonPath = path.join(userDataDir, 'models.json');
+    expect(fs.existsSync(modelsJsonPath)).toBe(true);
+    const written = JSON.parse(fs.readFileSync(modelsJsonPath, 'utf8'));
+    expect(written.sttPath).toBe(sttFound);
+    expect(written.llmPath).toBe(llmFound);
+
+    expect(statuses).toHaveLength(1);
+    expect(statuses[0]).toEqual(expect.objectContaining({ kind: 'ready' }));
+
+    // no progress events — nothing was downloaded
+    expect(sentWindow.webContents.send).not.toHaveBeenCalled();
+  });
+
+  it('one slot missing → downloads exactly that slot', async () => {
+    const statuses: ModelStatus[] = [];
+    const sentWindow = { webContents: { send: vi.fn() } };
+
+    const sttFound = path.join(userDataDir, 'existing-stt.bin');
+    fs.writeFileSync(sttFound, 'stt-existing');
+    const detectImpl = vi.fn((d: ModelDescriptor) => Promise.resolve(d.kind === 'stt' ? sttFound : null));
+    const downloadImpl = vi.fn(stubDownloadImpl as unknown as typeof downloadModel);
+
+    registerModelDownloadIpc({
+      getMainWindow: () => sentWindow as unknown as Electron.BrowserWindow,
+      userDataDir,
+      onStatusChange: (s) => statuses.push(s),
+      downloadImpl,
+      detectImpl,
+    });
+
+    const handler = captured.get(CHANNELS.modelDownload);
+    expect(handler).toBeDefined();
+    const result = await handler!(undefined, undefined);
+
+    expect(result.ok).toBe(true);
+    expect(downloadImpl).toHaveBeenCalledTimes(1);
+    expect(downloadImpl).toHaveBeenCalledWith(
+      DEFAULT_MODELS.llm,
+      expect.any(String),
+      expect.anything(),
+    );
+
+    const modelsJsonPath = path.join(userDataDir, 'models.json');
+    const written = JSON.parse(fs.readFileSync(modelsJsonPath, 'utf8'));
+    expect(written.sttPath).toBe(sttFound);
+    expect(written.llmPath).toContain('models');
+
+    // progress relayed only for the llm slot that actually downloaded
+    expect(sentWindow.webContents.send).toHaveBeenCalledWith(
+      CHANNELS.modelDownloadProgress,
+      expect.objectContaining({ slot: 'llm' }),
+    );
+    expect(sentWindow.webContents.send).not.toHaveBeenCalledWith(
+      CHANNELS.modelDownloadProgress,
+      expect.objectContaining({ slot: 'stt' }),
+    );
   });
 });
