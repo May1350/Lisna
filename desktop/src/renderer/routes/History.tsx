@@ -3,9 +3,9 @@ import type { DumpTranscript } from '@shared/ipc-protocol';
 import type { NoteFamily } from '@shared/note-schema';
 import { FamilyPickerStep } from '../components/FamilyPickerStep';
 import { Spinner } from '../components/Spinner';
-import { GlossarySuggestions } from '../components/GlossarySuggestions';
+import { GlossaryAdded } from '../components/GlossaryAdded';
 import { EditableTitle } from '../components/EditableTitle';
-import { suggestGlossaryTerms } from '@shared/stt/glossary';
+import { autoRegisterGlossaryFromEdit } from '../lib/glossary-auto';
 import { toFriendlyJa } from '../i18n/error-message-map';
 
 /**
@@ -43,7 +43,7 @@ export function HistoryDetail({ id, transcript, onBack, onRegenerate }: DetailPr
   const [local, setLocal] = useState(transcript.segments);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [addedTerms, setAddedTerms] = useState<string[]>([]);
   const [titleValue, setTitleValue] = useState(transcript.title ?? '');
 
   function setText(i: number, text: string) {
@@ -57,16 +57,19 @@ export function HistoryDetail({ id, transcript, onBack, onRegenerate }: DetailPr
         local.map((s) => ({ startSec: s.startSec, endSec: s.endSec, text: s.text })),
       );
       setEditing(false);
-      // Proper-noun corrections in this edit → offer to add them to the glossary
+      // Proper-noun corrections in this edit → auto-register them to the glossary
       // so the next recording's STT biases toward the fixed spelling. Best-effort:
-      // a glossary-read failure must not turn a successful save into an error.
+      // a glossary-read/write failure must not turn a successful save into an error.
       try {
         const pairs = local
           .map((s, i) => ({ before: transcript.segments[i]?.text ?? '', after: s.text }))
           .filter((p) => p.before !== p.after);
-        const existing = await window.lisna.getGlossary();
-        setSuggestions(suggestGlossaryTerms(pairs, existing));
-      } catch { /* suggestions are best-effort; stay silent */ }
+        const added = await autoRegisterGlossaryFromEdit(pairs, {
+          getGlossary: window.lisna.getGlossary,
+          setGlossary: window.lisna.setGlossary,
+        });
+        setAddedTerms(added);
+      } catch { /* best-effort — helper already swallows, this guards the pairs build */ }
     } finally {
       setSaving(false);
     }
@@ -123,7 +126,7 @@ export function HistoryDetail({ id, transcript, onBack, onRegenerate }: DetailPr
         </div>
       ) : (
         <>
-          <GlossarySuggestions candidates={suggestions} onClose={() => setSuggestions([])} />
+          {addedTerms.length > 0 && <GlossaryAdded added={addedTerms} onClose={() => setAddedTerms([])} />}
           <div style={{ borderTop: '1px solid var(--lz-line)', marginTop: 4, paddingTop: 6 }}>
           <FamilyPickerStep
             // Regenerate-from-dump only produces NOTES. The raw transcript is

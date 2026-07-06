@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import type { TranscriptSegment } from '@shared/types';
 import { transcriptToText } from '@shared/note-export';
-import { suggestGlossaryTerms } from '@shared/stt/glossary';
 import { CopyExportButtons } from '../components/CopyExportButtons';
-import { GlossarySuggestions } from '../components/GlossarySuggestions';
+import { GlossaryAdded } from '../components/GlossaryAdded';
+import { autoRegisterGlossaryFromEdit } from '../lib/glossary-auto';
 
 interface Props {
   segments: TranscriptSegment[];
@@ -33,7 +33,7 @@ export function TranscriptView({ segments, language, durationSec, dumpId, onNewS
   const [local, setLocal] = useState<TranscriptSegment[]>(segments);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [addedTerms, setAddedTerms] = useState<string[]>([]);
 
   function setText(i: number, text: string) {
     setLocal((prev) => prev.map((s, j) => (j === i ? { ...s, text } : s)));
@@ -48,16 +48,19 @@ export function TranscriptView({ segments, language, durationSec, dumpId, onNewS
         local.map((s) => ({ startSec: s.startSec, endSec: s.endSec, text: s.text })),
       );
       setEditing(false);
-      // Proper-noun corrections → offer to add them to the glossary (biases the
+      // Proper-noun corrections → auto-register them to the glossary (biases the
       // next recording's STT toward the fixed spelling). Best-effort: a
-      // glossary-read failure must not turn a successful save into an error.
+      // glossary-read/write failure must not turn a successful save into an error.
       try {
         const pairs = local
           .map((s, i) => ({ before: segments[i]?.text ?? '', after: s.text }))
           .filter((p) => p.before !== p.after);
-        const existing = await window.lisna.getGlossary();
-        setSuggestions(suggestGlossaryTerms(pairs, existing));
-      } catch { /* suggestions are best-effort; stay silent */ }
+        const added = await autoRegisterGlossaryFromEdit(pairs, {
+          getGlossary: window.lisna.getGlossary,
+          setGlossary: window.lisna.setGlossary,
+        });
+        setAddedTerms(added);
+      } catch { /* best-effort — helper already swallows, this guards the pairs build */ }
     } finally {
       setSaving(false);
     }
@@ -94,7 +97,7 @@ export function TranscriptView({ segments, language, durationSec, dumpId, onNewS
           </li>
         ))}
       </ul>
-      {!editing && <GlossarySuggestions candidates={suggestions} onClose={() => setSuggestions([])} />}
+      {!editing && addedTerms.length > 0 && <GlossaryAdded added={addedTerms} onClose={() => setAddedTerms([])} />}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 16 }}>
         {editing ? (
           <>
