@@ -191,4 +191,33 @@ describe('recording titles (title.json + note.json)', () => {
     expect(t.title).toBe('マイ会議');
     expect(t.noteTitle).toBe('auto');
   });
+
+  // Task 4 (LLM connector notes): note.json carries origin ('ondevice' |
+  // 'claude') next to title. Old dumps predate this field entirely — the
+  // reader must stay defensive (string-guard to the two allowed values,
+  // else undefined) rather than trust an unvalidated JSON field.
+  it('listDumps surfaces origin from note.json when it is a recognized value', () => {
+    writeDump(ID, T1);
+    fs.writeFileSync(path.join(base, ID, 'note.json'), JSON.stringify({ title: 'x', origin: 'claude' }));
+    const row = listDumps(base).find((r) => r.id === ID)!;
+    expect(row.origin).toBe('claude');
+  });
+
+  it('listDumps omits origin when note.json has no origin field or an unrecognized value', () => {
+    writeDump(ID, T1);
+    fs.writeFileSync(path.join(base, ID, 'note.json'), JSON.stringify({ title: 'x' }));
+    expect(listDumps(base).find((r) => r.id === ID)!.origin).toBeUndefined();
+
+    const ID2 = '2026-06-13T01-00-00-000Z';
+    writeDump(ID2, T1);
+    fs.writeFileSync(path.join(base, ID2, 'note.json'), JSON.stringify({ title: 'x', origin: 'bogus' }));
+    expect(listDumps(base).find((r) => r.id === ID2)!.origin).toBeUndefined();
+  });
+
+  it('loadDumpTranscript attaches origin', () => {
+    writeDump(ID, T1);
+    fs.writeFileSync(path.join(base, ID, 'note.json'), JSON.stringify({ title: 'x', origin: 'ondevice' }));
+    const t = loadDumpTranscript(base, ID);
+    expect(t.origin).toBe('ondevice');
+  });
 });

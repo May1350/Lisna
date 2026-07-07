@@ -14,6 +14,8 @@ export {
   type NoteLanguage,
   NoteBaseSchema,
   type NoteBase,
+  NoteOriginSchema,
+  type NoteOrigin,
 } from './base';
 
 export {

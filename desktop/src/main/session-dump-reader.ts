@@ -52,19 +52,30 @@ function readJson(file: string): unknown {
   return JSON.parse(fs.readFileSync(file, 'utf8'));
 }
 
+/** The two allowed `note.json` origin values (Task 4 — LLM connector notes).
+ *  Kept local to this string-guard; the canonical type lives in
+ *  `@shared/note-schema` (NoteOrigin) but this module reads raw untrusted
+ *  JSON, so it validates against the literal values rather than importing
+ *  a type it can't runtime-check. */
+function isNoteOrigin(v: unknown): v is 'ondevice' | 'claude' {
+  return v === 'ondevice' || v === 'claude';
+}
+
 /** Best-effort read of the optional user title (title.json, written by
- *  dump-title.ts) and the LLM note title (note.json). Read inline — NOT via
- *  dump-title.ts — to keep this module's dependency graph acyclic (dump-title
- *  imports resolveDumpDir from here). Missing/malformed → undefined. */
-function readTitles(dumpDir: string): { title?: string; noteTitle?: string } {
-  const out: { title?: string; noteTitle?: string } = {};
+ *  dump-title.ts) and the LLM note title + origin (note.json). Read inline —
+ *  NOT via dump-title.ts — to keep this module's dependency graph acyclic
+ *  (dump-title imports resolveDumpDir from here). Missing/malformed →
+ *  undefined per field. */
+function readNoteMeta(dumpDir: string): { title?: string; noteTitle?: string; origin?: 'ondevice' | 'claude' } {
+  const out: { title?: string; noteTitle?: string; origin?: 'ondevice' | 'claude' } = {};
   try {
     const t = (readJson(path.join(dumpDir, 'title.json')) as { title?: unknown }).title;
     if (typeof t === 'string' && t.trim()) out.title = t.trim();
   } catch { /* no user title */ }
   try {
-    const nt = (readJson(path.join(dumpDir, 'note.json')) as { title?: unknown }).title;
-    if (typeof nt === 'string' && nt.trim()) out.noteTitle = nt.trim();
+    const note = readJson(path.join(dumpDir, 'note.json')) as { title?: unknown; origin?: unknown };
+    if (typeof note.title === 'string' && note.title.trim()) out.noteTitle = note.title.trim();
+    if (isNoteOrigin(note.origin)) out.origin = note.origin;
   } catch { /* un-noted / no note.json */ }
   return out;
 }
@@ -106,9 +117,10 @@ export function listDumps(baseDir: string): DumpSummary[] {
     } catch {
       // result.json absent (finalize crashed before settle) — list it anyway.
     }
-    const { title, noteTitle } = readTitles(path.join(baseDir, id));
+    const { title, noteTitle, origin } = readNoteMeta(path.join(baseDir, id));
     if (title) summary.title = title;
     if (noteTitle) summary.noteTitle = noteTitle;
+    if (origin) summary.origin = origin;
     return summary;
   });
 }
@@ -122,10 +134,12 @@ export function loadDumpTranscript(baseDir: string, id: string): DumpTranscript 
   } catch {
     throw new Error('DUMP_UNREADABLE');
   }
-  // Attach the optional user + note titles so the detail view can show / edit
-  // the recording name without a second IPC round-trip.
-  const { title, noteTitle } = readTitles(dir);
+  // Attach the optional user + note titles (+ origin) so the detail view can
+  // show / edit the recording name and origin badge without a second IPC
+  // round-trip.
+  const { title, noteTitle, origin } = readNoteMeta(dir);
   if (title) transcript.title = title;
   if (noteTitle) transcript.noteTitle = noteTitle;
+  if (origin) transcript.origin = origin;
   return transcript;
 }
