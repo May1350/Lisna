@@ -20,7 +20,9 @@ import { SessionOrchestrator } from './sidecar/orchestrator';
 import { makeGrammarSidecar } from './sidecar/grammar-call';
 import type { GrammarCapableSidecar } from './sidecar/grammar-call';
 import { makeRecoveringGrammarSidecar } from './sidecar/recovering-grammar-sidecar';
-import { buildDumpSessionContext } from './dump-finalize-context';
+import { buildDumpSessionContext, buildDumpTranscriptContext } from './dump-finalize-context';
+import { loadApiKey } from './connector/claude-auth';
+import { generateCloudNote } from './connector/claude-notes';
 import { listDumps, loadDumpTranscript } from './session-dump-reader';
 import { saveTranscriptEdit, type EditedSegment } from './transcript-edit';
 import { saveDumpTitle } from './dump-title';
@@ -732,6 +734,31 @@ export function registerIpc(deps: IpcDeps) {
         try { fs.unlinkSync(tempWav); } catch { /* best-effort temp cleanup — transcript is in the dump */ }
       }
     },
+    // ── Cloud (Claude connector) target — Task 6 ─────────────────────────────
+    // Real Anthropic key presence check + note generator (injected so
+    // session-finalize.ts stays off the SDK/keytar graph).
+    loadApiKey,
+    generateCloudNote,
+    // Cloud LIVE path: reuse the transcript-only lane (steps A–D — dump dir,
+    // whole-WAV STT, EMPTY_RECORDING guard, transcript.json write) but STOP
+    // before the LLM load. Same snapshot+free-capture pick as getCurrentSession;
+    // the note lands in note.json at settle (onSessionSettled writes _activeDump).
+    getCurrentSessionTranscriptOnly: async () => {
+      if (!current) return null;
+      if (!deps.getModelPaths() || !deps.supervisor.getClient()) return null;
+      const snap = snapshotAndFreeCapture();
+      const r = await runTranscriptContext(snap);
+      return { sessionId: r.sessionId, segments: r.segments, language: snap.language, dumpId: r.dumpId };
+    },
+    // Cloud FROM-DUMP path: skip-LLM dump context (no model load, creates no
+    // dump — P0-1). Mirrors getDumpSession's idle-stop cancel; settle re-arms.
+    getDumpTranscriptOnly: async (id: string) => {
+      cancelIdleStop();
+      return buildDumpTranscriptContext(id, { baseDir: sessionsBaseDir() });
+    },
+    // Cloud progress ({ kind: 'cloud-start' | 'cloud-retry' }) rides the SAME
+    // renderer channel as the on-device finalize-progress kinds.
+    emitCloudProgress: (e) => safeSend(CHANNELS.sessionFinalizeProgress, e),
     // GENERATION-LANE ONLY (Task 4, spec §4.1 table + §5 #2). The capture lane
     // (current / recording / _audioWriter) is freed at PICK time
     // (snapshotAndFreeCapture) for a valid generation, so settle must NOT touch

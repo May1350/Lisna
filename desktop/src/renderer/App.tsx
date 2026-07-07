@@ -499,6 +499,13 @@ export function applyFinalizeProgress(
       // Remaining work before the IPC promise resolves: result-dump write +
       // FSM settle — ms, rendered as the persist phase.
       return { phase: 'persist', startedAt };
+    // Cloud (Claude connector) single-shot generation — Task 6. No chunk/attempt
+    // granularity: cloud-start = request in flight; cloud-retry = a malformed
+    // response was re-requested (carry `attempt` for the 再試行 hint).
+    case 'cloud-start':
+      return { phase: 'cloud', startedAt };
+    case 'cloud-retry':
+      return { phase: 'cloud', attempt: msg.attempt, startedAt };
   }
 }
 

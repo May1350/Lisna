@@ -13,7 +13,7 @@
  */
 import type { NoteLanguage } from '@shared/note-schema';
 import type { GrammarCapableSidecar } from './sidecar/grammar-call';
-import type { SessionContext } from './sidecar/ipc/session-finalize';
+import type { SessionContext, TranscriptOnlyContext } from './sidecar/ipc/session-finalize';
 import { loadDumpTranscript } from './session-dump-reader';
 
 export interface DumpFinalizeDeps<C> {
@@ -69,6 +69,28 @@ export async function buildDumpSessionContext<C>(
     sidecar: deps.makeSidecar(paths.llmPath),
     // A regen re-notes the SAME dump — carry its id so NoteView edits the
     // existing dump's title.json.
+    dumpId: id,
+  };
+}
+
+/**
+ * Skip-LLM variant of buildDumpSessionContext for the cloud (Claude) from-dump
+ * regen (Task 6). Reads the dump transcript and returns a TranscriptOnlyContext
+ * — NO local model, NO sidecar, NO LLM load (Claude does the note). Creates NO
+ * dump (P0-1: regen leaves the dump tree untouched). No MODELS_NOT_CONFIGURED /
+ * SIDECAR_DOWN / language-restriction guards — the cloud path needs no local
+ * models and handles ko/en natively; only the reader guards (INVALID_DUMP_ID /
+ * DUMP_NOT_FOUND / DUMP_UNREADABLE) apply.
+ */
+export function buildDumpTranscriptContext(
+  id: string,
+  deps: { baseDir: string },
+): TranscriptOnlyContext {
+  const dump = loadDumpTranscript(deps.baseDir, id);
+  return {
+    sessionId: `dump:${id}`,
+    segments: dump.segments,
+    language: dump.language as NoteLanguage,
     dumpId: id,
   };
 }

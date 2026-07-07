@@ -104,4 +104,19 @@ describe('applyFinalizeProgress', () => {
       applyFinalizeProgress(prev, { kind: 'transcribe-done' }),
     ).toEqual({ phase: 'loading', startedAt: START });
   });
+
+  // Task 6 — cloud (Claude connector) single-shot generation.
+  it('cloud-start enters the cloud phase, preserving startedAt', () => {
+    const prev: ProgressState = { phase: 'transcribing', pct: 100, startedAt: START };
+    expect(applyFinalizeProgress(prev, { kind: 'cloud-start' })).toEqual({
+      phase: 'cloud', startedAt: START,
+    });
+  });
+
+  it('cloud-retry carries the attempt for the 再試行 hint, preserving startedAt', () => {
+    const prev: ProgressState = { phase: 'cloud', startedAt: START };
+    expect(applyFinalizeProgress(prev, { kind: 'cloud-retry', attempt: 2 })).toEqual({
+      phase: 'cloud', attempt: 2, startedAt: START,
+    });
+  });
 });
