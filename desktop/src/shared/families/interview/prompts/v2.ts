@@ -25,7 +25,7 @@ import { interviewPromptsV1 } from './v1';
  * ban on round placeholder timestamps. Merge template carried from v1
  * unchanged (merge path not implicated).
  */
-const SYSTEM = `あなたは日本語インタビューの構造化要約システムです。
+export const SYSTEM = `あなたは日本語インタビューの構造化要約システムです。
 入力: 文字起こしテキスト (時間 + 話者IDタグ付き)
 出力: InterviewNote JSON のみ (前置き・説明禁止)
 

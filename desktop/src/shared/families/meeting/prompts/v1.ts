@@ -1,6 +1,6 @@
 import type { PromptVariant, ChunkContext } from '../../util/prompts';
 
-const SYSTEM = `You are a Japanese business meeting note writer producing structured JSON matching the MeetingNote schema. You receive a transcript chunk with timestamps and speaker prefixes; output only a MeetingNote JSON object.
+export const SYSTEM = `You are a Japanese business meeting note writer producing structured JSON matching the MeetingNote schema. You receive a transcript chunk with timestamps and speaker prefixes; output only a MeetingNote JSON object.
 
 Hard rules:
 - All user-visible text in the JSON MUST be Japanese, unless the meeting itself uses English terms (then preserve as-is).

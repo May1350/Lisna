@@ -44,7 +44,7 @@ ${ctx.transcript}
 /** Per-family field semantics for the structuring pass — maps the prose to the
  *  RIGHT schema fields (without this, the model dumps everything into decisions
  *  as topic labels). Generic when a family has no entry. */
-const PASS2_FIELD_SEMANTICS: Partial<Record<NoteFamily, string>> = {
+export const PASS2_FIELD_SEMANTICS: Partial<Record<NoteFamily, string>> = {
   meeting:
     `# 重要な区別（数は少なくてよい。質を優先）
 - topic_arc は主要議題のみ（5〜7個）。雑談・小さな論点を議題にしないこと。

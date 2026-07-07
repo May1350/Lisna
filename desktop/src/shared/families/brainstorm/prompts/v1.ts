@@ -1,6 +1,6 @@
 import type { PromptVariant, ChunkContext, MergeContext } from '../../util/prompts';
 
-const SYSTEM = `あなたは日本語のブレインストーミング・セッションの構造化要約システムです。
+export const SYSTEM = `あなたは日本語のブレインストーミング・セッションの構造化要約システムです。
 入力: 文字起こしテキスト (時間 + 話者IDタグ付き)
 出力: BrainstormNote JSON のみ (前置き・説明禁止)
 
