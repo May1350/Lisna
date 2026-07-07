@@ -16,7 +16,10 @@ import { PASS2_FIELD_SEMANTICS } from './two-pass-prompts';
  * them.
  */
 
-export const CLOUD_PROMPT_VERSION = 'cloud-v1';
+// Numeric (not a 'cloud-v1' label) because it is stored into NoteBase
+// generatedBy.promptVersion, which is z.number() — same convention as the
+// on-device family prompts' numeric `version` fields.
+export const CLOUD_PROMPT_VERSION = 1;
 
 const FAMILY_SYSTEM: Record<NoteFamily, string> = {
   lecture: LECTURE_SYSTEM,
