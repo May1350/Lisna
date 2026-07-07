@@ -41,6 +41,9 @@ interface Props {
    */
   onOpenHistory: (id: string) => void;
   onOpenTerms: () => void;
+  /** LLM connector notes (spec 2026-07-07 §7) — opens the Claude連携
+   *  connect/disconnect view (ConnectorView), wired exactly like onOpenTerms. */
+  onOpenConnector: () => void;
   /**
    * Phase 2 quick-transcript slice (scenario 1): the user marks a span
    * [startSec, endSec) of the ONGOING recording; the parent slices the live WAV
@@ -52,7 +55,7 @@ interface Props {
   quickTranscriptBusy?: boolean;
 }
 
-export function Recording({ onStop, onError, onOpenHistory, onOpenTerms, onQuickTranscript, quickTranscriptBusy }: Props) {
+export function Recording({ onStop, onError, onOpenHistory, onOpenTerms, onOpenConnector, onQuickTranscript, quickTranscriptBusy }: Props) {
   const [running, setRunning] = useState(false);
   const [starting, setStarting] = useState(false);
   // Flips true SLOW_LOAD_HINT_MS into the `starting=true` window so we can
@@ -384,7 +387,10 @@ export function Recording({ onStop, onError, onOpenHistory, onOpenTerms, onQuick
         <>
           <div style={{ display: 'flex', alignItems: 'center', margin: '4px 0 6px' }}>
             <p className="lz-label" style={{ margin: 0 }}>履歴</p>
-            <button className="lz-icon-btn" onClick={onOpenTerms} style={{ marginLeft: 'auto', fontSize: 12.5, color: 'var(--lz-text-2)' }}>用語集 ›</button>
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 10 }}>
+              <button className="lz-icon-btn" onClick={onOpenTerms} style={{ fontSize: 12.5, color: 'var(--lz-text-2)' }}>用語集 ›</button>
+              <button className="lz-icon-btn" onClick={onOpenConnector} style={{ fontSize: 12.5, color: 'var(--lz-text-2)' }}>Claude連携 ›</button>
+            </div>
           </div>
           {glossaryEmpty && dumps.length > 0 && (
             <button

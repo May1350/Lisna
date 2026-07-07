@@ -9,6 +9,7 @@ import { FamilyPickerStep } from './components/FamilyPickerStep';
 import { FirstRunAudioNotice } from './components/FirstRunAudioNotice';
 import { TranscriptView } from './routes/TranscriptView';
 import { TermsView } from './routes/TermsView';
+import { ConnectorView } from './routes/ConnectorView';
 import type { ProgressState } from './components/NoteRenderProgress';
 import type { Note, TranscriptSegment } from '@shared/types';
 import type { FinalizeProgressPayload } from '@shared/ipc-protocol';
@@ -49,6 +50,7 @@ type View =
   | { kind: 'transcript'; segments: TranscriptSegment[]; language: string; durationSec?: number; dumpId?: string }
   | { kind: 'note'; note: Note | NoteBase; dumpId?: string }
   | { kind: 'terms' }
+  | { kind: 'connector' }
   | { kind: 'error'; message: string; permanent?: boolean; origin?: ErrorOrigin };
 
 /**
@@ -325,6 +327,7 @@ function renderView(
           }
           onOpenHistory={(id) => setView({ kind: 'history', id })}
           onOpenTerms={() => setView({ kind: 'terms' })}
+          onOpenConnector={() => setView({ kind: 'connector' })}
           quickTranscriptBusy={genBusy}
           onQuickTranscript={(startSec, endSec) => {
             if (genBusy) return; // one generation at a time (also disabled in the button)
@@ -337,6 +340,8 @@ function renderView(
       );
     case 'terms':
       return <TermsView onBack={() => setView({ kind: 'recording' })} />;
+    case 'connector':
+      return <ConnectorView onBack={() => setView({ kind: 'recording' })} />;
     case 'history':
       return (
         <History
