@@ -7,6 +7,7 @@ import { GlossaryAdded } from '../components/GlossaryAdded';
 import { EditableTitle } from '../components/EditableTitle';
 import { autoRegisterGlossaryFromEdit } from '../lib/glossary-auto';
 import { toFriendlyJa } from '../i18n/error-message-map';
+import { ORIGIN_LABEL_JA } from '../i18n/connector-strings';
 
 /**
  * F2 history viewer — detail route. Read-only transcript + family picker +
@@ -101,6 +102,8 @@ export function HistoryDetail({ id, transcript, onBack, onRegenerate, connectorC
       </div>
       <p className="lz-hint" style={{ marginBottom: 14 }}>
         {fmtDate(id)} · {transcript.language} · {local.length}件
+        {/* Task 10 — origin badge, defensive: absent for dumps predating the field. */}
+        {transcript.origin && <> · {ORIGIN_LABEL_JA[transcript.origin]}</>}
       </p>
       <div className="lz-scroll" data-lz-scroll style={{ marginBottom: 16 }}>
         {local.map((seg, i) => (

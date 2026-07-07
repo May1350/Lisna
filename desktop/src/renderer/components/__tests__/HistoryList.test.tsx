@@ -21,6 +21,22 @@ const ROWS: DumpSummary[] = [
   { id: '2026-06-10T01-00-00-000Z', recordedAt: '2026-06-10T01:00:00.000Z', unreadable: true },
 ];
 
+// Task 10 — origin badge rows (present vs absent, defensive like `family`).
+const ROW_WITH_ORIGIN: DumpSummary = {
+  id: '2026-07-08T01-00-00-000Z',
+  recordedAt: '2026-07-08T01:00:00.000Z',
+  language: 'ja',
+  durationSec: 60,
+  origin: 'claude',
+};
+const ROW_WITHOUT_ORIGIN: DumpSummary = {
+  id: '2026-07-07T01-00-00-000Z',
+  recordedAt: '2026-07-07T01:00:00.000Z',
+  language: 'ja',
+  durationSec: 60,
+};
+const ORIGIN_ROWS: DumpSummary[] = [ROW_WITH_ORIGIN, ROW_WITHOUT_ORIGIN];
+
 describe('HistoryList', () => {
   it('renders the quiet empty-state line for an empty list', () => {
     const html = renderToStaticMarkup(<HistoryList dumps={[]} onOpen={() => {}} onRename={() => {}} />);
@@ -41,5 +57,18 @@ describe('HistoryList', () => {
     const html = renderToStaticMarkup(<HistoryList dumps={ROWS} onOpen={() => {}} onRename={() => {}} />);
     expect(html).toContain('読み込み不可');
     expect(html).not.toContain('history-row-2026-06-10T01-00-00-000Z');
+  });
+
+  it('shows an origin badge only for rows that carry it (Task 10)', () => {
+    const html = renderToStaticMarkup(<HistoryList dumps={ORIGIN_ROWS} onOpen={() => {}} onRename={() => {}} />);
+    expect(html).toContain('Claude');
+  });
+
+  it('omits the origin badge for a row with no origin (defensive, like the family fallback)', () => {
+    const html = renderToStaticMarkup(
+      <HistoryList dumps={[ROW_WITHOUT_ORIGIN]} onOpen={() => {}} onRename={() => {}} />,
+    );
+    expect(html).not.toContain('オンデバイス');
+    expect(html).not.toContain('Claude');
   });
 });

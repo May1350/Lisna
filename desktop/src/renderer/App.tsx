@@ -10,10 +10,11 @@ import { FirstRunAudioNotice } from './components/FirstRunAudioNotice';
 import { TranscriptView } from './routes/TranscriptView';
 import { TermsView } from './routes/TermsView';
 import { ConnectorView } from './routes/ConnectorView';
-import type { ProgressState } from './components/NoteRenderProgress';
+import { formatElapsed, type ProgressState } from './components/NoteRenderProgress';
 import type { Note, TranscriptSegment } from '@shared/types';
 import type { FinalizeProgressPayload } from '@shared/ipc-protocol';
 import type { NoteBase, NoteFamily } from '@shared/note-schema';
+import { toFriendlyJa } from './i18n/error-message-map';
 
 // Record-then-transcribe: empty/too-short detection is by elapsed time (no live segments). The real empty/silent case is caught server-side by EMPTY_RECORDING.
 export const MIN_RECORDING_SEC = 1;
@@ -281,6 +282,23 @@ function AuthenticatedApp() {
           setBackgroundJob(null);
         }}
         onDismiss={() => setBackgroundJob(null)}
+        onRetryOndevice={() => {
+          // Task 10 — cloud-error → on-device fallback (spec §6, explicit offer
+          // only). Re-runs the SAME family the failed job carried in `retry`,
+          // via whichever entry point it came from (live vs. History regen).
+          if (!backgroundJob || backgroundJob.kind !== 'note' || !backgroundJob.retry) return;
+          const { family, fromDumpId } = backgroundJob.retry;
+          setBackgroundJob({
+            kind: 'note',
+            status: 'running',
+            progress: { phase: 'loading', startedAt: Date.now() },
+            target: 'ondevice',
+            retry: backgroundJob.retry,
+          });
+          if (fromDumpId) void runFinalizeFromDump(fromDumpId, family, 'ondevice', setBackgroundJob);
+          else void runFinalize(family, 'ondevice', setBackgroundJob);
+        }}
+        onOpenConnectorSettings={() => setView({ kind: 'connector' })}
       />
     </div>
   );
@@ -379,7 +397,13 @@ function renderView(
             // Background generation (Task 7): start the job, return to recording,
             // and let the chip carry progress/completion. The regen runs even
             // while a new recording captures (the lane is independent).
-            setBackgroundJob({ kind: 'note', status: 'running', progress: { phase: 'loading', startedAt: Date.now() }, target });
+            setBackgroundJob({
+              kind: 'note',
+              status: 'running',
+              progress: { phase: 'loading', startedAt: Date.now() },
+              target,
+              retry: { family, fromDumpId: view.id },
+            });
             setView({ kind: 'recording' });
             void runFinalizeFromDump(view.id, family, target, setBackgroundJob);
           }}
@@ -417,7 +441,13 @@ function renderView(
               void runTranscribe(setBackgroundJob);
               return;
             }
-            setBackgroundJob({ kind: 'note', status: 'running', progress: { phase: 'loading', startedAt: Date.now() }, target });
+            setBackgroundJob({
+              kind: 'note',
+              status: 'running',
+              progress: { phase: 'loading', startedAt: Date.now() },
+              target,
+              retry: { family: choice },
+            });
             setView({ kind: 'recording' });
             void runFinalize(choice, target, setBackgroundJob);
           }}
@@ -568,6 +598,14 @@ export interface BackgroundJob {
   transcript?: { segments: TranscriptSegment[]; language: string; durationSec?: number; dumpId?: string };
   /** present when status==='error'. */
   message?: string;
+  /** Task 10 — inputs needed to re-run this note job on the SAME family when
+   *  it errors (cloud-error → on-device fallback, spec §6 "explicit offer,
+   *  never silent"). Present only for kind==='note' jobs, set at job creation
+   *  and carried through unchanged (like `target`). `fromDumpId` set ⇒ the
+   *  job came from History regenerate (retry via finalizeFromDump); absent ⇒
+   *  the live family-picker path (retry via finalize). Undefined for
+   *  'transcript' jobs (nothing to re-run on a different target). */
+  retry?: { family: NoteFamily; fromDumpId?: string };
 }
 
 type SetBackgroundJob = (next: BackgroundJob | null | ((p: BackgroundJob | null) => BackgroundJob | null)) => void;
@@ -650,12 +688,43 @@ async function runFinalizeFromDump(id: string, family: NoteFamily, target: Gener
   }
 }
 
-/** Compact running-progress hint for the chip (no fabricated progress). */
-function backgroundProgressHint(p: ProgressState | null): string {
+/**
+ * Compact running-progress hint for the chip (no fabricated progress). The
+ * cloud (Claude connector) path is a single-shot LLM call with no
+ * chunk/attempt granularity to show — Task 10 shows elapsed time there
+ * instead, so the running chip doesn't look frozen for the ~10-60s request.
+ * `now` is passed in (not read via Date.now() here) so this stays pure and
+ * directly unit-testable; the live tick comes from GenerationChip's effect.
+ */
+export function backgroundProgressHint(p: ProgressState | null, now: number): string {
   if (!p) return '';
   if (p.phase === 'transcribing' && p.pct != null) return `${p.pct}%`;
   if (p.phase === 'chunk' && p.totalChunks) return `${(p.chunkIndex ?? 0) + 1}/${p.totalChunks}`;
+  if (p.phase === 'cloud' && p.startedAt !== undefined) return formatElapsed((now - p.startedAt) / 1000);
   return '';
+}
+
+/**
+ * Task 10 (spec §6 "explicit offer, never silent fallback") — which recovery
+ * actions the error chip offers for a failed note job. Only a CLOUD (target
+ * 'claude') failure gets the on-device fallback offer; on-device failures and
+ * transcript jobs are unchanged (History remains the existing recovery path
+ * for those). The two connector-setup codes additionally offer a shortcut
+ * straight into the connector settings — re-typing the same broken/missing
+ * key would just fail again. Pure (exported for tests); matches
+ * `message` against `toFriendlyJa`'s substring-match convention so a wrapped
+ * error string (`'Error: CONNECTOR_NO_KEY at ...'`) still resolves.
+ */
+export type ChipErrorAction = 'retry-ondevice' | 'open-settings';
+
+export function resolveCloudErrorActions(
+  target: GenerationTarget | undefined,
+  message: string | undefined,
+): ChipErrorAction[] {
+  if (target !== 'claude') return [];
+  const raw = message ?? '';
+  const needsSettings = raw.includes('CONNECTOR_NO_KEY') || raw.includes('CONNECTOR_AUTH_INVALID');
+  return needsSettings ? ['retry-ondevice', 'open-settings'] : ['retry-ondevice'];
 }
 
 /**
@@ -663,9 +732,41 @@ function backgroundProgressHint(p: ProgressState | null): string {
  * including on the recording screen — so a background generation is visible
  * without taking over the UI. Done → "開く" (opens the result; History regen
  * would re-run the LLM, so this is the cheap path to the just-made note).
- * Error → non-blocking dismiss (recover via History list when idle).
+ * Error → non-blocking dismiss (recover via History list when idle); a cloud
+ * (Claude) failure additionally shows the friendly error text and an explicit
+ * on-device fallback offer (Task 10, spec §6 — never silent-fallback).
+ *
+ * Exported for structural tests (renderToStaticMarkup — no DOM env in this
+ * package's vitest config); the button click wiring itself is verified in the
+ * live app, same convention as HistoryList/NoteView/History.
  */
-function GenerationChip({ job, onOpen, onDismiss }: { job: BackgroundJob | null; onOpen: () => void; onDismiss: () => void }) {
+export function GenerationChip({
+  job,
+  onOpen,
+  onDismiss,
+  onRetryOndevice,
+  onOpenConnectorSettings,
+}: {
+  job: BackgroundJob | null;
+  onOpen: () => void;
+  onDismiss: () => void;
+  /** Task 10 — re-runs the same failed note job with target 'ondevice'. */
+  onRetryOndevice: () => void;
+  /** Task 10 — routes to the connector settings view (CONNECTOR_NO_KEY / AUTH_INVALID). */
+  onOpenConnectorSettings: () => void;
+}) {
+  // Hooks stay above the null early-return (React hook-order rule), mirroring
+  // NoteRenderProgress's ticking pattern. The cloud phase is a single-shot LLM
+  // call with few discrete progress events, so without a tick the elapsed hint
+  // would look frozen between cloud-start and the (possibly late) cloud-retry.
+  const [now, setNow] = useState(() => Date.now());
+  const ticking = job?.status === 'running' && job.progress?.phase === 'cloud';
+  useEffect(() => {
+    if (!ticking) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [ticking]);
+
   if (!job) return null;
   // Task 9: a note job generated via the Claude connector gets a distinct
   // label (spec section 4 step 3's "cloud indicator") so the running/done/error
@@ -674,7 +775,7 @@ function GenerationChip({ job, onOpen, onDismiss }: { job: BackgroundJob | null;
   const pos: CSSProperties = { position: 'fixed', right: 18, bottom: 18 };
   const x: CSSProperties = { background: 'transparent', border: 0, padding: '2px 4px', color: 'var(--lz-text-3)', fontSize: 14 };
   if (job.status === 'running') {
-    const hint = backgroundProgressHint(job.progress);
+    const hint = backgroundProgressHint(job.progress, now);
     return (
       <div className="lz-chip" style={pos} data-testid="gen-chip-running">
         <span className="lz-chip-dot"></span>
@@ -693,10 +794,24 @@ function GenerationChip({ job, onOpen, onDismiss }: { job: BackgroundJob | null;
       </div>
     );
   }
+  // status === 'error'
+  const actions = job.kind === 'note' ? resolveCloudErrorActions(job.target, job.message) : [];
+  const isCloudNote = job.kind === 'note' && job.target === 'claude';
   return (
     <div className="lz-chip" style={pos} data-testid="gen-chip-error">
       <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--lz-accent)' }}></span>
       <span style={{ fontWeight: 500 }}>{`${label}生成失敗`}</span>
+      {isCloudNote && job.message && <span className="lz-muted">{toFriendlyJa(job.message)}</span>}
+      {actions.includes('retry-ondevice') && (
+        <button onClick={onRetryOndevice} style={{ padding: '4px 10px', fontSize: 12 }} data-testid="gen-chip-retry-ondevice">
+          オンデバイスで再生成
+        </button>
+      )}
+      {actions.includes('open-settings') && (
+        <button onClick={onOpenConnectorSettings} style={{ padding: '4px 10px', fontSize: 12 }} data-testid="gen-chip-open-settings">
+          設定を開く
+        </button>
+      )}
       <button onClick={onDismiss} aria-label="閉じる" style={x}>✕</button>
     </div>
   );

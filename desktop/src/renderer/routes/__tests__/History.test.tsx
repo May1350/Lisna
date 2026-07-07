@@ -90,4 +90,36 @@ describe('HistoryDetail', () => {
     );
     expect(html).toContain('data-testid="claude-upsell"');
   });
+
+  it('shows the origin badge in the detail meta line when the transcript carries one (Task 10)', () => {
+    const html = renderToStaticMarkup(
+      <HistoryDetail
+        id="2026-06-11T01-00-00-000Z"
+        transcript={{ ...TRANSCRIPT, origin: 'claude' }}
+        onBack={() => {}}
+        onRegenerate={() => {}}
+        connectorConnected={false}
+        onOpenConnector={() => {}}
+      />,
+    );
+    // Anchored to the segment-count meta line (not a bare 'Claude' substring
+    // match — the embedded FamilyPickerStep's upsell banner also says
+    // "Claude連携..." when disconnected, so a loose match would false-positive).
+    expect(html).toContain('2件 · Claude');
+  });
+
+  it('omits the origin badge when the transcript has no origin (defensive, predates the field)', () => {
+    const html = renderToStaticMarkup(
+      <HistoryDetail
+        id="2026-06-11T01-00-00-000Z"
+        transcript={TRANSCRIPT}
+        onBack={() => {}}
+        onRegenerate={() => {}}
+        connectorConnected={false}
+        onOpenConnector={() => {}}
+      />,
+    );
+    expect(html).toContain('2件');
+    expect(html).not.toContain('2件 · ');
+  });
 });
