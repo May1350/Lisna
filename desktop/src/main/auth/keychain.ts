@@ -14,7 +14,7 @@ import keytar from 'keytar';
  * additions (e.g. refresh tokens, encryption keys) should keep this
  * service name and pick a distinct account name.
  */
-const SERVICE = 'com.lisna.desktop';
+export const SERVICE = 'com.lisna.desktop';
 const ACCOUNT = 'device_token';
 
 export async function storeToken(token: string): Promise<void> {
