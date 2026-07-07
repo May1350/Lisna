@@ -5,7 +5,7 @@ import { NoteView } from './routes/NoteView';
 import { ErrorView } from './routes/ErrorView';
 import { SetupView } from './routes/SetupView';
 import { SignInView } from './routes/SignInView';
-import { FamilyPickerStep } from './components/FamilyPickerStep';
+import { FamilyPickerStep, type GenerationTarget } from './components/FamilyPickerStep';
 import { FirstRunAudioNotice } from './components/FirstRunAudioNotice';
 import { TranscriptView } from './routes/TranscriptView';
 import { TermsView } from './routes/TermsView';
@@ -138,6 +138,20 @@ function AuthenticatedApp() {
   const [audioNoticeAck, setAudioNoticeAck] = useState(
     () => localStorage.getItem('lisna.audioNoticeAck') === '1',
   );
+  // LLM connector (Task 9) — surfaced to both family pickers (live +
+  // History regen) so they can offer the Claude segmented control / upsell
+  // banner. Fetched once on mount; re-fetched inline at the ConnectorView
+  // onBack site below (the only place the connection state can change) —
+  // the cheap correct trigger per the Task 8 carry-over ruling.
+  const [connectorConnected, setConnectorConnected] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    window.lisna.connectorStatus().then((s) => {
+      if (active) setConnectorConnected(s.connected);
+    });
+    return () => { active = false; };
+  }, []);
 
   // Session error (sidecar crash). Idempotent merge:
   //   - First push: transition to 'error' view.
@@ -244,7 +258,7 @@ function AuthenticatedApp() {
         {renderView(view, setView, backgroundJob, setBackgroundJob, audioNoticeAck, () => {
           localStorage.setItem('lisna.audioNoticeAck', '1');
           setAudioNoticeAck(true);
-        })}
+        }, connectorConnected, setConnectorConnected)}
       </div>
       {/* Scroll-gated top-fade overlay (theme.css .lz-topfade). Sibling AFTER
           .lz-content so `.lz-content[data-scrolled] ~ .lz-topfade` matches; this
@@ -279,6 +293,8 @@ function renderView(
   setBackgroundJob: SetBackgroundJob,
   audioNoticeAck: boolean,
   onAckAudioNotice: () => void,
+  connectorConnected: boolean,
+  setConnectorConnected: (connected: boolean) => void,
 ) {
   // Task 9 (ponytail: renderer guard, not a main-side queue): only one
   // generation at a time. The single backgroundJob can't track two, and a 2nd
@@ -341,20 +357,31 @@ function renderView(
     case 'terms':
       return <TermsView onBack={() => setView({ kind: 'recording' })} />;
     case 'connector':
-      return <ConnectorView onBack={() => setView({ kind: 'recording' })} />;
+      return (
+        <ConnectorView
+          onBack={() => {
+            setView({ kind: 'recording' });
+            // Re-fetch on return — the only place connection state can
+            // change (connect/disconnect both happen inside ConnectorView).
+            void window.lisna.connectorStatus().then((s) => setConnectorConnected(s.connected));
+          }}
+        />
+      );
     case 'history':
       return (
         <History
           id={view.id}
           onBack={() => setView({ kind: 'recording' })}
-          onRegenerate={(family) => {
+          connectorConnected={connectorConnected}
+          onOpenConnector={() => setView({ kind: 'connector' })}
+          onRegenerate={(family, target) => {
             if (genBusy) return; // Task 9: a generation is already running (chip shows it)
             // Background generation (Task 7): start the job, return to recording,
             // and let the chip carry progress/completion. The regen runs even
             // while a new recording captures (the lane is independent).
-            setBackgroundJob({ kind: 'note', status: 'running', progress: { phase: 'loading', startedAt: Date.now() } });
+            setBackgroundJob({ kind: 'note', status: 'running', progress: { phase: 'loading', startedAt: Date.now() }, target });
             setView({ kind: 'recording' });
-            void runFinalizeFromDump(view.id, family, setBackgroundJob);
+            void runFinalizeFromDump(view.id, family, target, setBackgroundJob);
           }}
         />
       );
@@ -371,6 +398,8 @@ function renderView(
             const v = localStorage.getItem('lisna.language');
             return v === 'en' || v === 'ko' ? v : 'ja';
           })()}
+          connectorConnected={connectorConnected}
+          onOpenConnector={() => setView({ kind: 'connector' })}
           onDiscard={() => {
             // Drop the session in main (clears SESSION_ACTIVE) and return to
             // Recording. Fire-and-forget: the handler is idempotent and the
@@ -378,7 +407,7 @@ function renderView(
             void window.lisna.discardSession();
             setView({ kind: 'recording' });
           }}
-          onPick={(choice) => {
+          onPick={(choice, target) => {
             // Task 7: picking starts a BACKGROUND generation and returns the
             // foreground to `recording` — the chip carries progress/completion,
             // so the user can immediately start a NEW recording (scenario 2).
@@ -388,9 +417,9 @@ function renderView(
               void runTranscribe(setBackgroundJob);
               return;
             }
-            setBackgroundJob({ kind: 'note', status: 'running', progress: { phase: 'loading', startedAt: Date.now() } });
+            setBackgroundJob({ kind: 'note', status: 'running', progress: { phase: 'loading', startedAt: Date.now() }, target });
             setView({ kind: 'recording' });
-            void runFinalize(choice, setBackgroundJob);
+            void runFinalize(choice, target, setBackgroundJob);
           }}
         />
       );
@@ -525,6 +554,11 @@ export interface BackgroundJob {
   kind: 'note' | 'transcript';
   status: 'running' | 'done' | 'error';
   progress: ProgressState | null;
+  /** Which pipeline is generating the note (Task 9). Present when
+   *  kind==='note' — set at job creation and carried through unchanged by
+   *  applyBackgroundProgress's spread. Undefined for 'transcript' jobs
+   *  (no LLM, so no target axis). */
+  target?: GenerationTarget;
   /** present when kind==='note' && status==='done' (the chip's "open" target). */
   note?: Note | NoteBase;
   /** source dump dir id for a note job (title.json key for NoteView editing).
@@ -561,9 +595,9 @@ export function applyBackgroundProgress(
  * NOT the full-screen ErrorView). The functional updates no-op if the job was
  * dismissed/replaced mid-flight.
  */
-async function runFinalize(family: NoteFamily, setBackgroundJob: SetBackgroundJob): Promise<void> {
+async function runFinalize(family: NoteFamily, target: GenerationTarget, setBackgroundJob: SetBackgroundJob): Promise<void> {
   try {
-    const result = await window.lisna.finalize({ family });
+    const result = await window.lisna.finalize({ family, target });
     setBackgroundJob((prev) => (prev ? { ...prev, status: 'done', note: result.note, dumpId: result.dumpId } : prev));
   } catch (err) {
     const message = String((err as Error)?.message ?? err);
@@ -606,9 +640,9 @@ async function runTranscribeSpan(startSec: number, endSec: number, setBackground
 }
 
 /** From-dump twin of runFinalize (History regenerate) into the BackgroundJob. */
-async function runFinalizeFromDump(id: string, family: NoteFamily, setBackgroundJob: SetBackgroundJob): Promise<void> {
+async function runFinalizeFromDump(id: string, family: NoteFamily, target: GenerationTarget, setBackgroundJob: SetBackgroundJob): Promise<void> {
   try {
-    const result = await window.lisna.finalizeFromDump({ id, family });
+    const result = await window.lisna.finalizeFromDump({ id, family, target });
     setBackgroundJob((prev) => (prev ? { ...prev, status: 'done', note: result.note, dumpId: result.dumpId } : prev));
   } catch (err) {
     const message = String((err as Error)?.message ?? err);
@@ -633,7 +667,10 @@ function backgroundProgressHint(p: ProgressState | null): string {
  */
 function GenerationChip({ job, onOpen, onDismiss }: { job: BackgroundJob | null; onOpen: () => void; onDismiss: () => void }) {
   if (!job) return null;
-  const label = job.kind === 'note' ? 'ノート' : '文字起こし';
+  // Task 9: a note job generated via the Claude connector gets a distinct
+  // label (spec section 4 step 3's "cloud indicator") so the running/done/error
+  // states read differently from the on-device pipeline.
+  const label = job.kind === 'note' ? (job.target === 'claude' ? 'Claudeノート' : 'ノート') : '文字起こし';
   const pos: CSSProperties = { position: 'fixed', right: 18, bottom: 18 };
   const x: CSSProperties = { background: 'transparent', border: 0, padding: '2px 4px', color: 'var(--lz-text-3)', fontSize: 14 };
   if (job.status === 'running') {

@@ -1,9 +1,33 @@
 /** Static structural tests for the pure HistoryDetail (container fetch is
- *  live-app-verified, consistent with ErrorView.test.tsx's approach). */
-import { describe, it, expect } from 'vitest';
+ *  live-app-verified, consistent with ErrorView.test.tsx's approach).
+ *
+ * Task 9 — HistoryDetail's embedded FamilyPickerStep now requires
+ * connectorConnected/onOpenConnector and reads localStorage (upsell-
+ * dismissal flag) via a lazy useState initializer, so a stub is required
+ * before render — mirrors Recording.test.tsx / FamilyPickerStep.test.tsx.
+ */
+import { describe, it, expect, beforeEach } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { HistoryDetail } from '../History';
 import type { DumpTranscript } from '@shared/ipc-protocol';
+
+const localStorageMock = (() => {
+  let store: Record<string, string> = {};
+  return {
+    getItem: (key: string) => store[key] ?? null,
+    setItem: (key: string, value: string) => { store[key] = value; },
+    clear: () => { store = {}; },
+  };
+})();
+
+beforeEach(() => {
+  localStorageMock.clear();
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: localStorageMock,
+    writable: true,
+    configurable: true,
+  });
+});
 
 const TRANSCRIPT: DumpTranscript = {
   sessionId: 'live',
@@ -23,6 +47,8 @@ describe('HistoryDetail', () => {
         transcript={TRANSCRIPT}
         onBack={() => {}}
         onRegenerate={() => {}}
+        connectorConnected={false}
+        onOpenConnector={() => {}}
       />,
     );
     expect(html).toContain('history-detail');
@@ -35,5 +61,33 @@ describe('HistoryDetail', () => {
     expect(html).toContain('family-continue');
     // Transcript is editable from History (the correction loop, reachable here too).
     expect(html).toContain('transcript-edit');
+  });
+
+  it('threads connectorConnected through to the embedded target picker (Task 9)', () => {
+    const html = renderToStaticMarkup(
+      <HistoryDetail
+        id="2026-06-11T01-00-00-000Z"
+        transcript={TRANSCRIPT}
+        onBack={() => {}}
+        onRegenerate={() => {}}
+        connectorConnected
+        onOpenConnector={() => {}}
+      />,
+    );
+    expect(html).toContain('data-testid="target-seg"');
+  });
+
+  it('shows the Claude upsell banner when not connected (Task 9)', () => {
+    const html = renderToStaticMarkup(
+      <HistoryDetail
+        id="2026-06-11T01-00-00-000Z"
+        transcript={TRANSCRIPT}
+        onBack={() => {}}
+        onRegenerate={() => {}}
+        connectorConnected={false}
+        onOpenConnector={() => {}}
+      />,
+    );
+    expect(html).toContain('data-testid="claude-upsell"');
   });
 });

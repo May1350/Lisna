@@ -43,3 +43,18 @@ export const ORIGIN_LABEL_JA: Record<NoteOrigin, string> = {
   ondevice: 'オンデバイス',
   claude: 'Claude',
 };
+
+/**
+ * Task 9 — FamilyPickerStep's generation-target picker (spec §4 step 3).
+ * `segLabel` is the `<legend>` of the `lz-seg` control shown only when
+ * connected (Claude preselected). The upsell strings back the dismissible
+ * not-connected banner ("Claude連携でノート品質を上げられます → 設定").
+ */
+export const TARGET_PICKER_STRINGS_JA = {
+  segLabel: '生成方法',
+  claudeOption: 'Claudeで生成',
+  ondeviceOption: 'オンデバイス',
+  upsellText: 'Claude連携でノート品質を上げられます。',
+  upsellLink: '設定',
+  upsellClose: '閉じる',
+} as const;

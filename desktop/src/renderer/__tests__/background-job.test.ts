@@ -57,4 +57,11 @@ describe('applyBackgroundProgress', () => {
     const errored: BackgroundJob = { kind: 'transcript', status: 'error', progress: null, message: 'STT_STALLED' };
     expect(applyBackgroundProgress(errored, { kind: 'transcribe-progress', pct: 99 })).toBe(errored);
   });
+
+  it('carries a note job\'s target (Task 9) unchanged through a progress fold', () => {
+    const prev: BackgroundJob = { kind: 'note', status: 'running', target: 'claude', progress: { phase: 'loading', startedAt: START } };
+    const next = applyBackgroundProgress(prev, { kind: 'cloud-start' });
+    expect(next?.target).toBe('claude');
+    expect(next?.progress).toEqual({ phase: 'cloud', startedAt: START });
+  });
 });
