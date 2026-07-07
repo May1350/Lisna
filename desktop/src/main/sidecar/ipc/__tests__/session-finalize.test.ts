@@ -755,7 +755,10 @@ describe('session/finalize target: claude (Task 6)', () => {
   });
 
   // (cloud-7) a cloud error settles as {ok:false, family, error:<code>} — same
-  // diagnosability precedent as on-device failures (result.json).
+  // diagnosability precedent as on-device failures (result.json). Even though the
+  // default cloudCtx carries a dumpId (so the IPC rejection gains a `:dump=`
+  // suffix — see cloud-8), the settle error must stay the CLEAN code because the
+  // suffix is stripped before result.json is written.
   it('(cloud-7) generateCloudNote rejection settles {ok:false, family, error}', async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const settles: any[] = [];
@@ -763,6 +766,56 @@ describe('session/finalize target: claude (Task 6)', () => {
     const { live } = setupCloud({ generateCloudNote: boom, onSessionSettled: (r) => settles.push(r) });
     await expect(live({}, { family: 'lecture', target: 'claude' })).rejects.toThrow('CONNECTOR_TIMEOUT');
     expect(settles).toEqual([{ ok: false, family: 'lecture', error: 'CONNECTOR_TIMEOUT' }]);
+  });
+
+  // (cloud-8) C-1 — a LIVE cloud failure whose attempt captured a dump rethrows
+  // the error with a `:dump=<id>` suffix (structured-suffix convention, cf.
+  // CHUNK_FAILED:<i>). getCurrentSessionTranscriptOnly already froze the capture
+  // lane, so the renderer can only route the on-device retry through
+  // finalize-from-dump — the suffix carries the id it needs. The settle (→
+  // result.json) still records the CLEAN code (suffix stripped).
+  it('(cloud-8) live cloud failure WITH a dump rejects with :dump=<id>; settle keeps the clean code', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const settles: any[] = [];
+    const boom = vi.fn(async () => { throw new Error('CONNECTOR_RATE_LIMITED'); });
+    const { live } = setupCloud({
+      generateCloudNote: boom,
+      getCtx: async () => cloudCtx({ dumpId: 'DUMP-ID-123' }),
+      onSessionSettled: (r) => settles.push(r),
+    });
+    let caught: unknown;
+    await live({}, { family: 'lecture', target: 'claude' }).catch((e) => { caught = e; });
+    expect((caught as Error).message).toBe('CONNECTOR_RATE_LIMITED:dump=DUMP-ID-123');
+    expect(settles).toEqual([{ ok: false, family: 'lecture', error: 'CONNECTOR_RATE_LIMITED' }]);
+  });
+
+  // (cloud-9) C-1 — a LIVE cloud failure with NO dump (LISNA_DISABLE_SESSION_DUMP
+  // dev env / dump-create disk failure) rethrows the RAW code with no suffix, so
+  // the renderer has no from-dump route to offer and suppresses the on-device
+  // retry (honest gate) rather than promising a dead one.
+  it('(cloud-9) live cloud failure with NO dump id rejects with the raw code (no :dump= suffix)', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const settles: any[] = [];
+    const boom = vi.fn(async () => { throw new Error('CONNECTOR_TIMEOUT'); });
+    const { live } = setupCloud({
+      generateCloudNote: boom,
+      getCtx: async () => cloudCtx({ dumpId: undefined }),
+      onSessionSettled: (r) => settles.push(r),
+    });
+    let caught: unknown;
+    await live({}, { family: 'lecture', target: 'claude' }).catch((e) => { caught = e; });
+    expect((caught as Error).message).toBe('CONNECTOR_TIMEOUT');
+    expect(settles).toEqual([{ ok: false, family: 'lecture', error: 'CONNECTOR_TIMEOUT' }]);
+  });
+
+  // (cloud-10) C-1 — the suffix is LIVE-only. A from-dump cloud regen already
+  // knows its dump id (retry.fromDumpId), so its failure must NOT gain a suffix.
+  it('(cloud-10) from-dump cloud failure does NOT append a :dump= suffix', async () => {
+    const boom = vi.fn(async () => { throw new Error('CONNECTOR_TIMEOUT'); });
+    const { fromDump } = setupCloud({ generateCloudNote: boom });
+    let caught: unknown;
+    await fromDump({}, { id: 'DUMP-ID-456', family: 'lecture', target: 'claude' }).catch((e) => { caught = e; });
+    expect((caught as Error).message).toBe('CONNECTOR_TIMEOUT');
   });
 
   // (cloud-3-regression) target absent + cloud deps wired → the on-device path

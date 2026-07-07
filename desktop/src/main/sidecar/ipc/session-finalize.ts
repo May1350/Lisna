@@ -367,6 +367,18 @@ async function routeCloud(
   return { noteId: ctx.sessionId, note, dumpId: ctx.dumpId };
 }
 
+/**
+ * Strip a trailing `:dump=<id>` routing suffix (C-1) from an error message. The
+ * suffix is appended only on the cloud LIVE failure path so the renderer can
+ * route the on-device retry through session/finalize-from-dump; it is NOT part
+ * of the error's diagnostic identity, so settle/result.json records the clean
+ * code. Dump ids are ISO stamps with `:`→`-` (no colon), so the anchored
+ * `[^:]+$` match is unambiguous. No suffix ⇒ no-op (on-device path unchanged).
+ */
+function stripDumpSuffix(message: string): string {
+  return message.replace(/:dump=[^:]+$/, '');
+}
+
 // ─── registration ────────────────────────────────────────────────────────────
 
 /**
@@ -406,7 +418,28 @@ export function registerSessionFinalize(deps: SessionFinalizeDeps): void {
         if (!getCtx || !deps.generateCloudNote) throw new Error('CLOUD_FINALIZE_UNAVAILABLE');
         const ctx = await getCtx();
         if (!ctx) throw new Error('NO_ACTIVE_SESSION');
-        const result = await routeCloud(ctx, family, deps.generateCloudNote, deps.emitCloudProgress);
+        let result;
+        try {
+          result = await routeCloud(ctx, family, deps.generateCloudNote, deps.emitCloudProgress);
+        } catch (err) {
+          // C-1: getCtx() already FROZE the capture lane (snapshotAndFreeCapture
+          // nulls `current`), so the error chip's on-device retry via
+          // getCurrentSession would hit NO_ACTIVE_SESSION — yet the transcript
+          // survives in THIS attempt's dump dir (transcript.json was written in
+          // getCtx step D, and onSessionSettled writes result.json{ok:false}).
+          // Append the dump id with the codebase's structured-suffix convention
+          // (cf. `CHUNK_FAILED:<i>` in orchestrator.ts) so the renderer can route
+          // the on-device retry through session/finalize-from-dump. Only when a
+          // dump backs this attempt (LISNA_DISABLE_SESSION_DUMP=1 / dump-create
+          // disk failure ⇒ no id ⇒ raw error rethrown; the renderer then hides the
+          // retry rather than promising a dead one). Dump ids carry no `:`, and the
+          // suffix is stripped for settle/result.json (stripDumpSuffix) so on-device
+          // errors stay byte-identical and the code recorded on disk stays clean.
+          if (ctx.dumpId) {
+            throw new Error(`${err instanceof Error ? err.message : String(err)}:dump=${ctx.dumpId}`);
+          }
+          throw err;
+        }
         settle = { ok: true, family, note: result.note };
         return result;
       }
@@ -416,7 +449,10 @@ export function registerSessionFinalize(deps: SessionFinalizeDeps): void {
       settle = { ok: true, family, note: result.note };
       return result;
     } catch (err) {
-      settle = { ok: false, family, error: err instanceof Error ? err.message : String(err) };
+      // The C-1 dump-routing suffix is a renderer hint, not part of the error's
+      // identity — strip it so the debug dump's result.json records the clean code
+      // (no-op for the on-device path, which never carries the suffix).
+      settle = { ok: false, family, error: stripDumpSuffix(err instanceof Error ? err.message : String(err)) };
       throw err;
     } finally {
       // genInFlight is cleared by ipc.ts inside onSessionSettled (Task 1).

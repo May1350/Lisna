@@ -639,7 +639,21 @@ async function runFinalize(family: NoteFamily, target: GenerationTarget, setBack
     setBackgroundJob((prev) => (prev ? { ...prev, status: 'done', note: result.note, dumpId: result.dumpId } : prev));
   } catch (err) {
     const message = String((err as Error)?.message ?? err);
-    setBackgroundJob((prev) => (prev ? { ...prev, status: 'error', message } : prev));
+    // C-1: a live-cloud failure froze the capture lane but wrote the transcript
+    // to a dump. Main appends `:dump=<id>` — lift it into retry.fromDumpId so the
+    // on-device retry (onRetryOndevice) routes through finalize-from-dump instead
+    // of the (now-null) live session. Null for on-device errors → retry unchanged.
+    const fromDumpId = extractDumpIdFromError(message);
+    setBackgroundJob((prev) =>
+      prev
+        ? {
+            ...prev,
+            status: 'error',
+            message,
+            retry: fromDumpId && prev.retry ? { ...prev.retry, fromDumpId } : prev.retry,
+          }
+        : prev,
+    );
   }
 }
 
@@ -705,6 +719,22 @@ export function backgroundProgressHint(p: ProgressState | null, now: number): st
 }
 
 /**
+ * C-1 — pull the failed cloud attempt's dump dir id out of an error message.
+ * The main-side cloud LIVE failure path appends `:dump=<id>` (structured-suffix
+ * convention, cf. `CHUNK_FAILED:<i>` in orchestrator.ts) because that attempt
+ * already froze the capture lane — so the on-device retry must route through
+ * session/finalize-from-dump against the surviving transcript.json, not the
+ * (now-null) live session. Returns the id or null when absent (on-device
+ * errors, wrapped strings without the suffix, LISNA_DISABLE_SESSION_DUMP dev
+ * env). Pure + exported for unit tests. Dump ids carry no `:` (ISO stamp with
+ * `:`→`-`), so the anchored `[^:]+$` match is unambiguous.
+ */
+export function extractDumpIdFromError(message: string | undefined): string | null {
+  const m = (message ?? '').match(/:dump=([^:]+)$/);
+  return m ? m[1]! : null;
+}
+
+/**
  * Task 10 (spec §6 "explicit offer, never silent fallback") — which recovery
  * actions the error chip offers for a failed note job. Only a CLOUD (target
  * 'claude') failure gets the on-device fallback offer; on-device failures and
@@ -714,17 +744,36 @@ export function backgroundProgressHint(p: ProgressState | null, now: number): st
  * key would just fail again. Pure (exported for tests); matches
  * `message` against `toFriendlyJa`'s substring-match convention so a wrapped
  * error string (`'Error: CONNECTOR_NO_KEY at ...'`) still resolves.
+ *
+ * C-1 honest gate: 'retry-ondevice' is offered ONLY when an on-device retry
+ * route actually exists, so the chip never promises a fallback that dead-ends
+ * in NO_ACTIVE_SESSION. A route exists when:
+ *   - `fromDumpId` is present — either a History regen, or a live-cloud failure
+ *     whose transcript was captured to a dump (main appended `:dump=<id>`,
+ *     extracted into the job's retry) → runFinalizeFromDump works; OR
+ *   - the failure is CONNECTOR_NO_KEY — the key guard fires BEFORE STT, so the
+ *     live capture lane is still intact → runFinalize('ondevice') works.
+ * Otherwise (a post-STT cloud failure with no dump — only reachable via
+ * LISNA_DISABLE_SESSION_DUMP=1 / a dump-create disk failure) the capture is
+ * freed and no dump exists, so the on-device retry is suppressed. The
+ * connector-settings shortcut is unaffected — a broken/missing key is fixed
+ * there regardless of the on-device route.
  */
 export type ChipErrorAction = 'retry-ondevice' | 'open-settings';
 
 export function resolveCloudErrorActions(
   target: GenerationTarget | undefined,
   message: string | undefined,
+  fromDumpId?: string,
 ): ChipErrorAction[] {
   if (target !== 'claude') return [];
   const raw = message ?? '';
   const needsSettings = raw.includes('CONNECTOR_NO_KEY') || raw.includes('CONNECTOR_AUTH_INVALID');
-  return needsSettings ? ['retry-ondevice', 'open-settings'] : ['retry-ondevice'];
+  const hasOndeviceRoute = !!fromDumpId || raw.includes('CONNECTOR_NO_KEY');
+  const actions: ChipErrorAction[] = [];
+  if (hasOndeviceRoute) actions.push('retry-ondevice');
+  if (needsSettings) actions.push('open-settings');
+  return actions;
 }
 
 /**
@@ -795,7 +844,7 @@ export function GenerationChip({
     );
   }
   // status === 'error'
-  const actions = job.kind === 'note' ? resolveCloudErrorActions(job.target, job.message) : [];
+  const actions = job.kind === 'note' ? resolveCloudErrorActions(job.target, job.message, job.retry?.fromDumpId) : [];
   const isCloudNote = job.kind === 'note' && job.target === 'claude';
   return (
     <div className="lz-chip" style={pos} data-testid="gen-chip-error">

@@ -209,3 +209,19 @@ describe('CONNECTOR_* codes (LLM Connector Phase 0)', () => {
     expect(ERROR_MESSAGE_MAP_JA.CONNECTOR_BAD_RESPONSE).toMatch(/もう一度|再度|再試行/);
   });
 });
+
+// C-1 — the cloud LIVE failure path appends a `:dump=<id>` routing suffix so the
+// renderer can retry from the surviving transcript dump. toFriendlyJa resolves
+// via substring (.includes), NOT equality, so the suffixed form must still map to
+// the connector code's JA copy (the raw code + dump id never leak to the UI).
+describe('C-1 dump-routing suffix (cloud live retry)', () => {
+  it('resolves a :dump=<id>-suffixed connector code via substring match', () => {
+    const raw = 'CONNECTOR_RATE_LIMITED:dump=2026-07-08T00-00-00-000Z';
+    expect(toFriendlyJa(raw)).toBe(ERROR_MESSAGE_MAP_JA.CONNECTOR_RATE_LIMITED);
+  });
+
+  it('resolves a wrapped-and-suffixed form (Error: <code> ... :dump=<id>)', () => {
+    const raw = 'Error: CONNECTOR_TIMEOUT at ipc.ts:42:dump=2026-07-08T00-00-00-000Z';
+    expect(toFriendlyJa(raw)).toBe(ERROR_MESSAGE_MAP_JA.CONNECTOR_TIMEOUT);
+  });
+});
