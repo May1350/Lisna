@@ -20,6 +20,7 @@ import type {
   SessionFinalizeFromDumpArgs,
   TranscribeSpanArgs,
 } from '../main/sidecar/ipc/session-finalize';
+import type { ConnectorStatus } from '../main/connector/ipc';
 
 contextBridge.exposeInMainWorld('lisna', {
   startRecording: (source: 'mic' | 'system') => ipcRenderer.invoke(CHANNELS.startRecording, { source }),
@@ -193,6 +194,19 @@ contextBridge.exposeInMainWorld('lisna', {
     ipcRenderer.on(CHANNELS.authSignedIn, listener);
     return () => ipcRenderer.removeListener(CHANNELS.authSignedIn, listener);
   },
+
+  // --- LLM connector (spec 2026-07-07) ---
+
+  /** Whether an Anthropic API key is currently stored (Keychain). */
+  connectorStatus: (): Promise<ConnectorStatus> => ipcRenderer.invoke(CHANNELS.connectorStatus),
+
+  /** Validate + store an Anthropic API key. Rejects with CONNECTOR_* codes
+   *  (see connector/ipc.ts) WITHOUT storing anything on validation failure. */
+  connectorConnect: (apiKey: string): Promise<ConnectorStatus> =>
+    ipcRenderer.invoke(CHANNELS.connectorConnect, apiKey),
+
+  /** Clear the stored Anthropic API key. */
+  connectorDisconnect: (): Promise<ConnectorStatus> => ipcRenderer.invoke(CHANNELS.connectorDisconnect),
 });
 
 declare global {
@@ -226,6 +240,9 @@ declare global {
       signIn(): Promise<void>;
       getAuthState(): Promise<AuthState>;
       onSignedIn(cb: () => void): () => void;
+      connectorStatus(): Promise<ConnectorStatus>;
+      connectorConnect(apiKey: string): Promise<ConnectorStatus>;
+      connectorDisconnect(): Promise<ConnectorStatus>;
     };
   }
 }

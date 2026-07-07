@@ -113,6 +113,15 @@ export const CHANNELS = {
   /** renderer → main: set/clear a dump's user title (title.json, atomic).
    *  id validated by resolveDumpDir. Empty title clears it. */
   dumpTitleSave: 'dump/title/save',
+  /** renderer → main: whether an Anthropic API key is stored (LLM connector).
+   *  Registered in connector/ipc.ts (CONNECTOR_CHANNELS.status). */
+  connectorStatus: 'connector/status',
+  /** renderer → main: validate + store an Anthropic API key.
+   *  Registered in connector/ipc.ts (CONNECTOR_CHANNELS.connect). */
+  connectorConnect: 'connector/connect',
+  /** renderer → main: clear the stored Anthropic API key.
+   *  Registered in connector/ipc.ts (CONNECTOR_CHANNELS.disconnect). */
+  connectorDisconnect: 'connector/disconnect',
 } as const;
 
 export interface IpcDeps {
