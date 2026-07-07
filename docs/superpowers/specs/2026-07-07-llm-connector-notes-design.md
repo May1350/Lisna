@@ -1,7 +1,7 @@
 # LLM Connector Notes — "Your Claude makes the note"
 
 **Date:** 2026-07-07
-**Status:** Draft — approved in brainstorm (founder), pending spec review
+**Status:** APPROVED (founder) + Phase 0 RESOLVED — v1 auth = **user API key** (see §8a); subscription auth deferred pending Anthropic approval
 **Branch:** `feat/llm-connector-notes`
 **Supersedes direction of:** STEP-1 model-swap runbook (`feat/v2-note-quality-step1`) as the *primary* note-quality lever. The Sarashina eval remains a cheap, independent experiment for the free tier (see §11).
 
@@ -109,6 +109,17 @@ Per the empirical-smoke rule (external-system assumptions need a smoke test befo
 5. Failure shapes: no subscription, credit exhausted, offline.
 
 **Gate:** Phase 0 report → if subscription auth is not viable in a packaged app, fallback design = same architecture with **user-supplied API key** (env: settings field, Keychain-stored; cents per note) — the UX and all downstream plumbing are identical, only `claude-auth.ts` changes. The spec does not need re-approval for that swap; it needs a founder heads-up ("구독 그대로"가 "본인 API 키, 노트당 몇 센트"로 바뀜).
+
+## 8a. Phase 0 findings (2026-07-07) — RESOLVED: v1 auth = user API key
+
+The §8 gate fired, on **terms**, not technology:
+
+- Official Agent SDK docs (current, verified 2026-07-07): *"Unless previously approved, Anthropic does not allow third party developers to offer claude.ai login or rate limits for their products, including agents built on the Claude Agent SDK. Please use the API key authentication methods described in this document instead."* ([Agent SDK overview](https://code.claude.com/docs/en/agent-sdk/overview))
+- Reconciliation with the 2026-06-15 credit article (§2): the credit covers a **user-initiated** connection of their own tools; a distributed product **offering** "Connect your Claude subscription" as a feature requires prior Anthropic approval.
+- **Consequence — §8 pre-approved fallback activates:** v1 = **user-supplied Anthropic API key**, stored encrypted via Electron `safeStorage` (Keychain-backed). Founder heads-up delivered: "구독 그대로 0원" → "본인 API 키, 노트당 ~5–15센트".
+- **v1 gets simpler, not harder:** plain `@anthropic-ai/sdk` client (pure JS) replaces the Agent SDK — no bundled CLI binary, no subprocess, no packaged-app auth flow. §8 items (1)(2)(3) evaporate; §8 item (4) (real-call latency/quality smoke) folds into the founder packaged-app smoke (no API key exists on the dev machine — checked 2026-07-07).
+- **Model default:** `claude-sonnet-5` (intro $2/$10 per MTok through 2026-08-31, then $3/$15; verified [pricing](https://platform.claude.com/docs/en/about-claude/pricing)) → ≈ **$0.05–0.15 per note** for a 60-min JA recording. Stored as an overridable setting, not hardcoded scattered.
+- **Provider seam retained:** `claude-auth.ts`/`claude-notes.ts` public surface unchanged from §5, so a subscription-auth provider can slot in later **if** Anthropic approves Lisna (founder-level partnership contact — parallel track, not a v1 blocker).
 
 ## 9. Testing
 
