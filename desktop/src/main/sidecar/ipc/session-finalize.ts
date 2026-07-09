@@ -251,6 +251,18 @@ export interface SessionFinalizeDeps {
    * kinds use. ipc.ts wires this to `safeSend(CHANNELS.sessionFinalizeProgress)`.
    */
   emitCloudProgress?: (e: CloudNoteEvent) => void;
+
+  /**
+   * B3 (M15) — persist a SUCCESSFUL cloud from-dump regen into the SOURCE dump
+   * (note.json overwrite + result.json {ok:true}), so the PAID result survives
+   * navigation and History's origin badge flips to Claude on the next
+   * listDumps. Called ONLY on the from-dump claude success branch — the live
+   * cloud path persists via the settle's _activeDump, and on-device from-dump
+   * regens deliberately stay non-persisting (free, P0-1 parity). The ipc.ts
+   * implementation is best-effort and MUST NOT throw (a persist failure must
+   * never fail the already-billed generation). Omitted ⇒ no persistence.
+   */
+  persistCloudDumpNote?: (id: string, family: NoteFamily, note: NoteBase) => Promise<void> | void;
 }
 
 // ─── channel constants (mirrors CHANNELS in ipc.ts) ──────────────────────────
@@ -494,6 +506,11 @@ export function registerSessionFinalize(deps: SessionFinalizeDeps): void {
       if (target === 'claude') {
         const ctx = await getDumpTranscriptOnly!(id);
         const result = await routeCloud(ctx, family, deps.generateCloudNote!, deps.emitCloudProgress);
+        // B3 (M15): this regen was PAID — persist it into the source dump
+        // BEFORE resolving so navigating away can't cost a re-bill. Awaited so
+        // the renderer's promise resolution implies the disk state; the dep is
+        // best-effort by contract (never throws — see SessionFinalizeDeps).
+        await deps.persistCloudDumpNote?.(id, family, result.note);
         settle = { ok: true, family, note: result.note };
         return result;
       }

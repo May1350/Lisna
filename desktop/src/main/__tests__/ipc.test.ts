@@ -791,6 +791,150 @@ describe('main/ipc FSM', () => {
         fs.rmSync(userDataDir, { recursive: true, force: true });
       }
     });
+
+    // ── B2 (M17): the NO_KEY carve-out holds `current` — pin the escape hatch ──
+    // A live claude finalize with no key throws BEFORE snapshotAndFreeCapture
+    // (C-1 carve-out: the session stays pending so the chip's live on-device
+    // retry works). This pins the OTHER exit: the renderer's chip-dismiss now
+    // routes to familyPicking, whose 破棄 invokes session/discard — which must
+    // return main to a startable state (the pre-fix dead end was dismiss →
+    // SESSION_ACTIVE on every start until app restart).
+    it('(M17) NO_KEY holds the session (start → SESSION_ACTIVE); discard returns it to startable', async () => {
+      delete process.env['LISNA_DISABLE_AUDIO_SAVE'];
+      const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-m17-'));
+      let restore: (() => void) | undefined;
+      try {
+        mockLoadApiKey.mockResolvedValue(null);
+        const { ctorSpy } = await setupC3(userDataDir);
+        restore = () => ctorSpy.mockRestore();
+        await ipcHandlers['session/start']!({}, { language: 'ja' });
+        await expect(ipcHandlers['session/finalize']!({}, { family: 'lecture', target: 'claude' }))
+          .rejects.toThrow('CONNECTOR_NO_KEY');
+        // The carve-out deliberately keeps `current` → a bare re-start is blocked.
+        await expect(ipcHandlers['session/start']!({}, { language: 'ja' })).rejects.toThrow('SESSION_ACTIVE');
+        // The dismiss → familyPicking → 破棄 route ends here and MUST unblock.
+        await ipcHandlers['session/discard']!({}, undefined);
+        await ipcHandlers['session/start']!({}, { language: 'ja' });
+        expect(ipc.isSessionInFlight()).toBe(true);
+        await ipcHandlers['session/discard']!({}, undefined); // cleanup
+      } finally {
+        restore?.();
+        appGetPath.mockReset();
+        fs.rmSync(userDataDir, { recursive: true, force: true });
+      }
+    });
+
+    // ── B3 (M15): paid cloud from-dump regen persists into the SOURCE dump ────
+    it('(B3/M15) from-dump claude success overwrites note.json + result.json in the source dump', async () => {
+      const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-b3-persist-'));
+      let restore: (() => void) | undefined;
+      try {
+        mockLoadApiKey.mockResolvedValue('sk-ant-test');
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        mockGenerateCloudNote.mockImplementation(async (args: any) => cloudNoteFor(args.family));
+        const { ctorSpy } = await setupC3(userDataDir);
+        restore = () => ctorSpy.mockRestore();
+
+        // Seed: a dump that ALREADY holds an on-device note + a failed result —
+        // the paid regen must overwrite both (History origin badge flips to
+        // claude on the next listDumps).
+        const sessionsDir = path.join(userDataDir, 'sessions');
+        const id = '2026-07-08T00-00-00-000Z';
+        fs.mkdirSync(path.join(sessionsDir, id), { recursive: true });
+        fs.writeFileSync(
+          path.join(sessionsDir, id, 'transcript.json'),
+          JSON.stringify({
+            sessionId: 'x', language: 'ja', llmModel: 'm', segmentCount: 1, durationSec: 2,
+            segments: [{ startSec: 0, endSec: 2, text: 'ダンプ本文' }],
+          }),
+        );
+        fs.writeFileSync(
+          path.join(sessionsDir, id, 'note.json'),
+          JSON.stringify({ family: 'lecture', origin: 'ondevice', title: '旧ノート' }),
+        );
+        fs.writeFileSync(
+          path.join(sessionsDir, id, 'result.json'),
+          JSON.stringify({ ok: false, family: 'lecture', error: 'GENERATE_TIMEOUT' }),
+        );
+
+        const result = await ipcHandlers['session/finalize-from-dump']!({}, { id, family: 'lecture', target: 'claude' });
+        expect(result.note.origin).toBe('claude');
+
+        const note = JSON.parse(fs.readFileSync(path.join(sessionsDir, id, 'note.json'), 'utf8'));
+        expect(note.origin).toBe('claude');
+        expect(note.title).toBe('クラウド');
+        const resultJson = JSON.parse(fs.readFileSync(path.join(sessionsDir, id, 'result.json'), 'utf8'));
+        expect(resultJson).toMatchObject({ ok: true, family: 'lecture' });
+        expect(resultJson.error).toBeUndefined();
+        // The regen wrote INTO the source dump — no new dump dir (P0-1 parity).
+        expect(fs.readdirSync(sessionsDir)).toEqual([id]);
+      } finally {
+        restore?.();
+        appGetPath.mockReset();
+        fs.rmSync(userDataDir, { recursive: true, force: true });
+      }
+    });
+
+    it('(B3/M15) a FAILED cloud from-dump regen writes nothing to the dump', async () => {
+      const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-b3-fail-'));
+      let restore: (() => void) | undefined;
+      try {
+        mockLoadApiKey.mockResolvedValue('sk-ant-test');
+        mockGenerateCloudNote.mockRejectedValue(new Error('CONNECTOR_TIMEOUT'));
+        const { ctorSpy } = await setupC3(userDataDir);
+        restore = () => ctorSpy.mockRestore();
+
+        const sessionsDir = path.join(userDataDir, 'sessions');
+        const id = '2026-07-08T00-00-00-000Z';
+        fs.mkdirSync(path.join(sessionsDir, id), { recursive: true });
+        fs.writeFileSync(
+          path.join(sessionsDir, id, 'transcript.json'),
+          JSON.stringify({
+            sessionId: 'x', language: 'ja', llmModel: 'm', segmentCount: 1, durationSec: 2,
+            segments: [{ startSec: 0, endSec: 2, text: 'ダンプ本文' }],
+          }),
+        );
+
+        await expect(ipcHandlers['session/finalize-from-dump']!({}, { id, family: 'lecture', target: 'claude' }))
+          .rejects.toThrow('CONNECTOR_TIMEOUT');
+        // No partial writes: the dump still holds ONLY the transcript.
+        expect(fs.readdirSync(path.join(sessionsDir, id)).sort()).toEqual(['transcript.json']);
+      } finally {
+        restore?.();
+        appGetPath.mockReset();
+        fs.rmSync(userDataDir, { recursive: true, force: true });
+      }
+    });
+
+    it('(B3/M15) an on-device from-dump regen still writes NOTHING to the dump (free — parity)', async () => {
+      const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lisna-b3-ondevice-'));
+      let restore: (() => void) | undefined;
+      try {
+        const { ctorSpy } = await setupC3(userDataDir);
+        restore = () => ctorSpy.mockRestore();
+
+        const sessionsDir = path.join(userDataDir, 'sessions');
+        const id = '2026-07-08T00-00-00-000Z';
+        fs.mkdirSync(path.join(sessionsDir, id), { recursive: true });
+        fs.writeFileSync(
+          path.join(sessionsDir, id, 'transcript.json'),
+          JSON.stringify({
+            sessionId: 'x', language: 'ja', llmModel: 'Llama-3.2-3B-Instruct-Q4_K_M.gguf',
+            segmentCount: 1, durationSec: 2,
+            segments: [{ startSec: 0, endSec: 2, text: 'ダンプ本文' }],
+          }),
+        );
+
+        const result = await ipcHandlers['session/finalize-from-dump']!({}, { id, family: 'lecture' });
+        expect(result.note).toMatchObject({ family: 'lecture' });
+        // On-device regen persists nothing (P0-1 — the dump tree is untouched).
+        expect(fs.readdirSync(path.join(sessionsDir, id)).sort()).toEqual(['transcript.json']);
+      } finally {
+        restore?.();
+        appGetPath.mockReset();
+        fs.rmSync(userDataDir, { recursive: true, force: true });
+      }
+    });
   });
 
   // ── I1: record-then-transcribe finalize, end-to-end, ALL 4 families ────────

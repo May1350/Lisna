@@ -21,6 +21,7 @@ import { makeGrammarSidecar } from './sidecar/grammar-call';
 import type { GrammarCapableSidecar } from './sidecar/grammar-call';
 import { makeRecoveringGrammarSidecar } from './sidecar/recovering-grammar-sidecar';
 import { buildDumpSessionContext, buildDumpTranscriptContext } from './dump-finalize-context';
+import { persistDumpNote } from './dump-note-persist';
 import { loadApiKey } from './connector/claude-auth';
 import { generateCloudNote } from './connector/claude-notes';
 import { listDumps, loadDumpTranscript } from './session-dump-reader';
@@ -759,6 +760,18 @@ export function registerIpc(deps: IpcDeps) {
     // Cloud progress ({ kind: 'cloud-start' | 'cloud-retry' }) rides the SAME
     // renderer channel as the on-device finalize-progress kinds.
     emitCloudProgress: (e) => safeSend(CHANNELS.sessionFinalizeProgress, e),
+    // B3 (M15): a cloud from-dump regen is PAID — persist the note back into
+    // the source dump so it survives navigation (History's origin badge flips
+    // to Claude on the next listDumps). Best-effort by contract: a persist
+    // failure must never fail the already-billed generation, matching the
+    // session-debug-dump "a dump failure must never break a finalize" rule.
+    persistCloudDumpNote: async (id, family, note) => {
+      try {
+        await persistDumpNote(sessionsBaseDir(), id, family, note);
+      } catch (err) {
+        log.warn('[dump] cloud regen persist failed — note not saved to history', err);
+      }
+    },
     // GENERATION-LANE ONLY (Task 4, spec §4.1 table + §5 #2). The capture lane
     // (current / recording / _audioWriter) is freed at PICK time
     // (snapshotAndFreeCapture) for a valid generation, so settle must NOT touch

@@ -42,7 +42,7 @@ export function shouldShowAudioNotice(audioNoticeAck: boolean, viewKind: View['k
   return !audioNoticeAck && viewKind === 'recording';
 }
 
-type View =
+export type View =
   | { kind: 'booting' }
   | { kind: 'setup' }
   | { kind: 'recording' }
@@ -51,7 +51,11 @@ type View =
   | { kind: 'transcript'; segments: TranscriptSegment[]; language: string; durationSec?: number; dumpId?: string }
   | { kind: 'note'; note: Note | NoteBase; dumpId?: string }
   | { kind: 'terms' }
-  | { kind: 'connector' }
+  // B1 (H3): the connector is reachable from Recording's footer, the family
+  // picker's upsell, History's picker, and the error chip's 設定を開く —
+  // `returnTo` captures the origin view at open so 戻る restores it
+  // (connectorReturnView) instead of hardcoding recording.
+  | { kind: 'connector'; returnTo?: View }
   | { kind: 'error'; message: string; permanent?: boolean; origin?: ErrorOrigin };
 
 /**
@@ -283,7 +287,18 @@ function AuthenticatedApp() {
           }
           setBackgroundJob(null);
         }}
-        onDismiss={() => setBackgroundJob(null)}
+        onDismiss={() => {
+          // B2 (M17): a NO_KEY failure left the LIVE session pending (the C-1
+          // carve-out throws BEFORE the capture is freed). A plain dismiss
+          // would strand it — every session/start rejects SESSION_ACTIVE until
+          // app restart. Route back to the picker instead, where the user
+          // still chooses: on-device note / transcript / 破棄 (no silent
+          // session discard).
+          if (dismissRoutesToFamilyPicking(backgroundJob)) {
+            setView({ kind: 'familyPicking' });
+          }
+          setBackgroundJob(null);
+        }}
         onRetryOndevice={() => {
           // Task 10 — cloud-error → on-device fallback (spec §6, explicit offer
           // only). Re-runs the SAME family the failed job carried in `retry`,
@@ -300,7 +315,7 @@ function AuthenticatedApp() {
           if (fromDumpId) void runFinalizeFromDump(fromDumpId, family, 'ondevice', setBackgroundJob);
           else void runFinalize(family, 'ondevice', setBackgroundJob);
         }}
-        onOpenConnectorSettings={() => setView({ kind: 'connector' })}
+        onOpenConnectorSettings={() => setView((prev) => ({ kind: 'connector', returnTo: prev }))}
       />
     </div>
   );
@@ -363,7 +378,7 @@ function renderView(
           }
           onOpenHistory={(id) => setView({ kind: 'history', id })}
           onOpenTerms={() => setView({ kind: 'terms' })}
-          onOpenConnector={() => setView({ kind: 'connector' })}
+          onOpenConnector={() => setView((prev) => ({ kind: 'connector', returnTo: prev }))}
           quickTranscriptBusy={genBusy}
           onQuickTranscript={(startSec, endSec) => {
             if (genBusy) return; // one generation at a time (also disabled in the button)
@@ -380,7 +395,10 @@ function renderView(
       return (
         <ConnectorView
           onBack={() => {
-            setView({ kind: 'recording' });
+            // B1 (H3): return to WHERE THE USER CAME FROM. Hardcoding the
+            // recording view orphaned a stopped session waiting in
+            // familyPicking (its finalize choices vanished from the screen).
+            setView(connectorReturnView(view.returnTo));
             // Re-fetch on return — the only place connection state can
             // change (connect/disconnect both happen inside ConnectorView).
             // L1 — .catch: an IPC/keychain hiccup must not become an
@@ -395,7 +413,7 @@ function renderView(
           id={view.id}
           onBack={() => setView({ kind: 'recording' })}
           connectorConnected={connectorConnected}
-          onOpenConnector={() => setView({ kind: 'connector' })}
+          onOpenConnector={() => setView((prev) => ({ kind: 'connector', returnTo: prev }))}
           onRegenerate={(family, target) => {
             if (genBusy) return; // Task 9: a generation is already running (chip shows it)
             // Background generation (Task 7): start the job, return to recording,
@@ -427,7 +445,7 @@ function renderView(
             return v === 'en' || v === 'ko' ? v : 'ja';
           })()}
           connectorConnected={connectorConnected}
-          onOpenConnector={() => setView({ kind: 'connector' })}
+          onOpenConnector={() => setView((prev) => ({ kind: 'connector', returnTo: prev }))}
           onDiscard={() => {
             // Drop the session in main (clears SESSION_ACTIVE) and return to
             // Recording. Fire-and-forget: the handler is idempotent and the
@@ -510,6 +528,44 @@ export function retryViewFor(error: { origin?: ErrorOrigin }): View {
   return error.origin?.kind === 'dump'
     ? { kind: 'history', id: error.origin.id }
     : { kind: 'familyPicking' };
+}
+
+/**
+ * B1 (H3) — where the ConnectorView's 戻る returns. Restores the origin view
+ * captured at open (Recording footer / family-picker upsell / History / error
+ * chip's 設定を開く) so e.g. a stopped session waiting in familyPicking gets
+ * its finalize choices back instead of an idle recording screen. Degenerate
+ * origins — none captured (legacy), the connector itself, or booting — fall
+ * back to recording. Pure (exported for tests).
+ */
+export function connectorReturnView(returnTo: View | undefined): View {
+  if (!returnTo || returnTo.kind === 'connector' || returnTo.kind === 'booting') {
+    return { kind: 'recording' };
+  }
+  return returnTo;
+}
+
+/**
+ * B2 (M17) — must dismissing (✕) this error chip ROUTE the user back to the
+ * family picker instead of just clearing the chip? True exactly when the
+ * failed job is still backed by a LIVE pending session. The only reachable
+ * such failure is CONNECTOR_NO_KEY: the key guard throws BEFORE
+ * snapshotAndFreeCapture (the C-1 carve-out that keeps `current` alive so the
+ * chip's live on-device retry works), so the capture lane stays claimed —
+ * after a plain dismiss every session/start would reject SESSION_ACTIVE until
+ * app restart. Every other failure (post-STT cloud, on-device, transcript)
+ * already freed the capture at pick, so a plain dismiss is safe. A NO_KEY
+ * failure WITH retry.fromDumpId is a History regen — no live session behind
+ * it — so it is excluded. Routing (not discarding) preserves user choice: the
+ * picker still offers on-device note / transcript / 破棄. Substring match on
+ * `message` follows resolveCloudErrorActions' wrapped-error convention. Pure
+ * (exported for tests).
+ */
+export function dismissRoutesToFamilyPicking(job: BackgroundJob | null): boolean {
+  if (!job || job.kind !== 'note' || job.status !== 'error') return false;
+  if (job.target !== 'claude') return false;
+  if (job.retry?.fromDumpId) return false;
+  return (job.message ?? '').includes('CONNECTOR_NO_KEY');
 }
 
 /**

@@ -606,6 +606,7 @@ function setupCloud(
     beginGeneration?: () => void;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     onSessionSettled?: (r: any) => void;
+    persistCloudDumpNote?: (id: string, family: string, note: unknown) => void | Promise<void>;
   } = {},
 ) {
   const emitted: AnyCloudEvent[] = [];
@@ -626,6 +627,7 @@ function setupCloud(
       opts.getDumpCtx ?? (async (id: string) => cloudCtx({ sessionId: `dump:${id}`, dumpId: id })),
     generateCloudNote,
     emitCloudProgress: (e) => emitted.push(e),
+    persistCloudDumpNote: opts.persistCloudDumpNote,
   });
   return {
     live: captured.get('session/finalize')!,
@@ -828,5 +830,55 @@ describe('session/finalize target: claude (Task 6)', () => {
     await expect(live({}, { family: 'lecture' })).rejects.toThrow('NO_ACTIVE_SESSION');
     expect(getCurrentSession).toHaveBeenCalledTimes(1);
     expect(generateCloudNote).not.toHaveBeenCalled();
+  });
+});
+
+// ─── B3 (M15): paid cloud from-dump regen persists to the source dump ───────
+// A History regen with target 'claude' is PAID — its note must be persisted
+// back into the source dump (note.json + result.json) via the injected
+// persistCloudDumpNote, or navigating away costs a re-bill. On-device from-dump
+// regens stay NON-persisting (free — the P0-1 parity decision stands), and a
+// failed cloud regen persists nothing.
+
+describe('persistCloudDumpNote (B3/M15)', () => {
+  it('(cloud-11) from-dump claude success calls persistCloudDumpNote(id, family, note)', async () => {
+    const persist = vi.fn();
+    const { fromDump } = setupCloud({ persistCloudDumpNote: persist });
+    const res = await fromDump({}, { id: 'DUMP-1', family: 'lecture', target: 'claude' });
+    expect(res.note).toBe(CLOUD_NOTE);
+    expect(persist).toHaveBeenCalledTimes(1);
+    expect(persist).toHaveBeenCalledWith('DUMP-1', 'lecture', CLOUD_NOTE);
+  });
+
+  it('(cloud-12) a FAILED cloud from-dump regen does NOT persist', async () => {
+    const persist = vi.fn();
+    const boom = vi.fn(async () => { throw new Error('CONNECTOR_TIMEOUT'); });
+    const { fromDump } = setupCloud({ generateCloudNote: boom, persistCloudDumpNote: persist });
+    await expect(fromDump({}, { id: 'DUMP-1', family: 'lecture', target: 'claude' })).rejects.toThrow(
+      'CONNECTOR_TIMEOUT',
+    );
+    expect(persist).not.toHaveBeenCalled();
+  });
+
+  it('(cloud-13) an on-device from-dump regen does NOT persist (free — parity unchanged)', async () => {
+    const persist = vi.fn();
+    registerSessionFinalize({
+      getCurrentSession: async () => null,
+      beginGeneration: () => {},
+      getDumpSession: async (id: string) => makeSessionContext({ dumpId: id }),
+      persistCloudDumpNote: persist,
+    });
+    const handler = captured.get('session/finalize-from-dump')!;
+    const res = await handler({}, { id: '2026-06-10T01-00-00-000Z', family: 'lecture' });
+    expect(res.note.family).toBe('lecture');
+    expect(persist).not.toHaveBeenCalled();
+  });
+
+  it('(cloud-14) a LIVE cloud finalize does NOT persist via the dep (live persists via the settle dump)', async () => {
+    const persist = vi.fn();
+    const { live } = setupCloud({ persistCloudDumpNote: persist });
+    const res = await live({}, { family: 'lecture', target: 'claude' });
+    expect(res.note).toBe(CLOUD_NOTE);
+    expect(persist).not.toHaveBeenCalled();
   });
 });
