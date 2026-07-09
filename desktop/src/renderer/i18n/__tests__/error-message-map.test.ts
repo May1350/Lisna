@@ -8,7 +8,7 @@ import {
 } from '../error-message-map';
 
 describe('error-message-map (JA)', () => {
-  it('covers all 26 known codes (Step 5 §3.2 + §5.1 + fabrication guard + history dumps + STT stall + Ko-STT + model downloader)', () => {
+  it('covers all 36 known codes (Step 5 §3.2 + §5.1 + fabrication guard + history dumps + STT stall + Ko-STT + model downloader + LLM Connector Phase 0 + FIX-A H1/H2/M13)', () => {
     // Coverage contract: every code we throw from anywhere in main/ has a
     // corresponding JA copy. This list is duplicated in main/ipc.ts and
     // main/sidecar/timeouts.ts as bare string throws — if a new code is
@@ -45,6 +45,19 @@ describe('error-message-map (JA)', () => {
       'INSUFFICIENT_DISK',
       'CHECKSUM_MISMATCH',
       'NETWORK_FAILED',
+      // LLM Connector Phase 0 (Task 5-6) — cloud note generation errors
+      'CONNECTOR_NO_KEY',
+      'CONNECTOR_AUTH_INVALID',
+      'CONNECTOR_RATE_LIMITED',
+      'CONNECTOR_NO_CREDIT',
+      'CONNECTOR_OFFLINE',
+      'CONNECTOR_TIMEOUT',
+      'CONNECTOR_BAD_RESPONSE',
+      'CONNECTOR_TRANSCRIPT_TOO_LONG',
+      // FIX-A (audit 2026-07-09 H1/H2/M13) — server-busy classification +
+      // truncation-aware retry
+      'CONNECTOR_SERVER_BUSY',
+      'CONNECTOR_OUTPUT_TRUNCATED',
     ];
     expect(ALL_ERROR_CODES).toEqual(expect.arrayContaining(expectedCodes));
     expect(ALL_ERROR_CODES).toHaveLength(expectedCodes.length);
@@ -151,5 +164,68 @@ describe('NOTE_LANGUAGE_MISMATCH (fabrication guard)', () => {
 
   it('copy hints at retry (もう一度/再度) per ADR §3.5 style', () => {
     expect(ERROR_MESSAGE_MAP_JA.NOTE_LANGUAGE_MISMATCH).toMatch(/もう一度|再度|再試行/);
+  });
+});
+
+// LLM Connector Phase 0 (Task 5-6) — cloud note generation errors
+describe('CONNECTOR_* codes (LLM Connector Phase 0)', () => {
+  it('all 8 CONNECTOR_* codes are in ALL_ERROR_CODES and mapped to JA copy', () => {
+    const connectorCodes: ErrorCode[] = [
+      'CONNECTOR_NO_KEY',
+      'CONNECTOR_AUTH_INVALID',
+      'CONNECTOR_RATE_LIMITED',
+      'CONNECTOR_NO_CREDIT',
+      'CONNECTOR_OFFLINE',
+      'CONNECTOR_TIMEOUT',
+      'CONNECTOR_BAD_RESPONSE',
+      'CONNECTOR_TRANSCRIPT_TOO_LONG',
+    ];
+
+    for (const code of connectorCodes) {
+      expect(ALL_ERROR_CODES).toContain(code);
+      const msg = ERROR_MESSAGE_MAP_JA[code];
+      expect(msg).toBeTruthy();
+      expect(msg!.length).toBeGreaterThanOrEqual(6);
+      expect(msg!.endsWith('。')).toBe(true);
+      const polite =
+        msg!.includes('です') ||
+        msg!.includes('ます') ||
+        msg!.includes('ません') ||
+        msg!.includes('ください');
+      expect(polite).toBe(true);
+    }
+  });
+
+  it('CONNECTOR_RATE_LIMITED and CONNECTOR_NO_CREDIT hint at retry (もう一度)', () => {
+    expect(ERROR_MESSAGE_MAP_JA.CONNECTOR_RATE_LIMITED).toMatch(/もう一度|再度|再試行/);
+    expect(ERROR_MESSAGE_MAP_JA.CONNECTOR_NO_CREDIT).toMatch(/もう一度|再度|再試行/);
+  });
+
+  it('CONNECTOR_OFFLINE hints at retry (もう一度)', () => {
+    expect(ERROR_MESSAGE_MAP_JA.CONNECTOR_OFFLINE).toMatch(/もう一度|再度|再試行/);
+  });
+
+  it('CONNECTOR_TIMEOUT hints at retry (もう一度)', () => {
+    expect(ERROR_MESSAGE_MAP_JA.CONNECTOR_TIMEOUT).toMatch(/もう一度|再度|再試行/);
+  });
+
+  it('CONNECTOR_BAD_RESPONSE hints at retry (もう一度)', () => {
+    expect(ERROR_MESSAGE_MAP_JA.CONNECTOR_BAD_RESPONSE).toMatch(/もう一度|再度|再試行/);
+  });
+});
+
+// C-1 — the cloud LIVE failure path appends a `:dump=<id>` routing suffix so the
+// renderer can retry from the surviving transcript dump. toFriendlyJa resolves
+// via substring (.includes), NOT equality, so the suffixed form must still map to
+// the connector code's JA copy (the raw code + dump id never leak to the UI).
+describe('C-1 dump-routing suffix (cloud live retry)', () => {
+  it('resolves a :dump=<id>-suffixed connector code via substring match', () => {
+    const raw = 'CONNECTOR_RATE_LIMITED:dump=2026-07-08T00-00-00-000Z';
+    expect(toFriendlyJa(raw)).toBe(ERROR_MESSAGE_MAP_JA.CONNECTOR_RATE_LIMITED);
+  });
+
+  it('resolves a wrapped-and-suffixed form (Error: <code> ... :dump=<id>)', () => {
+    const raw = 'Error: CONNECTOR_TIMEOUT at ipc.ts:42:dump=2026-07-08T00-00-00-000Z';
+    expect(toFriendlyJa(raw)).toBe(ERROR_MESSAGE_MAP_JA.CONNECTOR_TIMEOUT);
   });
 });

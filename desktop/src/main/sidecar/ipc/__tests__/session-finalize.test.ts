@@ -15,9 +15,10 @@
  *   (h) family: 'meeting', no active session               → throws NO_ACTIVE_SESSION
  */
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
-import type { SessionFinalizeDeps, SessionContext } from '../session-finalize';
+import type { SessionFinalizeDeps, SessionContext, TranscriptOnlyContext } from '../session-finalize';
 import type { GrammarCapableSidecar } from '../../grammar-call';
 import type { TranscriptSegment as LegacySegment } from '@shared/types';
+import type { NoteLanguage } from '@shared/note-schema';
 
 // ─── mock electron ─────────────────────────────────────────────────────────
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -558,5 +559,326 @@ describe('in-flight gate delegated to deps.beginGeneration (Task 1)', () => {
     // Gate released — a new call proceeds past the in-flight rejection.
     const second = await fromDump({}, { id: 'x', family: 'lecture' });
     expect(second.note.family).toBe('lecture');
+  });
+});
+
+// ─── Task 6: cloud (Claude connector) finalize target ───────────────────────
+// The finalize handler branches on `args.target`: absent/'ondevice' is the
+// byte-identical on-device sidecar path (covered above); 'claude' routes the
+// transcript (STT ran, NO local LLM loaded) to the user's own Claude
+// subscription via the injected generateCloudNote. All collaborators are
+// injected — this file mocks ONLY electron.
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyCloudEvent = any;
+
+const CLOUD_NOTE = { family: 'lecture', schemaVersion: 1, origin: 'claude', title: 'クラウド講義' };
+
+function cloudCtx(overrides: Partial<TranscriptOnlyContext> = {}): TranscriptOnlyContext {
+  return {
+    sessionId: 'live',
+    segments: [{ startSec: 0, endSec: 4, text: 'Cloud segment.' } as LegacySegment],
+    language: 'ja' as NoteLanguage,
+    dumpId: '2026-07-08T00-00-00-000Z',
+    ...overrides,
+  };
+}
+
+/** Default injected generateCloudNote: emits cloud-start via onEvent (mirroring
+ *  the real one) and returns a claude-origin note. */
+function makeGenSpy() {
+  return vi.fn(async (_args: unknown, subDeps?: { onEvent?: (e: AnyCloudEvent) => void }) => {
+    subDeps?.onEvent?.({ kind: 'cloud-start' });
+    return {
+      note: CLOUD_NOTE,
+      telemetry: { model: 'claude-sonnet-5', durationMs: 1, inputChars: 1, attempts: 1 },
+    };
+  });
+}
+
+function setupCloud(
+  opts: {
+    loadApiKey?: () => Promise<string | null>;
+    getCtx?: () => Promise<TranscriptOnlyContext | null>;
+    getDumpCtx?: (id: string) => Promise<TranscriptOnlyContext>;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    generateCloudNote?: any;
+    beginGeneration?: () => void;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    onSessionSettled?: (r: any) => void;
+    persistCloudDumpNote?: (id: string, family: string, note: unknown) => void | Promise<void>;
+  } = {},
+) {
+  const emitted: AnyCloudEvent[] = [];
+  // On-device collaborators — MUST NOT be reached on the cloud branch.
+  const getCurrentSession = vi.fn(async () => null as SessionContext | null);
+  const getDumpSession = vi.fn(async (): Promise<SessionContext> => {
+    throw new Error('ONDEVICE_LLM_PATH_HIT');
+  });
+  const generateCloudNote = opts.generateCloudNote ?? makeGenSpy();
+  registerSessionFinalize({
+    getCurrentSession,
+    getDumpSession,
+    beginGeneration: opts.beginGeneration ?? (() => {}),
+    onSessionSettled: opts.onSessionSettled,
+    loadApiKey: opts.loadApiKey ?? (async () => 'sk-ant-test'),
+    getCurrentSessionTranscriptOnly: opts.getCtx ?? (async () => cloudCtx()),
+    getDumpTranscriptOnly:
+      opts.getDumpCtx ?? (async (id: string) => cloudCtx({ sessionId: `dump:${id}`, dumpId: id })),
+    generateCloudNote,
+    emitCloudProgress: (e) => emitted.push(e),
+    persistCloudDumpNote: opts.persistCloudDumpNote,
+  });
+  return {
+    live: captured.get('session/finalize')!,
+    fromDump: captured.get('session/finalize-from-dump')!,
+    emitted,
+    getCurrentSession,
+    getDumpSession,
+    generateCloudNote,
+  };
+}
+
+describe('session/finalize target: claude (Task 6)', () => {
+  // (cloud-1) target 'claude' + key present → transcript-only ctx → generateCloudNote
+  // with the SAME adapter + on-device durationSec derivation, cloud-start emitted,
+  // settles {ok:true, family, note}. On-device getCurrentSession is NOT hit.
+  it('(cloud-1) routes to generateCloudNote, emits cloud-start, settles {ok:true}', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const settles: any[] = [];
+    const { live, emitted, generateCloudNote, getCurrentSession } = setupCloud({
+      onSessionSettled: (r) => settles.push(r),
+    });
+    const result = await live({}, { family: 'lecture', target: 'claude' });
+
+    expect(result.note).toBe(CLOUD_NOTE);
+    expect(result.dumpId).toBe('2026-07-08T00-00-00-000Z');
+    // On-device path never touched.
+    expect(getCurrentSession).not.toHaveBeenCalled();
+    // Same adapter routeFamily uses + on-device durationSec = last endTs.
+    expect(generateCloudNote).toHaveBeenCalledTimes(1);
+    const genArgs = generateCloudNote.mock.calls[0][0];
+    expect(genArgs.family).toBe('lecture');
+    expect(genArgs.language).toBe('ja');
+    expect(genArgs.durationSec).toBe(4);
+    expect(genArgs.transcript.transcriptSegments[0].text).toBe('Cloud segment.');
+    // cloud-start flowed over the injected progress sink.
+    expect(emitted).toContainEqual({ kind: 'cloud-start' });
+    // Settle carries the parsed note so the dump note.json write persists it.
+    expect(settles).toEqual([{ ok: true, family: 'lecture', note: CLOUD_NOTE }]);
+  });
+
+  // (cloud-2) target 'claude' + NO key → CONNECTOR_NO_KEY BEFORE any STT work.
+  // The transcript-only ctx getter (STT) must NOT run, generateCloudNote must
+  // NOT run, and the in-flight gate must NOT engage (key check precedes it).
+  it('(cloud-2) no key → CONNECTOR_NO_KEY before STT / gate / generate', async () => {
+    const getCtx = vi.fn(async () => cloudCtx());
+    const beginGeneration = vi.fn();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const settles: any[] = [];
+    const { live, generateCloudNote } = setupCloud({
+      loadApiKey: async () => null,
+      getCtx,
+      beginGeneration,
+      onSessionSettled: (r) => settles.push(r),
+    });
+    await expect(live({}, { family: 'lecture', target: 'claude' })).rejects.toThrow('CONNECTOR_NO_KEY');
+    expect(getCtx).not.toHaveBeenCalled();
+    expect(generateCloudNote).not.toHaveBeenCalled();
+    expect(beginGeneration).not.toHaveBeenCalled();
+    expect(settles).toHaveLength(0);
+  });
+
+  // (cloud-4) the cloud branch runs INSIDE the beginGeneration gate: a concurrent
+  // finalize during cloud generation throws FINALIZE_IN_FLIGHT; the gate releases
+  // on settle (success).
+  it('(cloud-4) runs inside the in-flight gate; concurrent finalize rejects', async () => {
+    let inFlight = false;
+    const beginGeneration = vi.fn(() => {
+      if (inFlight) throw new Error('FINALIZE_IN_FLIGHT');
+      inFlight = true;
+    });
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const slowGen = vi.fn(async (_a: unknown, subDeps?: { onEvent?: (e: AnyCloudEvent) => void }) => {
+      subDeps?.onEvent?.({ kind: 'cloud-start' });
+      await gate;
+      return { note: CLOUD_NOTE, telemetry: {} };
+    });
+    const { live, fromDump } = setupCloud({
+      generateCloudNote: slowGen,
+      beginGeneration,
+      onSessionSettled: () => { inFlight = false; },
+    });
+    const first = live({}, { family: 'lecture', target: 'claude' });
+    // The cloud branch awaits the no-key guard (loadApiKey) BEFORE beginGeneration,
+    // so the gate is engaged a microtask later — flush before asserting.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(beginGeneration).toHaveBeenCalledTimes(1);
+    await expect(live({}, { family: 'lecture', target: 'claude' })).rejects.toThrow('FINALIZE_IN_FLIGHT');
+    await expect(fromDump({}, { id: 'x', family: 'lecture', target: 'claude' })).rejects.toThrow('FINALIZE_IN_FLIGHT');
+    release();
+    await first;
+    // Gate released after settle — a new cloud finalize proceeds.
+    const second = await live({}, { family: 'lecture', target: 'claude' });
+    expect(second.note).toBe(CLOUD_NOTE);
+  });
+
+  // (cloud-5) from-dump regen with target 'claude' uses the skip-LLM dump ctx —
+  // the LLM-loading on-device getDumpSession is NEVER invoked.
+  it('(cloud-5) finalize-from-dump target claude uses the skip-LLM dump ctx', async () => {
+    const getDumpCtx = vi.fn(async (id: string) => cloudCtx({ sessionId: `dump:${id}`, dumpId: id }));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const settles: any[] = [];
+    const { fromDump, getDumpSession, generateCloudNote } = setupCloud({
+      getDumpCtx,
+      onSessionSettled: (r) => settles.push(r),
+    });
+    const res = await fromDump({}, { id: '2026-07-08T00-00-00-000Z', family: 'lecture', target: 'claude' });
+    expect(getDumpCtx).toHaveBeenCalledWith('2026-07-08T00-00-00-000Z');
+    expect(getDumpSession).not.toHaveBeenCalled(); // no LLM-loading path
+    expect(generateCloudNote).toHaveBeenCalledTimes(1);
+    expect(res.note).toBe(CLOUD_NOTE);
+    expect(res.dumpId).toBe('2026-07-08T00-00-00-000Z');
+    expect(settles).toEqual([{ ok: true, family: 'lecture', note: CLOUD_NOTE }]);
+  });
+
+  // (cloud-6) the language notes-gate (:232) applies ONLY to the on-device branch.
+  // Claude handles ko/en natively, so a ko cloud finalize must NOT throw
+  // NOTES_NOT_SUPPORTED_FOR_LANGUAGE (contrast test (m) above for on-device ko).
+  it('(cloud-6) ko cloud finalize does NOT hit the on-device language gate', async () => {
+    const { live, generateCloudNote } = setupCloud({
+      getCtx: async () => cloudCtx({ language: 'ko' as NoteLanguage }),
+    });
+    const result = await live({}, { family: 'lecture', target: 'claude' });
+    expect(result.note).toBe(CLOUD_NOTE);
+    expect(generateCloudNote).toHaveBeenCalledTimes(1);
+    expect(generateCloudNote.mock.calls[0][0].language).toBe('ko');
+  });
+
+  // (cloud-7) a cloud error settles as {ok:false, family, error:<code>} — same
+  // diagnosability precedent as on-device failures (result.json). Even though the
+  // default cloudCtx carries a dumpId (so the IPC rejection gains a `:dump=`
+  // suffix — see cloud-8), the settle error must stay the CLEAN code because the
+  // suffix is stripped before result.json is written.
+  it('(cloud-7) generateCloudNote rejection settles {ok:false, family, error}', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const settles: any[] = [];
+    const boom = vi.fn(async () => { throw new Error('CONNECTOR_TIMEOUT'); });
+    const { live } = setupCloud({ generateCloudNote: boom, onSessionSettled: (r) => settles.push(r) });
+    await expect(live({}, { family: 'lecture', target: 'claude' })).rejects.toThrow('CONNECTOR_TIMEOUT');
+    expect(settles).toEqual([{ ok: false, family: 'lecture', error: 'CONNECTOR_TIMEOUT' }]);
+  });
+
+  // (cloud-8) C-1 — a LIVE cloud failure whose attempt captured a dump rethrows
+  // the error with a `:dump=<id>` suffix (structured-suffix convention, cf.
+  // CHUNK_FAILED:<i>). getCurrentSessionTranscriptOnly already froze the capture
+  // lane, so the renderer can only route the on-device retry through
+  // finalize-from-dump — the suffix carries the id it needs. The settle (→
+  // result.json) still records the CLEAN code (suffix stripped).
+  it('(cloud-8) live cloud failure WITH a dump rejects with :dump=<id>; settle keeps the clean code', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const settles: any[] = [];
+    const boom = vi.fn(async () => { throw new Error('CONNECTOR_RATE_LIMITED'); });
+    const { live } = setupCloud({
+      generateCloudNote: boom,
+      getCtx: async () => cloudCtx({ dumpId: 'DUMP-ID-123' }),
+      onSessionSettled: (r) => settles.push(r),
+    });
+    let caught: unknown;
+    await live({}, { family: 'lecture', target: 'claude' }).catch((e) => { caught = e; });
+    expect((caught as Error).message).toBe('CONNECTOR_RATE_LIMITED:dump=DUMP-ID-123');
+    expect(settles).toEqual([{ ok: false, family: 'lecture', error: 'CONNECTOR_RATE_LIMITED' }]);
+  });
+
+  // (cloud-9) C-1 — a LIVE cloud failure with NO dump (LISNA_DISABLE_SESSION_DUMP
+  // dev env / dump-create disk failure) rethrows the RAW code with no suffix, so
+  // the renderer has no from-dump route to offer and suppresses the on-device
+  // retry (honest gate) rather than promising a dead one.
+  it('(cloud-9) live cloud failure with NO dump id rejects with the raw code (no :dump= suffix)', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const settles: any[] = [];
+    const boom = vi.fn(async () => { throw new Error('CONNECTOR_TIMEOUT'); });
+    const { live } = setupCloud({
+      generateCloudNote: boom,
+      getCtx: async () => cloudCtx({ dumpId: undefined }),
+      onSessionSettled: (r) => settles.push(r),
+    });
+    let caught: unknown;
+    await live({}, { family: 'lecture', target: 'claude' }).catch((e) => { caught = e; });
+    expect((caught as Error).message).toBe('CONNECTOR_TIMEOUT');
+    expect(settles).toEqual([{ ok: false, family: 'lecture', error: 'CONNECTOR_TIMEOUT' }]);
+  });
+
+  // (cloud-10) C-1 — the suffix is LIVE-only. A from-dump cloud regen already
+  // knows its dump id (retry.fromDumpId), so its failure must NOT gain a suffix.
+  it('(cloud-10) from-dump cloud failure does NOT append a :dump= suffix', async () => {
+    const boom = vi.fn(async () => { throw new Error('CONNECTOR_TIMEOUT'); });
+    const { fromDump } = setupCloud({ generateCloudNote: boom });
+    let caught: unknown;
+    await fromDump({}, { id: 'DUMP-ID-456', family: 'lecture', target: 'claude' }).catch((e) => { caught = e; });
+    expect((caught as Error).message).toBe('CONNECTOR_TIMEOUT');
+  });
+
+  // (cloud-3-regression) target absent + cloud deps wired → the on-device path
+  // still runs (getCurrentSession hit, generateCloudNote NOT). Guards the
+  // byte-identical default-behavior contract even when the cloud deps exist.
+  it('(cloud-3) target absent routes on-device even with cloud deps wired', async () => {
+    const { live, getCurrentSession, generateCloudNote } = setupCloud();
+    // getCurrentSession returns null here → NO_ACTIVE_SESSION proves the
+    // on-device branch was taken (not the cloud branch).
+    await expect(live({}, { family: 'lecture' })).rejects.toThrow('NO_ACTIVE_SESSION');
+    expect(getCurrentSession).toHaveBeenCalledTimes(1);
+    expect(generateCloudNote).not.toHaveBeenCalled();
+  });
+});
+
+// ─── B3 (M15): paid cloud from-dump regen persists to the source dump ───────
+// A History regen with target 'claude' is PAID — its note must be persisted
+// back into the source dump (note.json + result.json) via the injected
+// persistCloudDumpNote, or navigating away costs a re-bill. On-device from-dump
+// regens stay NON-persisting (free — the P0-1 parity decision stands), and a
+// failed cloud regen persists nothing.
+
+describe('persistCloudDumpNote (B3/M15)', () => {
+  it('(cloud-11) from-dump claude success calls persistCloudDumpNote(id, family, note)', async () => {
+    const persist = vi.fn();
+    const { fromDump } = setupCloud({ persistCloudDumpNote: persist });
+    const res = await fromDump({}, { id: 'DUMP-1', family: 'lecture', target: 'claude' });
+    expect(res.note).toBe(CLOUD_NOTE);
+    expect(persist).toHaveBeenCalledTimes(1);
+    expect(persist).toHaveBeenCalledWith('DUMP-1', 'lecture', CLOUD_NOTE);
+  });
+
+  it('(cloud-12) a FAILED cloud from-dump regen does NOT persist', async () => {
+    const persist = vi.fn();
+    const boom = vi.fn(async () => { throw new Error('CONNECTOR_TIMEOUT'); });
+    const { fromDump } = setupCloud({ generateCloudNote: boom, persistCloudDumpNote: persist });
+    await expect(fromDump({}, { id: 'DUMP-1', family: 'lecture', target: 'claude' })).rejects.toThrow(
+      'CONNECTOR_TIMEOUT',
+    );
+    expect(persist).not.toHaveBeenCalled();
+  });
+
+  it('(cloud-13) an on-device from-dump regen does NOT persist (free — parity unchanged)', async () => {
+    const persist = vi.fn();
+    registerSessionFinalize({
+      getCurrentSession: async () => null,
+      beginGeneration: () => {},
+      getDumpSession: async (id: string) => makeSessionContext({ dumpId: id }),
+      persistCloudDumpNote: persist,
+    });
+    const handler = captured.get('session/finalize-from-dump')!;
+    const res = await handler({}, { id: '2026-06-10T01-00-00-000Z', family: 'lecture' });
+    expect(res.note.family).toBe('lecture');
+    expect(persist).not.toHaveBeenCalled();
+  });
+
+  it('(cloud-14) a LIVE cloud finalize does NOT persist via the dep (live persists via the settle dump)', async () => {
+    const persist = vi.fn();
+    const { live } = setupCloud({ persistCloudDumpNote: persist });
+    const res = await live({}, { family: 'lecture', target: 'claude' });
+    expect(res.note).toBe(CLOUD_NOTE);
+    expect(persist).not.toHaveBeenCalled();
   });
 });

@@ -20,7 +20,10 @@ import { SessionOrchestrator } from './sidecar/orchestrator';
 import { makeGrammarSidecar } from './sidecar/grammar-call';
 import type { GrammarCapableSidecar } from './sidecar/grammar-call';
 import { makeRecoveringGrammarSidecar } from './sidecar/recovering-grammar-sidecar';
-import { buildDumpSessionContext } from './dump-finalize-context';
+import { buildDumpSessionContext, buildDumpTranscriptContext } from './dump-finalize-context';
+import { persistDumpNote } from './dump-note-persist';
+import { loadApiKey } from './connector/claude-auth';
+import { generateCloudNote } from './connector/claude-notes';
 import { listDumps, loadDumpTranscript } from './session-dump-reader';
 import { saveTranscriptEdit, type EditedSegment } from './transcript-edit';
 import { saveDumpTitle } from './dump-title';
@@ -113,6 +116,15 @@ export const CHANNELS = {
   /** renderer → main: set/clear a dump's user title (title.json, atomic).
    *  id validated by resolveDumpDir. Empty title clears it. */
   dumpTitleSave: 'dump/title/save',
+  /** renderer → main: whether an Anthropic API key is stored (LLM connector).
+   *  Registered in connector/ipc.ts (CONNECTOR_CHANNELS.status). */
+  connectorStatus: 'connector/status',
+  /** renderer → main: validate + store an Anthropic API key.
+   *  Registered in connector/ipc.ts (CONNECTOR_CHANNELS.connect). */
+  connectorConnect: 'connector/connect',
+  /** renderer → main: clear the stored Anthropic API key.
+   *  Registered in connector/ipc.ts (CONNECTOR_CHANNELS.disconnect). */
+  connectorDisconnect: 'connector/disconnect',
 } as const;
 
 export interface IpcDeps {
@@ -721,6 +733,43 @@ export function registerIpc(deps: IpcDeps) {
         return await runTranscriptContext({ wavPath: tempWav, language: orch.language as NoteLanguage });
       } finally {
         try { fs.unlinkSync(tempWav); } catch { /* best-effort temp cleanup — transcript is in the dump */ }
+      }
+    },
+    // ── Cloud (Claude connector) target — Task 6 ─────────────────────────────
+    // Real Anthropic key presence check + note generator (injected so
+    // session-finalize.ts stays off the SDK/keytar graph).
+    loadApiKey,
+    generateCloudNote,
+    // Cloud LIVE path: reuse the transcript-only lane (steps A–D — dump dir,
+    // whole-WAV STT, EMPTY_RECORDING guard, transcript.json write) but STOP
+    // before the LLM load. Same snapshot+free-capture pick as getCurrentSession;
+    // the note lands in note.json at settle (onSessionSettled writes _activeDump).
+    getCurrentSessionTranscriptOnly: async () => {
+      if (!current) return null;
+      if (!deps.getModelPaths() || !deps.supervisor.getClient()) return null;
+      const snap = snapshotAndFreeCapture();
+      const r = await runTranscriptContext(snap);
+      return { sessionId: r.sessionId, segments: r.segments, language: snap.language, dumpId: r.dumpId };
+    },
+    // Cloud FROM-DUMP path: skip-LLM dump context (no model load, creates no
+    // dump — P0-1). Mirrors getDumpSession's idle-stop cancel; settle re-arms.
+    getDumpTranscriptOnly: async (id: string) => {
+      cancelIdleStop();
+      return buildDumpTranscriptContext(id, { baseDir: sessionsBaseDir() });
+    },
+    // Cloud progress ({ kind: 'cloud-start' | 'cloud-retry' }) rides the SAME
+    // renderer channel as the on-device finalize-progress kinds.
+    emitCloudProgress: (e) => safeSend(CHANNELS.sessionFinalizeProgress, e),
+    // B3 (M15): a cloud from-dump regen is PAID — persist the note back into
+    // the source dump so it survives navigation (History's origin badge flips
+    // to Claude on the next listDumps). Best-effort by contract: a persist
+    // failure must never fail the already-billed generation, matching the
+    // session-debug-dump "a dump failure must never break a finalize" rule.
+    persistCloudDumpNote: async (id, family, note) => {
+      try {
+        await persistDumpNote(sessionsBaseDir(), id, family, note);
+      } catch (err) {
+        log.warn('[dump] cloud regen persist failed — note not saved to history', err);
       }
     },
     // GENERATION-LANE ONLY (Task 4, spec §4.1 table + §5 #2). The capture lane

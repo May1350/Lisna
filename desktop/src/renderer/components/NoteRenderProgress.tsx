@@ -12,7 +12,7 @@
  */
 import { useEffect, useState } from 'react';
 
-export type ProgressPhase = 'loading' | 'transcribing' | 'chunk' | 'merge' | 'persist';
+export type ProgressPhase = 'loading' | 'transcribing' | 'chunk' | 'merge' | 'persist' | 'cloud';
 
 export interface ProgressState {
   phase: ProgressPhase;
@@ -153,6 +153,17 @@ export function NoteRenderProgress({ progress }: Props) {
     return (
       <div style={wrap} data-testid="progress-merge">
         <p>{`チャンクをマージ中...${elapsed}`}</p>
+      </div>
+    );
+  }
+  if (progress.phase === 'cloud') {
+    // Cloud (Claude connector) single-shot generation — no chunk/attempt bar.
+    // `attempt` ≥ 2 means a malformed response was re-requested.
+    const { attempt } = progress;
+    const retry = typeof attempt === 'number' && attempt >= 2 ? ` · 再試行 ${attempt}` : '';
+    return (
+      <div style={wrap} data-testid="progress-cloud">
+        <p>{`Claude でノートを生成中...${retry}${elapsed}`}</p>
       </div>
     );
   }

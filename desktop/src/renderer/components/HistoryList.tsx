@@ -2,6 +2,7 @@ import type { DumpSummary } from '@shared/ipc-protocol';
 import type { NoteFamily } from '@shared/note-schema';
 import { NOTE_FAMILY_LABEL_JA } from '@shared/note-schema/family-label';
 import { EditableTitle } from './EditableTitle';
+import { ORIGIN_LABEL_JA } from '../i18n/connector-strings';
 
 /** Display fallback for a recording with no user title: the note's auto title,
  *  else the family label, else 文字起こし (+ 失敗 marker for a failed note). */
@@ -76,6 +77,9 @@ export function HistoryList({ dumps, onOpen, onRename }: Props) {
               </div>
               <div className="lz-row-meta">
                 {formatDuration(d.durationSec ?? 0)} · {d.language ?? '?'} · {formatRecordedAt(d.recordedAt)}
+                {/* Task 10 — origin badge, defensive like the `family` fallback above:
+                    absent for dumps predating the field / transcript-only dumps. */}
+                {d.origin && <> · {ORIGIN_LABEL_JA[d.origin]}</>}
               </div>
             </div>
             <span className="lz-row-chev" aria-hidden="true">›</span>

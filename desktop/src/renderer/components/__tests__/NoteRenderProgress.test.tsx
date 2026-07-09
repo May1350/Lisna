@@ -95,6 +95,19 @@ describe('NoteRenderProgress', () => {
     expect(html).toContain('保存中');
   });
 
+  // Task 6 — cloud (Claude connector) generation copy.
+  it('renders cloud phase copy (no retry hint on first attempt)', () => {
+    const html = renderToStaticMarkup(<NoteRenderProgress progress={{ phase: 'cloud' }} />);
+    expect(html).toContain('data-testid="progress-cloud"');
+    expect(html).toContain('Claude でノートを生成中');
+    expect(html).not.toContain('再試行');
+  });
+
+  it('renders the cloud retry hint when attempt ≥ 2', () => {
+    const html = renderToStaticMarkup(<NoteRenderProgress progress={{ phase: 'cloud', attempt: 2 }} />);
+    expect(html).toContain('再試行 2');
+  });
+
   it('caps the progress bar at 100% on overflow', () => {
     const html = renderToStaticMarkup(
       <NoteRenderProgress progress={{ phase: 'chunk', chunkIndex: 100, totalChunks: 5 }} />,

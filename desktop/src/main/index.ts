@@ -9,6 +9,7 @@ import { dirname, join } from 'node:path';
 import { registerIpc, handleSidecarExit, handleSidecarGiveUp, isSessionInFlight } from './ipc';
 import { resolveModels, registerModelIpc } from './model-resolver';
 import { registerModelDownloadIpc } from './model-downloader';
+import { registerConnectorIpc } from './connector/ipc';
 import { installSystemAudioHandler } from './audio/system-audio-handler';
 import { SidecarSupervisor } from './sidecar/supervisor';
 import { initFileLogger, log, redactPath } from './log';
@@ -260,6 +261,7 @@ app.whenReady().then(async () => {
     // reading fresh paths after a successful in-app download.
     onStatusChange: (s) => { resolveResult = s; },
   });
+  registerConnectorIpc();
 
   createWindow();
 

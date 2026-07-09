@@ -1,5 +1,5 @@
 import { CURRENT_SCHEMA_VERSION } from './forward-incompat';
-import type { NoteBase } from './base';
+import type { NoteBase, NoteOrigin } from './base';
 
 /**
  * System-owned note metadata. The LLM emits these fields too (they live in
@@ -15,6 +15,12 @@ export interface GeneratedMeta {
   promptVersion: number;
   language: NoteBase['language'];
   durationSec: number;
+  /**
+   * Required (not optional) so the compiler forces every call site — the 4
+   * on-device orchestrator paths (Task 4) and Task 5's cloud path — to state
+   * its origin explicitly rather than silently defaulting.
+   */
+  origin: NoteOrigin;
 }
 
 /**
@@ -32,5 +38,6 @@ export function applyGeneratedMeta<T extends NoteBase>(note: T, meta: GeneratedM
   note.generatedBy = { model: meta.model, promptVersion: meta.promptVersion };
   note.language = meta.language;
   note.durationSec = meta.durationSec;
+  note.origin = meta.origin;
   return note;
 }

@@ -25,6 +25,15 @@ export function postDecodeOnly<T extends z.ZodTypeAny>(schema: T): T {
 export const ProvenanceSchema = postDecodeOnly(z.enum(['transcript', 'inferred']));
 export type Provenance = z.infer<typeof ProvenanceSchema>;
 
+/**
+ * Origin: which pipeline generated this note — the on-device grammar-
+ * constrained LLM, or the user's own Claude subscription (LLM connector
+ * notes, Task 5). Same postDecodeOnly treatment as Provenance: the app
+ * stamps this via applyGeneratedMeta, never the model.
+ */
+export const NoteOriginSchema = postDecodeOnly(z.enum(['ondevice', 'claude']));
+export type NoteOrigin = z.infer<typeof NoteOriginSchema>;
+
 /** Speaker reference: integer index into SessionTranscript.speakers[].id. */
 export const SpeakerRefSchema = z.number().int().nonnegative();
 export type SpeakerRef = z.infer<typeof SpeakerRefSchema>;
@@ -57,5 +66,6 @@ export const NoteBaseSchema = z.object({
   durationSec: z.number().nonnegative(),
   experimentArmId: z.string().optional(),
   validation_warnings: z.array(z.string()).optional(),
+  origin: NoteOriginSchema.optional(),
 });
 export type NoteBase = z.infer<typeof NoteBaseSchema>;

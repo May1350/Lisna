@@ -16,6 +16,15 @@ import type { TranscriptSegment as LegacySegment } from '@shared/types';
 import { adaptToV2Transcript } from '@shared/note-schema';
 import type { NoteBase, NoteFamily, NoteLanguage } from '@shared/note-schema';
 import type { SessionTranscribeResult } from '@shared/ipc-protocol';
+// Type-only — no runtime coupling to the connector (which pulls in the Anthropic
+// SDK + keytar). The real generateCloudNote is INJECTED via SessionFinalizeDeps
+// and wired in main/ipc.ts; these types just shape that dep + its events.
+import type {
+  CloudGenerateArgs,
+  CloudNoteDeps,
+  CloudNoteEvent,
+  CloudNoteTelemetry,
+} from '../../connector/claude-notes';
 import type { GrammarCapableSidecar } from '../grammar-call';
 import {
   finalizeLecture,
@@ -42,6 +51,29 @@ import '@shared/families/brainstorm/core';
 export interface SessionFinalizeArgs {
   family: NoteFamily;
   promptVariant?: string;
+  /**
+   * Which pipeline generates the note (Task 6). Absent or `'ondevice'` = the
+   * on-device sidecar path (byte-identical to legacy behavior — every existing
+   * caller keeps working unchanged). `'claude'` = the user's own Claude
+   * subscription: STT still runs, but no local LLM loads; the transcript is sent
+   * to `generateCloudNote`.
+   */
+  target?: 'ondevice' | 'claude';
+}
+
+/**
+ * Transcript-only session context for the cloud (Claude) finalize branch: STT
+ * ran (dump dir created, transcript.json written) but NO local LLM was loaded.
+ * Distinct from SessionContext, which carries the sidecar + llmModelPath the
+ * on-device family finalizers need — the cloud path needs neither.
+ */
+export interface TranscriptOnlyContext {
+  sessionId: string;
+  segments: readonly LegacySegment[];
+  language: NoteLanguage;
+  /** Source dump dir id, when one backs this generation (live path sets it from
+   *  the created dump; from-dump sets it to the input id). */
+  dumpId?: string;
 }
 
 /**
@@ -176,6 +208,61 @@ export interface SessionFinalizeDeps {
    * TRANSCRIBE_SPAN_UNAVAILABLE.
    */
   getTranscriptSpan?: (args: TranscribeSpanArgs) => Promise<SessionTranscribeResult>;
+
+  // ── Cloud (Claude connector) target — Task 6 ─────────────────────────────
+
+  /**
+   * Anthropic key presence check for the cloud target. Called BEFORE the
+   * in-flight gate and BEFORE any STT work — a `null` result throws
+   * CONNECTOR_NO_KEY so a keyless cloud finalize never transcribes. Wired to
+   * `main/connector/claude-auth`'s `loadApiKey`. Omitted ⇒ treated as no key.
+   */
+  loadApiKey?: () => Promise<string | null>;
+
+  /**
+   * Cloud LIVE path: whole-WAV STT context WITHOUT an LLM load (steps A–D of
+   * ipc.ts's generation lane — dump dir, transcribe, EMPTY_RECORDING guard,
+   * transcript.json write). Returns null ⇒ NO_ACTIVE_SESSION (parity with
+   * getCurrentSession). When omitted, a live cloud finalize rejects with
+   * CLOUD_FINALIZE_UNAVAILABLE.
+   */
+  getCurrentSessionTranscriptOnly?: () => Promise<TranscriptOnlyContext | null>;
+
+  /**
+   * Cloud FROM-DUMP path: dump transcript context WITHOUT an LLM load
+   * (buildDumpTranscriptContext). Creates no dump (P0-1). When omitted, a
+   * from-dump cloud finalize rejects with DUMP_FINALIZE_UNAVAILABLE.
+   */
+  getDumpTranscriptOnly?: (id: string) => Promise<TranscriptOnlyContext>;
+
+  /**
+   * The cloud note generator (Task 5 `generateCloudNote`). Injected rather than
+   * imported so this module stays free of the Anthropic SDK / keytar graph and
+   * tests mock it directly. ipc.ts wires the real one.
+   */
+  generateCloudNote?: (
+    args: CloudGenerateArgs,
+    deps?: CloudNoteDeps,
+  ) => Promise<{ note: NoteBase; telemetry: CloudNoteTelemetry }>;
+
+  /**
+   * Forward cloud progress events ({ kind: 'cloud-start' | 'cloud-retry' }) to
+   * the renderer over the SAME session/finalize-progress channel the on-device
+   * kinds use. ipc.ts wires this to `safeSend(CHANNELS.sessionFinalizeProgress)`.
+   */
+  emitCloudProgress?: (e: CloudNoteEvent) => void;
+
+  /**
+   * B3 (M15) — persist a SUCCESSFUL cloud from-dump regen into the SOURCE dump
+   * (note.json overwrite + result.json {ok:true}), so the PAID result survives
+   * navigation and History's origin badge flips to Claude on the next
+   * listDumps. Called ONLY on the from-dump claude success branch — the live
+   * cloud path persists via the settle's _activeDump, and on-device from-dump
+   * regens deliberately stay non-persisting (free, P0-1 parity). The ipc.ts
+   * implementation is best-effort and MUST NOT throw (a persist failure must
+   * never fail the already-billed generation). Omitted ⇒ no persistence.
+   */
+  persistCloudDumpNote?: (id: string, family: NoteFamily, note: NoteBase) => Promise<void> | void;
 }
 
 // ─── channel constants (mirrors CHANNELS in ipc.ts) ──────────────────────────
@@ -195,6 +282,8 @@ export interface SessionFinalizeFromDumpArgs {
   id: string;
   family: NoteFamily;
   promptVariant?: string;
+  /** See SessionFinalizeArgs.target. `'claude'` uses the skip-LLM dump context. */
+  target?: 'ondevice' | 'claude';
 }
 
 // ─── family routing (consolidated — was 4 near-identical route* fns) ────────
@@ -265,6 +354,43 @@ async function routeFamily(
   return { noteId: result.telemetry.noteId, note: result.note, dumpId: session.dumpId };
 }
 
+/**
+ * Cloud (Claude) counterpart to routeFamily: adapt the transcript-only context
+ * with the SAME adapter routeFamily uses and hand it to generateCloudNote. NO
+ * language notes-gate here — Claude handles ko/en natively (that gate exists
+ * only because the on-device 3B can't). durationSec is derived exactly as the
+ * on-device family finalizers derive it (last segment endTs). cloud-start /
+ * cloud-retry flow out via onEvent → emitCloudProgress.
+ */
+async function routeCloud(
+  ctx: TranscriptOnlyContext,
+  family: NoteFamily,
+  generateCloudNote: NonNullable<SessionFinalizeDeps['generateCloudNote']>,
+  emitCloudProgress: SessionFinalizeDeps['emitCloudProgress'],
+): Promise<SessionFinalizeResult> {
+  const transcript = adaptToV2Transcript(ctx.segments, ctx.sessionId);
+  const durationSec = transcript.transcriptSegments.at(-1)?.endTs ?? 0;
+  const { note } = await generateCloudNote(
+    { family, transcript, language: ctx.language, durationSec },
+    { onEvent: (e) => emitCloudProgress?.(e) },
+  );
+  // noteId mirrors the on-device placeholder (finalize*.telemetry.noteId =
+  // sessionId); real note-id assignment is Plan 3 Task 13.
+  return { noteId: ctx.sessionId, note, dumpId: ctx.dumpId };
+}
+
+/**
+ * Strip a trailing `:dump=<id>` routing suffix (C-1) from an error message. The
+ * suffix is appended only on the cloud LIVE failure path so the renderer can
+ * route the on-device retry through session/finalize-from-dump; it is NOT part
+ * of the error's diagnostic identity, so settle/result.json records the clean
+ * code. Dump ids are ISO stamps with `:`→`-` (no colon), so the anchored
+ * `[^:]+$` match is unambiguous. No suffix ⇒ no-op (on-device path unchanged).
+ */
+function stripDumpSuffix(message: string): string {
+  return message.replace(/:dump=[^:]+$/, '');
+}
+
 // ─── registration ────────────────────────────────────────────────────────────
 
 /**
@@ -282,6 +408,13 @@ async function routeFamily(
 export function registerSessionFinalize(deps: SessionFinalizeDeps): void {
   ipcMain.handle(SESSION_FINALIZE_CHANNEL, async (_e, args: SessionFinalizeArgs): Promise<SessionFinalizeResult> => {
     const { family, promptVariant } = args;
+    const target = args.target === 'claude' ? 'claude' : 'ondevice';
+
+    // No-key guard precedes the in-flight gate AND any STT work (contract item
+    // 2): a keyless cloud finalize must never transcribe or engage the gate.
+    if (target === 'claude' && (await deps.loadApiKey?.()) == null) {
+      throw new Error('CONNECTOR_NO_KEY');
+    }
 
     deps.beginGeneration(); // throws FINALIZE_IN_FLIGHT if a generation is already running
 
@@ -292,13 +425,46 @@ export function registerSessionFinalize(deps: SessionFinalizeDeps): void {
       // UNKNOWN_FAMILY beats NO_ACTIVE_SESSION — test (g) sends 'garbage'
       // with a NULL session and expects UNKNOWN_FAMILY:.
       if (!KNOWN_FAMILIES.has(family)) throw new Error(`UNKNOWN_FAMILY:${family as string}`);
+      if (target === 'claude') {
+        const getCtx = deps.getCurrentSessionTranscriptOnly;
+        if (!getCtx || !deps.generateCloudNote) throw new Error('CLOUD_FINALIZE_UNAVAILABLE');
+        const ctx = await getCtx();
+        if (!ctx) throw new Error('NO_ACTIVE_SESSION');
+        let result;
+        try {
+          result = await routeCloud(ctx, family, deps.generateCloudNote, deps.emitCloudProgress);
+        } catch (err) {
+          // C-1: getCtx() already FROZE the capture lane (snapshotAndFreeCapture
+          // nulls `current`), so the error chip's on-device retry via
+          // getCurrentSession would hit NO_ACTIVE_SESSION — yet the transcript
+          // survives in THIS attempt's dump dir (transcript.json was written in
+          // getCtx step D, and onSessionSettled writes result.json{ok:false}).
+          // Append the dump id with the codebase's structured-suffix convention
+          // (cf. `CHUNK_FAILED:<i>` in orchestrator.ts) so the renderer can route
+          // the on-device retry through session/finalize-from-dump. Only when a
+          // dump backs this attempt (LISNA_DISABLE_SESSION_DUMP=1 / dump-create
+          // disk failure ⇒ no id ⇒ raw error rethrown; the renderer then hides the
+          // retry rather than promising a dead one). Dump ids carry no `:`, and the
+          // suffix is stripped for settle/result.json (stripDumpSuffix) so on-device
+          // errors stay byte-identical and the code recorded on disk stays clean.
+          if (ctx.dumpId) {
+            throw new Error(`${err instanceof Error ? err.message : String(err)}:dump=${ctx.dumpId}`);
+          }
+          throw err;
+        }
+        settle = { ok: true, family, note: result.note };
+        return result;
+      }
       const session = await deps.getCurrentSession();
       if (!session) throw new Error('NO_ACTIVE_SESSION');
       const result = await routeFamily(session, family, promptVariant, deps.onTelemetry);
       settle = { ok: true, family, note: result.note };
       return result;
     } catch (err) {
-      settle = { ok: false, family, error: err instanceof Error ? err.message : String(err) };
+      // The C-1 dump-routing suffix is a renderer hint, not part of the error's
+      // identity — strip it so the debug dump's result.json records the clean code
+      // (no-op for the on-device path, which never carries the suffix).
+      settle = { ok: false, family, error: stripDumpSuffix(err instanceof Error ? err.message : String(err)) };
       throw err;
     } finally {
       // genInFlight is cleared by ipc.ts inside onSessionSettled (Task 1).
@@ -313,17 +479,42 @@ export function registerSessionFinalize(deps: SessionFinalizeDeps): void {
 
   ipcMain.handle(SESSION_FINALIZE_FROM_DUMP_CHANNEL, async (_e, args: SessionFinalizeFromDumpArgs): Promise<SessionFinalizeResult> => {
     const { id, family, promptVariant } = args;
+    const target = args.target === 'claude' ? 'claude' : 'ondevice';
 
+    // No-key guard precedes the gate + dump read (contract item 2), same as the
+    // live channel.
+    if (target === 'claude' && (await deps.loadApiKey?.()) == null) {
+      throw new Error('CONNECTOR_NO_KEY');
+    }
+
+    // Per-target dep availability. The on-device check stays exactly as before
+    // (byte-identical) — `getDumpSession` loads the LLM; the cloud path uses the
+    // skip-LLM `getDumpTranscriptOnly`.
     const getDumpSession = deps.getDumpSession;
-    if (!getDumpSession) throw new Error('DUMP_FINALIZE_UNAVAILABLE');
+    const getDumpTranscriptOnly = deps.getDumpTranscriptOnly;
+    if (target === 'ondevice' && !getDumpSession) throw new Error('DUMP_FINALIZE_UNAVAILABLE');
+    if (target === 'claude' && (!getDumpTranscriptOnly || !deps.generateCloudNote)) {
+      throw new Error('DUMP_FINALIZE_UNAVAILABLE');
+    }
     deps.beginGeneration(); // throws FINALIZE_IN_FLIGHT if a generation is already running
 
     let settle: SessionSettleResult = { ok: false, family, error: 'FINALIZE_NOT_RUN' };
     try {
-      // Same family gate as the live channel — before getDumpSession so a
+      // Same family gate as the live channel — before the dump read so a
       // garbage family can't trigger an LLM load.
       if (!KNOWN_FAMILIES.has(family)) throw new Error(`UNKNOWN_FAMILY:${family as string}`);
-      const session = await getDumpSession(id);
+      if (target === 'claude') {
+        const ctx = await getDumpTranscriptOnly!(id);
+        const result = await routeCloud(ctx, family, deps.generateCloudNote!, deps.emitCloudProgress);
+        // B3 (M15): this regen was PAID — persist it into the source dump
+        // BEFORE resolving so navigating away can't cost a re-bill. Awaited so
+        // the renderer's promise resolution implies the disk state; the dep is
+        // best-effort by contract (never throws — see SessionFinalizeDeps).
+        await deps.persistCloudDumpNote?.(id, family, result.note);
+        settle = { ok: true, family, note: result.note };
+        return result;
+      }
+      const session = await getDumpSession!(id);
       const result = await routeFamily(session, family, promptVariant, deps.onTelemetry);
       settle = { ok: true, family, note: result.note };
       return result;

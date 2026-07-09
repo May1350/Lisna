@@ -6,6 +6,20 @@ import { familyRendererRegistry } from '@shared/families/renderer';
 import { noteToMarkdown } from '@shared/note-export';
 import { CopyExportButtons } from '../components/CopyExportButtons';
 import { EditableTitle } from '../components/EditableTitle';
+import { ORIGIN_LABEL_JA } from '../i18n/connector-strings';
+
+/**
+ * Task 10 — "how was this note made" origin label for the header meta line.
+ * The legacy `Note` shape (pre-v2 cloud curator) has no `origin` field at
+ * all; structured `NoteBase.origin` is optional (Task 4 — dumps predating
+ * the field, and every note before the connector existed, have none).
+ * Absent resolves to on-device: the connector is new, so every note without
+ * a stamped origin was generated on-device. Pure (exported for tests).
+ */
+export function resolveNoteOriginLabel(note: Note | NoteBase): string {
+  const origin = 'origin' in note ? note.origin : undefined;
+  return origin === 'claude' ? ORIGIN_LABEL_JA.claude : ORIGIN_LABEL_JA.ondevice;
+}
 
 /** Filesystem-safe `.md` filename from the note title. */
 function noteFileName(title: string): string {
@@ -60,6 +74,7 @@ export function NoteView({ note, dumpId, onNewSession }: Props) {
         <p className="lz-hint" style={{ margin: 0 }}>
           {new Date(note.generatedAt).toLocaleString()} · {note.language.toUpperCase()}
           {isStructured && <> · {NOTE_FAMILY_LABEL_JA[note.family]}</>}
+          {' · '}{resolveNoteOriginLabel(note)}
         </p>
         <div style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 10 }}>
           <CopyExportButtons getText={() => noteToMarkdown(note)} exportName={noteFileName('title' in note ? note.title : 'note')} />

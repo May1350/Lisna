@@ -29,7 +29,7 @@ const SLOT_HINTS = LECTURE_SLOTS.map(
   (s) => `- **${s.type}**: ${s.promptHint}`,
 ).join('\n');
 
-const SYSTEM = `あなたは日本語講義の構造化ノート生成システムです。
+export const SYSTEM = `あなたは日本語講義の構造化ノート生成システムです。
 入力: 文字起こしテキスト (タイムスタンプ付き)
 出力: LectureNote JSON のみ (前置き・説明・マークダウン禁止)
 

@@ -6,6 +6,8 @@ import {
   SpeakerRefSchema,
   POST_DECODE_MARKER_DESCRIPTION,
 } from '../base';
+import { zodToGbnf } from '../zod-to-gbnf';
+import { MeetingNoteSchema } from '../../families/meeting/schema';
 
 describe('NoteBase / Provenance / SpeakerRef Zod', () => {
   it('NoteBaseSchema parses minimum required fields', () => {
@@ -88,5 +90,52 @@ describe('NoteBase / Provenance / SpeakerRef Zod', () => {
     expect(SpeakerRefSchema.parse(7)).toBe(7);
     expect(() => SpeakerRefSchema.parse(-1)).toThrow();
     expect(() => SpeakerRefSchema.parse(1.5)).toThrow();
+  });
+});
+
+// Task 4 (LLM connector notes): origin tags a note as produced by the
+// on-device pipeline or by the user's own Claude subscription (Task 5).
+// It must round-trip like any other optional NoteBase field AND — the one
+// change that could silently break on-device generation — stay invisible to
+// the grammar-constrained decode, same as `Provenance` above.
+describe('NoteBase.origin (Task 4)', () => {
+  const base = {
+    schemaVersion: 1,
+    family: 'meeting' as const,
+    title: 't',
+    generatedAt: '2026-05-27T00:00:00Z',
+    generatedBy: { model: 'm', promptVersion: 1 },
+    language: 'en' as const,
+    durationSec: 1,
+  };
+
+  it('NoteBaseSchema accepts optional origin: "ondevice" | "claude"', () => {
+    expect(() => NoteBaseSchema.parse({ ...base, origin: 'ondevice' })).not.toThrow();
+    expect(() => NoteBaseSchema.parse({ ...base, origin: 'claude' })).not.toThrow();
+  });
+
+  it('NoteBaseSchema rejects an invalid origin value', () => {
+    expect(() => NoteBaseSchema.parse({ ...base, origin: 'cloud-gpt' })).toThrow();
+  });
+
+  it('notes without origin still parse (backward compat with existing dumps)', () => {
+    expect(() => NoteBaseSchema.parse(base)).not.toThrow();
+    expect(() => MeetingNoteSchema.parse({
+      ...base,
+      purpose: '進捗確認',
+      executive_summary: '順調に進んでいる。',
+      topic_arc: [],
+      discussions: [],
+      decisions: [],
+      open_questions: [],
+    })).not.toThrow();
+  });
+
+  it('origin is postDecodeOnly: absent from the on-device grammar', () => {
+    // MeetingNoteSchema (not NoteBaseSchema directly) because the orchestrator
+    // derives the actual GBNF grammar per-family via zodToGbnf(fam.schema, ...)
+    // — this proves the invariant holds through the real extend() chain.
+    const grammar = zodToGbnf(MeetingNoteSchema, 'Meeting');
+    expect(grammar).not.toContain('origin');
   });
 });

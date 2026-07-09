@@ -810,6 +810,7 @@ export async function finalizeLecture(
     promptVersion: prompt.version,
     language: args.language ?? 'ja',
     durationSec: args.transcript.transcriptSegments.at(-1)?.endTs ?? 0,
+    origin: 'ondevice',
   });
 
   // ── Build telemetry ───────────────────────────────────────────────────────
@@ -1001,6 +1002,7 @@ export async function finalizeMeeting(
     promptVersion: prompt.version,
     language: lang,
     durationSec: activeTranscript.transcriptSegments.at(-1)?.endTs ?? 0,
+    origin: 'ondevice',
   });
 
   const telemetry: GenerationTelemetry = {
@@ -1213,6 +1215,7 @@ export async function finalizeInterview(
     promptVersion: prompt.version,
     language: args.language ?? 'ja',
     durationSec: activeTranscript.transcriptSegments.at(-1)?.endTs ?? 0,
+    origin: 'ondevice',
   });
 
   const telemetry: GenerationTelemetry = {
@@ -1417,6 +1420,7 @@ export async function finalizeBrainstorm(
     promptVersion: prompt.version,
     language: args.language ?? 'ja',
     durationSec: args.transcript.transcriptSegments.at(-1)?.endTs ?? 0,
+    origin: 'ondevice',
   });
 
   const telemetry: GenerationTelemetry = {

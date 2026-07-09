@@ -28,6 +28,16 @@ doesn't, it doesn't — regardless of how clever the implementation is.
   and for devices below the on-device threshold. v2 is triggered when
   on-device quality, hardware coverage, and download UX cross the
   internal completion bar — not on calendar date.
+- **Note generation — on-device by default, opt-in cloud via the
+  user's own Anthropic key.** Notes are generated on-device by
+  default. A user may opt in, per recording, to generate a note
+  through their own Anthropic API key instead: transcript text is
+  sent directly from the user's Mac to their own Anthropic account;
+  audio never leaves the Mac; Lisna's servers never see transcript or
+  note content. Opt-in is explicit (connect + per-recording choice),
+  never on by default. See
+  `docs/superpowers/specs/2026-07-07-llm-connector-notes-design.md`
+  section 7 (privacy & disclosure) and section 8a (auth resolution).
 
 ## External copy candidates (marketing finalises)
 

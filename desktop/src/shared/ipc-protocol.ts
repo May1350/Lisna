@@ -195,7 +195,15 @@ export type FinalizeProgressPayload =
       maxAttempts: number;
     }
   | { kind: 'chunk-done'; chunkIndex: number; totalChunks: number }
-  | { kind: 'finalize-done' };
+  | { kind: 'finalize-done' }
+  // Cloud (Claude connector) note generation — Task 6. The cloud path has no
+  // chunk/attempt granularity (one single-shot API call); it emits `cloud-start`
+  // when the request goes out and `cloud-retry` when a malformed response is
+  // re-requested. Same session/finalize-progress channel as the on-device kinds.
+  // Shape-matches `CloudNoteEvent` in main/connector/claude-notes.ts so the
+  // handler forwards those events verbatim.
+  | { kind: 'cloud-start' }
+  | { kind: 'cloud-retry'; attempt: number };
 
 // --- Step 5 §5.1 — first-run model resolver ---
 
@@ -282,6 +290,10 @@ export interface DumpSummary {
   /** LLM-generated note title (note.json) — the display fallback when the user
    *  hasn't set `title`. Absent for transcript-only / un-noted dumps. */
   noteTitle?: string;
+  /** Which pipeline generated the note (note.json) — on-device or the user's
+   *  own Claude subscription (Task 5). Absent for dumps predating this field
+   *  and for transcript-only / un-noted dumps. */
+  origin?: 'ondevice' | 'claude';
 }
 
 /**
@@ -315,4 +327,8 @@ export interface DumpTranscript {
   title?: string;
   /** LLM-generated note title (note.json) — display fallback. Absent if un-noted. */
   noteTitle?: string;
+  /** Which pipeline generated the note (note.json) — on-device or the user's
+   *  own Claude subscription (Task 5). Absent for dumps predating this field
+   *  and for transcript-only / un-noted dumps. */
+  origin?: 'ondevice' | 'claude';
 }

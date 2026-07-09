@@ -29,6 +29,7 @@ describe('applyGeneratedMeta', () => {
     promptVersion: 1,
     language: 'ja' as const,
     durationSec: 8,
+    origin: 'ondevice' as const,
   };
 
   it('overwrites LLM-supplied schemaVersion with CURRENT_SCHEMA_VERSION', () => {
@@ -66,5 +67,14 @@ describe('applyGeneratedMeta', () => {
     const note = llmHallucinatedNote();
     const out = applyGeneratedMeta(note, meta);
     expect(out).toBe(note);
+  });
+
+  // Task 4 (LLM connector notes): origin distinguishes on-device-generated
+  // notes from Task 5's cloud (user's own Claude) notes for the renderer
+  // badge (Task 10). Required on the meta arg so the compiler forces every
+  // call site (orchestrator's 4 families) to state it explicitly.
+  it('stamps origin from meta.origin', () => {
+    const out = applyGeneratedMeta(llmHallucinatedNote(), { ...meta, origin: 'claude' });
+    expect(out.origin).toBe('claude');
   });
 });

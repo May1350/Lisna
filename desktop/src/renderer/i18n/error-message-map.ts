@@ -55,6 +55,19 @@ export const ALL_ERROR_CODES = [
   'INSUFFICIENT_DISK',
   'CHECKSUM_MISMATCH',
   'NETWORK_FAILED',
+  // LLM Connector Phase 0 (Task 5-6) — cloud note generation errors
+  'CONNECTOR_NO_KEY',
+  'CONNECTOR_AUTH_INVALID',
+  'CONNECTOR_RATE_LIMITED',
+  'CONNECTOR_NO_CREDIT',
+  'CONNECTOR_OFFLINE',
+  'CONNECTOR_TIMEOUT',
+  'CONNECTOR_BAD_RESPONSE',
+  'CONNECTOR_TRANSCRIPT_TOO_LONG',
+  // FIX-A (audit 2026-07-09 H1/H2/M13) — server-busy classification +
+  // truncation-aware retry
+  'CONNECTOR_SERVER_BUSY',
+  'CONNECTOR_OUTPUT_TRUNCATED',
 ] as const;
 
 export type ErrorCode = (typeof ALL_ERROR_CODES)[number];
@@ -123,6 +136,26 @@ export const ERROR_MESSAGE_MAP_JA: Record<ErrorCode, string> = {
     'ダウンロードしたファイルが破損しています。もう一度お試しください。',
   NETWORK_FAILED:
     'ダウンロードに失敗しました。接続を確認して再試行してください。',
+  CONNECTOR_NO_KEY:
+    'Claudeが接続されていません。設定から接続してください。',
+  CONNECTOR_AUTH_INVALID:
+    'APIキーが無効です。Anthropicコンソールで確認し、接続し直してください。',
+  CONNECTOR_RATE_LIMITED:
+    'リクエストが混み合っています。しばらくしてからもう一度お試しください。',
+  CONNECTOR_NO_CREDIT:
+    'Anthropicアカウントのクレジット残高が不足しています。チャージ後にもう一度お試しください。',
+  CONNECTOR_OFFLINE:
+    'ネットワークに接続できません。接続を確認してからもう一度お試しください。',
+  CONNECTOR_TIMEOUT:
+    'Claudeの応答がタイムアウトしました。もう一度お試しください。',
+  CONNECTOR_BAD_RESPONSE:
+    'ノートの生成結果を読み取れませんでした。もう一度お試しいただくか、オンデバイス生成をご利用ください。',
+  CONNECTOR_TRANSCRIPT_TOO_LONG:
+    '文字起こしが長すぎるため、クラウド生成できません。オンデバイス生成をご利用ください。',
+  CONNECTOR_SERVER_BUSY:
+    'Anthropicのサーバーが混み合っています。しばらくしてからもう一度お試しください。',
+  CONNECTOR_OUTPUT_TRUNCATED:
+    'ノートが長すぎて生成しきれませんでした。オンデバイス生成をご利用いただくか、録音を分けてお試しください。',
 };
 
 /**

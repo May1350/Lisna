@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import type { DumpTranscript } from '@shared/ipc-protocol';
 import type { NoteFamily } from '@shared/note-schema';
-import { FamilyPickerStep } from '../components/FamilyPickerStep';
+import { FamilyPickerStep, type GenerationTarget } from '../components/FamilyPickerStep';
 import { Spinner } from '../components/Spinner';
 import { GlossaryAdded } from '../components/GlossaryAdded';
 import { EditableTitle } from '../components/EditableTitle';
 import { autoRegisterGlossaryFromEdit } from '../lib/glossary-auto';
 import { toFriendlyJa } from '../i18n/error-message-map';
+import { ORIGIN_LABEL_JA } from '../i18n/connector-strings';
 
 /**
  * F2 history viewer — detail route. Read-only transcript + family picker +
@@ -18,7 +19,11 @@ interface DetailProps {
   id: string;
   transcript: DumpTranscript;
   onBack: () => void;
-  onRegenerate: (family: NoteFamily) => void;
+  onRegenerate: (family: NoteFamily, target: GenerationTarget) => void;
+  /** Whether the user has an active Claude connector (Task 9) — threaded to
+   *  the embedded FamilyPickerStep's target picker / upsell banner. */
+  connectorConnected: boolean;
+  onOpenConnector: () => void;
 }
 
 /** mm:ss from seconds (readable timestamp, replaces raw "12.3"). */
@@ -39,7 +44,7 @@ function fmtDate(id: string): string {
  *  live TranscriptView). Mounted with `key={id}` so the edit state is fresh per
  *  recording. Edit logic is intentionally inline (2nd call site after
  *  TranscriptView — inline per the no-premature-abstraction rule). */
-export function HistoryDetail({ id, transcript, onBack, onRegenerate }: DetailProps) {
+export function HistoryDetail({ id, transcript, onBack, onRegenerate, connectorConnected, onOpenConnector }: DetailProps) {
   const [local, setLocal] = useState(transcript.segments);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -97,6 +102,8 @@ export function HistoryDetail({ id, transcript, onBack, onRegenerate }: DetailPr
       </div>
       <p className="lz-hint" style={{ marginBottom: 14 }}>
         {fmtDate(id)} · {transcript.language} · {local.length}件
+        {/* Task 10 — origin badge, defensive: absent for dumps predating the field. */}
+        {transcript.origin && <> · {ORIGIN_LABEL_JA[transcript.origin]}</>}
       </p>
       <div className="lz-scroll" data-lz-scroll style={{ marginBottom: 16 }}>
         {local.map((seg, i) => (
@@ -133,8 +140,10 @@ export function HistoryDetail({ id, transcript, onBack, onRegenerate }: DetailPr
             // already shown above, so the 文字起こし choice is hidden here; the
             // narrowing guard stays as a defensive no-op.
             showTranscript={false}
-            onPick={(choice) => {
-              if (choice !== 'transcript') onRegenerate(choice);
+            connectorConnected={connectorConnected}
+            onOpenConnector={onOpenConnector}
+            onPick={(choice, target) => {
+              if (choice !== 'transcript') onRegenerate(choice, target);
             }}
             onDiscard={onBack}
           />
@@ -148,11 +157,13 @@ export function HistoryDetail({ id, transcript, onBack, onRegenerate }: DetailPr
 interface Props {
   id: string;
   onBack: () => void;
-  onRegenerate: (family: NoteFamily) => void;
+  onRegenerate: (family: NoteFamily, target: GenerationTarget) => void;
+  connectorConnected: boolean;
+  onOpenConnector: () => void;
 }
 
 /** Container: fetches the dump transcript, then renders HistoryDetail. */
-export function History({ id, onBack, onRegenerate }: Props) {
+export function History({ id, onBack, onRegenerate, connectorConnected, onOpenConnector }: Props) {
   const [transcript, setTranscript] = useState<DumpTranscript | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -182,5 +193,15 @@ export function History({ id, onBack, onRegenerate }: Props) {
       </section>
     );
   }
-  return <HistoryDetail key={id} id={id} transcript={transcript} onBack={onBack} onRegenerate={onRegenerate} />;
+  return (
+    <HistoryDetail
+      key={id}
+      id={id}
+      transcript={transcript}
+      onBack={onBack}
+      onRegenerate={onRegenerate}
+      connectorConnected={connectorConnected}
+      onOpenConnector={onOpenConnector}
+    />
+  );
 }

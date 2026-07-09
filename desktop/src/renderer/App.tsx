@@ -5,14 +5,16 @@ import { NoteView } from './routes/NoteView';
 import { ErrorView } from './routes/ErrorView';
 import { SetupView } from './routes/SetupView';
 import { SignInView } from './routes/SignInView';
-import { FamilyPickerStep } from './components/FamilyPickerStep';
+import { FamilyPickerStep, type GenerationTarget } from './components/FamilyPickerStep';
 import { FirstRunAudioNotice } from './components/FirstRunAudioNotice';
 import { TranscriptView } from './routes/TranscriptView';
 import { TermsView } from './routes/TermsView';
-import type { ProgressState } from './components/NoteRenderProgress';
+import { ConnectorView } from './routes/ConnectorView';
+import { formatElapsed, type ProgressState } from './components/NoteRenderProgress';
 import type { Note, TranscriptSegment } from '@shared/types';
 import type { FinalizeProgressPayload } from '@shared/ipc-protocol';
 import type { NoteBase, NoteFamily } from '@shared/note-schema';
+import { toFriendlyJa } from './i18n/error-message-map';
 
 // Record-then-transcribe: empty/too-short detection is by elapsed time (no live segments). The real empty/silent case is caught server-side by EMPTY_RECORDING.
 export const MIN_RECORDING_SEC = 1;
@@ -40,7 +42,7 @@ export function shouldShowAudioNotice(audioNoticeAck: boolean, viewKind: View['k
   return !audioNoticeAck && viewKind === 'recording';
 }
 
-type View =
+export type View =
   | { kind: 'booting' }
   | { kind: 'setup' }
   | { kind: 'recording' }
@@ -49,6 +51,11 @@ type View =
   | { kind: 'transcript'; segments: TranscriptSegment[]; language: string; durationSec?: number; dumpId?: string }
   | { kind: 'note'; note: Note | NoteBase; dumpId?: string }
   | { kind: 'terms' }
+  // B1 (H3): the connector is reachable from Recording's footer, the family
+  // picker's upsell, History's picker, and the error chip's 設定を開く —
+  // `returnTo` captures the origin view at open so 戻る restores it
+  // (connectorReturnView) instead of hardcoding recording.
+  | { kind: 'connector'; returnTo?: View }
   | { kind: 'error'; message: string; permanent?: boolean; origin?: ErrorOrigin };
 
 /**
@@ -136,6 +143,22 @@ function AuthenticatedApp() {
   const [audioNoticeAck, setAudioNoticeAck] = useState(
     () => localStorage.getItem('lisna.audioNoticeAck') === '1',
   );
+  // LLM connector (Task 9) — surfaced to both family pickers (live +
+  // History regen) so they can offer the Claude segmented control / upsell
+  // banner. Fetched once on mount; re-fetched inline at the ConnectorView
+  // onBack site below (the only place the connection state can change) —
+  // the cheap correct trigger per the Task 8 carry-over ruling.
+  const [connectorConnected, setConnectorConnected] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    // L1 — .catch: an IPC/keychain hiccup must not become an unhandled
+    // rejection. connectorConnected simply stays at its default (false).
+    window.lisna.connectorStatus().then((s) => {
+      if (active) setConnectorConnected(s.connected);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, []);
 
   // Session error (sidecar crash). Idempotent merge:
   //   - First push: transition to 'error' view.
@@ -242,7 +265,7 @@ function AuthenticatedApp() {
         {renderView(view, setView, backgroundJob, setBackgroundJob, audioNoticeAck, () => {
           localStorage.setItem('lisna.audioNoticeAck', '1');
           setAudioNoticeAck(true);
-        })}
+        }, connectorConnected, setConnectorConnected)}
       </div>
       {/* Scroll-gated top-fade overlay (theme.css .lz-topfade). Sibling AFTER
           .lz-content so `.lz-content[data-scrolled] ~ .lz-topfade` matches; this
@@ -264,7 +287,35 @@ function AuthenticatedApp() {
           }
           setBackgroundJob(null);
         }}
-        onDismiss={() => setBackgroundJob(null)}
+        onDismiss={() => {
+          // B2 (M17): a NO_KEY failure left the LIVE session pending (the C-1
+          // carve-out throws BEFORE the capture is freed). A plain dismiss
+          // would strand it — every session/start rejects SESSION_ACTIVE until
+          // app restart. Route back to the picker instead, where the user
+          // still chooses: on-device note / transcript / 破棄 (no silent
+          // session discard).
+          if (dismissRoutesToFamilyPicking(backgroundJob)) {
+            setView({ kind: 'familyPicking' });
+          }
+          setBackgroundJob(null);
+        }}
+        onRetryOndevice={() => {
+          // Task 10 — cloud-error → on-device fallback (spec §6, explicit offer
+          // only). Re-runs the SAME family the failed job carried in `retry`,
+          // via whichever entry point it came from (live vs. History regen).
+          if (!backgroundJob || backgroundJob.kind !== 'note' || !backgroundJob.retry) return;
+          const { family, fromDumpId } = backgroundJob.retry;
+          setBackgroundJob({
+            kind: 'note',
+            status: 'running',
+            progress: { phase: 'loading', startedAt: Date.now() },
+            target: 'ondevice',
+            retry: backgroundJob.retry,
+          });
+          if (fromDumpId) void runFinalizeFromDump(fromDumpId, family, 'ondevice', setBackgroundJob);
+          else void runFinalize(family, 'ondevice', setBackgroundJob);
+        }}
+        onOpenConnectorSettings={() => setView((prev) => ({ kind: 'connector', returnTo: prev }))}
       />
     </div>
   );
@@ -277,6 +328,8 @@ function renderView(
   setBackgroundJob: SetBackgroundJob,
   audioNoticeAck: boolean,
   onAckAudioNotice: () => void,
+  connectorConnected: boolean,
+  setConnectorConnected: (connected: boolean) => void,
 ) {
   // Task 9 (ponytail: renderer guard, not a main-side queue): only one
   // generation at a time. The single backgroundJob can't track two, and a 2nd
@@ -325,6 +378,7 @@ function renderView(
           }
           onOpenHistory={(id) => setView({ kind: 'history', id })}
           onOpenTerms={() => setView({ kind: 'terms' })}
+          onOpenConnector={() => setView((prev) => ({ kind: 'connector', returnTo: prev }))}
           quickTranscriptBusy={genBusy}
           onQuickTranscript={(startSec, endSec) => {
             if (genBusy) return; // one generation at a time (also disabled in the button)
@@ -337,19 +391,43 @@ function renderView(
       );
     case 'terms':
       return <TermsView onBack={() => setView({ kind: 'recording' })} />;
+    case 'connector':
+      return (
+        <ConnectorView
+          onBack={() => {
+            // B1 (H3): return to WHERE THE USER CAME FROM. Hardcoding the
+            // recording view orphaned a stopped session waiting in
+            // familyPicking (its finalize choices vanished from the screen).
+            setView(connectorReturnView(view.returnTo));
+            // Re-fetch on return — the only place connection state can
+            // change (connect/disconnect both happen inside ConnectorView).
+            // L1 — .catch: an IPC/keychain hiccup must not become an
+            // unhandled rejection.
+            void window.lisna.connectorStatus().then((s) => setConnectorConnected(s.connected)).catch(() => {});
+          }}
+        />
+      );
     case 'history':
       return (
         <History
           id={view.id}
           onBack={() => setView({ kind: 'recording' })}
-          onRegenerate={(family) => {
+          connectorConnected={connectorConnected}
+          onOpenConnector={() => setView((prev) => ({ kind: 'connector', returnTo: prev }))}
+          onRegenerate={(family, target) => {
             if (genBusy) return; // Task 9: a generation is already running (chip shows it)
             // Background generation (Task 7): start the job, return to recording,
             // and let the chip carry progress/completion. The regen runs even
             // while a new recording captures (the lane is independent).
-            setBackgroundJob({ kind: 'note', status: 'running', progress: { phase: 'loading', startedAt: Date.now() } });
+            setBackgroundJob({
+              kind: 'note',
+              status: 'running',
+              progress: { phase: 'loading', startedAt: Date.now() },
+              target,
+              retry: { family, fromDumpId: view.id },
+            });
             setView({ kind: 'recording' });
-            void runFinalizeFromDump(view.id, family, setBackgroundJob);
+            void runFinalizeFromDump(view.id, family, target, setBackgroundJob);
           }}
         />
       );
@@ -366,6 +444,8 @@ function renderView(
             const v = localStorage.getItem('lisna.language');
             return v === 'en' || v === 'ko' ? v : 'ja';
           })()}
+          connectorConnected={connectorConnected}
+          onOpenConnector={() => setView((prev) => ({ kind: 'connector', returnTo: prev }))}
           onDiscard={() => {
             // Drop the session in main (clears SESSION_ACTIVE) and return to
             // Recording. Fire-and-forget: the handler is idempotent and the
@@ -373,7 +453,7 @@ function renderView(
             void window.lisna.discardSession();
             setView({ kind: 'recording' });
           }}
-          onPick={(choice) => {
+          onPick={(choice, target) => {
             // Task 7: picking starts a BACKGROUND generation and returns the
             // foreground to `recording` — the chip carries progress/completion,
             // so the user can immediately start a NEW recording (scenario 2).
@@ -383,9 +463,15 @@ function renderView(
               void runTranscribe(setBackgroundJob);
               return;
             }
-            setBackgroundJob({ kind: 'note', status: 'running', progress: { phase: 'loading', startedAt: Date.now() } });
+            setBackgroundJob({
+              kind: 'note',
+              status: 'running',
+              progress: { phase: 'loading', startedAt: Date.now() },
+              target,
+              retry: { family: choice },
+            });
             setView({ kind: 'recording' });
-            void runFinalize(choice, setBackgroundJob);
+            void runFinalize(choice, target, setBackgroundJob);
           }}
         />
       );
@@ -445,6 +531,44 @@ export function retryViewFor(error: { origin?: ErrorOrigin }): View {
 }
 
 /**
+ * B1 (H3) — where the ConnectorView's 戻る returns. Restores the origin view
+ * captured at open (Recording footer / family-picker upsell / History / error
+ * chip's 設定を開く) so e.g. a stopped session waiting in familyPicking gets
+ * its finalize choices back instead of an idle recording screen. Degenerate
+ * origins — none captured (legacy), the connector itself, or booting — fall
+ * back to recording. Pure (exported for tests).
+ */
+export function connectorReturnView(returnTo: View | undefined): View {
+  if (!returnTo || returnTo.kind === 'connector' || returnTo.kind === 'booting') {
+    return { kind: 'recording' };
+  }
+  return returnTo;
+}
+
+/**
+ * B2 (M17) — must dismissing (✕) this error chip ROUTE the user back to the
+ * family picker instead of just clearing the chip? True exactly when the
+ * failed job is still backed by a LIVE pending session. The only reachable
+ * such failure is CONNECTOR_NO_KEY: the key guard throws BEFORE
+ * snapshotAndFreeCapture (the C-1 carve-out that keeps `current` alive so the
+ * chip's live on-device retry works), so the capture lane stays claimed —
+ * after a plain dismiss every session/start would reject SESSION_ACTIVE until
+ * app restart. Every other failure (post-STT cloud, on-device, transcript)
+ * already freed the capture at pick, so a plain dismiss is safe. A NO_KEY
+ * failure WITH retry.fromDumpId is a History regen — no live session behind
+ * it — so it is excluded. Routing (not discarding) preserves user choice: the
+ * picker still offers on-device note / transcript / 破棄. Substring match on
+ * `message` follows resolveCloudErrorActions' wrapped-error convention. Pure
+ * (exported for tests).
+ */
+export function dismissRoutesToFamilyPicking(job: BackgroundJob | null): boolean {
+  if (!job || job.kind !== 'note' || job.status !== 'error') return false;
+  if (job.target !== 'claude') return false;
+  if (job.retry?.fromDumpId) return false;
+  return (job.message ?? '').includes('CONNECTOR_NO_KEY');
+}
+
+/**
  * Fold one main-pushed finalize-progress event into a ProgressState. Pure
  * (exported for tests; reused by applyBackgroundProgress). Every transition is
  * driven by a REAL orchestrator telemetry event — no simulated progress.
@@ -499,6 +623,13 @@ export function applyFinalizeProgress(
       // Remaining work before the IPC promise resolves: result-dump write +
       // FSM settle — ms, rendered as the persist phase.
       return { phase: 'persist', startedAt };
+    // Cloud (Claude connector) single-shot generation — Task 6. No chunk/attempt
+    // granularity: cloud-start = request in flight; cloud-retry = a malformed
+    // response was re-requested (carry `attempt` for the 再試行 hint).
+    case 'cloud-start':
+      return { phase: 'cloud', startedAt };
+    case 'cloud-retry':
+      return { phase: 'cloud', attempt: msg.attempt, startedAt };
   }
 }
 
@@ -513,6 +644,11 @@ export interface BackgroundJob {
   kind: 'note' | 'transcript';
   status: 'running' | 'done' | 'error';
   progress: ProgressState | null;
+  /** Which pipeline is generating the note (Task 9). Present when
+   *  kind==='note' — set at job creation and carried through unchanged by
+   *  applyBackgroundProgress's spread. Undefined for 'transcript' jobs
+   *  (no LLM, so no target axis). */
+  target?: GenerationTarget;
   /** present when kind==='note' && status==='done' (the chip's "open" target). */
   note?: Note | NoteBase;
   /** source dump dir id for a note job (title.json key for NoteView editing).
@@ -522,6 +658,14 @@ export interface BackgroundJob {
   transcript?: { segments: TranscriptSegment[]; language: string; durationSec?: number; dumpId?: string };
   /** present when status==='error'. */
   message?: string;
+  /** Task 10 — inputs needed to re-run this note job on the SAME family when
+   *  it errors (cloud-error → on-device fallback, spec §6 "explicit offer,
+   *  never silent"). Present only for kind==='note' jobs, set at job creation
+   *  and carried through unchanged (like `target`). `fromDumpId` set ⇒ the
+   *  job came from History regenerate (retry via finalizeFromDump); absent ⇒
+   *  the live family-picker path (retry via finalize). Undefined for
+   *  'transcript' jobs (nothing to re-run on a different target). */
+  retry?: { family: NoteFamily; fromDumpId?: string };
 }
 
 type SetBackgroundJob = (next: BackgroundJob | null | ((p: BackgroundJob | null) => BackgroundJob | null)) => void;
@@ -549,13 +693,27 @@ export function applyBackgroundProgress(
  * NOT the full-screen ErrorView). The functional updates no-op if the job was
  * dismissed/replaced mid-flight.
  */
-async function runFinalize(family: NoteFamily, setBackgroundJob: SetBackgroundJob): Promise<void> {
+async function runFinalize(family: NoteFamily, target: GenerationTarget, setBackgroundJob: SetBackgroundJob): Promise<void> {
   try {
-    const result = await window.lisna.finalize({ family });
+    const result = await window.lisna.finalize({ family, target });
     setBackgroundJob((prev) => (prev ? { ...prev, status: 'done', note: result.note, dumpId: result.dumpId } : prev));
   } catch (err) {
     const message = String((err as Error)?.message ?? err);
-    setBackgroundJob((prev) => (prev ? { ...prev, status: 'error', message } : prev));
+    // C-1: a live-cloud failure froze the capture lane but wrote the transcript
+    // to a dump. Main appends `:dump=<id>` — lift it into retry.fromDumpId so the
+    // on-device retry (onRetryOndevice) routes through finalize-from-dump instead
+    // of the (now-null) live session. Null for on-device errors → retry unchanged.
+    const fromDumpId = extractDumpIdFromError(message);
+    setBackgroundJob((prev) =>
+      prev
+        ? {
+            ...prev,
+            status: 'error',
+            message,
+            retry: fromDumpId && prev.retry ? { ...prev.retry, fromDumpId } : prev.retry,
+          }
+        : prev,
+    );
   }
 }
 
@@ -594,9 +752,9 @@ async function runTranscribeSpan(startSec: number, endSec: number, setBackground
 }
 
 /** From-dump twin of runFinalize (History regenerate) into the BackgroundJob. */
-async function runFinalizeFromDump(id: string, family: NoteFamily, setBackgroundJob: SetBackgroundJob): Promise<void> {
+async function runFinalizeFromDump(id: string, family: NoteFamily, target: GenerationTarget, setBackgroundJob: SetBackgroundJob): Promise<void> {
   try {
-    const result = await window.lisna.finalizeFromDump({ id, family });
+    const result = await window.lisna.finalizeFromDump({ id, family, target });
     setBackgroundJob((prev) => (prev ? { ...prev, status: 'done', note: result.note, dumpId: result.dumpId } : prev));
   } catch (err) {
     const message = String((err as Error)?.message ?? err);
@@ -604,12 +762,78 @@ async function runFinalizeFromDump(id: string, family: NoteFamily, setBackground
   }
 }
 
-/** Compact running-progress hint for the chip (no fabricated progress). */
-function backgroundProgressHint(p: ProgressState | null): string {
+/**
+ * Compact running-progress hint for the chip (no fabricated progress). The
+ * cloud (Claude connector) path is a single-shot LLM call with no
+ * chunk/attempt granularity to show — Task 10 shows elapsed time there
+ * instead, so the running chip doesn't look frozen for the ~10-60s request.
+ * `now` is passed in (not read via Date.now() here) so this stays pure and
+ * directly unit-testable; the live tick comes from GenerationChip's effect.
+ */
+export function backgroundProgressHint(p: ProgressState | null, now: number): string {
   if (!p) return '';
   if (p.phase === 'transcribing' && p.pct != null) return `${p.pct}%`;
   if (p.phase === 'chunk' && p.totalChunks) return `${(p.chunkIndex ?? 0) + 1}/${p.totalChunks}`;
+  if (p.phase === 'cloud' && p.startedAt !== undefined) return formatElapsed((now - p.startedAt) / 1000);
   return '';
+}
+
+/**
+ * C-1 — pull the failed cloud attempt's dump dir id out of an error message.
+ * The main-side cloud LIVE failure path appends `:dump=<id>` (structured-suffix
+ * convention, cf. `CHUNK_FAILED:<i>` in orchestrator.ts) because that attempt
+ * already froze the capture lane — so the on-device retry must route through
+ * session/finalize-from-dump against the surviving transcript.json, not the
+ * (now-null) live session. Returns the id or null when absent (on-device
+ * errors, wrapped strings without the suffix, LISNA_DISABLE_SESSION_DUMP dev
+ * env). Pure + exported for unit tests. Dump ids carry no `:` (ISO stamp with
+ * `:`→`-`), so the anchored `[^:]+$` match is unambiguous.
+ */
+export function extractDumpIdFromError(message: string | undefined): string | null {
+  const m = (message ?? '').match(/:dump=([^:]+)$/);
+  return m ? m[1]! : null;
+}
+
+/**
+ * Task 10 (spec §6 "explicit offer, never silent fallback") — which recovery
+ * actions the error chip offers for a failed note job. Only a CLOUD (target
+ * 'claude') failure gets the on-device fallback offer; on-device failures and
+ * transcript jobs are unchanged (History remains the existing recovery path
+ * for those). The two connector-setup codes additionally offer a shortcut
+ * straight into the connector settings — re-typing the same broken/missing
+ * key would just fail again. Pure (exported for tests); matches
+ * `message` against `toFriendlyJa`'s substring-match convention so a wrapped
+ * error string (`'Error: CONNECTOR_NO_KEY at ...'`) still resolves.
+ *
+ * C-1 honest gate: 'retry-ondevice' is offered ONLY when an on-device retry
+ * route actually exists, so the chip never promises a fallback that dead-ends
+ * in NO_ACTIVE_SESSION. A route exists when:
+ *   - `fromDumpId` is present — either a History regen, or a live-cloud failure
+ *     whose transcript was captured to a dump (main appended `:dump=<id>`,
+ *     extracted into the job's retry) → runFinalizeFromDump works; OR
+ *   - the failure is CONNECTOR_NO_KEY — the key guard fires BEFORE STT, so the
+ *     live capture lane is still intact → runFinalize('ondevice') works.
+ * Otherwise (a post-STT cloud failure with no dump — only reachable via
+ * LISNA_DISABLE_SESSION_DUMP=1 / a dump-create disk failure) the capture is
+ * freed and no dump exists, so the on-device retry is suppressed. The
+ * connector-settings shortcut is unaffected — a broken/missing key is fixed
+ * there regardless of the on-device route.
+ */
+export type ChipErrorAction = 'retry-ondevice' | 'open-settings';
+
+export function resolveCloudErrorActions(
+  target: GenerationTarget | undefined,
+  message: string | undefined,
+  fromDumpId?: string,
+): ChipErrorAction[] {
+  if (target !== 'claude') return [];
+  const raw = message ?? '';
+  const needsSettings = raw.includes('CONNECTOR_NO_KEY') || raw.includes('CONNECTOR_AUTH_INVALID');
+  const hasOndeviceRoute = !!fromDumpId || raw.includes('CONNECTOR_NO_KEY');
+  const actions: ChipErrorAction[] = [];
+  if (hasOndeviceRoute) actions.push('retry-ondevice');
+  if (needsSettings) actions.push('open-settings');
+  return actions;
 }
 
 /**
@@ -617,15 +841,50 @@ function backgroundProgressHint(p: ProgressState | null): string {
  * including on the recording screen — so a background generation is visible
  * without taking over the UI. Done → "開く" (opens the result; History regen
  * would re-run the LLM, so this is the cheap path to the just-made note).
- * Error → non-blocking dismiss (recover via History list when idle).
+ * Error → non-blocking dismiss (recover via History list when idle); a cloud
+ * (Claude) failure additionally shows the friendly error text and an explicit
+ * on-device fallback offer (Task 10, spec §6 — never silent-fallback).
+ *
+ * Exported for structural tests (renderToStaticMarkup — no DOM env in this
+ * package's vitest config); the button click wiring itself is verified in the
+ * live app, same convention as HistoryList/NoteView/History.
  */
-function GenerationChip({ job, onOpen, onDismiss }: { job: BackgroundJob | null; onOpen: () => void; onDismiss: () => void }) {
+export function GenerationChip({
+  job,
+  onOpen,
+  onDismiss,
+  onRetryOndevice,
+  onOpenConnectorSettings,
+}: {
+  job: BackgroundJob | null;
+  onOpen: () => void;
+  onDismiss: () => void;
+  /** Task 10 — re-runs the same failed note job with target 'ondevice'. */
+  onRetryOndevice: () => void;
+  /** Task 10 — routes to the connector settings view (CONNECTOR_NO_KEY / AUTH_INVALID). */
+  onOpenConnectorSettings: () => void;
+}) {
+  // Hooks stay above the null early-return (React hook-order rule), mirroring
+  // NoteRenderProgress's ticking pattern. The cloud phase is a single-shot LLM
+  // call with few discrete progress events, so without a tick the elapsed hint
+  // would look frozen between cloud-start and the (possibly late) cloud-retry.
+  const [now, setNow] = useState(() => Date.now());
+  const ticking = job?.status === 'running' && job.progress?.phase === 'cloud';
+  useEffect(() => {
+    if (!ticking) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [ticking]);
+
   if (!job) return null;
-  const label = job.kind === 'note' ? 'ノート' : '文字起こし';
+  // Task 9: a note job generated via the Claude connector gets a distinct
+  // label (spec section 4 step 3's "cloud indicator") so the running/done/error
+  // states read differently from the on-device pipeline.
+  const label = job.kind === 'note' ? (job.target === 'claude' ? 'Claudeノート' : 'ノート') : '文字起こし';
   const pos: CSSProperties = { position: 'fixed', right: 18, bottom: 18 };
   const x: CSSProperties = { background: 'transparent', border: 0, padding: '2px 4px', color: 'var(--lz-text-3)', fontSize: 14 };
   if (job.status === 'running') {
-    const hint = backgroundProgressHint(job.progress);
+    const hint = backgroundProgressHint(job.progress, now);
     return (
       <div className="lz-chip" style={pos} data-testid="gen-chip-running">
         <span className="lz-chip-dot"></span>
@@ -644,10 +903,24 @@ function GenerationChip({ job, onOpen, onDismiss }: { job: BackgroundJob | null;
       </div>
     );
   }
+  // status === 'error'
+  const actions = job.kind === 'note' ? resolveCloudErrorActions(job.target, job.message, job.retry?.fromDumpId) : [];
+  const isCloudNote = job.kind === 'note' && job.target === 'claude';
   return (
     <div className="lz-chip" style={pos} data-testid="gen-chip-error">
       <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--lz-accent)' }}></span>
       <span style={{ fontWeight: 500 }}>{`${label}生成失敗`}</span>
+      {isCloudNote && job.message && <span className="lz-muted">{toFriendlyJa(job.message)}</span>}
+      {actions.includes('retry-ondevice') && (
+        <button onClick={onRetryOndevice} style={{ padding: '4px 10px', fontSize: 12 }} data-testid="gen-chip-retry-ondevice">
+          オンデバイスで再生成
+        </button>
+      )}
+      {actions.includes('open-settings') && (
+        <button onClick={onOpenConnectorSettings} style={{ padding: '4px 10px', fontSize: 12 }} data-testid="gen-chip-open-settings">
+          設定を開く
+        </button>
+      )}
       <button onClick={onDismiss} aria-label="閉じる" style={x}>✕</button>
     </div>
   );
