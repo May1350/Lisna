@@ -8,7 +8,7 @@ import {
 } from '../error-message-map';
 
 describe('error-message-map (JA)', () => {
-  it('covers all 34 known codes (Step 5 §3.2 + §5.1 + fabrication guard + history dumps + STT stall + Ko-STT + model downloader + LLM Connector Phase 0)', () => {
+  it('covers all 36 known codes (Step 5 §3.2 + §5.1 + fabrication guard + history dumps + STT stall + Ko-STT + model downloader + LLM Connector Phase 0 + FIX-A H1/H2/M13)', () => {
     // Coverage contract: every code we throw from anywhere in main/ has a
     // corresponding JA copy. This list is duplicated in main/ipc.ts and
     // main/sidecar/timeouts.ts as bare string throws — if a new code is
@@ -54,6 +54,10 @@ describe('error-message-map (JA)', () => {
       'CONNECTOR_TIMEOUT',
       'CONNECTOR_BAD_RESPONSE',
       'CONNECTOR_TRANSCRIPT_TOO_LONG',
+      // FIX-A (audit 2026-07-09 H1/H2/M13) — server-busy classification +
+      // truncation-aware retry
+      'CONNECTOR_SERVER_BUSY',
+      'CONNECTOR_OUTPUT_TRUNCATED',
     ];
     expect(ALL_ERROR_CODES).toEqual(expect.arrayContaining(expectedCodes));
     expect(ALL_ERROR_CODES).toHaveLength(expectedCodes.length);

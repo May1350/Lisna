@@ -64,6 +64,10 @@ export const ALL_ERROR_CODES = [
   'CONNECTOR_TIMEOUT',
   'CONNECTOR_BAD_RESPONSE',
   'CONNECTOR_TRANSCRIPT_TOO_LONG',
+  // FIX-A (audit 2026-07-09 H1/H2/M13) — server-busy classification +
+  // truncation-aware retry
+  'CONNECTOR_SERVER_BUSY',
+  'CONNECTOR_OUTPUT_TRUNCATED',
 ] as const;
 
 export type ErrorCode = (typeof ALL_ERROR_CODES)[number];
@@ -148,6 +152,10 @@ export const ERROR_MESSAGE_MAP_JA: Record<ErrorCode, string> = {
     'ノートの生成結果を読み取れませんでした。もう一度お試しいただくか、オンデバイス生成をご利用ください。',
   CONNECTOR_TRANSCRIPT_TOO_LONG:
     '文字起こしが長すぎるため、クラウド生成できません。オンデバイス生成をご利用ください。',
+  CONNECTOR_SERVER_BUSY:
+    'Anthropicのサーバーが混み合っています。しばらくしてからもう一度お試しください。',
+  CONNECTOR_OUTPUT_TRUNCATED:
+    'ノートが長すぎて生成しきれませんでした。オンデバイス生成をご利用いただくか、録音を分けてお試しください。',
 };
 
 /**

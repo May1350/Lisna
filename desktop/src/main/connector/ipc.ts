@@ -2,6 +2,7 @@
 import { ipcMain } from 'electron';
 import Anthropic from '@anthropic-ai/sdk';
 import { storeApiKey, loadApiKey, clearApiKey } from './claude-auth';
+import { classifyCloudError } from './claude-errors';
 
 export const CONNECTOR_CHANNELS = {
   status: 'connector/status',
@@ -11,13 +12,24 @@ export const CONNECTOR_CHANNELS = {
 
 export interface ConnectorStatus { connected: boolean }
 
-async function defaultValidateKey(key: string): Promise<void> {
+/**
+ * A3 (M11+M12) — delegates to the SAME `classifyCloudError` the cloud note
+ * path uses instead of a local 2-branch guess. Previously a rate-limited or
+ * 5xx moment during connect fell into the catch-all "invalid key" branch,
+ * misinforming a user whose key was actually fine. `listModels` is the test
+ * seam (mirrors claude-notes.ts's `createClient` DI pattern); production
+ * omits it and hits the real SDK call with an explicit 15s timeout so a
+ * connect attempt can't hang indefinitely on a slow network.
+ */
+export async function defaultValidateKey(
+  key: string,
+  listModels: (key: string) => Promise<unknown> = (k) =>
+    new Anthropic({ apiKey: k }).models.list({ limit: 1 }, { timeout: 15_000 }),
+): Promise<void> {
   try {
-    await new Anthropic({ apiKey: key }).models.list({ limit: 1 });
+    await listModels(key);
   } catch (err) {
-    if (err instanceof Anthropic.AuthenticationError) throw new Error('CONNECTOR_AUTH_INVALID');
-    if (err instanceof Anthropic.APIConnectionError) throw new Error('CONNECTOR_OFFLINE');
-    throw new Error('CONNECTOR_AUTH_INVALID');
+    classifyCloudError(err);
   }
 }
 

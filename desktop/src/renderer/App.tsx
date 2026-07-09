@@ -148,9 +148,11 @@ function AuthenticatedApp() {
 
   useEffect(() => {
     let active = true;
+    // L1 — .catch: an IPC/keychain hiccup must not become an unhandled
+    // rejection. connectorConnected simply stays at its default (false).
     window.lisna.connectorStatus().then((s) => {
       if (active) setConnectorConnected(s.connected);
-    });
+    }).catch(() => {});
     return () => { active = false; };
   }, []);
 
@@ -381,7 +383,9 @@ function renderView(
             setView({ kind: 'recording' });
             // Re-fetch on return — the only place connection state can
             // change (connect/disconnect both happen inside ConnectorView).
-            void window.lisna.connectorStatus().then((s) => setConnectorConnected(s.connected));
+            // L1 — .catch: an IPC/keychain hiccup must not become an
+            // unhandled rejection.
+            void window.lisna.connectorStatus().then((s) => setConnectorConnected(s.connected)).catch(() => {});
           }}
         />
       );

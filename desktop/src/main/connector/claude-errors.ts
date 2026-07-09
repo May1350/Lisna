@@ -11,6 +11,7 @@
  * note content in logs or error messages — counts/ratios only.
  */
 import Anthropic from '@anthropic-ai/sdk';
+import { ZodError } from 'zod';
 import { runPostDecodePipeline } from '@shared/post-decode/pipeline';
 import type { FamilyCoreDefinition } from '@shared/families';
 import type { NoteBase, NoteLanguage } from '@shared/note-schema/base';
@@ -19,9 +20,12 @@ import { findLanguageMismatch } from '../sidecar/grammar-call';
 
 /** Minimal shape of an Anthropic Messages response this module needs —
  * decoupled from the full SDK `Message` type so tests can mock without
- * constructing every field (id, model, role, usage, stop_reason, ...). */
+ * constructing every field (id, model, role, usage, ...). `stop_reason`
+ * (H1/H2) drives claude-notes.ts's truncation-aware retry — 'max_tokens'
+ * means the JSON was cut mid-stream, not merely malformed. */
 export interface CloudMessageResponse {
   content: Array<{ type: string; text?: string }>;
+  stop_reason: string | null;
 }
 
 /**
@@ -40,8 +44,35 @@ export function classifyCloudError(err: unknown): never {
   }
   if (err instanceof Anthropic.APIConnectionTimeoutError) throw new Error('CONNECTOR_TIMEOUT');
   if (err instanceof Anthropic.APIConnectionError) throw new Error('CONNECTOR_OFFLINE');
+  // M13 — 500 and 529 (Overloaded) share ONE SDK class in the installed
+  // @anthropic-ai/sdk 0.91: `core/error.js`'s `APIError.generate()` maps any
+  // `status >= 500` to `InternalServerError` — there is no separate
+  // "Overloaded" class to check. MUST come before the generic APIError
+  // fallback below (InternalServerError extends APIError).
+  if (err instanceof Anthropic.InternalServerError) throw new Error('CONNECTOR_SERVER_BUSY');
   if (err instanceof Anthropic.APIError) throw new Error('CONNECTOR_BAD_RESPONSE');
   throw err;
+}
+
+/**
+ * H1 — classify a `parseAndValidate` failure into a SANITIZED taxonomy
+ * string for the `CONNECTOR_BAD_RESPONSE:<reason>` suffix (mirrors the
+ * `CHUNK_FAILED:<i>:<reason>` diagnostic convention already used on-device).
+ * NEVER returns the raw error message — a JSON.parse SyntaxError can echo
+ * payload characters. Zod issue paths are schema FIELD NAMES (e.g.
+ * "decisions"), not user content, so they're safe to surface. Truncation is
+ * NOT a member of this taxonomy: claude-notes.ts's attempt loop checks
+ * `response.stop_reason === 'max_tokens'` BEFORE calling this classifier and
+ * throws the dedicated `CONNECTOR_OUTPUT_TRUNCATED` code instead, so this
+ * function only ever runs for a non-truncated failure.
+ */
+export function classifyValidationFailure(err: unknown): string {
+  if (err instanceof ZodError) {
+    const path = err.issues[0]?.path.join('.');
+    return `schema:${path || 'unknown'}`;
+  }
+  if (err instanceof Error && /ja grounding guard/i.test(err.message)) return 'lang-mismatch';
+  return 'parse';
 }
 
 function stripJsonFences(text: string): string {

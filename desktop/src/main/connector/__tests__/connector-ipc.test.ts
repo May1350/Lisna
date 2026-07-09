@@ -11,7 +11,8 @@ vi.mock('../claude-auth', () => ({
   clearApiKey: vi.fn(async () => { store.key = null; }),
 }));
 
-import { registerConnectorIpc, CONNECTOR_CHANNELS } from '../ipc';
+import Anthropic from '@anthropic-ai/sdk';
+import { registerConnectorIpc, CONNECTOR_CHANNELS, defaultValidateKey } from '../ipc';
 
 const invoke = (ch: string, ...args: unknown[]) => handlers.get(ch)!({}, ...args);
 
@@ -47,5 +48,46 @@ describe('connector IPC', () => {
     store.key = 'sk-ant-z';
     await expect(invoke(CONNECTOR_CHANNELS.disconnect)).resolves.toEqual({ connected: false });
     expect(store.key).toBeNull();
+  });
+});
+
+// A3 (M11+M12) — defaultValidateKey no longer runs its own 2-branch
+// classification; it delegates to the SAME classifyCloudError used by the
+// cloud note path, so a transient moment during connect (429/5xx) surfaces
+// as RATE_LIMITED/SERVER_BUSY/OFFLINE — not a blanket "invalid key". The
+// `listModels` second param is the test seam (mirrors claude-notes.ts's
+// `createClient` DI pattern) — production omits it and hits the real
+// `models.list({ limit: 1 }, { timeout: 15_000 })` call.
+describe('defaultValidateKey (A3 — reuses classifyCloudError)', () => {
+  it('valid-key-but-429 rejects with CONNECTOR_RATE_LIMITED, not "invalid key"', async () => {
+    const err = new Anthropic.RateLimitError(429, { message: 'rate limited' }, undefined, new Headers());
+    await expect(
+      defaultValidateKey('sk-ant-x', async () => { throw err; }),
+    ).rejects.toThrow('CONNECTOR_RATE_LIMITED');
+  });
+
+  it('a 5xx during connect rejects with CONNECTOR_SERVER_BUSY, not "invalid key"', async () => {
+    const err = new Anthropic.InternalServerError(503, { message: 'unavailable' }, undefined, new Headers());
+    await expect(
+      defaultValidateKey('sk-ant-x', async () => { throw err; }),
+    ).rejects.toThrow('CONNECTOR_SERVER_BUSY');
+  });
+
+  it('a real 401 rejects with CONNECTOR_AUTH_INVALID', async () => {
+    const err = new Anthropic.AuthenticationError(401, { message: 'invalid x-api-key' }, undefined, new Headers());
+    await expect(
+      defaultValidateKey('sk-ant-x', async () => { throw err; }),
+    ).rejects.toThrow('CONNECTOR_AUTH_INVALID');
+  });
+
+  it('a connection error rejects with CONNECTOR_OFFLINE', async () => {
+    const err = new Anthropic.APIConnectionError({ message: 'network down' });
+    await expect(
+      defaultValidateKey('sk-ant-x', async () => { throw err; }),
+    ).rejects.toThrow('CONNECTOR_OFFLINE');
+  });
+
+  it('a successful list call resolves without throwing', async () => {
+    await expect(defaultValidateKey('sk-ant-x', async () => undefined)).resolves.toBeUndefined();
   });
 });

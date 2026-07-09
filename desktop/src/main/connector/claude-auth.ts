@@ -14,8 +14,18 @@ export async function storeApiKey(key: string): Promise<void> {
   await keytar.setPassword(SERVICE, ANTHROPIC_KEY_ACCOUNT, trimmed);
 }
 
+/**
+ * A4 (M18) — a keychain read failure resolves `null` (the same "absent"
+ * signal every caller already handles) instead of rejecting. Without this, a
+ * transient keytar/Keychain error makes `connectorStatus()` throw and a
+ * genuinely connected user gets stuck reading as "not connected".
+ */
 export async function loadApiKey(): Promise<string | null> {
-  return keytar.getPassword(SERVICE, ANTHROPIC_KEY_ACCOUNT);
+  try {
+    return await keytar.getPassword(SERVICE, ANTHROPIC_KEY_ACCOUNT);
+  } catch {
+    return null;
+  }
 }
 
 export async function clearApiKey(): Promise<void> {

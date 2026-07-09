@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import Anthropic from '@anthropic-ai/sdk';
 import type { SessionTranscript } from '@shared/note-schema/transcript';
 import { CLOUD_PROMPT_VERSION } from '@shared/families/util/cloud-prompt';
-import { generateCloudNote, CLOUD_MODEL, type CloudMessages } from '../claude-notes';
+import { generateCloudNote, CLOUD_MODEL, type CloudMessages, type CloudMessageResponse } from '../claude-notes';
 
 const TRANSCRIPT: SessionTranscript = {
   sessionId: 'sess-1',
@@ -32,21 +32,26 @@ function validMeetingRawJson(): string {
   });
 }
 
-function textResponse(text: string): Awaited<ReturnType<CloudMessages['messages']['create']>> {
-  return { content: [{ type: 'text', text }] };
+// FIX-A (H1/H2/M14): production calls `messages.stream(...).finalMessage()`,
+// not `messages.create(...)` — mock adapted to match. `stop_reason` defaults
+// to 'end_turn' so pre-existing tests are unaffected by truncation handling.
+function textResponse(text: string, stopReason: string | null = 'end_turn'): CloudMessageResponse {
+  return { content: [{ type: 'text', text }], stop_reason: stopReason };
 }
 
 function makeClient(
-  responses: ReadonlyArray<Awaited<ReturnType<CloudMessages['messages']['create']>> | Error>,
-): { client: CloudMessages; create: ReturnType<typeof vi.fn> } {
+  responses: ReadonlyArray<CloudMessageResponse | Error>,
+): { client: CloudMessages; stream: ReturnType<typeof vi.fn> } {
   let call = 0;
-  const create = vi.fn(async () => {
-    const r = responses[call++];
-    if (r === undefined) throw new Error('makeClient: not enough queued responses');
-    if (r instanceof Error) throw r;
-    return r;
-  });
-  return { client: { messages: { create } }, create };
+  const stream = vi.fn(() => ({
+    finalMessage: async () => {
+      const r = responses[call++];
+      if (r === undefined) throw new Error('makeClient: not enough queued responses');
+      if (r instanceof Error) throw r;
+      return r;
+    },
+  }));
+  return { client: { messages: { stream } }, stream };
 }
 
 const BASE_ARGS = {
@@ -58,7 +63,7 @@ const BASE_ARGS = {
 
 describe('generateCloudNote', () => {
   it('(a) valid meeting-note JSON resolves with origin=claude, correct model, attempts=1', async () => {
-    const { client, create } = makeClient([textResponse(validMeetingRawJson())]);
+    const { client, stream } = makeClient([textResponse(validMeetingRawJson())]);
     const result = await generateCloudNote(BASE_ARGS, {
       loadApiKey: async () => 'sk-ant-fake-key',
       createClient: () => client,
@@ -68,7 +73,7 @@ describe('generateCloudNote', () => {
     expect(result.note.generatedBy.promptVersion).toBe(CLOUD_PROMPT_VERSION);
     expect(result.telemetry.attempts).toBe(1);
     expect(result.telemetry.model).toBe(CLOUD_MODEL);
-    expect(create).toHaveBeenCalledTimes(1);
+    expect(stream).toHaveBeenCalledTimes(1);
   });
 
   it('(b) garbage then valid resolves, attempts=2, onEvent sees cloud-retry', async () => {
@@ -94,20 +99,15 @@ describe('generateCloudNote', () => {
   });
 
   it('(d) Anthropic.AuthenticationError rejects with CONNECTOR_AUTH_INVALID (no retry)', async () => {
-    const authError = new Anthropic.AuthenticationError(
-      401,
-      { message: 'invalid x-api-key' },
-      undefined,
-      new Headers(),
-    );
-    const { client, create } = makeClient([authError]);
+    const authError = new Anthropic.AuthenticationError(401, { message: 'invalid x-api-key' }, undefined, new Headers());
+    const { client, stream } = makeClient([authError]);
     await expect(
       generateCloudNote(BASE_ARGS, {
         loadApiKey: async () => 'sk-ant-fake-key',
         createClient: () => client,
       }),
     ).rejects.toThrow('CONNECTOR_AUTH_INVALID');
-    expect(create).toHaveBeenCalledTimes(1);
+    expect(stream).toHaveBeenCalledTimes(1);
   });
 
   it('(e) no key rejects with CONNECTOR_NO_KEY without constructing a client', async () => {
@@ -148,9 +148,8 @@ describe('generateCloudNote', () => {
     expect(createClient).not.toHaveBeenCalled();
   });
 
-  // Beyond the required (a)-(g) list: the remaining branches of the SDK error
-  // classification table (flow contract step 5) are cheap to cover and are
-  // otherwise entirely untested surface.
+  // Beyond (a)-(g): the remaining SDK error classification branches (flow
+  // contract step 5) are cheap to cover and otherwise untested.
   it('classifies Anthropic.RateLimitError as CONNECTOR_RATE_LIMITED', async () => {
     const err = new Anthropic.RateLimitError(429, { message: 'rate limited' }, undefined, new Headers());
     const { client } = makeClient([err]);

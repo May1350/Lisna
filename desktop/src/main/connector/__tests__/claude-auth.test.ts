@@ -38,4 +38,12 @@ describe('claude-auth', () => {
     await expect(storeApiKey('  ')).rejects.toThrow('CONNECTOR_NO_KEY');
     expect(setPassword).not.toHaveBeenCalled();
   });
+
+  // A4 (M18) — a keychain read failure must resolve null (the same "absent"
+  // signal callers already handle), not reject. Without this, connectorStatus()
+  // throws and a connected user gets stuck reading as "not connected".
+  it('resolves null (not reject) when keytar.getPassword throws', async () => {
+    getPassword.mockRejectedValueOnce(new Error('keychain locked'));
+    await expect(loadApiKey()).resolves.toBeNull();
+  });
 });
