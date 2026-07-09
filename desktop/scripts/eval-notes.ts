@@ -13,7 +13,7 @@ import type { PipelineRunner } from '../eval/runners/pipeline-stub';
 interface CliArgs {
   family: NoteFamily;
   fixtureFilter?: string;
-  runnerId: 'stub' | 'offline-3b' | 'offline-1b';
+  runnerId: 'stub' | 'offline-3b' | 'offline-1b' | 'offline-qwen3' | 'offline-gemma3';
   saveAs?: string;
   against?: string;
   judgeModelId?: string;
@@ -42,6 +42,8 @@ export function __testOnly_parseArgs(argv: string[]): CliArgs {
 const OFFLINE_MODEL_ID: Record<string, string> = {
   'offline-3b': 'llama-3.2-3b-q4-km',
   'offline-1b': 'llama-3.2-1b-q4-km',
+  'offline-qwen3': 'qwen3-4b-q4-km',
+  'offline-gemma3': 'gemma3-4b-q4-km',
 };
 
 export async function __testOnly_resolveRunner(

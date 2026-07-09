@@ -43,6 +43,16 @@ export async function runSingleFixture(opts: {
   const t0 = Date.now();
   const pipelineResult = await opts.runner.run({ meta, transcript });
   const runMs = Date.now() - t0;
+  // Qualitative-read dump: set LISNA_EVAL_DUMP_DIR to write each note to disk.
+  if (process.env.LISNA_EVAL_DUMP_DIR) {
+    const { writeFileSync, mkdirSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    mkdirSync(process.env.LISNA_EVAL_DUMP_DIR, { recursive: true });
+    writeFileSync(
+      join(process.env.LISNA_EVAL_DUMP_DIR, `${meta.fixtureId}.note.json`),
+      JSON.stringify(pipelineResult.note, null, 2),
+    );
+  }
   // Inject meta for the Lecture slots-emerge rule
   const noteWithMeta = { ...pipelineResult.note, _meta: { expectedSlots: meta.expectedSlots } };
 
