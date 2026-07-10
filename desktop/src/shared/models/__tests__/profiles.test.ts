@@ -43,3 +43,13 @@ describe('modelProfiles', () => {
     }
   });
 });
+
+describe('Qwen3-2507 eval profile', () => {
+  it('is registered with the 2507 filename (not the base hybrid file)', () => {
+    const p = modelProfiles['qwen3-4b-2507-q4-km'];
+    expect(p).toBeDefined();
+    expect(p!.filename).toBe('Qwen3-4B-Instruct-2507-Q4_K_M.gguf');
+    expect(p!.chatTemplate).toBe('auto');
+    expect(p!.contextWindow).toBe(16384);
+  });
+});

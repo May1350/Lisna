@@ -179,6 +179,26 @@ export const modelProfiles: Record<string, ModelProfile> = {
       brainstorm: { recommendedChunkTokens: 3000, maxGenTokens: 3500, temperature: 0.5, tier: 'default' },
     },
   },
+  // STEP-2 promotion candidate (2026-07-10): Qwen's dedicated non-thinking
+  // Instruct-2507 (Apache-2.0). Same Qwen3 arch as base → no C++ rebuild.
+  // Eval-only until it passes the Phase-1 gate (spec 2026-07-10-qwen3-2507).
+  'qwen3-4b-2507-q4-km': {
+    id: 'qwen3-4b-2507-q4-km',
+    displayName: 'Qwen3 4B Instruct 2507 (Q4_K_M)',
+    filename: 'Qwen3-4B-Instruct-2507-Q4_K_M.gguf',
+    chatTemplate: 'auto',
+    contextWindow: 16384,
+    grammarDialect: 'llama-cpp',
+    warmupRequired: true,
+    ramBudgetMB: 3300,
+    sampling: ALIGNED_SAMPLING,
+    perFamily: {
+      lecture:    { recommendedChunkTokens: 3000, maxGenTokens: 3000, temperature: 0.4, tier: 'default' },
+      meeting:    { recommendedChunkTokens: 3000, maxGenTokens: 3000, temperature: 0.4, tier: 'default' },
+      interview:  { recommendedChunkTokens: 3000, maxGenTokens: 3500, temperature: 0.4, tier: 'default' },
+      brainstorm: { recommendedChunkTokens: 3000, maxGenTokens: 3500, temperature: 0.5, tier: 'default' },
+    },
+  },
 };
 
 /** Throws on unknown id — caller's bug, not a runtime fallback case. */
