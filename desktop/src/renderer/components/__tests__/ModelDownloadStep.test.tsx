@@ -15,8 +15,8 @@ describe('ModelDownloadStep', () => {
     expect(html).toContain('はじめる');
     expect(html).not.toContain('use-picker');
     // Size disclosure computed from DEFAULT_MODELS catalog (574_041_195 +
-    // 2_019_377_696 bytes ≈ 2.6 GB) — NOT a stale literal.
-    expect(html).toContain('約2.6GB');
+    // 2_497_281_120 bytes ≈ 3.1 GB) — NOT a stale literal.
+    expect(html).toContain('約3.1GB');
   });
 
   it('does not render the error strip or progress lines on idle', () => {

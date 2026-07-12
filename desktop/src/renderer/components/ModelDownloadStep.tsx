@@ -19,7 +19,7 @@ type DownloadPhase =
   | { kind: 'error'; code: string };
 
 /** Total download size, computed from the catalog (single source of truth) —
- *  NOT a hardcoded literal. 574_041_195 + 2_019_377_696 bytes ≈ 2.6 GB. */
+ *  NOT a hardcoded literal. STT + Qwen3-2507 LLM bytes ≈ 3.1 GB. */
 const TOTAL_GB = ((DEFAULT_MODELS.stt.sizeBytes + DEFAULT_MODELS.llm.sizeBytes) / 1e9).toFixed(1);
 
 function progressLabel(progress: ModelDownloadProgressPayload | undefined): string | null {
