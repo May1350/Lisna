@@ -141,47 +141,9 @@ export const modelProfiles: Record<string, ModelProfile> = {
       brainstorm: { recommendedChunkTokens: 7000, maxGenTokens: 3500, temperature: 0.5, tier: 'fallback' },
     },
   },
-  // STEP-2 eval candidates (2026-07-09). Dev/eval-only — not in models.json,
-  // no production path. chatTemplate:'auto' → sidecar applies the GGUF's
-  // embedded template (no C++ rebuild). Promote to production only if they
-  // beat the 3B ceiling on the eval. n_ctx 16384 = 8GB cap.
-  'qwen3-4b-q4-km': {
-    id: 'qwen3-4b-q4-km',
-    displayName: 'Qwen3 4B (Q4_K_M)',
-    filename: 'Qwen3-4B-Instruct-Q4_K_M.gguf',
-    chatTemplate: 'auto',
-    contextWindow: 16384,
-    grammarDialect: 'llama-cpp',
-    warmupRequired: true,
-    ramBudgetMB: 3300,
-    sampling: ALIGNED_SAMPLING,
-    perFamily: {
-      lecture:    { recommendedChunkTokens: 3000, maxGenTokens: 3000, temperature: 0.4, tier: 'default' },
-      meeting:    { recommendedChunkTokens: 3000, maxGenTokens: 3000, temperature: 0.4, tier: 'default' },
-      interview:  { recommendedChunkTokens: 3000, maxGenTokens: 3500, temperature: 0.4, tier: 'default' },
-      brainstorm: { recommendedChunkTokens: 3000, maxGenTokens: 3500, temperature: 0.5, tier: 'default' },
-    },
-  },
-  'gemma3-4b-q4-km': {
-    id: 'gemma3-4b-q4-km',
-    displayName: 'Gemma 3 4B it (Q4_K_M)',
-    filename: 'gemma-3-4b-it-Q4_K_M.gguf',
-    chatTemplate: 'auto',
-    contextWindow: 16384,
-    grammarDialect: 'llama-cpp',
-    warmupRequired: true,
-    ramBudgetMB: 3400,
-    sampling: ALIGNED_SAMPLING,
-    perFamily: {
-      lecture:    { recommendedChunkTokens: 3000, maxGenTokens: 3000, temperature: 0.4, tier: 'default' },
-      meeting:    { recommendedChunkTokens: 3000, maxGenTokens: 3000, temperature: 0.4, tier: 'default' },
-      interview:  { recommendedChunkTokens: 3000, maxGenTokens: 3500, temperature: 0.4, tier: 'default' },
-      brainstorm: { recommendedChunkTokens: 3000, maxGenTokens: 3500, temperature: 0.5, tier: 'default' },
-    },
-  },
-  // STEP-2 promotion candidate (2026-07-10): Qwen's dedicated non-thinking
-  // Instruct-2507 (Apache-2.0). Same Qwen3 arch as base → no C++ rebuild.
-  // Eval-only until it passes the Phase-1 gate (spec 2026-07-10-qwen3-2507).
+  // Production note-generation model (2026-07). Beat the Llama-3.2-3B
+  // reorganization ceiling on the STEP-2 eval. chatTemplate:'auto' → sidecar
+  // applies the GGUF embedded template (no C++ rebuild). n_ctx 16384 = 8GB cap.
   'qwen3-4b-2507-q4-km': {
     id: 'qwen3-4b-2507-q4-km',
     displayName: 'Qwen3 4B Instruct 2507 (Q4_K_M)',

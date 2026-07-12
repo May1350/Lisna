@@ -52,4 +52,11 @@ describe('Qwen3-2507 eval profile', () => {
     expect(p!.chatTemplate).toBe('auto');
     expect(p!.contextWindow).toBe(16384);
   });
+
+  it('the losing eval profiles (base Qwen3, Gemma3) are removed', () => {
+    expect(modelProfiles['qwen3-4b-q4-km']).toBeUndefined();
+    expect(modelProfiles['gemma3-4b-q4-km']).toBeUndefined();
+    // 3B + 1B stay (previous default + low-RAM fallback).
+    expect(modelProfiles['llama-3.2-3b-q4-km']).toBeDefined();
+  });
 });
