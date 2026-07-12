@@ -37,15 +37,18 @@ export const DEFAULT_STT_MODEL: ModelDescriptor = {
   },
 };
 
-/** Default note-generation LLM. Unchanged from alpha; listed here so the
- *  catalog is the complete picture of Lisna's two on-device models. */
+/** Default note-generation LLM. Qwen3-4B-Instruct-2507 (Apache-2.0, non-thinking)
+ *  replaced Llama-3.2-3B on 2026-07 — it breaks the 3B "reorganization ceiling",
+ *  synthesizing topics/decisions instead of echoing transcript fragments
+ *  (STEP-2 eval, meeting/q3-allhands-noisy-ja gold). Same Qwen3 arch as the
+ *  sidecar already supports — no C++ rebuild. */
 export const DEFAULT_LLM_MODEL: ModelDescriptor = {
   kind: 'llm',
-  filename: 'Llama-3.2-3B-Instruct-Q4_K_M.gguf',
-  sizeBytes: 2_019_377_696,
-  sha256: '6c1a2b41161032677be168d354123594c0e6e67d2b9227c84f296ad037c728ff',
+  filename: 'Qwen3-4B-Instruct-2507-Q4_K_M.gguf',
+  sizeBytes: 2_497_281_120,
+  sha256: '3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597',
   source: {
-    url: 'https://huggingface.co/hugging-quants/Llama-3.2-3B-Instruct-Q4_K_M-GGUF/resolve/main/llama-3.2-3b-instruct-q4_k_m.gguf',
+    url: 'https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf',
   },
 };
 

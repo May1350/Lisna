@@ -29,6 +29,13 @@ describe('default model catalog', () => {
     expect(DEFAULT_LLM_MODEL.source.url).toMatch(/^https:\/\/huggingface\.co\//);
   });
 
+  it('default LLM is Qwen3-2507, not the retired Llama-3.2-3B', () => {
+    expect(DEFAULT_LLM_MODEL.filename).toBe('Qwen3-4B-Instruct-2507-Q4_K_M.gguf');
+    // Regression guard for the 2026-07 swap: 3B must not creep back in.
+    expect(DEFAULT_LLM_MODEL.filename).not.toMatch(/Llama-3\.2-3B/i);
+    expect(DEFAULT_LLM_MODEL.source.url).toContain('Qwen3-4B-Instruct-2507');
+  });
+
   it('DEFAULT_MODELS keys each slot by kind', () => {
     expect(DEFAULT_MODELS.stt).toBe(DEFAULT_STT_MODEL);
     expect(DEFAULT_MODELS.llm).toBe(DEFAULT_LLM_MODEL);
