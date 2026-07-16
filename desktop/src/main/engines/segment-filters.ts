@@ -18,6 +18,35 @@ export const HALLUCINATION_BLOCKLIST: Readonly<Record<Language, ReadonlySet<stri
   zh: new Set<string>(),
 };
 
+/**
+ * Long, distinctive video-outro phrases whisper hallucinates over quiet/non-speech
+ * audio ("thank you for watching / subscribe"). Unlike HALLUCINATION_BLOCKLIST these
+ * are matched as SUBSTRINGS with NO marker required: whisper emits them at
+ * noSpeechProb ≈ 0 (the prob gate never fires) with varied prefixes (「今回は…」,
+ * 「ということで、…」) that defeat exact-match AND the consecutive-repeat collapse.
+ *
+ * Needle breadth is the whole game — a substring hit DROPS the segment, so an
+ * over-broad needle is silent data loss. Needles are therefore tightened to the
+ * outro-specific form:
+ *   - 「チャンネル登録よろしく / お願い」 (the CTA), NOT bare 「チャンネル登録」 — which is a
+ *     substring of the legit metric 「チャンネル登録者数」 (subscriber count, real
+ *     meeting/marketing speech).
+ *   - 「ご覧いただきありがとう / ご視聴ありがとう」 anchor on the video-thanks head so real
+ *     audience thanks 「お集まりいただき…」/「ご参加いただき…」 survive.
+ * Residual accepted trade-off: a genuine sign-off pleasantry like 「デモをご覧いただき
+ * ありがとうございました」 is also dropped — accepted, as it carries ~no note value and
+ * tightening further re-opens the prefix-evasion this substring match exists to close.
+ *
+ * Needles are lowercase; matched against a lowercased haystack (a no-op for JA).
+ * Reported: founder note 2026-07-16 (JA lecture tail).
+ */
+export const OUTRO_HALLUCINATION_SUBSTRINGS: Readonly<Record<Language, readonly string[]>> = {
+  ja: ['ご覧いただきありがとう', 'ご視聴ありがとう', 'チャンネル登録よろしく', 'チャンネル登録お願い'],
+  en: ['thanks for watching', 'thank you for watching'],
+  ko: [],
+  zh: [],
+};
+
 export const DEFAULT_NO_SPEECH_PROB_THRESHOLD = 0.6;
 
 export interface FilterOptions {
@@ -42,6 +71,15 @@ export function isHallucination(
   // ponytail: matches the observed pure-ん bursts; extend the char class if a
   // 「んー」/「んっ」 variant ever shows up in real data.
   if (/^[んン]+[、。！？…]*$/.test(trimmed)) return true;
+
+  // Layer E.outro: video-outro hallucination (substring, unconditional — see
+  // OUTRO_HALLUCINATION_SUBSTRINGS). Checked before the prob gate because these
+  // arrive at noSpeechProb ≈ 0, so the gate would never catch them.
+  const outroNeedles = OUTRO_HALLUCINATION_SUBSTRINGS[opts.language] ?? [];
+  if (outroNeedles.length > 0) {
+    const haystack = trimmed.toLowerCase();
+    if (outroNeedles.some((needle) => haystack.includes(needle))) return true;
+  }
 
   // Layer F.front: probability filter (lang-agnostic, only when prob is available)
   if (segment.noSpeechProb !== undefined) {

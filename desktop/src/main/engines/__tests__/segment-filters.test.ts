@@ -365,3 +365,72 @@ describe('degenerate 「ん」 burst drop', () => {
     expect(out[0]!.text).toBe('重要な論点があります');
   });
 });
+
+describe('Layer E.outro — YouTube-outro hallucination (founder note 2026-07-16)', () => {
+  // Real leaked note: a ~12-min JA recording whose quiet tail whisper filled with
+  // the canonical JA video outro, at varied prefixes and noSpeechProb ≈ 0. Evades
+  // every existing layer: the prob gate (prob ≈ 0), the marker-gated blocklist (the
+  // phrase 「ご覧いただきありがとうございます」 isn't listed, and prefixes break the
+  // exact-match), AND the consecutive-repeat collapse (prefixes make each line
+  // distinct). mm:ss note timestamps → seconds.
+  const outroSegs: TranscriptSegment[] = [
+    { text: 'これを第2回はご覧いただきありがとうございます。', startSec: 679, endSec: 681, noSpeechProb: 1e-8 },
+    { text: '今回はご覧いただきありがとうございます。', startSec: 681, endSec: 683, noSpeechProb: 1e-8 },
+    { text: 'ご覧いただきありがとうございます。', startSec: 684, endSec: 686, noSpeechProb: 1e-8 },
+    { text: '今回はご覧いただきありがとうございます。', startSec: 686, endSec: 688, noSpeechProb: 1e-8 },
+    { text: 'ご覧いただきありがとうございます。', startSec: 688, endSec: 690, noSpeechProb: 1e-8 },
+    { text: 'ご覧いただきありがとうございます。', startSec: 690, endSec: 692, noSpeechProb: 1e-8 },
+    { text: 'ということで、ご覧いただきありがとうございます。', startSec: 728, endSec: 730, noSpeechProb: 1e-8 },
+    { text: 'ご覧いただきありがとうございます。', startSec: 729, endSec: 731, noSpeechProb: 1e-8 },
+    { text: 'ご覧いただきありがとうございます。', startSec: 730, endSec: 732, noSpeechProb: 1e-8 },
+  ];
+
+  it('every variant (bare, noun-prefixed, connective-prefixed) is a hallucination', () => {
+    for (const s of outroSegs) {
+      expect(isHallucination(s, ja)).toBe(true);
+    }
+  });
+
+  it('filterSegments drops the whole outro tail, keeps the real closing line', () => {
+    const segs: TranscriptSegment[] = [
+      { text: '本日の講義はここまでです', startSec: 670, endSec: 673, noSpeechProb: 0.05 },
+      ...outroSegs,
+    ];
+    const out = filterSegments(segs, ja);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.text).toBe('本日の講義はここまでです');
+  });
+
+  it('catches the ご視聴 / チャンネル登録 sibling outros regardless of surrounding text', () => {
+    expect(isHallucination(seg({ text: 'ご視聴ありがとうございました', noSpeechProb: 1e-8 }), ja)).toBe(true);
+    expect(isHallucination(seg({ text: 'チャンネル登録よろしくお願いします', noSpeechProb: 1e-8 }), ja)).toBe(true);
+    expect(isHallucination(seg({ text: 'この動画が良かったらチャンネル登録お願いします', noSpeechProb: 1e-8 }), ja)).toBe(true);
+  });
+
+  it('does NOT over-match the legit metric 「チャンネル登録者数」 (review 2026-07-16)', () => {
+    // Bare needle 「チャンネル登録」 would drop this real meeting/marketing line, so the
+    // needle is tightened to the CTA form 「…よろしく / …お願い」. This asserts the
+    // metric noun survives.
+    expect(
+      isHallucination(
+        seg({ text: '先月からチャンネル登録者数が2倍に増えました', noSpeechProb: 0.05, startSec: 5, endSec: 9 }),
+        ja,
+      ),
+    ).toBe(false);
+  });
+
+  it('does NOT over-match legitimate audience thanks (「お集まりいただきありがとう」)', () => {
+    // Real meeting/lecture opener. Contains 「いただきありがとうございます」 but NOT
+    // 「ご覧いただき」 — the needle is anchored on ご覧 precisely to avoid this FP.
+    expect(
+      isHallucination(
+        seg({ text: '本日はお集まりいただきありがとうございます', noSpeechProb: 0.05, startSec: 5, endSec: 8 }),
+        ja,
+      ),
+    ).toBe(false);
+  });
+
+  it('EN outro phrase caught case-insensitively', () => {
+    expect(isHallucination(seg({ text: 'Thanks for watching!', noSpeechProb: 1e-8 }), en)).toBe(true);
+  });
+});
