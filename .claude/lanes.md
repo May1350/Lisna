@@ -215,5 +215,6 @@ Format per line — fields separated by `|`:
 .claude/worktrees/per-chunk-2pass|desktop/ docs/|per-chunk-2pass
 .claude/worktrees/2pass-sampler|desktop/ docs/|2pass-sampler
 .claude/worktrees/sampler-alignment|desktop/src/shared/ desktop/sidecar/ desktop/__tests__/ desktop/eval/ desktop/scripts/|sampler-alignment
+.claude/worktrees/stt-vad|desktop/ docs/|stt-vad
 seams: package.json pnpm-lock.yaml pnpm-workspace.yaml .github/workflows/ CLAUDE.md docs/PRD.md .claude/rules/ .claude/lanes.md .gitignore .gitattributes README.md tsconfig
 <!-- END PARSEABLE -->
