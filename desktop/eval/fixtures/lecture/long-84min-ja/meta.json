@@ -1,0 +1,18 @@
+{
+  "fixtureId": "long-84min-ja",
+  "family": "lecture",
+  "language": "ja",
+  "durationSec": 5060,
+  "bucketSeconds": 10,
+  "scenarioTags": [
+    "bookkeeping",
+    "procedural",
+    "accounting"
+  ],
+  "expectedSlots": [
+    "procedure_steps",
+    "formula"
+  ],
+  "sourceUrl": "https://www.youtube.com/watch?v=JGXIB-dJCMM",
+  "notes": "~84min JA lecture (bookkeeping 44m + physics-EM ~40m offset). rung-1 >=80min/>=6-chunk scale test."
+}

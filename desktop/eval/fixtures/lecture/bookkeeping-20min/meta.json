@@ -1,0 +1,18 @@
+{
+  "fixtureId": "bookkeeping-20min",
+  "family": "lecture",
+  "language": "ja",
+  "durationSec": 1200,
+  "bucketSeconds": 10,
+  "scenarioTags": [
+    "bookkeeping",
+    "procedural",
+    "accounting"
+  ],
+  "expectedSlots": [
+    "procedure_steps",
+    "formula"
+  ],
+  "sourceUrl": "https://www.youtube.com/watch?v=JGXIB-dJCMM",
+  "notes": "First ~20min of yt-jgxib-bookkeeping (real JA accounting lecture). Scale test: does the working sampler survive a realistic-length multi-chunk input? Exploratory."
+}
